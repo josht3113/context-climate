@@ -17,8 +17,8 @@ const CARDS = [
   {
     tags:        ['ANNUAL', 'HEATMAPS'],
     title:       'Annual Heatmaps',
-    description: 'Year-by-year temperature and precipitation heatmaps revealing long-term trends and anomalies at ISP.',
-    footerTags:  ['Temp', 'Precipitation', 'Anomaly'],
+    description: 'Year-by-year temperature, dewpoint, wind, cloud cover, and anomaly fields revealing long-term trends and anomalies at ISP.',
+    footerTags:  ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomaly'],
     to:          '/climate',
     accentVar:   '--accent-live',
     thumb:       '/annualthumbnail.png',
