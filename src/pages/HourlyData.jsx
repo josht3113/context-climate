@@ -10,7 +10,7 @@ export default function HourlyData() {
         <p className="page-eyebrow">Hourly · Multi-year</p>
         <h1 className="page-title">ISP Hourly Heatmaps</h1>
         <p className="page-subtitle">
-          Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly
+          Month-by-month temperature, dewpoint, wind, cloud cover, and anomaly
           fields across decades of Islip (KISP) data.
         </p>
         <div className="stub-notice">
