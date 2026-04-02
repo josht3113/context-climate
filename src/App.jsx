@@ -1,11 +1,11 @@
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
-import Home     from './pages/Home'
+import Home       from './pages/Home'
 import HourlyData from './pages/HourlyData'
-import Climate  from './pages/Climate'
-import ENSO     from './pages/ENSO'
-import Seasons  from './pages/Seasons'
-import Live     from './pages/Live'
+import Annual     from './pages/Climate'      // file stays Climate.jsx
+import ENSO       from './pages/ENSO'
+import Seasons    from './pages/Seasons'
+import Climo      from './pages/Climo'        // rename Live.jsx → Climo.jsx on GitHub
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -24,10 +24,10 @@ export default function App() {
         <Routes>
           <Route path="/"        element={<Home />}      />
           <Route path="/hourly"  element={<HourlyData />} />
-          <Route path="/climate" element={<Climate />}   />
+          <Route path="/annual"  element={<Annual />}    />
           <Route path="/enso"    element={<ENSO />}      />
           <Route path="/seasons" element={<Seasons />}   />
-          <Route path="/live"    element={<Live />}      />
+          <Route path="/climo"   element={<Climo />}     />
         </Routes>
       </main>
     </HashRouter>
