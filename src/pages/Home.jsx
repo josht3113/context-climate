@@ -7,12 +7,12 @@ import { Link } from 'react-router-dom'
 const CARDS = [
   {
     tags:        ['HOURLY', 'MULTI-YEAR'],
-    title:       'ISP Hourly Heatmaps',
+    title:       'ISP Monthly Heatmaps',
     description: 'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
     footerTags:  ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomaly'],
     to:          '/hourly',
     accentVar:   '--accent-hourly',
-    thumb:       null,
+    thumb:       '/MonthlyThumbnail.png',
   },
   {
     tags:        ['ANNUAL', 'HEATMAPS'],
@@ -21,7 +21,7 @@ const CARDS = [
     footerTags:  ['Temp', 'Precipitation', 'Anomaly'],
     to:          '/climate',
     accentVar:   '--accent-live',
-    thumb:       '/context-climate/annualthumbnail.png',
+    thumb:       '/annualthumbnail.png',
   },
   {
     tags:        ['MONTHLY', 'TOTALS'],
@@ -30,7 +30,7 @@ const CARDS = [
     footerTags:  ['Rain', 'Snow', 'Percentiles'],
     to:          '/climate',
     accentVar:   '--accent-climate',
-    thumb:       '/context-climate/MonthlyThumbnail.png',
+    thumb:       null,
   },
   {
     tags:        ['SEASONAL', 'ENSO'],
