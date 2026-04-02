@@ -6,9 +6,9 @@ import { Link } from 'react-router-dom'
 
 const CARDS = [
   {
-    tags:        ['HOURLY', 'MULTI-YEAR'],
+    tags:        ['MONTHLY', 'MULTI-YEAR'],
     title:       'ISP Monthly Heatmaps',
-    description: 'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
+    description: 'Month-by-month temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
     footerTags:  ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomaly'],
     to:          '/hourly',
     accentVar:   '--accent-hourly',
