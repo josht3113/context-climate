@@ -1,13 +1,15 @@
 import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
+// ── Nav items ─────────────────────────────────────────
+// Add, remove, or rename items here to update the nav.
+
 const NAV_ITEMS = [
   { label: 'Overview',    to: '/'        },
   { label: 'Hourly Data', to: '/hourly'  },
   { label: 'Climate',     to: '/climate' },
   { label: 'ENSO',        to: '/enso'    },
   { label: 'Seasons',     to: '/seasons' },
-  { label: 'Live',        to: '/live'    },
 ]
 
 function BracketMark() {
@@ -32,26 +34,21 @@ export default function Header() {
           <span className={styles.logoText}>ContextClimate</span>
         </NavLink>
 
-        {/* ── Nav + geo badge ── */}
-        <div className={styles.navGroup}>
-          <nav className={styles.nav}>
-            {NAV_ITEMS.map(({ label, to }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === '/'}
-                className={({ isActive }) =>
-                  `${styles.navItem} ${isActive ? styles.navActive : ''}`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-          {/* Geo badge — change text here to update the tagline */}
-          <div className={styles.navDivider} />
-          <span className={styles.geoBadge}>ISP · LI · NYC</span>
-        </div>
+        {/* ── Nav ── */}
+        <nav className={styles.nav}>
+          {NAV_ITEMS.map(({ label, to }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) =>
+                `${styles.navItem} ${isActive ? styles.navActive : ''}`
+              }
+            >
+              {label}
+            </NavLink>
+          ))}
+        </nav>
 
       </div>
     </header>
