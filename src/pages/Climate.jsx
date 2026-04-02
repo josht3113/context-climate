@@ -1,21 +1,21 @@
-// ── Climate page ──────────────────────────────────────
-// Will contain: Precipitation Charts + Climo Charts (LI/NYC)
+// ── Climate page ───────────────────────────────────────────────────────────
+// Embeds the existing ISP Annual Heatmap app via iframe — preserves all
+// features exactly as they appear at:
+// josht3113.github.io/Islip-Yearly-Heat-Map/annual.html
 
 export default function Climate() {
   return (
-    <div className="page-container">
-      <div className="page-hero">
-        <p className="page-eyebrow">Daily · Monthly · Climatology</p>
-        <h1 className="page-title">Climate Charts</h1>
-        <p className="page-subtitle">
-          Daily average temperatures, record highs and lows, and monthly
-          precipitation totals for Long Island and New York City.
-        </p>
-        <div className="stub-notice">
-          <span className="stub-dot" />
-          Charts coming soon
-        </div>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - var(--header-height))' }}>
+      <iframe
+        src="https://josht3113.github.io/Islip-Yearly-Heat-Map/annual.html"
+        title="ISP Annual Heatmap"
+        style={{
+          flex: 1,
+          width: '100%',
+          border: 'none',
+          display: 'block',
+        }}
+      />
     </div>
   )
 }
