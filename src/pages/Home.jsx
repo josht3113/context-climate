@@ -10,7 +10,7 @@ const CARDS = [
     title:       'ISP Monthly Heatmaps',
     description: 'Month-by-month temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
     footerTags:  ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomaly'],
-    to:          '/hourly',
+    to:          '/monthly',
     accentVar:   '--accent-hourly',
     thumb:       '/MonthlyThumbnail.png',
   },
