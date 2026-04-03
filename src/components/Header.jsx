@@ -3,7 +3,7 @@ import styles from './Header.module.css'
 
 const NAV_ITEMS = [
   { label: 'Overview',    to: '/'        },
-  { label: 'Hourly Data', to: '/hourly'  },
+  { label: 'Monthly Data', to: '/monthly'  },
   { label: 'Annual',      to: '/annual'  },
   { label: 'ENSO',        to: '/enso'    },
   { label: 'Seasons',     to: '/seasons' },
