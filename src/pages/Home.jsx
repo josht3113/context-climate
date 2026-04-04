@@ -39,7 +39,7 @@ const CARDS = [
     footerTags:  ['Snowfall', 'Temp', 'Phase Composites'],
     to:          '/enso',
     accentVar:   '--accent-hourly',
-    thumb:       null,
+    thumb:       '/ENSOThumbnail.png',
   },
   {
     tags:        ['ANNUAL', 'TRENDS'],
