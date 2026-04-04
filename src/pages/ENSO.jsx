@@ -174,7 +174,7 @@ export default function ENSO() {
       {/* ── Chart iframe ── */}
       <div style={S.frameWrap}>
         <iframe
-          key={src}   {/* key forces remount on city change so Plotly reinitializes */}
+          key={src}
           src={src}
           style={S.iframe}
           title={`ENSO Charts — ${selected.name}`}
