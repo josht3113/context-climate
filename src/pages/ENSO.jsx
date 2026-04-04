@@ -124,7 +124,7 @@ export default function ENSO() {
 
   return (
     <div style={S.page}>
-      <h1 style={S.heading}>ENSO Phase Weather Charts</h1>
+      <h1 style={S.heading}>ENSO Phase Winter Temperature & Snowfall Charts</h1>
       <p style={S.subheading}>
         Historical winter temperature &amp; snowfall by ENSO phase · Select a city below
       </p>
