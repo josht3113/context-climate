@@ -173,13 +173,12 @@ export default function ENSO() {
 
       {/* ── Chart iframe ── */}
       <div style={S.frameWrap}>
-        <iframe
-          key={src}
-          src={src}
-          style={S.iframe}
-          title={`ENSO Charts — ${selected.name}`}
-          sandbox="allow-scripts allow-same-origin"
-        />
+       <iframe
+  key={src}
+  src={src}
+  style={S.iframe}
+  title={`ENSO Charts — ${selected.name}`}
+/>
       </div>
     </div>
   );
