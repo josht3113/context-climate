@@ -4,6 +4,7 @@ import Home       from './pages/Home'
 import HourlyData from './pages/HourlyData'
 import Annual     from './pages/Climate'      // file stays Climate.jsx
 import ENSO       from './pages/ENSO'
+import Hurricanes from './pages/Hurricanes'
 import Seasons    from './pages/Seasons'
 import Climo      from './pages/Climo'        // rename Live.jsx → Climo.jsx on GitHub
 
@@ -26,6 +27,7 @@ export default function App() {
           <Route path="/monthly"  element={<HourlyData />} />
           <Route path="/annual"  element={<Annual />}    />
           <Route path="/enso"    element={<ENSO />}      />
+          <Route path="/hurricanes" element={<Hurricanes />} />
           <Route path="/seasons" element={<Seasons />}   />
           <Route path="/climo"   element={<Climo />}     />
         </Routes>
