@@ -1,4 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+// ── Mobile breakpoint hook ────────────────────────────────────────────────────
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false
+  );
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < breakpoint);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
 
 // ── City registry ─────────────────────────────────────────────────────────────
 const CITIES = [
@@ -32,7 +45,7 @@ const REGIONS = ["Northeast", "Mid-Atlantic", "Midwest", "West", "Alaska"];
 
 // ── Inline styles ─────────────────────────────────────────────────────────────
 const S = {
-  page: {
+  page: (mobile) => ({
     background: "#0d0d0d",
     minHeight: "100vh",
     color: "#eee",
@@ -40,9 +53,9 @@ const S = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    padding: "28px 16px 48px",
+    padding: mobile ? "20px 8px 48px" : "28px 16px 48px",
     gap: "20px",
-  },
+  }),
   heading: {
     textAlign: "center",
     fontSize: "22px",
@@ -57,16 +70,17 @@ const S = {
     color: "#666",
     margin: 0,
   },
-  panel: {
-    width: "min(960px, 100%)",
+  panel: (mobile) => ({
+    width: mobile ? "100%" : "min(960px, 100%)",
     background: "#161616",
     border: "1px solid #2a2a2a",
     borderRadius: "12px",
-    padding: "18px 20px",
+    padding: mobile ? "14px 12px" : "18px 20px",
     display: "flex",
     flexDirection: "column",
     gap: "14px",
-  },
+    boxSizing: "border-box",
+  }),
   regionBlock: {
     display: "flex",
     flexDirection: "column",
@@ -100,37 +114,39 @@ const S = {
     fontSize: "13px",
     color: "#5B9BD5",
   },
-  frameWrap: {
-    width: "min(960px, 100%)",
-    borderRadius: "12px",
+  frameWrap: (mobile) => ({
+    width: mobile ? "100%" : "min(960px, 100%)",
+    borderRadius: mobile ? "8px" : "12px",
     overflow: "hidden",
     border: "1px solid #2a2a2a",
     background: "#0d0d0d",
-  },
-  iframe: {
+    boxSizing: "border-box",
+  }),
+  iframe: (mobile) => ({
     width: "100%",
-    height: "1160px",
+    height: mobile ? "88vh" : "1160px",
     border: "none",
     display: "block",
     background: "#0d0d0d",
-  },
+  }),
 };
 
 export default function ENSO() {
   const [selected, setSelected] = useState(CITIES[0]);
+  const isMobile = useIsMobile();
 
   // HTML files live in /public, served from the site root
   const src = `/ENSO_Charts_${selected.tab}.html`;
 
   return (
-    <div style={S.page}>
-      <h1 style={S.heading}>ENSO Phase Winter Temperature & Snowfall Charts</h1>
+    <div style={S.page(isMobile)}>
+      <h1 style={S.heading}>ENSO Phase Weather Charts</h1>
       <p style={S.subheading}>
         Historical winter temperature &amp; snowfall by ENSO phase · Select a city below
       </p>
 
       {/* ── City selector ── */}
-      <div style={S.panel}>
+      <div style={S.panel(isMobile)}>
         {REGIONS.map((region) => (
           <div key={region} style={S.regionBlock}>
             <div style={S.regionLabel}>{region}</div>
@@ -172,13 +188,14 @@ export default function ENSO() {
       </div>
 
       {/* ── Chart iframe ── */}
-      <div style={S.frameWrap}>
-       <iframe
-  key={src}
-  src={src}
-  style={S.iframe}
-  title={`ENSO Charts — ${selected.name}`}
-/>
+      <div style={S.frameWrap(isMobile)}>
+        <iframe
+          key={src}
+          src={src}
+          style={S.iframe(isMobile)}
+          title={`ENSO Charts — ${selected.name}`}
+          sandbox="allow-scripts allow-same-origin"
+        />
       </div>
     </div>
   );
