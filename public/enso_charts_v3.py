@@ -1,8 +1,213 @@
-<!DOCTYPE html>
+"""
+ENSO Phase vs Weather Scatter Chart Generator  v3
+==================================================
+Iterates every sheet in the Excel workbook and writes one HTML per city.
+
+Run:
+    python3 enso_charts_v3.py
+
+Output goes to  output/ENSO_Charts_<TAB>.html
+Upload those files to  public/  in the GitHub repo.
+
+New in v3 (19 features)
+-----------------------
+1.  ONI value on hover (if 5th column present in Excel)
+2.  Anomaly mode toggle – y-axis shows departure from full-record mean
+3.  Summary table – collapsible per-phase stats (mean, median, std, trend)
+4.  Box plot overlay toggle
+5.  Per-phase trend annotations (slope per decade above the chart)
+6.  Copy modal – Plotly.toImage at 1600×900; clipboard + download buttons
+7.  No redundant in-canvas title (export-only title injected at image time)
+8.  Rebalanced 3-row controls bar
+9.  Larger, higher-contrast legend
+10. Sliders linked between charts by default, with unlink toggle
+11. Phase isolation linked between charts (when linked)
+12. "Coloring by" indicator next to Decade toggle
+13. Slider labels use season format: 1977–78
+14. Separate Clear Isolation button (independent of full Reset)
+15. Low-n caution flag: n < 5 → amber ⚠ on annotation
+16. ACIS2 attribution enlarged and repositioned
+17. NEUTRAL anchor label added to phase-group row
+18. Season definition footnote below each chart
+19. Decade colors: sequential gradient blue→purple→magenta→red→amber
+"""
+
+import json
+import base64
+import numpy as np
+import pandas as pd
+from pathlib import Path
+
+# ── Config ──────────────────────────────────────────────────────────────────
+EXCEL_FILE      = "ENSO_Phase_vs_Snowfall_scatter_ALL_CITIES.xlsx"
+OUTPUT_DIR      = Path("output")
+LOGO_PATH       = Path("contextclimate_bracket_logo.png")
+JITTER_SEED     = 42
+JITTER_WIDTH    = 0.25
+LOW_N_THRESHOLD = 5
+
+# For tabs where cell A1 is blank, fall back to these display names
+CITY_NAME_FALLBACKS = {
+    "NYC":         "Central Park, NY",
+    "BOS":         "Boston, MA",
+    "BUF":         "Buffalo, NY",
+    "PHL":         "Philadelphia, PA",
+    "BWI":         "Baltimore, MD",
+    "DCA":         "Washington, DC",
+    "PIT":         "Pittsburgh, PA",
+    "CLE":         "Cleveland, OH",
+    "DET":         "Detroit, MI",
+    "CHI":         "Chicago, IL",
+    "MSP":         "Minneapolis, MN",
+    "STL":         "St. Louis, MO",
+    "DEN":         "Denver, CO",
+    "SLC":         "Salt Lake City, UT",
+    "SEA":         "Seattle, WA",
+    "PDX":         "Portland, OR",
+    "SFO":         "San Francisco, CA",
+    "ANC":         "Anchorage, AK",
+    "FAI":         "Fairbanks, AK",
+}
+
+PHASES = [
+    (1, "Strong<br>La Niña",   "Strong La Niña",   "#9B59B6"),
+    (2, "Moderate<br>La Niña", "Moderate La Niña", "#5B9BD5"),
+    (3, "Weak<br>La Niña",     "Weak La Niña",     "#85C1E9"),
+    (4, "Neutral",             "Neutral",           "#27AE60"),
+    (5, "Weak<br>El Niño",     "Weak El Niño",     "#F4D03F"),
+    (6, "Moderate<br>El Niño", "Moderate El Niño", "#E67E22"),
+    (7, "Strong<br>El Niño",   "Strong El Niño",   "#E74C3C"),
+    (8, "Super<br>El Niño",    "Super El Niño",    "#922B21"),
+]
+
+# Sequential gradient: cool blue (oldest) → warm amber (newest)
+# Traverses via indigo → purple → magenta → rose → red → orange-amber
+# Avoids green by going the "warm" way around the color wheel
+DECADE_COLORS = {
+    "1860s": "#3967EF",
+    "1870s": "#3948EF",
+    "1880s": "#4839EF",
+    "1890s": "#6739EF",
+    "1900s": "#8539EF",
+    "1910s": "#A339EF",
+    "1920s": "#C239EF",
+    "1930s": "#E039EF",
+    "1940s": "#EF39E0",
+    "1950s": "#EF39C2",
+    "1960s": "#EF39A3",
+    "1970s": "#EF3985",
+    "1980s": "#EF3967",
+    "1990s": "#EF3948",
+    "2000s": "#EF4839",
+    "2010s": "#EF6739",
+    "2020s": "#EF8539",
+}
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+def encode_logo() -> str | None:
+    if LOGO_PATH.exists():
+        return base64.b64encode(LOGO_PATH.read_bytes()).decode()
+    return None
+
+
+def get_city_name(xl: pd.ExcelFile, tab: str) -> str:
+    try:
+        raw = pd.read_excel(xl, sheet_name=tab, header=None, nrows=1)
+        if raw.shape[0] > 0 and pd.notna(raw.iloc[0, 0]):
+            val = str(raw.iloc[0, 0]).strip()
+            if val:
+                return val
+    except Exception:
+        pass
+    return CITY_NAME_FALLBACKS.get(tab, tab)
+
+
+def load_data(xl: pd.ExcelFile, tab: str) -> pd.DataFrame:
+    df = pd.read_excel(xl, sheet_name=tab, header=2)
+
+    # Rename first 4 required columns; accept optional 5th (ONI)
+    base_cols = ["Season", "Temp", "Snowfall", "ENSO_Code"]
+    if df.shape[1] >= 5:
+        df = df.iloc[:, :5]
+        df.columns = base_cols + ["ONI"]
+    else:
+        df = df.iloc[:, :4]
+        df.columns = base_cols
+        df["ONI"] = None
+
+    # NOAA sentinel values
+    for col in ["Temp", "Snowfall"]:
+        df[col] = df[col].replace({"T": 0.0, "M": float("nan")})
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    if "ONI" in df.columns:
+        df["ONI"] = pd.to_numeric(df["ONI"], errors="coerce")
+
+    df = df.dropna(subset=["ENSO_Code", "Season", "Temp"])
+    df["ENSO_Code"]  = df["ENSO_Code"].astype(int)
+    df["Start_Year"] = df["Season"].astype(str).str[:4].astype(int)
+    df["Decade"]     = df["Start_Year"].apply(lambda y: f"{(y // 10) * 10}s")
+    return df.reset_index(drop=True)
+
+
+def add_jitter(df: pd.DataFrame) -> pd.DataFrame:
+    rng = np.random.default_rng(JITTER_SEED)
+    phase_to_idx = {code: i for i, (code, *_) in enumerate(PHASES)}
+    df = df.copy()
+    df["x_pos"] = df["ENSO_Code"].map(phase_to_idx).astype(float)
+    for code in df["ENSO_Code"].unique():
+        mask = df["ENSO_Code"] == code
+        df.loc[mask, "x_pos"] += rng.uniform(-JITTER_WIDTH, JITTER_WIDTH, mask.sum())
+    return df
+
+
+def build_app_data(df: pd.DataFrame, city_name: str, logo_b64: str | None) -> dict:
+    phase_map = {code: (lbl_br, lbl, color) for code, lbl_br, lbl, color in PHASES}
+
+    points = []
+    for row in df.itertuples():
+        snow = None if pd.isna(row.Snowfall) else round(float(row.Snowfall), 1)
+        oni  = None if (row.ONI is None or pd.isna(row.ONI)) else round(float(row.ONI), 2)
+        points.append({
+            "season":       str(row.Season),
+            "temp":         round(float(row.Temp), 1),
+            "snowfall":     snow,
+            "enso_code":    int(row.ENSO_Code),
+            "start_year":   int(row.Start_Year),
+            "decade":       row.Decade,
+            "x_pos":        round(float(row.x_pos), 4),
+            "phase_color":  phase_map[int(row.ENSO_Code)][2],
+            "decade_color": DECADE_COLORS.get(row.Decade, "#888"),
+            "oni":          oni,
+        })
+
+    phases = [
+        {"code": code, "label_br": lbl_br, "label": lbl,
+         "color": color, "x_center": i}
+        for i, (code, lbl_br, lbl, color) in enumerate(PHASES)
+    ]
+
+    present_decades = sorted({p["decade"] for p in points})
+    decades = [{"label": d, "color": DECADE_COLORS.get(d, "#888")} for d in present_decades]
+
+    return {
+        "points":    points,
+        "phases":    phases,
+        "decades":   decades,
+        "city_name": city_name,
+        "min_year":  int(df["Start_Year"].min()),
+        "max_year":  int(df["Start_Year"].max()),
+        "logo_b64":  logo_b64,
+    }
+
+
+# ── HTML Template ────────────────────────────────────────────────────────────
+HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Minneapolis, MN — ENSO Weather Charts</title>
+<title>__CITY_NAME__ — ENSO Weather Charts</title>
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -471,7 +676,7 @@ body {
 // ═══════════════════════════════════════════════════════════════════════════
 //  DATA  (injected by Python)
 // ═══════════════════════════════════════════════════════════════════════════
-const D = {"points": [{"season": "1938-39", "temp": 16.4, "snowfall": 39.8, "enso_code": 3, "start_year": 1938, "decade": "1930s", "x_pos": 2.137, "phase_color": "#85C1E9", "decade_color": "#E039EF", "oni": null}, {"season": "1939-40", "temp": 17.9, "snowfall": 45.1, "enso_code": 6, "start_year": 1939, "decade": "1930s", "x_pos": 4.7819, "phase_color": "#E67E22", "decade_color": "#E039EF", "oni": null}, {"season": "1940-41", "temp": 18.1, "snowfall": 52.5, "enso_code": 7, "start_year": 1940, "decade": "1940s", "x_pos": 5.7719, "phase_color": "#E74C3C", "decade_color": "#EF39E0", "oni": null}, {"season": "1941-42", "temp": 22.5, "snowfall": 23.9, "enso_code": 6, "start_year": 1941, "decade": "1940s", "x_pos": 5.1638, "phase_color": "#E67E22", "decade_color": "#EF39E0", "oni": null}, {"season": "1942-43", "temp": 13.5, "snowfall": 34.4, "enso_code": 2, "start_year": 1942, "decade": "1940s", "x_pos": 0.9848, "phase_color": "#5B9BD5", "decade_color": "#EF39E0", "oni": null}, {"season": "1943-44", "temp": 23.5, "snowfall": 26.9, "enso_code": 4, "start_year": 1943, "decade": "1940s", "x_pos": 3.1661, "phase_color": "#27AE60", "decade_color": "#EF39E0", "oni": null}, {"season": "1944-45", "temp": 16.6, "snowfall": 33.9, "enso_code": 3, "start_year": 1944, "decade": "1940s", "x_pos": 1.9694, "phase_color": "#85C1E9", "decade_color": "#EF39E0", "oni": null}, {"season": "1945-46", "temp": 15.0, "snowfall": 39.9, "enso_code": 4, "start_year": 1945, "decade": "1940s", "x_pos": 3.1524, "phase_color": "#27AE60", "decade_color": "#EF39E0", "oni": null}, {"season": "1946-47", "temp": 19.0, "snowfall": 25.0, "enso_code": 4, "start_year": 1946, "decade": "1940s", "x_pos": 2.9437, "phase_color": "#27AE60", "decade_color": "#EF39E0", "oni": null}, {"season": "1947-48", "temp": 14.6, "snowfall": 49.1, "enso_code": 4, "start_year": 1947, "decade": "1940s", "x_pos": 2.8942, "phase_color": "#27AE60", "decade_color": "#EF39E0", "oni": null}, {"season": "1948-49", "temp": 15.8, "snowfall": 38.3, "enso_code": 4, "start_year": 1948, "decade": "1940s", "x_pos": 3.0912, "phase_color": "#27AE60", "decade_color": "#EF39E0", "oni": null}, {"season": "1949-50", "temp": 14.5, "snowfall": 51.6, "enso_code": 2, "start_year": 1949, "decade": "1940s", "x_pos": 0.8447, "phase_color": "#5B9BD5", "decade_color": "#EF39E0", "oni": null}, {"season": "1950-51", "temp": 13.1, "snowfall": 88.9, "enso_code": 3, "start_year": 1950, "decade": "1950s", "x_pos": 2.1793, "phase_color": "#85C1E9", "decade_color": "#EF39C2", "oni": null}, {"season": "1951-52", "temp": 17.5, "snowfall": 79.0, "enso_code": 6, "start_year": 1951, "decade": "1950s", "x_pos": 5.0658, "phase_color": "#E67E22", "decade_color": "#EF39C2", "oni": null}, {"season": "1952-53", "temp": 19.3, "snowfall": 42.9, "enso_code": 5, "start_year": 1952, "decade": "1950s", "x_pos": 3.7654, "phase_color": "#F4D03F", "decade_color": "#EF39C2", "oni": null}, {"season": "1953-54", "temp": 21.3, "snowfall": 25.7, "enso_code": 5, "start_year": 1953, "decade": "1950s", "x_pos": 3.9684, "phase_color": "#F4D03F", "decade_color": "#EF39C2", "oni": null}, {"season": "1954-55", "temp": 17.3, "snowfall": 33.9, "enso_code": 3, "start_year": 1954, "decade": "1950s", "x_pos": 2.0987, "phase_color": "#85C1E9", "decade_color": "#EF39C2", "oni": null}, {"season": "1955-56", "temp": 13.3, "snowfall": 45.2, "enso_code": 1, "start_year": 1955, "decade": "1950s", "x_pos": 0.0285, "phase_color": "#9B59B6", "decade_color": "#EF39C2", "oni": null}, {"season": "1956-57", "temp": 18.1, "snowfall": 39.1, "enso_code": 3, "start_year": 1956, "decade": "1950s", "x_pos": 1.7971, "phase_color": "#85C1E9", "decade_color": "#EF39C2", "oni": null}, {"season": "1957-58", "temp": 21.1, "snowfall": 21.2, "enso_code": 7, "start_year": 1957, "decade": "1950s", "x_pos": 5.8271, "phase_color": "#E74C3C", "decade_color": "#EF39C2", "oni": null}, {"season": "1958-59", "temp": 14.5, "snowfall": 19.1, "enso_code": 5, "start_year": 1958, "decade": "1950s", "x_pos": 3.8573, "phase_color": "#F4D03F", "decade_color": "#EF39C2", "oni": null}, {"season": "1959-60", "temp": 21.8, "snowfall": 31.8, "enso_code": 4, "start_year": 1959, "decade": "1950s", "x_pos": 2.8199, "phase_color": "#27AE60", "decade_color": "#EF39C2", "oni": null}, {"season": "1960-61", "temp": 17.1, "snowfall": 40.2, "enso_code": 4, "start_year": 1960, "decade": "1960s", "x_pos": 2.85, "phase_color": "#27AE60", "decade_color": "#EF39A3", "oni": null}, {"season": "1961-62", "temp": 11.3, "snowfall": 81.3, "enso_code": 4, "start_year": 1961, "decade": "1960s", "x_pos": 2.7537, "phase_color": "#27AE60", "decade_color": "#EF39A3", "oni": null}, {"season": "1962-63", "temp": 11.3, "snowfall": 34.5, "enso_code": 4, "start_year": 1962, "decade": "1960s", "x_pos": 3.1435, "phase_color": "#27AE60", "decade_color": "#EF39A3", "oni": null}, {"season": "1963-64", "temp": 18.2, "snowfall": 28.9, "enso_code": 6, "start_year": 1963, "decade": "1960s", "x_pos": 5.129, "phase_color": "#E67E22", "decade_color": "#EF39A3", "oni": null}, {"season": "1964-65", "temp": 12.2, "snowfall": 73.7, "enso_code": 3, "start_year": 1964, "decade": "1960s", "x_pos": 2.2378, "phase_color": "#85C1E9", "decade_color": "#EF39A3", "oni": null}, {"season": "1965-66", "temp": 15.9, "snowfall": 36.1, "enso_code": 7, "start_year": 1965, "decade": "1960s", "x_pos": 6.0915, "phase_color": "#E74C3C", "decade_color": "#EF39A3", "oni": null}, {"season": "1966-67", "temp": 13.8, "snowfall": 78.4, "enso_code": 4, "start_year": 1966, "decade": "1960s", "x_pos": 3.0824, "phase_color": "#27AE60", "decade_color": "#EF39A3", "oni": null}, {"season": "1967-68", "temp": 17.1, "snowfall": 17.5, "enso_code": 4, "start_year": 1967, "decade": "1960s", "x_pos": 3.1026, "phase_color": "#27AE60", "decade_color": "#EF39A3", "oni": null}, {"season": "1968-69", "temp": 15.2, "snowfall": 68.1, "enso_code": 6, "start_year": 1968, "decade": "1960s", "x_pos": 4.9273, "phase_color": "#E67E22", "decade_color": "#EF39A3", "oni": null}, {"season": "1969-70", "temp": 13.7, "snowfall": 63.4, "enso_code": 5, "start_year": 1969, "decade": "1960s", "x_pos": 3.9543, "phase_color": "#F4D03F", "decade_color": "#EF39A3", "oni": null}, {"season": "1970-71", "temp": 13.9, "snowfall": 54.7, "enso_code": 2, "start_year": 1970, "decade": "1970s", "x_pos": 0.815, "phase_color": "#5B9BD5", "decade_color": "#EF3985", "oni": null}, {"season": "1971-72", "temp": 11.4, "snowfall": 64.4, "enso_code": 3, "start_year": 1971, "decade": "1970s", "x_pos": 2.1306, "phase_color": "#85C1E9", "decade_color": "#EF3985", "oni": null}, {"season": "1972-73", "temp": 16.7, "snowfall": 41.7, "enso_code": 8, "start_year": 1972, "decade": "1970s", "x_pos": 6.7614, "phase_color": "#922B21", "decade_color": "#EF3985", "oni": null}, {"season": "1973-74", "temp": 15.1, "snowfall": 51.2, "enso_code": 1, "start_year": 1973, "decade": "1970s", "x_pos": 0.1419, "phase_color": "#9B59B6", "decade_color": "#EF3985", "oni": null}, {"season": "1974-75", "temp": 18.1, "snowfall": 64.2, "enso_code": 3, "start_year": 1974, "decade": "1970s", "x_pos": 2.143, "phase_color": "#85C1E9", "decade_color": "#EF3985", "oni": null}, {"season": "1975-76", "temp": 20.2, "snowfall": 54.5, "enso_code": 2, "start_year": 1975, "decade": "1970s", "x_pos": 0.9879, "phase_color": "#5B9BD5", "decade_color": "#EF3985", "oni": null}, {"season": "1976-77", "temp": 12.2, "snowfall": 43.6, "enso_code": 6, "start_year": 1976, "decade": "1970s", "x_pos": 5.2353, "phase_color": "#E67E22", "decade_color": "#EF3985", "oni": null}, {"season": "1977-78", "temp": 10.5, "snowfall": 50.7, "enso_code": 6, "start_year": 1977, "decade": "1970s", "x_pos": 5.1966, "phase_color": "#E67E22", "decade_color": "#EF3985", "oni": null}, {"season": "1978-79", "temp": 9.4, "snowfall": 68.4, "enso_code": 3, "start_year": 1978, "decade": "1970s", "x_pos": 1.8141, "phase_color": "#85C1E9", "decade_color": "#EF3985", "oni": null}, {"season": "1979-80", "temp": 18.9, "snowfall": 53.3, "enso_code": 5, "start_year": 1979, "decade": "1970s", "x_pos": 4.1767, "phase_color": "#F4D03F", "decade_color": "#EF3985", "oni": null}, {"season": "1980-81", "temp": 20.4, "snowfall": 21.1, "enso_code": 4, "start_year": 1980, "decade": "1980s", "x_pos": 3.1404, "phase_color": "#27AE60", "decade_color": "#EF3967", "oni": null}, {"season": "1981-82", "temp": 11.9, "snowfall": 95.0, "enso_code": 4, "start_year": 1981, "decade": "1980s", "x_pos": 2.9795, "phase_color": "#27AE60", "decade_color": "#EF3967", "oni": null}, {"season": "1982-83", "temp": 24.0, "snowfall": 74.4, "enso_code": 8, "start_year": 1982, "decade": "1980s", "x_pos": 6.795, "phase_color": "#922B21", "decade_color": "#EF3967", "oni": null}, {"season": "1983-84", "temp": 14.3, "snowfall": 98.6, "enso_code": 3, "start_year": 1983, "decade": "1980s", "x_pos": 1.9752, "phase_color": "#85C1E9", "decade_color": "#EF3967", "oni": null}, {"season": "1984-85", "temp": 14.8, "snowfall": 72.7, "enso_code": 2, "start_year": 1984, "decade": "1980s", "x_pos": 0.8635, "phase_color": "#5B9BD5", "decade_color": "#EF3967", "oni": null}, {"season": "1985-86", "temp": 13.6, "snowfall": 69.5, "enso_code": 4, "start_year": 1985, "decade": "1980s", "x_pos": 3.0344, "phase_color": "#27AE60", "decade_color": "#EF3967", "oni": null}, {"season": "1986-87", "temp": 25.8, "snowfall": 17.4, "enso_code": 6, "start_year": 1986, "decade": "1980s", "x_pos": 5.1392, "phase_color": "#E67E22", "decade_color": "#EF3967", "oni": null}, {"season": "1987-88", "temp": 16.4, "snowfall": 42.4, "enso_code": 7, "start_year": 1987, "decade": "1980s", "x_pos": 6.1224, "phase_color": "#E74C3C", "decade_color": "#EF3967", "oni": null}, {"season": "1988-89", "temp": 16.8, "snowfall": 70.1, "enso_code": 1, "start_year": 1988, "decade": "1980s", "x_pos": 0.0822, "phase_color": "#9B59B6", "decade_color": "#EF3967", "oni": null}, {"season": "1989-90", "temp": 20.2, "snowfall": 35.5, "enso_code": 3, "start_year": 1989, "decade": "1980s", "x_pos": 1.9354, "phase_color": "#85C1E9", "decade_color": "#EF3967", "oni": null}, {"season": "1990-91", "temp": 17.9, "snowfall": 43.6, "enso_code": 4, "start_year": 1990, "decade": "1990s", "x_pos": 2.8199, "phase_color": "#27AE60", "decade_color": "#EF3948", "oni": null}, {"season": "1991-92", "temp": 23.7, "snowfall": 84.1, "enso_code": 7, "start_year": 1991, "decade": "1990s", "x_pos": 6.2338, "phase_color": "#E74C3C", "decade_color": "#EF3948", "oni": null}, {"season": "1992-93", "temp": 17.7, "snowfall": 47.4, "enso_code": 4, "start_year": 1992, "decade": "1990s", "x_pos": 2.8073, "phase_color": "#27AE60", "decade_color": "#EF3948", "oni": null}, {"season": "1993-94", "temp": 13.2, "snowfall": 55.7, "enso_code": 4, "start_year": 1993, "decade": "1990s", "x_pos": 3.0842, "phase_color": "#27AE60", "decade_color": "#EF3948", "oni": null}, {"season": "1994-95", "temp": 20.7, "snowfall": 29.6, "enso_code": 6, "start_year": 1994, "decade": "1990s", "x_pos": 4.8473, "phase_color": "#E67E22", "decade_color": "#EF3948", "oni": null}, {"season": "1995-96", "temp": 15.7, "snowfall": 55.5, "enso_code": 3, "start_year": 1995, "decade": "1990s", "x_pos": 2.2134, "phase_color": "#85C1E9", "decade_color": "#EF3948", "oni": null}, {"season": "1996-97", "temp": 14.6, "snowfall": 73.6, "enso_code": 4, "start_year": 1996, "decade": "1990s", "x_pos": 2.9855, "phase_color": "#27AE60", "decade_color": "#EF3948", "oni": null}, {"season": "1997-98", "temp": 25.9, "snowfall": 45.0, "enso_code": 8, "start_year": 1997, "decade": "1990s", "x_pos": 7.1112, "phase_color": "#922B21", "decade_color": "#EF3948", "oni": null}, {"season": "1998-99", "temp": 21.6, "snowfall": 56.5, "enso_code": 2, "start_year": 1998, "decade": "1990s", "x_pos": 1.0849, "phase_color": "#5B9BD5", "decade_color": "#EF3948", "oni": null}, {"season": "1999-00", "temp": 23.1, "snowfall": 36.2, "enso_code": 1, "start_year": 1999, "decade": "1990s", "x_pos": -0.0468, "phase_color": "#9B59B6", "decade_color": "#EF3948", "oni": null}, {"season": "2000-01", "temp": 13.1, "snowfall": 75.8, "enso_code": 3, "start_year": 2000, "decade": "2000s", "x_pos": 2.0719, "phase_color": "#85C1E9", "decade_color": "#EF4839", "oni": null}, {"season": "2001-02", "temp": 26.8, "snowfall": 66.0, "enso_code": 4, "start_year": 2001, "decade": "2000s", "x_pos": 3.0326, "phase_color": "#27AE60", "decade_color": "#EF4839", "oni": null}, {"season": "2002-03", "temp": 19.1, "snowfall": 35.0, "enso_code": 6, "start_year": 2002, "decade": "2000s", "x_pos": 4.9834, "phase_color": "#E67E22", "decade_color": "#EF4839", "oni": null}, {"season": "2003-04", "temp": 19.3, "snowfall": 66.3, "enso_code": 4, "start_year": 2003, "decade": "2000s", "x_pos": 3.1325, "phase_color": "#27AE60", "decade_color": "#EF4839", "oni": null}, {"season": "2004-05", "temp": 21.5, "snowfall": 25.5, "enso_code": 5, "start_year": 2004, "decade": "2000s", "x_pos": 3.867, "phase_color": "#F4D03F", "decade_color": "#EF4839", "oni": null}, {"season": "2005-06", "temp": 22.7, "snowfall": 44.4, "enso_code": 3, "start_year": 2005, "decade": "2000s", "x_pos": 2.1614, "phase_color": "#85C1E9", "decade_color": "#EF4839", "oni": null}, {"season": "2006-07", "temp": 20.7, "snowfall": 35.5, "enso_code": 5, "start_year": 2006, "decade": "2000s", "x_pos": 3.7792, "phase_color": "#F4D03F", "decade_color": "#EF4839", "oni": null}, {"season": "2007-08", "temp": 15.0, "snowfall": 44.9, "enso_code": 1, "start_year": 2007, "decade": "2000s", "x_pos": 0.157, "phase_color": "#9B59B6", "decade_color": "#EF4839", "oni": null}, {"season": "2008-09", "temp": 14.2, "snowfall": 45.0, "enso_code": 3, "start_year": 2008, "decade": "2000s", "x_pos": 1.9717, "phase_color": "#85C1E9", "decade_color": "#EF4839", "oni": null}, {"season": "2009-10", "temp": 16.7, "snowfall": 40.7, "enso_code": 7, "start_year": 2009, "decade": "2000s", "x_pos": 5.9129, "phase_color": "#E74C3C", "decade_color": "#EF4839", "oni": null}, {"season": "2010-11", "temp": 15.7, "snowfall": 86.6, "enso_code": 1, "start_year": 2010, "decade": "2010s", "x_pos": -0.1665, "phase_color": "#9B59B6", "decade_color": "#EF6739", "oni": null}, {"season": "2011-12", "temp": 26.3, "snowfall": 22.3, "enso_code": 2, "start_year": 2011, "decade": "2010s", "x_pos": 0.9686, "phase_color": "#5B9BD5", "decade_color": "#EF6739", "oni": null}, {"season": "2012-13", "temp": 19.8, "snowfall": 67.7, "enso_code": 4, "start_year": 2012, "decade": "2010s", "x_pos": 3.0674, "phase_color": "#27AE60", "decade_color": "#EF6739", "oni": null}, {"season": "2013-14", "temp": 9.7, "snowfall": 69.8, "enso_code": 4, "start_year": 2013, "decade": "2010s", "x_pos": 3.0268, "phase_color": "#27AE60", "decade_color": "#EF6739", "oni": null}, {"season": "2014-15", "temp": 18.2, "snowfall": 32.4, "enso_code": 5, "start_year": 2014, "decade": "2010s", "x_pos": 3.8907, "phase_color": "#F4D03F", "decade_color": "#EF6739", "oni": null}, {"season": "2015-16", "temp": 24.2, "snowfall": 36.7, "enso_code": 8, "start_year": 2015, "decade": "2010s", "x_pos": 6.9809, "phase_color": "#922B21", "decade_color": "#EF6739", "oni": null}, {"season": "2016-17", "temp": 24.3, "snowfall": 32.0, "enso_code": 3, "start_year": 2016, "decade": "2010s", "x_pos": 1.8636, "phase_color": "#85C1E9", "decade_color": "#EF6739", "oni": null}, {"season": "2017-18", "temp": 17.1, "snowfall": 78.3, "enso_code": 3, "start_year": 2017, "decade": "2010s", "x_pos": 2.0273, "phase_color": "#85C1E9", "decade_color": "#EF6739", "oni": null}, {"season": "2018-19", "temp": 17.6, "snowfall": 77.1, "enso_code": 5, "start_year": 2018, "decade": "2010s", "x_pos": 3.8968, "phase_color": "#F4D03F", "decade_color": "#EF6739", "oni": null}, {"season": "2019-20", "temp": 21.6, "snowfall": 51.5, "enso_code": 5, "start_year": 2019, "decade": "2010s", "x_pos": 4.081, "phase_color": "#F4D03F", "decade_color": "#EF6739", "oni": null}, {"season": "2020-21", "temp": 19.7, "snowfall": 48.7, "enso_code": 2, "start_year": 2020, "decade": "2020s", "x_pos": 1.1663, "phase_color": "#5B9BD5", "decade_color": "#EF8539", "oni": null}, {"season": "2021-22", "temp": 16.6, "snowfall": 50.2, "enso_code": 2, "start_year": 2021, "decade": "2020s", "x_pos": 1.1001, "phase_color": "#5B9BD5", "decade_color": "#EF8539", "oni": null}, {"season": "2022-23", "temp": 19.8, "snowfall": 90.3, "enso_code": 2, "start_year": 2022, "decade": "2020s", "x_pos": 0.9062, "phase_color": "#5B9BD5", "decade_color": "#EF8539", "oni": null}, {"season": "2023-24", "temp": 29.9, "snowfall": 29.5, "enso_code": 7, "start_year": 2023, "decade": "2020s", "x_pos": 5.9352, "phase_color": "#E74C3C", "decade_color": "#EF8539", "oni": null}, {"season": "2024-25", "temp": 19.1, "snowfall": 29.4, "enso_code": 4, "start_year": 2024, "decade": "2020s", "x_pos": 3.0296, "phase_color": "#27AE60", "decade_color": "#EF8539", "oni": null}, {"season": "2025-26", "temp": 19.9, "snowfall": 48.5, "enso_code": 4, "start_year": 2025, "decade": "2020s", "x_pos": 2.902, "phase_color": "#27AE60", "decade_color": "#EF8539", "oni": null}], "phases": [{"code": 1, "label_br": "Strong<br>La Niña", "label": "Strong La Niña", "color": "#9B59B6", "x_center": 0}, {"code": 2, "label_br": "Moderate<br>La Niña", "label": "Moderate La Niña", "color": "#5B9BD5", "x_center": 1}, {"code": 3, "label_br": "Weak<br>La Niña", "label": "Weak La Niña", "color": "#85C1E9", "x_center": 2}, {"code": 4, "label_br": "Neutral", "label": "Neutral", "color": "#27AE60", "x_center": 3}, {"code": 5, "label_br": "Weak<br>El Niño", "label": "Weak El Niño", "color": "#F4D03F", "x_center": 4}, {"code": 6, "label_br": "Moderate<br>El Niño", "label": "Moderate El Niño", "color": "#E67E22", "x_center": 5}, {"code": 7, "label_br": "Strong<br>El Niño", "label": "Strong El Niño", "color": "#E74C3C", "x_center": 6}, {"code": 8, "label_br": "Super<br>El Niño", "label": "Super El Niño", "color": "#922B21", "x_center": 7}], "decades": [{"label": "1930s", "color": "#E039EF"}, {"label": "1940s", "color": "#EF39E0"}, {"label": "1950s", "color": "#EF39C2"}, {"label": "1960s", "color": "#EF39A3"}, {"label": "1970s", "color": "#EF3985"}, {"label": "1980s", "color": "#EF3967"}, {"label": "1990s", "color": "#EF3948"}, {"label": "2000s", "color": "#EF4839"}, {"label": "2010s", "color": "#EF6739"}, {"label": "2020s", "color": "#EF8539"}], "city_name": "Minneapolis, MN", "min_year": 1938, "max_year": 2025, "logo_b64": null};
+const D = __APP_DATA__;
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CONSTANTS
@@ -1255,3 +1460,57 @@ window.addEventListener('DOMContentLoaded', () => {
 </script>
 </body>
 </html>
+"""
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+def main():
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    logo_b64 = encode_logo()
+    if logo_b64:
+        print(f"Logo loaded: {LOGO_PATH}")
+    else:
+        print(f"Logo not found at {LOGO_PATH} — skipping")
+
+    xl = pd.ExcelFile(EXCEL_FILE)
+    print(f"\nFound {len(xl.sheet_names)} sheet(s): {xl.sheet_names}\n")
+
+    success = 0
+    for tab in xl.sheet_names:
+        print(f"  Processing '{tab}'…", end="  ")
+        try:
+            city_name = get_city_name(xl, tab)
+            df        = load_data(xl, tab)
+            df        = add_jitter(df)
+            app_data  = build_app_data(df, city_name, logo_b64)
+
+            html = HTML \
+                .replace("__APP_DATA__", json.dumps(app_data, ensure_ascii=False)) \
+                .replace("__CITY_NAME__", city_name)
+
+            out = OUTPUT_DIR / f"ENSO_Charts_{tab}.html"
+            out.write_text(html, encoding="utf-8")
+            print(f"✓  {city_name}  →  {out.name}  ({len(df)} seasons)")
+            success += 1
+        except Exception as e:
+            print(f"✗  ERROR: {e}")
+
+    print(f"\nDone — {success}/{len(xl.sheet_names)} cities written to {OUTPUT_DIR}/")
+
+    # Quick phase-stats summary for the first successful city
+    if success:
+        try:
+            tab = xl.sheet_names[0]
+            df  = add_jitter(load_data(xl, tab))
+            stats = df.groupby("ENSO_Code")[["Temp", "Snowfall"]].agg(
+                ["mean", "median", "count"]
+            )
+            code_to_label = {code: lbl for code, _, lbl, _ in PHASES}
+            stats.index = [code_to_label.get(i, str(i)) for i in stats.index]
+            print("\nPhase summary — first city:\n", stats.round(1).to_string())
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()
