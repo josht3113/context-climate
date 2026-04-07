@@ -110,7 +110,7 @@ const SECTIONS = [
       {
         tags:       ['COMING SOON'],
         title:      'Solar Radiation & Insolation',
-        description:'Daily and monthly solar radiation totals for the NY Metro, with seasonal trends and cloud cover impacts.',
+        description:'Daily and monthly solar radiation totals for the NY Metro.',
         footerTags: [],
         to:         null,
         accentVar:  '--accent-climate',
@@ -119,8 +119,8 @@ const SECTIONS = [
       },
       {
         tags:       ['COMING SOON'],
-        title:      'Daylight & UV Index Trends',
-        description:'Sunrise, sunset, and usable daylight hours across the year alongside historical UV index patterns for Long Island.',
+        title:      'Solar Heatmap',
+        description:'Sunrise, sunset, and usable daylight hours across the year for Long Island.',
         footerTags: [],
         to:         null,
         accentVar:  '--accent-climate',
@@ -153,7 +153,7 @@ export default function Home() {
           Data Visualizations &amp;<br />Tools
         </h1>
         <p className="page-subtitle">
-          Interactive charts, heatmaps, and climate context.
+          Interactive charts, heatmaps, and other tools to provide climate context.
         </p>
       </section>
 
