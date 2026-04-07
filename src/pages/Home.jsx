@@ -18,7 +18,7 @@ const SECTIONS = [
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
         to:         '/monthly',
         accentVar:  '--accent-hourly',
-        thumb:      thumb: '/context-climate/MonthlyThumbnail.png',
+        thumb:      '/context-climate/MonthlyThumbnail.png',
       },
       {
         tags:       ['ANNUAL', 'HEATMAPS'],
