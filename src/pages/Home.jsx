@@ -89,7 +89,7 @@ const SECTIONS = [
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
         to:         '/hurricanes',
         accentVar:  '--accent-live',
-        thumb:      thumb: '/context-climate/ENSOhurricanesThumbnail.png',
+        thumb:      '/context-climate/ENSOhurricanesThumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
