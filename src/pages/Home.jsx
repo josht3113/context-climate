@@ -150,11 +150,10 @@ export default function Home() {
       <section className="page-hero">
         <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
         <h1 className="page-title">
-          Long Island &amp;<br />New York Metro
+          Data Visualizations &amp;<br />Tools
         </h1>
         <p className="page-subtitle">
-          Interactive charts, heatmaps, and climate analysis — anchored to Islip (ISP) and
-          the NY Metro, with tools spanning broader climate patterns and connections.
+          Interactive charts, heatmaps, and climate context.
         </p>
       </section>
 
