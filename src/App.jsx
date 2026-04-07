@@ -22,7 +22,7 @@ export default function App() {
       <main>
         <Routes>
           <Route path="/"        element={<Home />}      />
-          <Route path="/hourly"  element={<HourlyData />} />
+          <Route path="/monthly" element={<HourlyData />} />
           <Route path="/climate" element={<Climate />}   />
           <Route path="/enso"    element={<ENSO />}      />
           <Route path="/seasons" element={<Seasons />}   />
