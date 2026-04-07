@@ -1,6 +1,5 @@
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
-import AdUnit from '../components/AdUnit'
 
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
@@ -14,10 +13,10 @@ const SECTIONS = [
     cards: [
       {
         tags:       ['HOURLY', 'MULTI-YEAR'],
-        title:      'ISP Hourly Heatmaps',
+        title:      'Monthly Heatmaps',
         description:'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
-        to:         '/hourly',
+        to:         '/monthly',
         accentVar:  '--accent-hourly',
         thumb:      null,
       },
@@ -65,6 +64,42 @@ const SECTIONS = [
         footerTags: [],
         to:         null,
         accentVar:  '--accent-hourly',
+        thumb:      null,
+        status:     'soon',
+      },
+    ],
+  },
+  {
+    id:    'solar',
+    label: 'Solar Visualizations',
+    cards: [
+      {
+        tags:       ['COMING SOON'],
+        title:      'Solar Radiation & Insolation',
+        description:'Daily and monthly solar radiation totals for the NY Metro, with seasonal trends and cloud cover impacts.',
+        footerTags: [],
+        to:         null,
+        accentVar:  '--accent-climate',
+        thumb:      null,
+        status:     'soon',
+      },
+      {
+        tags:       ['COMING SOON'],
+        title:      'Daylight & UV Index Trends',
+        description:'Sunrise, sunset, and usable daylight hours across the year alongside historical UV index patterns for Long Island.',
+        footerTags: [],
+        to:         null,
+        accentVar:  '--accent-climate',
+        thumb:      null,
+        status:     'soon',
+      },
+      {
+        tags:       ['COMING SOON'],
+        title:      'More Solar Tools',
+        description:'Additional solar and atmospheric radiation visualizations currently in development.',
+        footerTags: [],
+        to:         null,
+        accentVar:  '--accent-climate',
         thumb:      null,
         status:     'soon',
       },
@@ -122,7 +157,7 @@ export default function Home() {
           the NY Metro, with tools spanning broader climate patterns and connections.
         </p>
       </section>
- <AdUnit />
+
       {/* Sections */}
       {SECTIONS.map((section, i) => (
         <section
