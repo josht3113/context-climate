@@ -8,7 +8,7 @@ export default function AdUnit() {
   }, [])
 
   return (
-    <div style={{ margin: '2rem 0' }}>
+    <div style={{ margin: '0.5rem 0' }}>
       <ins
         className="adsbygoogle"
         style={{ display: 'block' }}
