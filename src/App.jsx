@@ -1,12 +1,11 @@
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
-import Home       from './pages/Home'
+import Home     from './pages/Home'
 import HourlyData from './pages/HourlyData'
-import Annual     from './pages/Climate'      // file stays Climate.jsx
-import ENSO       from './pages/ENSO'
-import Seasons    from './pages/Seasons'
-import Climo      from './pages/Climo'        // rename Live.jsx → Climo.jsx on GitHub
-import Hurricanes from './pages/Hurricanes'
+import Climate  from './pages/Climate'
+import ENSO     from './pages/ENSO'
+import Seasons  from './pages/Seasons'
+import Live     from './pages/Live'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -23,16 +22,45 @@ export default function App() {
       <Header />
       <main>
         <Routes>
-          <Route path="/"           element={<Home />}       />
-          <Route path="/hourly"     element={<HourlyData />} />
-          <Route path="/monthly"    element={<HourlyData />} />
-          <Route path="/annual"     element={<Annual />}     />
-          <Route path="/enso"       element={<ENSO />}       />
-          <Route path="/seasons"    element={<Seasons />}    />
-          <Route path="/climo"      element={<Climo />}      />
-          <Route path="/hurricanes" element={<Hurricanes />} />
+          <Route path="/"        element={<Home />}      />
+          <Route path="/hourly"  element={<HourlyData />} />
+          <Route path="/climate" element={<Climate />}   />
+          <Route path="/enso"    element={<ENSO />}      />
+          <Route path="/seasons" element={<Seasons />}   />
+          <Route path="/live"    element={<Live />}      />
         </Routes>
       </main>
+      <footer style={{
+        borderTop: '0.5px solid rgba(255,255,255,0.08)',
+        padding: '1.25rem 2rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '1rem',
+      }}>
+        <span style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: '11px',
+          color: 'var(--color-text-muted)',
+          letterSpacing: '0.05em',
+        }}>
+          © {new Date().getFullYear()} ContextClimate · ISP · Long Island · NYC
+        </span>
+        <a
+          href="/context-climate/privacy.html"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '11px',
+            color: 'var(--color-text-muted)',
+            letterSpacing: '0.05em',
+            textDecoration: 'none',
+          }}
+          onMouseOver={e => e.target.style.color = 'var(--color-text-secondary)'}
+          onMouseOut={e => e.target.style.color = 'var(--color-text-muted)'}
+        >
+          Privacy Policy
+        </a>
+      </footer>
     </HashRouter>
   )
 }
