@@ -27,7 +27,7 @@ const SECTIONS = [
         footerTags: ['Temp', 'Precipitation', 'Anomaly'],
         to:         '/annual',
         accentVar:  '--accent-live',
-        thumb: '/MonthlyThumbnail.png',
+        thumb: '/annualthumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
