@@ -18,7 +18,7 @@ const SECTIONS = [
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
         to:         '/monthly',
         accentVar:  '--accent-hourly',
-        thumb:      '/context-climate/MonthlyThumbnail.png',
+        thumb: '/context-climate/MonthlyThumbnail.png',
       },
       {
         tags:       ['ANNUAL', 'HEATMAPS'],
@@ -89,7 +89,7 @@ const SECTIONS = [
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
         to:         '/hurricanes',
         accentVar:  '--accent-live',
-        thumb:      '/context-climate/ENSOhurricanesThumbnail.png',
+        thumb: '/context-climate/ENSOhurricanesThumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
