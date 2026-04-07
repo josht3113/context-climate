@@ -70,7 +70,7 @@ export default function Hurricanes() {
       {/* ── Chart iframe ── */}
       <div style={S.frameWrap(isMobile)}>
         <iframe
-          src="/ENSO_Charts_Hurricanes.html"
+          src="/context-climate/ENSO_Charts_Hurricanes.html"
           style={S.iframe(isMobile)}
           title="Tropical Cyclones ENSO Phase Comparison"
         />
