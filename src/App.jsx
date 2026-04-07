@@ -5,6 +5,7 @@ import HourlyData from './pages/HourlyData'
 import Climate  from './pages/Climate'
 import ENSO     from './pages/ENSO'
 import Seasons  from './pages/Seasons'
+import Hurricanes from './pages/Hurricanes'
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
 // with client-side routing (no server config needed).
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/climate" element={<Climate />}   />
           <Route path="/enso"    element={<ENSO />}      />
           <Route path="/seasons" element={<Seasons />}   />
+          <Route path="/hurricanes" element={<Hurricanes />} />
         </Routes>
       </main>
       <footer style={{
