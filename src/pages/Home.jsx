@@ -27,7 +27,7 @@ const SECTIONS = [
         footerTags: ['Temp', 'Precipitation', 'Anomaly'],
         to:         '/annual',
         accentVar:  '--accent-live',
-        thumb:      '/annualthumbnail.png',
+        thumb: '/MonthlyThumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
@@ -89,7 +89,7 @@ const SECTIONS = [
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
         to:         '/hurricanes',
         accentVar:  '--accent-live',
-        thumb: '/context-climate/ENSOhurricanesThumbnail.png',
+        thumb: '/ENSOhurricanesThumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
