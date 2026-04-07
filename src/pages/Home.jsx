@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
+import AdUnit from '../components/AdUnit'
 
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
@@ -121,7 +122,7 @@ export default function Home() {
           the NY Metro, with tools spanning broader climate patterns and connections.
         </p>
       </section>
-
+ <AdUnit />
       {/* Sections */}
       {SECTIONS.map((section, i) => (
         <section
