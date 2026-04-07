@@ -30,13 +30,14 @@ const SECTIONS = [
         thumb:      '/context-climate/annualthumbnail.png',
       },
       {
-        tags:       ['MONTHLY', 'TOTALS'],
+        tags:       ['COMING SOON'],
         title:      'Precipitation Charts',
         description:'Monthly rainfall and snowfall totals for ISP, color-coded by intensity with historical percentile context.',
-        footerTags: ['Rain', 'Snow', 'Percentiles'],
-        to:         '/annual',
+        footerTags: [],
+        to:         null,
         accentVar:  '--accent-climate',
-        thumb:      '/context-climate/MonthlyThumbnail.png',
+        thumb:      null,
+        status:     'soon',
       },
       {
         tags:       ['ANNUAL', 'TRENDS'],
