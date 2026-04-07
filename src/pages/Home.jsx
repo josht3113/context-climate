@@ -80,7 +80,7 @@ const SECTIONS = [
         footerTags: ['19 Cities', 'Snowfall', 'Temp', 'Phase Composites'],
         to:         '/enso',
         accentVar:  '--accent-hourly',
-        thumb:      null,
+        thumb:      '/ENSOThumbnail.png',
       },
       {
         tags:       ['TROPICAL', 'ENSO'],
