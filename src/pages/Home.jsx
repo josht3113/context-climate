@@ -110,7 +110,7 @@ const SECTIONS = [
   footerTags: [],
   to: '/solar',
   accentVar: '--accent-hourly',
-  thumb: null,
+  thumb: thumb: '/context-climate/SolarHeatMap_thumbnail.png',
   status: 'live',
 },
       {
