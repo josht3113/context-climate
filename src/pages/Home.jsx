@@ -104,15 +104,19 @@ const SECTIONS = [
     ],
   },
   {
-  title: 'Solar Heatmap Explorer',
-  description: 'Visualize solar altitude, azimuth, and day length across any latitude and time of year.',
-  tags: ['Solar', 'Astronomy', 'Interactive'],
-  footerTags: [],
-  to: '/solar',
-  accentVar: '--accent-hourly',
-  thumb: thumb: '/context-climate/SolarHeatMap_thumbnail.png',
-  status: 'live',
-},
+    id:    'solar',
+    label: 'Solar Visualizations',
+    cards: [
+      {
+        tags:       ['Solar', 'Astronomy', 'Interactive'],
+        title:      'Solar Heatmap Explorer',
+        description:'Visualize solar altitude, azimuth, and day length across any latitude and time of year.',
+        footerTags: [],
+        to:         '/solar',
+        accentVar:  '--accent-hourly',
+        thumb:      '/context-climate/SolarHeatMap_thumbnail.png',
+        status:     'live',
+      },
       {
         tags:       ['COMING SOON'],
         title:      'Daylight & UV Index Trends',
@@ -136,7 +140,6 @@ const SECTIONS = [
     ],
   },
 ]
-
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
   return (
