@@ -2,12 +2,12 @@ import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Overview',    to: '/'        },
-  { label: 'Monthly Data', to: '/monthly'  },
-  { label: 'Annual',      to: '/annual'  },
-  { label: 'ENSO',        to: '/enso'    },
-  { label: 'Seasons',     to: '/seasons' },
-  { label: 'Climo',       to: '/climo'   },
+  { label: 'Home',         to: '/'        },
+  { label: 'Monthly Data', to: '/hourly'  },
+  { label: 'Annual',       to: '/annual'  },
+  { label: 'ENSO',         to: '/enso'    },
+  { label: 'Seasons',      to: '/seasons' },
+  { label: 'Climo',        to: '/climo'   },
 ]
 
 function BracketMark() {
@@ -48,7 +48,7 @@ export default function Header() {
             ))}
           </nav>
           <div className={styles.navDivider} />
-          <span className={styles.geoBadge}>Visualizations · Tools · Context</span>
+          <span className={styles.geoBadge}>ISP · LI · NYC</span>
         </div>
 
       </div>
