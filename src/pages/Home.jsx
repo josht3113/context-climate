@@ -16,9 +16,9 @@ const SECTIONS = [
         title:      'Monthly Heatmaps',
         description:'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
-        to:         '/monthly',
+        to:         '/hourly',
         accentVar:  '--accent-hourly',
-        thumb: '/MonthlyThumbnail.png',
+        thumb:      null,
       },
       {
         tags:       ['ANNUAL', 'HEATMAPS'],
@@ -27,7 +27,7 @@ const SECTIONS = [
         footerTags: ['Temp', 'Precipitation', 'Anomaly'],
         to:         '/annual',
         accentVar:  '--accent-live',
-        thumb: '/annualthumbnail.png',
+        thumb:      '/annualthumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
@@ -89,7 +89,7 @@ const SECTIONS = [
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
         to:         '/hurricanes',
         accentVar:  '--accent-live',
-        thumb: '/ENSOhurricanesThumbnail.png',
+        thumb:      null,
       },
       {
         tags:       ['COMING SOON'],
@@ -110,7 +110,7 @@ const SECTIONS = [
       {
         tags:       ['COMING SOON'],
         title:      'Solar Radiation & Insolation',
-        description:'Daily and monthly solar radiation totals for the NY Metro.',
+        description:'Daily and monthly solar radiation totals for the NY Metro, with seasonal trends and cloud cover impacts.',
         footerTags: [],
         to:         null,
         accentVar:  '--accent-climate',
@@ -119,8 +119,8 @@ const SECTIONS = [
       },
       {
         tags:       ['COMING SOON'],
-        title:      'Solar Heatmap',
-        description:'Sunrise, sunset, and usable daylight hours across the year for Long Island.',
+        title:      'Daylight & UV Index Trends',
+        description:'Sunrise, sunset, and usable daylight hours across the year alongside historical UV index patterns for Long Island.',
         footerTags: [],
         to:         null,
         accentVar:  '--accent-climate',
@@ -149,11 +149,10 @@ export default function Home() {
       {/* Hero */}
       <section className="page-hero">
         <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
-        <h1 className="page-title">
-          Data Visualizations &amp;<br />Tools
-        </h1>
+        <h1 className="page-title">Data Visualizations &amp; Tools</h1>
         <p className="page-subtitle">
-          Interactive charts, heatmaps, and other tools to provide climate context.
+          Interactive charts, heatmaps, and climate analysis — anchored to Islip (ISP) and
+          the NY Metro, with tools spanning broader climate patterns and connections.
         </p>
       </section>
 
