@@ -104,19 +104,15 @@ const SECTIONS = [
     ],
   },
   {
-    id:    'solar',
-    label: 'Solar Visualizations',
-    cards: [
-      {
-        tags:       ['COMING SOON'],
-        title:      'Solar Radiation & Insolation',
-        description:'Daily and monthly solar radiation totals for the NY Metro, with seasonal trends and cloud cover impacts.',
-        footerTags: [],
-        to:         null,
-        accentVar:  '--accent-climate',
-        thumb:      null,
-        status:     'soon',
-      },
+  title: 'Solar Heatmap Explorer',
+  description: 'Visualize solar altitude, azimuth, and day length across any latitude and time of year.',
+  tags: ['Solar', 'Astronomy', 'Interactive'],
+  footerTags: [],
+  to: '/solar',
+  accentVar: '--accent-hourly',
+  thumb: null,
+  status: 'live',
+},
       {
         tags:       ['COMING SOON'],
         title:      'Daylight & UV Index Trends',
