@@ -16,9 +16,9 @@ const SECTIONS = [
         title:      'Monthly Heatmaps',
         description:'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
-        to:         '/hourly',
+        to:         '/monthly',
         accentVar:  '--accent-hourly',
-        thumb:      null,
+        thumb:      '/MonthlyThumbnail.png',
       },
       {
         tags:       ['ANNUAL', 'HEATMAPS'],
@@ -89,7 +89,7 @@ const SECTIONS = [
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
         to:         '/hurricanes',
         accentVar:  '--accent-live',
-        thumb:      null,
+        thumb:      '/ENSOhurricanesThumbnail.png',
       },
       {
         tags:       ['COMING SOON'],
