@@ -149,8 +149,7 @@ export default function Home() {
         <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
         <h1 className="page-title">Data Visualizations &amp; Tools</h1>
         <p className="page-subtitle">
-          Interactive charts, heatmaps, and climate analysis — anchored to Islip (ISP) and
-          the NY Metro, with tools spanning broader climate patterns and connections.
+          Providing context for the weather you experience daily through interactive charts, heatmaps, and other tools.  
         </p>
       </section>
 
