@@ -30,8 +30,8 @@ const SECTIONS = [
         thumb:      '/annualthumbnail.png',
       },
       {
-        tags:       ['COMING SOON'],
-        title:      'Precipitation Charts',
+        tags:       ['CLIMATE', 'DASHBOARD'],
+        title:      'MULTI-CITY CLIMATE DASHBOARD',
         description:'Monthly rainfall and snowfall totals for ISP, color-coded by intensity with historical percentile context.',
         footerTags: [],
         to:         null,
