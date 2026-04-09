@@ -7,7 +7,7 @@ import ENSO     from './pages/ENSO'
 import Seasons  from './pages/Seasons'
 import Hurricanes from './pages/Hurricanes'
 import Solar from './pages/Solar';
-import NortheastClimate from './pages/NE-climate-dashboard'
+import NortheastClimate from './pages/NortheastClimate'
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
 // with client-side routing (no server config needed).
@@ -30,7 +30,7 @@ export default function App() {
           <Route path="/seasons" element={<Seasons />}   />
           <Route path="/hurricanes" element={<Hurricanes />} />
           <Route path="/solar" element={<Solar />} />
-          <Route path="/NE-climate-dashboard" element={<NE-climate-dashboard />} />
+          <Route path="/northeast-climate" element={<NortheastClimate />} />
         </Routes>
       </main>
       <footer style={{
