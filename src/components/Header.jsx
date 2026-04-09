@@ -48,7 +48,7 @@ export default function Header() {
             ))}
           </nav>
           <div className={styles.navDivider} />
-          <span className={styles.geoBadge}>ISP · LI · NYC</span>
+          <span className={styles.geoBadge}>Data Vis · Tools · Context</span>
         </div>
 
       </div>
