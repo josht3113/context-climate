@@ -31,12 +31,12 @@ const SECTIONS = [
       },
       {
         tags:       ['CLIMATE', 'DASHBOARD'],
-        title:      'MULTI-CITY CLIMATE DASHBOARD',
+        title:      'NORTHEAST CLIMATE DASHBOARD',
         description:'Monthly rainfall and snowfall totals for ISP, color-coded by intensity with historical percentile context.',
         footerTags: [],
         to:         null,
         accentVar:  '--accent-climate',
-        thumb:      null,
+        thumb:      '/NEclimatedashboard_thumbnail.png',
         status:     'soon',
       },
       {
