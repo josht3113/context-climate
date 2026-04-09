@@ -32,7 +32,7 @@ const SECTIONS = [
       {
        tags:       ['Normals', 'Records', 'Updates Daily'],
   title:      'NORTHEAST CLIMATE DASHBOARD',
-  description:'Daily, monthly and yearly climate data and trends',
+  description:'Daily, monthly and yearly climate data and trends for select cities in the Northeast US.',
   footerTags: ['11 Stations', 'Temp', 'Precip', 'Snow'],
   to:         '/northeast-climate',
         accentVar:  '--accent-climate',
@@ -70,7 +70,7 @@ const SECTIONS = [
   },
   {
     id:    'connections',
-    label: 'Other Climate Connections',
+    label: 'Climate Connections',
     cards: [
       {
         tags:       ['SEASONAL', 'ENSO'],
