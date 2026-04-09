@@ -1,0 +1,1566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Northeast Climate Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:          #080f1a;
+  --surface:     #0d1826;
+  --surface2:    #131f30;
+  --border:      #1a2d42;
+  --border2:     #213549;
+  --text:        #d6e4f0;
+  --text2:       #7a9bb8;
+  --text3:       #3d5a77;
+  --c-dist:      #3d8ae8;
+  --c-thresh:    #7f77dd;
+  --c-decadal:   #c98320;
+  --c-miles:     #d85a30;
+  --c-streaks:   #1d9e75;
+  --c-precip:    #37a5c4;
+  --c-records:   #b8527a;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Plus Jakarta Sans', sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* ── HEADER ── */
+.header {
+  padding: 28px 32px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.header-top { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.site-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+.site-subtitle {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text2);
+  letter-spacing: 0.5px;
+  margin-bottom: 3px;
+}
+.live-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  background: #0d2a1a;
+  color: #1d9e75;
+  border: 1px solid #1d9e7540;
+  margin-bottom: 3px;
+}
+.live-badge.loading { background: #1a1f0d; color: #8a9a3d; border-color: #8a9a3d40; }
+.live-badge.error { background: #2a0d10; color: #e85050; border-color: #e8505040; }
+
+/* ── STATION SELECTOR ── */
+.station-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+.stn-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.stn-btn:hover { border-color: var(--text2); color: var(--text); }
+.stn-btn.active { background: var(--c-dist); border-color: var(--c-dist); color: #fff; }
+.stn-btn.loading-stn { opacity: 0.5; cursor: wait; }
+.section-loading {
+  display: flex; align-items: center; gap: 12px;
+  padding: 80px 0; color: var(--text2);
+  font-family: var(--mono); font-size: 12px;
+}
+
+/* ── TOGGLE ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+.toggle-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; margin-right: 4px; }
+.toggle-btn {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.toggle-btn.active {
+  background: var(--active-color, var(--c-dist));
+  border-color: var(--active-color, var(--c-dist));
+  color: #fff;
+}
+
+/* ── TABS ── */
+.tabs {
+  display: flex;
+  padding: 0 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text2); }
+.tab.active { color: var(--tab-color); border-bottom-color: var(--tab-color); }
+
+/* ── MAIN CONTENT ── */
+.content { padding: 28px 32px; max-width: 1280px; }
+.section { display: none; }
+.section.active { display: block; }
+
+/* ── LOADING STATE ── */
+.loading-state {
+  display: flex; align-items: center; justify-content: center;
+  height: 300px; flex-direction: column; gap: 12px; color: var(--text2);
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--c-dist);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── SECTION HEADERS ── */
+.section-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--section-color, var(--text3));
+  margin-bottom: 20px;
+}
+.section-label::before {
+  content: '';
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 2px;
+  background: var(--section-color, var(--text3));
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ── GRID LAYOUTS ── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+/* ── CARDS ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+.card-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text2);
+  margin-bottom: 16px;
+}
+.card-full { grid-column: 1 / -1; }
+
+/* ── MONTH SELECTOR ── */
+.month-selector { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 20px; }
+.month-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.month-btn:hover { border-color: var(--text3); color: var(--text); }
+.month-btn.active {
+  background: var(--section-color);
+  border-color: var(--section-color);
+  color: #fff;
+}
+
+/* ── THRESHOLD BUTTONS ── */
+.thresh-selector { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 20px; }
+.thresh-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.thresh-btn.active {
+  background: var(--section-color);
+  border-color: var(--section-color);
+  color: #fff;
+}
+
+/* ── STAT ROW ── */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+.stat-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.stat-label { font-size: 10px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+.stat-val { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--text); }
+.stat-sub { font-size: 10px; color: var(--text3); margin-top: 2px; }
+
+/* ── MILESTONE BARS ── */
+.milestone-group { margin-bottom: 28px; }
+.milestone-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text2); margin-bottom: 12px; }
+.milestone-row { display: grid; grid-template-columns: 100px 1fr 70px; align-items: center; gap: 12px; margin-bottom: 6px; }
+.milestone-name { font-family: var(--mono); font-size: 10px; color: var(--text2); text-align: right; }
+.milestone-track { position: relative; height: 6px; background: var(--border2); border-radius: 3px; }
+.milestone-bar {
+  position: absolute; top: 0; height: 6px; border-radius: 3px;
+  background: var(--section-color);
+  transition: width 0.3s ease;
+}
+.milestone-bar.faint { opacity: 0.3; }
+.milestone-bar.mid { opacity: 0.65; }
+.milestone-bar.bold { opacity: 1; }
+.milestone-date { font-family: var(--mono); font-size: 11px; color: var(--text); text-align: right; }
+
+/* ── KEY FACTS ── */
+.facts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-top: 20px; }
+.fact-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px;
+}
+.fact-date { font-family: var(--mono); font-size: 18px; font-weight: 600; color: var(--section-color); }
+.fact-desc { font-size: 11px; color: var(--text2); margin-top: 4px; }
+
+/* ── RECORDS TABLE ── */
+.records-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.records-table th { text-align: left; padding: 8px 12px; color: var(--text2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 1px solid var(--border); font-weight: 500; }
+.records-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+.records-table tr:last-child td { border-bottom: none; }
+.records-table tr:hover td { background: var(--surface2); }
+.rec-high { color: #e87a50; }
+.rec-low  { color: #5ab3e8; }
+
+/* ── DAY SELECTOR ── */
+.day-selector { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+.day-selector-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.day-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 36px; height: 28px;
+  border-radius: 4px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: all 0.12s;
+  text-align: center;
+}
+.day-btn.active { background: var(--section-color); border-color: var(--section-color); color: #fff; }
+.day-btn:disabled { opacity: 0.25; cursor: default; }
+
+/* ── CHART WRAPPER ── */
+.chart-wrap { position: relative; }
+.chart-wrap canvas { max-height: 320px; }
+
+/* ── STREAK BARS ── */
+.streak-list { display: flex; flex-direction: column; gap: 8px; }
+.streak-item { display: grid; grid-template-columns: 160px 1fr 80px; align-items: center; gap: 12px; }
+.streak-label { font-family: var(--mono); font-size: 11px; color: var(--text2); }
+.streak-track { height: 8px; background: var(--border2); border-radius: 4px; overflow: hidden; }
+.streak-fill { height: 100%; background: var(--section-color); border-radius: 4px; transition: width 0.4s ease; }
+.streak-count { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--text); text-align: right; }
+
+/* ── NORMALS TABLE ── */
+.normals-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+.normals-table th { padding: 8px 10px; color: var(--text2); font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; border-bottom: 1px solid var(--border); font-weight: 500; text-align: center; }
+.normals-table th:first-child { text-align: left; }
+.normals-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: center; color: var(--text); }
+.normals-table td:first-child { text-align: left; color: var(--text2); font-weight: 500; }
+.normals-table tr.highlight td { background: var(--surface2); }
+.normals-table tr:last-child td { border-bottom: none; }
+
+/* ── FOOTER ── */
+footer {
+  padding: 24px 32px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--mono);
+}
+footer a { color: var(--text2); text-decoration: none; }
+footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="site-title">Northeast Climate Dashboard</div>
+      <div class="site-subtitle" id="stationSubtitle">Select a station below &nbsp;·&nbsp; ACIS ThreadEx</div>
+    </div>
+    <span class="live-badge loading" id="dataStatus">Loading data…</span>
+  </div>
+  <div class="station-selector" id="stationSelector"></div>
+  <div class="toggle-row">
+    <span class="toggle-label">Viewing</span>
+    <button class="toggle-btn active" id="btnHighs" onclick="setMode('high')">Highs</button>
+    <button class="toggle-btn" id="btnLows" onclick="setMode('low')">Lows</button>
+  </div>
+</div>
+
+<div class="tabs" id="tabBar">
+  <button class="tab active" style="--tab-color:var(--c-dist)"   onclick="showTab('dist',this)">Distribution</button>
+  <button class="tab"        style="--tab-color:var(--c-thresh)" onclick="showTab('thresh',this)">Threshold Probs</button>
+  <button class="tab"        style="--tab-color:var(--c-decadal)"onclick="showTab('decadal',this)">Decadal Shifts</button>
+  <button class="tab"        style="--tab-color:var(--c-miles)"  onclick="showTab('miles',this)">Milestone Dates</button>
+  <button class="tab"        style="--tab-color:var(--c-streaks)"onclick="showTab('streaks',this)">Streaks</button>
+  <button class="tab"        style="--tab-color:var(--c-precip)" onclick="showTab('precip',this)">Precip & Snow</button>
+  <button class="tab"        style="--tab-color:var(--c-records)"onclick="showTab('records',this)">Records</button>
+</div>
+
+<div class="content">
+
+  <!-- ══════════════════════════════════════════ DISTRIBUTION ══ -->
+  <div class="section active" id="sec-dist" style="--section-color:var(--c-dist)">
+    <div class="section-label">Temperature Distribution</div>
+    <div class="month-selector" id="distMonthSel"></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Daily Temps in 5° Bins — % of Days</div>
+        <div class="chart-wrap"><canvas id="distBar"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Share by 10° Range</div>
+        <div class="chart-wrap"><canvas id="distDonut"></canvas></div>
+        <div id="distDonutLegend" style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--text2);line-height:2"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ THRESHOLD ══ -->
+  <div class="section" id="sec-thresh" style="--section-color:var(--c-thresh)">
+    <div class="section-label">Threshold Probabilities</div>
+    <div class="thresh-selector" id="threshSel"></div>
+    <div class="card">
+      <div class="card-title" id="threshChartTitle">% of Days Exceeding Threshold — by Month</div>
+      <div class="chart-wrap"><canvas id="threshLine"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ DECADAL ══ -->
+  <div class="section" id="sec-decadal" style="--section-color:var(--c-decadal)">
+    <div class="section-label">Decadal Shifts</div>
+    <div class="card card-full" style="margin-bottom:20px">
+      <div class="card-title">Mean Daily Temp by 30-Year Normal Period</div>
+      <div class="chart-wrap"><canvas id="decadalLine"></canvas></div>
+    </div>
+    <div class="card card-full" style="margin-bottom:20px">
+      <div class="card-title">Annual Mean — Full Record Trend</div>
+      <div class="chart-wrap" style="height:260px"><canvas id="annualLine"></canvas></div>
+    </div>
+    <div class="card card-full">
+      <div class="card-title">30-Year Normal Mean Temps by Month (°F)</div>
+      <div id="normalsTableWrap"></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ MILESTONES ══ -->
+  <div class="section" id="sec-miles" style="--section-color:var(--c-miles)">
+    <div class="section-label">Milestone Dates</div>
+    <div id="milesContent"></div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ STREAKS ══ -->
+  <div class="section" id="sec-streaks" style="--section-color:var(--c-streaks)">
+    <div class="section-label">Consecutive Streaks</div>
+    <div class="thresh-selector" id="streakThreshSel"></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Longest Streaks — All Time Top 10</div>
+        <div id="streakTopList"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Longest Streak by Decade</div>
+        <div class="chart-wrap"><canvas id="streakDecadeBar"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ PRECIP ══ -->
+  <div class="section" id="sec-precip" style="--section-color:var(--c-precip)">
+    <div class="section-label">Precipitation & Snow</div>
+    <div class="stat-grid" id="precipStats"></div>
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-title">Mean Monthly Precipitation (in)</div>
+        <div class="chart-wrap"><canvas id="precipMonthBar"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Annual Total Precipitation</div>
+        <div class="chart-wrap"><canvas id="precipYearLine"></canvas></div>
+      </div>
+    </div>
+    <div class="grid-2" style="margin-bottom:20px">
+      <div class="card">
+        <div class="card-title">Mean Monthly Snowfall (in)</div>
+        <div class="chart-wrap"><canvas id="snowMonthBar"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Snowfall by Season (Jul–Jun)</div>
+        <div class="chart-wrap"><canvas id="snowYearLine"></canvas></div>
+      </div>
+    </div>
+    <div class="card card-full">
+      <div class="card-title">Mean Snow Depth by Month (in)</div>
+      <div class="chart-wrap"><canvas id="snowDepthBar"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════ RECORDS ══ -->
+  <div class="section" id="sec-records" style="--section-color:var(--c-records)">
+    <div class="section-label">Daily Records Browser</div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Select a Date</div>
+        <div class="month-selector" id="recMonthSel"></div>
+        <div id="recDaySel" class="day-selector-row" style="flex-wrap:wrap;gap:4px;margin-bottom:16px"></div>
+        <div id="recResult"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" id="recTableTitle">Monthly Record Highs</div>
+        <div id="recTableWrap"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Data: <a href="https://threadex.rcc-acis.org" target="_blank">NOAA ACIS ThreadEx</a> &nbsp;·&nbsp;
+  11 stations — NY Metro, Southern New England &nbsp;·&nbsp;
+  Records begin 1869 (Boston) through 1963 (Islip)
+</footer>
+
+<script>
+// ─────────────────────────────────────────────
+// STATION CONFIG
+// ─────────────────────────────────────────────
+const STATIONS = [
+  { id:'KISP',    label:'Islip, NY',        short:'ISP', state:'NY' },
+  { id:'KLGA',    label:'LaGuardia, NY',    short:'LGA', state:'NY' },
+  { id:'KJFK',    label:'JFK, NY',          short:'JFK', state:'NY' },
+  { id:'94728 6', label:'Central Park, NY', short:'NYC', state:'NY' },
+  { id:'KEWR',    label:'Newark, NJ',       short:'EWR', state:'NJ' },
+  { id:'KBDR',    label:'Bridgeport, CT',   short:'BDR', state:'CT' },
+  { id:'KTTN',    label:'Trenton, NJ',      short:'TTN', state:'NJ' },
+  { id:'KPHL',    label:'Philadelphia, PA', short:'PHL', state:'PA' },
+  { id:'KDCA',    label:'Washington, DC',   short:'DCA', state:'DC' },
+  { id:'KPVD',    label:'Providence, RI',   short:'PVD', state:'RI' },
+  { id:'KBOS',    label:'Boston, MA',       short:'BOS', state:'MA' },
+];
+
+const dataCache = {}; // keyed by station id
+let activeStation = STATIONS[0];
+
+// ─────────────────────────────────────────────
+// GLOBALS
+// ─────────────────────────────────────────────
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS_IN_MONTH = [31,28,31,30,31,30,31,31,30,31,30,31];
+
+let parsed = [];
+let byMonth = [];
+let byYear  = {};
+let calRec  = {}; // "M-D" -> {highs:[], lows:[]}
+let mode    = 'high'; // 'high' | 'low'
+let charts  = {};
+
+const TAB_COLORS = {
+  dist:'#3d8ae8', thresh:'#7f77dd', decadal:'#c98320',
+  miles:'#d85a30', streaks:'#1d9e75', precip:'#37a5c4', records:'#b8527a'
+};
+
+const C = {
+  grid:  'rgba(255,255,255,0.04)',
+  text2: '#7a9bb8',
+};
+
+// ─────────────────────────────────────────────
+// CHART.JS DEFAULTS
+// ─────────────────────────────────────────────
+Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+Chart.defaults.font.size   = 11;
+Chart.defaults.color       = C.text2;
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.plugins.tooltip.backgroundColor = '#0d1826';
+Chart.defaults.plugins.tooltip.borderColor = '#1a2d42';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.titleColor = '#d6e4f0';
+Chart.defaults.plugins.tooltip.bodyColor  = '#7a9bb8';
+Chart.defaults.plugins.tooltip.padding    = 10;
+
+function gridOpts() {
+  return { color: C.grid, drawBorder: false, drawTicks: false };
+}
+function scaleOpts(extra={}) {
+  return { border:{display:false}, grid: gridOpts(), ticks:{ padding:6, ...extra } };
+}
+
+// ─────────────────────────────────────────────
+// FETCH & PARSE
+// ─────────────────────────────────────────────
+async function fetchData(stationId) {
+  setStatus('loading');
+  try {
+    const params = {
+      sid: stationId,
+      sdate: 'por',
+      edate: 'por',
+      elems: [
+        { name: 'maxt' },
+        { name: 'mint' },
+        { name: 'pcpn' },
+        { name: 'snow' },
+        { name: 'snwd' }
+      ]
+    };
+    const res = await fetch('https://data.rcc-acis.org/StnData', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params)
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const json = await res.json();
+    if (json.error) throw new Error(json.error);
+    dataCache[stationId] = buildData(json.data);
+    applyCache(stationId);
+    setStatus('ok', `Live — through ${parsed[parsed.length-1]?.date}`);
+    initSections();
+  } catch(e) {
+    setStatus('error', 'Failed to load — ' + activeStation.label);
+    console.error(e);
+  }
+}
+
+function applyCache(stationId) {
+  const c = dataCache[stationId];
+  parsed  = c.parsed;
+  byMonth = c.byMonth;
+  byYear  = c.byYear;
+  calRec  = c.calRec;
+}
+
+async function selectStation(station) {
+  if (activeStation.id === station.id && parsed.length) return;
+  activeStation = station;
+
+  // Update subtitle
+  document.getElementById('stationSubtitle').textContent =
+    `${station.label} · ${station.short} · ACIS ThreadEx`;
+
+  // Update pill active state
+  document.querySelectorAll('.stn-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.id === station.id));
+
+  // Clear all rendered flags so every section redraws for new station
+  Object.keys(rendered).forEach(k => { rendered[k] = false; });
+
+  if (dataCache[station.id]) {
+    applyCache(station.id);
+    setStatus('ok', `Live — through ${parsed[parsed.length-1]?.date}`);
+    renderSection(activeTab);
+  } else {
+    setStatus('loading');
+    // Show inline spinner in the active section while fetching
+    const sec = document.getElementById('sec-' + activeTab);
+    if (sec) {
+      const existing = sec.querySelector('.section-loading');
+      if (!existing) {
+        const loader = document.createElement('div');
+        loader.className = 'section-loading';
+        loader.innerHTML = '<div class="spinner"></div><div>Loading ' + station.label + '…</div>';
+        sec.prepend(loader);
+      }
+    }
+    await fetchData(station.id);
+    // Remove any inline spinner
+    document.querySelectorAll('.section-loading').forEach(el => el.remove());
+  }
+}
+
+function buildStationSelector() {
+  const el = document.getElementById('stationSelector');
+  el.innerHTML = '';
+  STATIONS.forEach(stn => {
+    const btn = document.createElement('button');
+    btn.className = 'stn-btn' + (stn.id === activeStation.id ? ' active' : '');
+    btn.dataset.id = stn.id;
+    btn.textContent = stn.short + ' · ' + stn.state;
+    btn.title = stn.label;
+    btn.onclick = () => selectStation(stn);
+    el.appendChild(btn);
+  });
+}
+
+function parseVal(v, isTemp=false) {
+  if (!v || v === 'M' || v === '') return null;
+  if (v === 'T') return 0.001;
+  const n = isTemp ? parseInt(v) : parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function buildData(raw) {
+  const p  = [];
+  const bm = Array(12).fill(null).map(()=>[]);
+  const by = {};
+  const cr = {};
+
+  for (const row of raw) {
+    const [dateStr, maxtR, mintR, pcpnR, snowR, snwdR] = row;
+    const parts = dateStr.split('-');
+    const year  = +parts[0], month = +parts[1]-1, day = +parts[2];
+    const maxt  = parseVal(maxtR, true);
+    const mint  = parseVal(mintR, true);
+    const pcpn  = parseVal(pcpnR);
+    const snow  = parseVal(snowR);
+    const snwd  = parseVal(snwdR);
+    const d     = { date:dateStr, year, month, day, maxt, mint, pcpn, snow, snwd };
+    p.push(d);
+    bm[month].push(d);
+    if (!by[year]) by[year] = [];
+    by[year].push(d);
+    const key = `${month}-${day}`;
+    if (!cr[key]) cr[key] = { highs:[], lows:[] };
+    if (maxt !== null) cr[key].highs.push({ val:maxt, year });
+    if (mint !== null) cr[key].lows.push({ val:mint, year });
+  }
+  return { parsed:p, byMonth:bm, byYear:by, calRec:cr };
+}
+
+// ─────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────
+function setStatus(state, msg='') {
+  const el = document.getElementById('dataStatus');
+  el.className = 'live-badge ' + state;
+  el.textContent = state === 'loading' ? 'Loading data…' : state === 'error' ? '⚠ ' + msg : '● ' + msg;
+}
+
+function pct(arr, p) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const i = (p/100)*(s.length-1);
+  const lo = Math.floor(i), hi = Math.ceil(i);
+  return lo===hi ? s[lo] : s[lo] + (s[hi]-s[lo])*(i-lo);
+}
+
+function doyToDate(doy) {
+  // approximate, no leap
+  let m=0, d=Math.round(doy);
+  while(m<11 && d>DAYS_IN_MONTH[m]) { d-=DAYS_IN_MONTH[m]; m++; }
+  return `${MONTHS[m]} ${d}`;
+}
+
+function dateToDoy(month, day) {
+  let doy = day;
+  for(let m=0;m<month;m++) doy+=DAYS_IN_MONTH[m];
+  return doy;
+}
+
+function destroyChart(id) {
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+}
+
+function makeMonthSel(containerId, activeIdx, callback, color) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  MONTHS.forEach((m,i)=>{
+    const btn = document.createElement('button');
+    btn.className = 'month-btn' + (i===activeIdx?' active':'');
+    btn.textContent = m;
+    btn.onclick = () => {
+      el.querySelectorAll('.month-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      callback(i);
+    };
+    el.appendChild(btn);
+  });
+}
+
+// ─────────────────────────────────────────────
+// TAB & MODE
+// ─────────────────────────────────────────────
+let activeTab = 'dist';
+const rendered = {};
+
+function showTab(id, btn) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  btn.classList.add('active');
+  activeTab = id;
+  if (parsed.length && !rendered[id]) renderSection(id);
+}
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnHighs').classList.toggle('active', m==='high');
+  document.getElementById('btnLows').classList.toggle('active', m==='low');
+  // re-render mode-sensitive tabs
+  ['dist','thresh','decadal'].forEach(id => {
+    if (rendered[id]) { rendered[id]=false; }
+  });
+  if (['dist','thresh','decadal'].includes(activeTab)) renderSection(activeTab);
+}
+
+function initSections() {
+  buildStationSelector();
+  document.getElementById('stationSubtitle').textContent =
+    `${activeStation.label} · ${activeStation.short} · ACIS ThreadEx`;
+  renderSection('dist');
+}
+
+function renderSection(id) {
+  rendered[id] = true;
+  const fn = { dist:renderDist, thresh:renderThresh, decadal:renderDecadal,
+                miles:renderMiles, streaks:renderStreaks, precip:renderPrecip,
+                records:renderRecords }[id];
+  if (fn) fn();
+}
+
+// ─────────────────────────────────────────────
+// 1. DISTRIBUTION
+// ─────────────────────────────────────────────
+let distMonth = 0;
+
+function renderDist() {
+  makeMonthSel('distMonthSel', distMonth, (i)=>{ distMonth=i; drawDist(); }, TAB_COLORS.dist);
+  drawDist();
+}
+
+function drawDist() {
+  const field = mode==='high' ? 'maxt' : 'mint';
+  const data  = byMonth[distMonth].map(d=>d[field]).filter(v=>v!==null);
+
+  // 5° bins from 0 to 105
+  const bins  = [];
+  const labels = [];
+  for(let t=0; t<=100; t+=5) {
+    labels.push(t+'°');
+    bins.push(data.filter(v=>v>=t && v<t+5).length);
+  }
+  const total = data.length || 1;
+  const pcts  = bins.map(b=>(b/total*100).toFixed(1));
+
+  // color by temp
+  const colors = labels.map((_,i)=>{
+    const t = i*5;
+    if(t<20) return '#5a9fe8';
+    if(t<32) return '#7ab8f5';
+    if(t<40) return '#a0caf5';
+    if(t<50) return '#c8def5';
+    if(t<60) return '#d4eac8';
+    if(t<70) return '#e8d878';
+    if(t<80) return '#f0aa50';
+    if(t<90) return '#e86030';
+    return '#c82010';
+  });
+
+  destroyChart('distBar');
+  charts['distBar'] = new Chart(document.getElementById('distBar'), {
+    type: 'bar',
+    data: { labels, datasets: [{ data: pcts, backgroundColor: colors, borderRadius: 3, borderSkipped: false }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: { tooltip: { callbacks: { label: ctx => ` ${ctx.raw}%` } } },
+      scales: {
+        x: { ...scaleOpts(), grid:{display:false} },
+        y: { ...scaleOpts(), ticks:{ callback: v=>v+'%', padding:6 } }
+      }
+    }
+  });
+
+  // donut — 10° bins
+  const dBins = [], dLabels = [], dColors = [];
+  const palette10 = ['#5a9fe8','#a0caf5','#c8def5','#d4eac8','#e8d878','#f0aa50','#e86030','#c82010'];
+  for(let t=0; t<80; t+=10) {
+    const cnt = data.filter(v=>v>=t && v<t+10).length;
+    if(cnt>0) {
+      dBins.push((cnt/total*100).toFixed(1));
+      dLabels.push(t+'s: '+(cnt/total*100).toFixed(1)+'%');
+      dColors.push(palette10[t/10]);
+    }
+  }
+
+  destroyChart('distDonut');
+  charts['distDonut'] = new Chart(document.getElementById('distDonut'), {
+    type: 'doughnut',
+    data: { labels: dLabels, datasets: [{ data: dBins, backgroundColor: dColors, borderWidth: 0, hoverOffset: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      cutout: '60%',
+      plugins: { legend:{display:false}, tooltip:{ callbacks:{ label: ctx=> ' '+ctx.label } } }
+    }
+  });
+  document.getElementById('distDonutLegend').innerHTML = dLabels.map((l,i)=>
+    `<span style="color:${dColors[i]}">■</span> ${l}`
+  ).join('<br>');
+}
+
+// ─────────────────────────────────────────────
+// 2. THRESHOLD PROBABILITIES
+// ─────────────────────────────────────────────
+const HIGH_THRESHS = [60,70,80,90,95];
+const LOW_THRESHS  = [32,28,20,10,0];
+let threshIdx = 2; // default 80°F high / 32°F low
+
+function renderThresh() {
+  buildThreshSel();
+  drawThresh();
+}
+
+function buildThreshSel() {
+  const sel  = document.getElementById('threshSel');
+  const list = mode==='high' ? HIGH_THRESHS : LOW_THRESHS;
+  sel.innerHTML = '';
+  list.forEach((t,i)=>{
+    const btn = document.createElement('button');
+    btn.className = 'thresh-btn'+(i===threshIdx?' active':'');
+    btn.textContent = t+'°F';
+    btn.onclick = ()=>{
+      threshIdx=i;
+      sel.querySelectorAll('.thresh-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      drawThresh();
+    };
+    sel.appendChild(btn);
+  });
+}
+
+function drawThresh() {
+  const list  = mode==='high' ? HIGH_THRESHS : LOW_THRESHS;
+  const t     = list[threshIdx];
+  const field = mode==='high' ? 'maxt' : 'mint';
+  const op    = mode==='high' ? (v,t)=>v>=t : (v,t)=>v<=t;
+  const dir   = mode==='high' ? '≥' : '≤';
+
+  const monthPcts = MONTHS.map((_,m)=>{
+    const vals = byMonth[m].map(d=>d[field]).filter(v=>v!==null);
+    if(!vals.length) return 0;
+    return +(vals.filter(v=>op(v,t)).length / vals.length * 100).toFixed(1);
+  });
+
+  document.getElementById('threshChartTitle').textContent =
+    `% of Days ${dir} ${t}°F — by Month`;
+
+  const col = TAB_COLORS.thresh;
+  destroyChart('threshLine');
+  charts['threshLine'] = new Chart(document.getElementById('threshLine'),{
+    type:'bar',
+    data:{
+      labels:MONTHS,
+      datasets:[{
+        data:monthPcts,
+        backgroundColor: col+'99',
+        borderColor: col,
+        borderWidth: 1,
+        borderRadius: 3
+      }]
+    },
+    options:{
+      responsive:true,
+      plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}%` } } },
+      scales:{
+        x:{ ...scaleOpts(), grid:{display:false} },
+        y:{ ...scaleOpts(), ticks:{ callback:v=>v+'%', padding:6 }, min:0, max:100 }
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// 3. DECADAL SHIFTS
+// ─────────────────────────────────────────────
+const PERIODS = [
+  { label:'1971–2000', start:1971, end:2000, color:'#5a9fe8' },
+  { label:'1981–2010', start:1981, end:2010, color:'#7ab8c8' },
+  { label:'1991–2020', start:1991, end:2020, color:'#c98320', bold:true },
+];
+
+function renderDecadal() {
+  drawDecadalLine();
+  drawAnnualLine();
+  drawNormalsTable();
+}
+
+function monthMean(m, start, end, field) {
+  const vals = byMonth[m]
+    .filter(d=>d.year>=start && d.year<=end && d[field]!==null)
+    .map(d=>d[field]);
+  if(!vals.length) return null;
+  return vals.reduce((a,b)=>a+b,0)/vals.length;
+}
+
+function drawDecadalLine() {
+  const field = mode==='high' ? 'maxt' : 'mint';
+  const datasets = PERIODS.map(p=>({
+    label: p.label,
+    data: MONTHS.map((_,m)=>{ const v=monthMean(m,p.start,p.end,field); return v?+v.toFixed(1):null; }),
+    borderColor: p.color,
+    backgroundColor: 'transparent',
+    borderWidth: p.bold ? 2.5 : 1.5,
+    borderDash: p.bold ? [] : [4,3],
+    pointRadius: 4,
+    pointBackgroundColor: p.color,
+    tension: 0.4
+  }));
+
+  destroyChart('decadalLine');
+  charts['decadalLine'] = new Chart(document.getElementById('decadalLine'),{
+    type:'line',
+    data:{ labels:MONTHS, datasets },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{ display:true, labels:{ color:C.text2, boxWidth:20, font:{size:11} } },
+        tooltip:{ callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.raw}°F` } }
+      },
+      scales:{
+        x:{ ...scaleOpts() },
+        y:{ ...scaleOpts(), ticks:{ callback:v=>v+'°F', padding:6 } }
+      }
+    }
+  });
+}
+
+function drawAnnualLine() {
+  const field = mode==='high' ? 'maxt' : 'mint';
+  const allYears = Object.keys(byYear).map(Number).sort((a,b)=>a-b);
+
+  // Exclude the current in-progress year if it has fewer than 330 days of data,
+  // since a partial year (e.g. Jan–Apr only) skews the annual mean significantly.
+  const years = allYears.filter(yr => {
+    const count = byYear[yr].filter(d=>d[field]!==null).length;
+    return count >= 330;
+  });
+
+  const annMeans = years.map(yr=>{
+    const vals = byYear[yr].map(d=>d[field]).filter(v=>v!==null);
+    return vals.length ? +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2) : null;
+  });
+
+  // 9-year centred rolling mean
+  const smooth = annMeans.map((_,i)=>{
+    const window = annMeans.slice(Math.max(0,i-4), i+5).filter(v=>v!==null);
+    return window.length ? +(window.reduce((a,b)=>a+b,0)/window.length).toFixed(2) : null;
+  });
+
+  destroyChart('annualLine');
+  charts['annualLine'] = new Chart(document.getElementById('annualLine'),{
+    type:'line',
+    data:{
+      labels:years,
+      datasets:[
+        { label:'Annual mean', data:annMeans, borderColor:'#3d8ae840', borderWidth:1, pointRadius:0, tension:0.2, fill:false },
+        { label:'9-yr smooth', data:smooth, borderColor:'#c98320', borderWidth:2, pointRadius:0, tension:0.4, fill:false }
+      ]
+    },
+    options:{
+      responsive:true,
+      maintainAspectRatio: false,
+      plugins:{
+        legend:{ display:true, labels:{ color:C.text2, boxWidth:20, font:{size:11} } },
+        tooltip:{ callbacks:{ label:ctx=>`${ctx.dataset.label}: ${ctx.raw}°F` } }
+      },
+      scales:{
+        x:{ ...scaleOpts(), ticks:{ maxTicksLimit:10, padding:6 } },
+        y:{ ...scaleOpts(), ticks:{ callback:v=>v+'°F', padding:6 } }
+      }
+    }
+  });
+}
+
+function drawNormalsTable() {
+  const field = mode==='high' ? 'maxt' : 'mint';
+  const allPeriods = [
+    { label:'1963–1992', start:1963, end:1992 },
+    ...PERIODS
+  ];
+  let html = '<table class="normals-table"><thead><tr><th>Period</th>';
+  MONTHS.forEach(m=>html+=`<th>${m}</th>`);
+  html += '</tr></thead><tbody>';
+  allPeriods.forEach((p,pi)=>{
+    html += `<tr${pi===allPeriods.length-1?' class="highlight"':''}>`;
+    html += `<td>${p.label}</td>`;
+    MONTHS.forEach((_,m)=>{
+      const v = monthMean(m, p.start, p.end, field);
+      html += `<td>${v ? v.toFixed(1) : '—'}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('normalsTableWrap').innerHTML = html;
+}
+
+// ─────────────────────────────────────────────
+// 4. MILESTONE DATES
+// ─────────────────────────────────────────────
+const MILESTONES_HIGH = [
+  { label:'First 70°F', field:'maxt', dir:'high', thresh:70 },
+  { label:'Last 70°F',  field:'maxt', dir:'last_high', thresh:70 },
+  { label:'First 80°F', field:'maxt', dir:'high', thresh:80 },
+  { label:'Last 80°F',  field:'maxt', dir:'last_high', thresh:80 },
+  { label:'First 90°F', field:'maxt', dir:'high', thresh:90 },
+];
+const MILESTONES_LOW = [
+  { label:'Last Spring Freeze (low<32)', field:'mint', dir:'last_low_spring', thresh:32 },
+  { label:'First Fall Freeze (low<32)',  field:'mint', dir:'first_fall', thresh:32 },
+  { label:'First Sub-20°F Night',        field:'mint', dir:'first_fall', thresh:20 },
+  { label:'Last Sub-20°F Night',         field:'mint', dir:'last_low_spring', thresh:20 },
+];
+
+function getMilestoneDoys(ms) {
+  const doys = [];
+  const years = Object.keys(byYear).map(Number).sort((a,b)=>a-b);
+  for(const yr of years) {
+    const days = byYear[yr];
+    let found = null;
+    if(ms.dir === 'high') {
+      const hit = days.find(d=>d[ms.field]!==null && d[ms.field]>=ms.thresh && d.month<=8);
+      if(hit) found = dateToDoy(hit.month, hit.day);
+    } else if(ms.dir === 'last_high') {
+      const hits = days.filter(d=>d[ms.field]!==null && d[ms.field]>=ms.thresh && d.month<=11);
+      if(hits.length) { const h=hits[hits.length-1]; found=dateToDoy(h.month,h.day); }
+    } else if(ms.dir === 'first_fall') {
+      const hit = days.find(d=>d[ms.field]!==null && d[ms.field]<=ms.thresh && d.month>=7);
+      if(hit) found = dateToDoy(hit.month, hit.day);
+    } else if(ms.dir === 'last_low_spring') {
+      const hits = days.filter(d=>d[ms.field]!==null && d[ms.field]<=ms.thresh && d.month<=5);
+      if(hits.length) { const h=hits[hits.length-1]; found=dateToDoy(h.month,h.day); }
+    }
+    if(found) doys.push(found);
+  }
+  return doys.sort((a,b)=>a-b);
+}
+
+function renderMiles() {
+  const col = TAB_COLORS.miles;
+  const milestones = [...MILESTONES_HIGH, ...MILESTONES_LOW];
+  let html = '';
+
+  // Group into High and Low
+  html += '<div class="milestone-group">';
+  html += '<div class="milestone-title">High Temperature Milestones</div>';
+  for(const ms of MILESTONES_HIGH) {
+    const doys = getMilestoneDoys(ms);
+    if(doys.length < 10) continue;
+    const min  = doys[0];
+    const p10  = pct(doys,10);
+    const p25  = pct(doys,25);
+    const med  = pct(doys,50);
+    const p75  = pct(doys,75);
+    const p90  = pct(doys,90);
+    const max  = doys[doys.length-1];
+    const scale = v => (v/365*100).toFixed(1)+'%';
+
+    html += '<div style="margin-bottom:18px">';
+    html += `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:6px">${ms.label}</div>`;
+    const rows = [
+      { name:'All-time earliest', doy:min, cls:'faint' },
+      { name:'10th pct',  doy:p10, cls:'faint' },
+      { name:'25th pct',  doy:p25, cls:'mid' },
+      { name:'Median',    doy:med, cls:'bold' },
+      { name:'75th pct',  doy:p75, cls:'mid' },
+      { name:'90th pct',  doy:p90, cls:'faint' },
+      { name:'All-time latest', doy:max, cls:'faint' },
+    ];
+    rows.forEach(r=>{
+      html += `<div class="milestone-row">
+        <div class="milestone-name">${r.name}</div>
+        <div class="milestone-track">
+          <div class="milestone-bar ${r.cls}" style="width:${scale(r.doy)};background:${col}"></div>
+        </div>
+        <div class="milestone-date">${doyToDate(r.doy)}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="milestone-group">';
+  html += '<div class="milestone-title">Low Temperature Milestones</div>';
+  const colL = '#5a9fe8';
+  for(const ms of MILESTONES_LOW) {
+    const doys = getMilestoneDoys(ms);
+    if(doys.length < 10) continue;
+    const min  = doys[0];
+    const p10  = pct(doys,10);
+    const p25  = pct(doys,25);
+    const med  = pct(doys,50);
+    const p75  = pct(doys,75);
+    const p90  = pct(doys,90);
+    const max  = doys[doys.length-1];
+    const scale = v => (v/365*100).toFixed(1)+'%';
+
+    html += '<div style="margin-bottom:18px">';
+    html += `<div style="font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:6px">${ms.label}</div>`;
+    const rows = [
+      { name:'All-time earliest', doy:min, cls:'faint' },
+      { name:'10th pct',  doy:p10, cls:'faint' },
+      { name:'25th pct',  doy:p25, cls:'mid' },
+      { name:'Median',    doy:med, cls:'bold' },
+      { name:'75th pct',  doy:p75, cls:'mid' },
+      { name:'90th pct',  doy:p90, cls:'faint' },
+      { name:'All-time latest', doy:max, cls:'faint' },
+    ];
+    rows.forEach(r=>{
+      html += `<div class="milestone-row">
+        <div class="milestone-name">${r.name}</div>
+        <div class="milestone-track">
+          <div class="milestone-bar ${r.cls}" style="width:${scale(r.doy)};background:${colL}"></div>
+        </div>
+        <div class="milestone-date">${doyToDate(r.doy)}</div>
+      </div>`;
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+
+  // Key facts
+  html += '<div class="milestone-title" style="margin-top:8px">Key Facts</div>';
+  const facts = computeKeyFacts();
+  html += '<div class="facts-grid">';
+  facts.forEach(f=>{
+    const col2 = f.low ? '#5a9fe8' : TAB_COLORS.miles;
+    html += `<div class="fact-card">
+      <div class="fact-date" style="color:${col2}">${f.date}</div>
+      <div class="fact-desc">${f.desc}</div>
+    </div>`;
+  });
+  html += '</div>';
+
+  document.getElementById('milesContent').innerHTML = html;
+}
+
+function computeKeyFacts() {
+  const facts = [];
+  // First 70°F
+  const f70 = getMilestoneDoys(MILESTONES_HIGH[0]);
+  if(f70.length) facts.push({ date:doyToDate(f70[0]), desc:'Earliest ever first 70°F' });
+  if(f70.length) facts.push({ date:doyToDate(f70[f70.length-1]), desc:'Latest ever first 70°F' });
+  // First 90°F
+  const f90 = getMilestoneDoys(MILESTONES_HIGH[4]);
+  if(f90.length) facts.push({ date:doyToDate(f90[0]), desc:'Earliest ever 90°F' });
+  if(f90.length) facts.push({ date:doyToDate(f90[f90.length-1]), desc:'Latest ever first 90°F' });
+  // Last freeze
+  const lfreeze = getMilestoneDoys(MILESTONES_LOW[0]);
+  if(lfreeze.length) facts.push({ date:doyToDate(lfreeze[0]), desc:'Earliest ever last spring freeze', low:true });
+  if(lfreeze.length) facts.push({ date:doyToDate(lfreeze[lfreeze.length-1]), desc:'Latest ever last spring freeze', low:true });
+  // First fall freeze
+  const ffreeze = getMilestoneDoys(MILESTONES_LOW[1]);
+  if(ffreeze.length) facts.push({ date:doyToDate(ffreeze[0]), desc:'Earliest ever fall freeze', low:true });
+  if(ffreeze.length) facts.push({ date:doyToDate(ffreeze[ffreeze.length-1]), desc:'Latest ever fall freeze', low:true });
+  return facts.slice(0,8);
+}
+
+// ─────────────────────────────────────────────
+// 5. STREAKS
+// ─────────────────────────────────────────────
+const STREAK_OPTS_HIGH = [
+  { label:'≥ 70°F highs', field:'maxt', dir:'high', thresh:70 },
+  { label:'≥ 80°F highs', field:'maxt', dir:'high', thresh:80 },
+  { label:'≥ 90°F highs', field:'maxt', dir:'high', thresh:90 },
+  { label:'≤ 32°F highs', field:'maxt', dir:'low',  thresh:32 },
+];
+const STREAK_OPTS_LOW = [
+  { label:'≤ 32°F lows', field:'mint', dir:'low', thresh:32 },
+  { label:'≤ 20°F lows', field:'mint', dir:'low', thresh:20 },
+  { label:'≥ 60°F lows', field:'mint', dir:'high', thresh:60 },
+  { label:'≥ 70°F lows', field:'mint', dir:'high', thresh:70 },
+];
+let streakIdx = 0;
+
+function renderStreaks() {
+  const opts = mode==='high' ? STREAK_OPTS_HIGH : STREAK_OPTS_LOW;
+  const sel = document.getElementById('streakThreshSel');
+  sel.innerHTML = '';
+  opts.forEach((o,i)=>{
+    const btn = document.createElement('button');
+    btn.className = 'thresh-btn'+(i===streakIdx?' active':'');
+    btn.textContent = o.label;
+    btn.onclick = ()=>{
+      streakIdx=i;
+      sel.querySelectorAll('.thresh-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      drawStreaks();
+    };
+    sel.appendChild(btn);
+  });
+  drawStreaks();
+}
+
+function computeStreaks(opt) {
+  const op = opt.dir==='high' ? (v,t)=>v>=t : (v,t)=>v<=t;
+  const streaks = [];
+  let curr = 0, start = null;
+  for(const d of parsed) {
+    const v = d[opt.field];
+    if(v!==null && op(v,opt.thresh)) {
+      if(curr===0) start=d;
+      curr++;
+    } else {
+      if(curr>0) streaks.push({ len:curr, from:start.date, year:start.year });
+      curr=0; start=null;
+    }
+  }
+  if(curr>0) streaks.push({ len:curr, from:start.date, year:start.year });
+  return streaks.sort((a,b)=>b.len-a.len);
+}
+
+function drawStreaks() {
+  const opts = mode==='high' ? STREAK_OPTS_HIGH : STREAK_OPTS_LOW;
+  const opt  = opts[streakIdx];
+  const streaks = computeStreaks(opt);
+  const top10 = streaks.slice(0,10);
+  const maxLen = top10[0]?.len || 1;
+  const col = TAB_COLORS.streaks;
+
+  // Top 10 list
+  let html = '<div class="streak-list">';
+  top10.forEach((s,i)=>{
+    html += `<div class="streak-item">
+      <div class="streak-label">${s.from.slice(0,10)} · ${s.year}</div>
+      <div class="streak-track"><div class="streak-fill" style="width:${(s.len/maxLen*100).toFixed(0)}%;background:${col}"></div></div>
+      <div class="streak-count">${s.len} days</div>
+    </div>`;
+  });
+  html += '</div>';
+  document.getElementById('streakTopList').innerHTML = html;
+
+  // Longest by decade
+  const decades = {};
+  streaks.forEach(s=>{
+    const dec = Math.floor(s.year/10)*10;
+    if(!decades[dec] || s.len>decades[dec]) decades[dec]=s.len;
+  });
+  const decLabels = Object.keys(decades).sort().map(d=>d+'s');
+  const decVals   = Object.keys(decades).sort().map(d=>decades[d]);
+
+  destroyChart('streakDecadeBar');
+  charts['streakDecadeBar'] = new Chart(document.getElementById('streakDecadeBar'),{
+    type:'bar',
+    data:{
+      labels:decLabels,
+      datasets:[{ data:decVals, backgroundColor:col+'99', borderColor:col, borderWidth:1, borderRadius:3 }]
+    },
+    options:{
+      responsive:true,
+      plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw} days` } } },
+      scales:{
+        x:{ ...scaleOpts(), grid:{display:false} },
+        y:{ ...scaleOpts(), ticks:{ padding:6 } }
+      }
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+// 6. PRECIP & SNOW
+// ─────────────────────────────────────────────
+
+// Snow season runs Jul 1 – Jun 30. A day in Jul–Dec belongs to the season
+// starting that calendar year; Jan–Jun belongs to the season starting the prior year.
+function snowSeasonStart(year, month) {
+  return month >= 6 ? year : year - 1;
+}
+function snowSeasonLabel(startYear) {
+  return `${startYear}–${String(startYear + 1).slice(2)}`;
+}
+
+function buildSnowSeasons() {
+  const seasons = {};
+  parsed.forEach(d => {
+    if (d.snow === null) return;
+    const key = snowSeasonStart(d.year, d.month);
+    if (!seasons[key]) seasons[key] = 0;
+    seasons[key] += d.snow;
+  });
+  const keys   = Object.keys(seasons).map(Number).sort((a, b) => a - b);
+  const labels = keys.map(snowSeasonLabel);
+  const vals   = keys.map(k => +seasons[k].toFixed(1));
+  return { keys, labels, vals };
+}
+
+function renderPrecip() {
+  // Stats
+  const allPcpn = parsed.filter(d=>d.pcpn!==null).map(d=>d.pcpn);
+  const annPcpn = Object.values(byYear).map(days=>{
+    const vals=days.filter(d=>d.pcpn!==null).map(d=>d.pcpn);
+    return vals.reduce((a,b)=>a+b,0);
+  }).filter(v=>v>0);
+  const snowSeasonsData = buildSnowSeasons();
+  const seasonVals  = snowSeasonsData.vals.filter(v => v > 0);
+  const maxSnowIdx  = snowSeasonsData.vals.indexOf(Math.max(...snowSeasonsData.vals));
+  const minSnowIdx  = snowSeasonsData.vals.filter(v=>v>0).length ?
+    snowSeasonsData.vals.indexOf(Math.min(...snowSeasonsData.vals.filter(v=>v>0))) : -1;
+
+  const wetDay  = [...parsed].filter(d=>d.pcpn!==null && d.pcpn>0).sort((a,b)=>b.pcpn-a.pcpn)[0];
+  const snowDay = [...parsed].filter(d=>d.snow!==null && d.snow>0).sort((a,b)=>b.snow-a.snow)[0];
+
+  const avgSeasonSnow = seasonVals.length ? (seasonVals.reduce((a,b)=>a+b,0)/seasonVals.length).toFixed(1) : '—';
+  const snowiest = maxSnowIdx >= 0 ? snowSeasonsData.vals[maxSnowIdx].toFixed(1)+'" · '+snowSeasonsData.labels[maxSnowIdx] : '—';
+
+  document.getElementById('precipStats').innerHTML = `
+    <div class="stat-card"><div class="stat-label">Avg Annual Precip</div><div class="stat-val">${(annPcpn.reduce((a,b)=>a+b,0)/annPcpn.length).toFixed(1)}"</div></div>
+    <div class="stat-card"><div class="stat-label">Wettest Year</div><div class="stat-val">${annPcpn.length?Math.max(...annPcpn).toFixed(1)+'"':'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">Driest Year</div><div class="stat-val">${annPcpn.length?Math.min(...annPcpn).toFixed(1)+'"':'—'}</div></div>
+    <div class="stat-card"><div class="stat-label">Wettest Day</div><div class="stat-val">${wetDay?wetDay.pcpn.toFixed(2)+'"':'—'}</div><div class="stat-sub">${wetDay?wetDay.date:''}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg Season Snow</div><div class="stat-val">${avgSeasonSnow}"</div></div>
+    <div class="stat-card"><div class="stat-label">Snowiest Season</div><div class="stat-val" style="font-size:14px">${snowiest}</div></div>
+    <div class="stat-card"><div class="stat-label">Most Snow — 1 Day</div><div class="stat-val">${snowDay?snowDay.snow.toFixed(1)+'"':'—'}</div><div class="stat-sub">${snowDay?snowDay.date:''}</div></div>
+  `;
+
+  // Monthly mean precip
+  const monthPcpn = MONTHS.map((_,m)=>{
+    const vals=byMonth[m].filter(d=>d.pcpn!==null).map(d=>d.pcpn);
+    if(!vals.length) return 0;
+    const years=new Set(byMonth[m].map(d=>d.year)).size;
+    return +(vals.reduce((a,b)=>a+b,0)/years).toFixed(2);
+  });
+  const colP = TAB_COLORS.precip;
+  destroyChart('precipMonthBar');
+  charts['precipMonthBar']=new Chart(document.getElementById('precipMonthBar'),{
+    type:'bar',
+    data:{ labels:MONTHS, datasets:[{ data:monthPcpn, backgroundColor:colP+'99', borderColor:colP, borderWidth:1, borderRadius:3 }] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}"` } } }, scales:{ x:{ ...scaleOpts(), grid:{display:false} }, y:{ ...scaleOpts(), ticks:{ callback:v=>v+'"', padding:6 } } } }
+  });
+
+  // Annual precip
+  const years  = Object.keys(byYear).map(Number).sort((a,b)=>a-b);
+  const yrPcpn = years.map(yr=>{
+    const vals=byYear[yr].filter(d=>d.pcpn!==null).map(d=>d.pcpn);
+    return +(vals.reduce((a,b)=>a+b,0)).toFixed(2);
+  });
+  destroyChart('precipYearLine');
+  charts['precipYearLine']=new Chart(document.getElementById('precipYearLine'),{
+    type:'bar',
+    data:{ labels:years, datasets:[{ data:yrPcpn, backgroundColor:colP+'60', borderColor:colP, borderWidth:1, borderRadius:2 }] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}"` } } }, scales:{ x:{ ...scaleOpts(), ticks:{ maxTicksLimit:10, padding:6 } }, y:{ ...scaleOpts(), ticks:{ callback:v=>v+'"', padding:6 } } } }
+  });
+
+  // Monthly mean snowfall
+  const monthSnow = MONTHS.map((_,m)=>{
+    const vals=byMonth[m].filter(d=>d.snow!==null).map(d=>d.snow);
+    if(!vals.length) return 0;
+    const yrs=new Set(byMonth[m].map(d=>d.year)).size;
+    return +(vals.reduce((a,b)=>a+b,0)/yrs).toFixed(1);
+  });
+  const colS='#a0c8e8';
+  destroyChart('snowMonthBar');
+  charts['snowMonthBar']=new Chart(document.getElementById('snowMonthBar'),{
+    type:'bar',
+    data:{ labels:MONTHS, datasets:[{ data:monthSnow, backgroundColor:colS+'99', borderColor:colS, borderWidth:1, borderRadius:3 }] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}"` } } }, scales:{ x:{ ...scaleOpts(), grid:{display:false} }, y:{ ...scaleOpts(), ticks:{ callback:v=>v+'"', padding:6 } } } }
+  });
+
+  // Seasonal snowfall (Jul–Jun)
+  destroyChart('snowYearLine');
+  charts['snowYearLine']=new Chart(document.getElementById('snowYearLine'),{
+    type:'bar',
+    data:{ labels:snowSeasonsData.labels, datasets:[{ data:snowSeasonsData.vals, backgroundColor:colS+'60', borderColor:colS, borderWidth:1, borderRadius:2 }] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}"` } } }, scales:{ x:{ ...scaleOpts(), ticks:{ maxTicksLimit:12, padding:6 } }, y:{ ...scaleOpts(), ticks:{ callback:v=>v+'"', padding:6 } } } }
+  });
+
+  // Snow depth by month
+  const monthSnwd = MONTHS.map((_,m)=>{
+    const vals=byMonth[m].filter(d=>d.snwd!==null && d.snwd>0).map(d=>d.snwd);
+    if(!vals.length) return 0;
+    return +(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1);
+  });
+  destroyChart('snowDepthBar');
+  charts['snowDepthBar']=new Chart(document.getElementById('snowDepthBar'),{
+    type:'bar',
+    data:{ labels:MONTHS, datasets:[{ data:monthSnwd, backgroundColor:'#c8e0f0aa', borderColor:'#c8e0f0', borderWidth:1, borderRadius:3 }] },
+    options:{ responsive:true, plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.raw}"` } } }, scales:{ x:{ ...scaleOpts(), grid:{display:false} }, y:{ ...scaleOpts(), ticks:{ callback:v=>v+'"', padding:6 } } } }
+  });
+}
+
+// ─────────────────────────────────────────────
+// 7. RECORDS BROWSER
+// ─────────────────────────────────────────────
+let recMonth = 0;
+let recDay   = 1;
+
+function renderRecords() {
+  makeMonthSel('recMonthSel', recMonth, (m)=>{ recMonth=m; recDay=1; buildDaySel(); drawRecord(); drawRecordTable(); }, TAB_COLORS.records);
+  buildDaySel();
+  drawRecord();
+  drawRecordTable();
+}
+
+function buildDaySel() {
+  const el = document.getElementById('recDaySel');
+  el.innerHTML = '';
+  const days = DAYS_IN_MONTH[recMonth];
+  for(let d=1; d<=days; d++){
+    const btn = document.createElement('button');
+    btn.className = 'day-btn'+(d===recDay?' active':'');
+    btn.textContent = d;
+    const dd=d;
+    btn.onclick = ()=>{
+      recDay=dd;
+      el.querySelectorAll('.day-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      drawRecord();
+    };
+    el.appendChild(btn);
+  }
+}
+
+function drawRecord() {
+  const key = `${recMonth}-${recDay}`;
+  const rec  = calRec[key];
+  const el   = document.getElementById('recResult');
+  if(!rec || (!rec.highs.length && !rec.lows.length)) {
+    el.innerHTML = '<div style="color:var(--text2);font-size:12px">No data for this date.</div>';
+    return;
+  }
+  const sortH = [...rec.highs].sort((a,b)=>b.val-a.val);
+  const sortL = [...rec.lows].sort((a,b)=>a.val-b.val);
+  const recHigh = sortH[0];
+  const recLow  = sortL[0];
+  const avgH    = rec.highs.reduce((a,b)=>a+b.val,0)/rec.highs.length;
+  const avgL    = rec.lows.reduce((a,b)=>a+b.val,0)/rec.lows.length;
+
+  el.innerHTML = `
+    <div style="font-family:var(--mono);font-size:12px;color:var(--text2);margin-bottom:12px">
+      ${MONTHS_FULL[recMonth]} ${recDay} · ${rec.highs.length} years of data
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="stat-card">
+        <div class="stat-label">Record High</div>
+        <div class="stat-val rec-high">${recHigh?recHigh.val+'°F':'—'}</div>
+        <div class="stat-sub">${recHigh?recHigh.year:''}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Record Low</div>
+        <div class="stat-val rec-low">${recLow?recLow.val+'°F':'—'}</div>
+        <div class="stat-sub">${recLow?recLow.year:''}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg High</div>
+        <div class="stat-val" style="font-size:18px">${avgH.toFixed(1)}°F</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg Low</div>
+        <div class="stat-val" style="font-size:18px">${avgL.toFixed(1)}°F</div>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);margin-bottom:8px">Top 5 Warmest</div>
+      ${sortH.slice(0,5).map(r=>`<div style="font-family:var(--mono);font-size:11px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${r.year}</span><span class="rec-high">${r.val}°F</span></div>`).join('')}
+    </div>
+    <div style="margin-top:14px">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);margin-bottom:8px">Top 5 Coldest</div>
+      ${sortL.slice(0,5).map(r=>`<div style="font-family:var(--mono);font-size:11px;display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${r.year}</span><span class="rec-low">${r.val}°F</span></div>`).join('')}
+    </div>
+  `;
+}
+
+function drawRecordTable() {
+  document.getElementById('recTableTitle').textContent =
+    `${MONTHS_FULL[recMonth]} — Daily Record Highs & Lows`;
+
+  const days = DAYS_IN_MONTH[recMonth];
+  let html = `<table class="records-table">
+    <thead><tr><th>Day</th><th>Rec High</th><th>Year</th><th>Rec Low</th><th>Year</th></tr></thead>
+    <tbody>`;
+  for(let d=1; d<=days; d++){
+    const key = `${recMonth}-${d}`;
+    const rec = calRec[key];
+    if(!rec) { html+=`<tr><td>${d}</td><td colspan="4" style="color:var(--text3)">—</td></tr>`; continue; }
+    const rH = [...rec.highs].sort((a,b)=>b.val-a.val)[0];
+    const rL = [...rec.lows].sort((a,b)=>a.val-b.val)[0];
+    html += `<tr${d===recDay?' style="background:var(--surface2)"':''}>
+      <td>${MONTHS[recMonth]} ${d}</td>
+      <td class="rec-high">${rH?rH.val+'°F':'—'}</td>
+      <td style="color:var(--text2)">${rH?rH.year:'—'}</td>
+      <td class="rec-low">${rL?rL.val+'°F':'—'}</td>
+      <td style="color:var(--text2)">${rL?rL.year:'—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('recTableWrap').innerHTML = html;
+}
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+fetchData(activeStation.id);
+</script>
+</body>
+</html>
