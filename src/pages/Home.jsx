@@ -30,9 +30,9 @@ const SECTIONS = [
         thumb:      '/annualthumbnail.png',
       },
       {
-       tags:       ['CLIMATE', 'DASHBOARD'],
+       tags:       ['Normals', 'Records', 'Updates Daily'],
   title:      'NORTHEAST CLIMATE DASHBOARD',
-  description:'...your updated text...',
+  description:'Daily, monthly and yearly climate data and trends',
   footerTags: ['11 Stations', 'Temp', 'Precip', 'Snow'],
   to:         '/northeast-climate',
         accentVar:  '--accent-climate',
