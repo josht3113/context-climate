@@ -27,7 +27,7 @@ export default function App() {
           <Route path="/monthly" element={<HourlyData />} />
           <Route path="/annual" element={<Climate />} />
           <Route path="/enso"    element={<ENSO />}      />
-          <Route path="/seasons" element={<Seasons />}   />
+          <Route path="/Seasons" element={<Seasons />}   />
           <Route path="/hurricanes" element={<Hurricanes />} />
           <Route path="/solar" element={<Solar />} />
           <Route path="/northeast-climate" element={<NortheastClimate />} />
