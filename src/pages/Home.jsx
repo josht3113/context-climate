@@ -40,12 +40,12 @@ const SECTIONS = [
       },
       {
         tags:       ['ANNUAL', 'TRENDS'],
-        title:      'Seasons Analysis',
+        title:      'Meteorological Seasons',
         description:'Meteorological season lengths at ISP tracked year by year. Expanding summers, shrinking shoulder seasons.',
         footerTags: ['1990–2025', 'Decadal Trends'],
         to:         '/seasons',
         accentVar:  '--accent-seasons',
-        thumb:      null,
+        thumb:      '/Seasons_thumbnail.png',
       },
       {
         tags:       ['DAILY', 'CLIMATOLOGY'],
