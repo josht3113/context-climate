@@ -43,7 +43,7 @@ const SECTIONS = [
         title:      'Meteorological Seasons',
         description:'Meteorological season lengths tracked year by year for various cities.',
         footerTags: ['Full climo records', 'Decadal Trends'],
-        to:         '/Seasons',
+        to:         '/seasons',
         accentVar:  '--accent-seasons',
         thumb:      '/Seasons_thumbnail.png',
       },
