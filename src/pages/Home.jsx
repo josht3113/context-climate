@@ -57,10 +57,10 @@ const SECTIONS = [
         thumb:      '/PrecipSnow_thumbnail.png',
       },
       {
-        tags:       ['Islip', 'Current Conditions'],
-        title:      'More Local Tools',
+        tags:       ['ISP Current', 'Updates Hourly'],
+        title:      'Islip Weather',
         description:'Additional Long Island and NY Metro climate visualizations currently in development.',
-        footerTags: ['Updates hourly'],
+        footerTags: ['ISP current conditions'],
         to:         '/isp-live',
         accentVar:  '--accent-hourly',
         thumb:      '/ISPlive_thumbnail.png',
