@@ -149,7 +149,7 @@ export default function Home() {
         <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
         <h1 className="page-title">Interactive Weather &amp; Climate Tools</h1>
         <p className="page-subtitle">
-          Putting weather in context.  
+          Created and maintained by Josh Timlin  
         </p>
       </section>
 
