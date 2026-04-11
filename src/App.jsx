@@ -2,7 +2,7 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
 import Home     from './pages/Home'
 import HourlyData from './pages/HourlyData'
-import Climate  from './pages/Climate'
+import Precipsnow  from './pages/precipsnow'
 import ENSO     from './pages/ENSO'
 import Seasons  from './pages/Seasons'
 import Hurricanes from './pages/Hurricanes'
@@ -31,6 +31,7 @@ export default function App() {
           <Route path="/hurricanes" element={<Hurricanes />} />
           <Route path="/solar" element={<Solar />} />
           <Route path="/northeast-climate" element={<NortheastClimate />} />
+          <Route path="/precipsnow" element={<Precipsnow />} />
         </Routes>
       </main>
       <footer style={{
