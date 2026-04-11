@@ -48,12 +48,12 @@ const SECTIONS = [
         thumb:      '/Seasons_thumbnail.png',
       },
       {
-        tags:       ['DAILY', 'CLIMATOLOGY'],
-        title:      'Climo Charts · LI / NYC',
+        tags:       ['Precip', 'Snow', 'NE US Cities],
+        title:      'Precipitation & Snowfall Climo',
         description:'Daily average temperatures with record highs and lows. Seasonal variability and extreme range by calendar day.',
         footerTags: ['Avg', 'Record High', 'Record Low'],
-        to:         '/climo',
-        accentVar:  '--accent-enso',
+        to:         '/precipsnow',
+        accentVar:  '--accent-precip',
         thumb:      null,
       },
       {
