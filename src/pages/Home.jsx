@@ -58,8 +58,8 @@ const SECTIONS = [
       },
       {
         tags:       ['ISP Current', 'Updates Hourly'],
-        title:      'Islip Weather',
-        description:'C=current weather | month-to-date graph | recent observations table | model output forecast',
+        title:      'Islip Weather Conditions',
+        description:'current weather | month-to-date graph | recent observations table | model output forecast',
         footerTags: ['ISP current conditions'],
         to:         '/isp-live',
         accentVar:  '--accent-hourly',
