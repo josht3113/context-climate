@@ -48,7 +48,7 @@ const SECTIONS = [
         thumb:      '/Seasons_thumbnail.png',
       },
       {
-        tags:       ['Precip', 'Snow', 'NE US Cities],
+        tags:       ['Precip', 'Snow', 'NE US Cities'],
         title:      'Precip and Snowfall Climo',
         description:'Daily average temperatures with record highs and lows. Seasonal variability and extreme range by calendar day.',
         footerTags: ['Avg', 'Record High', 'Record Low'],
