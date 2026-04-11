@@ -49,7 +49,7 @@ const SECTIONS = [
       },
       {
         tags:       ['Precip', 'Snow', 'NE US Cities],
-        title:      'Precipitation & Snowfall Climo',
+        title:      'Precip and Snowfall Climo',
         description:'Daily average temperatures with record highs and lows. Seasonal variability and extreme range by calendar day.',
         footerTags: ['Avg', 'Record High', 'Record Low'],
         to:         '/precipsnow',
