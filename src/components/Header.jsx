@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { label: 'Annual',       to: '/annual'  },
   { label: 'ENSO',         to: '/enso'    },
   { label: 'Seasons',      to: '/seasons' },
-  { label: 'Climo',        to: '/climo'   },
+  { label: 'Precip',       to: '/precipsnow' },
 ]
 
 function BracketMark() {
