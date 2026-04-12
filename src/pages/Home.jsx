@@ -49,12 +49,12 @@ const SECTIONS = [
         thumb:      '/Seasons_thumbnail.png',
       },
       {
-        tags:       ['HOURLY', 'MULTI-YEAR'],
+        tags:       ['ISP', '1973 to 2026'],
         title:      'Monthly Heatmaps',
         description:'Hour-by-hour temperature, dewpoint, wind, cloud cover, and anomaly fields across decades of Islip data.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds'],
         to:         '/monthly',
-        accentVar:  '--accent-hourly',
+        accentVar:  '--accent-Temp | Dew | Wind | Clouds | Anomalies',
         thumb:      '/MonthlyThumbnail.png',
       },
       {
