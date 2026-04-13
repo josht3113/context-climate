@@ -1,9 +1,9 @@
 export default function IspLive() {
   return (
     <iframe
-      src="https://josht3113.github.io/ISP-Live/"
-      style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
-      title="ISP Live Weather"
+      src="/isp-live.html"
+      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
+      title="Islip Weather Conditions"
     />
-  );
+  )
 }
