@@ -8,6 +8,7 @@ import Seasons          from './pages/Seasons'
 import IspLive          from './pages/IspLive'
 import PrecipSnow       from './pages/PrecipSnow'
 import NortheastClimate from './pages/NortheastClimate'
+import Hurricanes       from './pages/Hurricanes'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -29,9 +30,10 @@ export default function App() {
           <Route path="/precipsnow"        element={<PrecipSnow />}       />
           <Route path="/northeast-climate" element={<NortheastClimate />} />
           <Route path="/seasons"           element={<Seasons />}          />
-          <Route path="/hourly"            element={<HourlyData />}       />
-          <Route path="/climate"           element={<Climate />}          />
+          <Route path="/monthly"           element={<HourlyData />}       />
+          <Route path="/annual"            element={<Climate />}          />
           <Route path="/enso"              element={<ENSO />}             />
+          <Route path="/hurricanes"        element={<Hurricanes />}       />
         </Routes>
       </main>
       <footer style={{
