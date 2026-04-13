@@ -47,7 +47,7 @@ export default function Header() {
             ))}
           </nav>
           <div className={styles.navDivider} />
-          <span className={styles.geoBadge}>Data Vis · Tools · Context</span>
+          <span className={styles.geoBadge}>Weather · Climate · Context</span>
         </div>
 
       </div>
