@@ -1,15 +1,14 @@
 import { HashRouter, Routes, Route } from 'react-router-dom'
-import Header      from './components/Header'
-import Home        from './pages/Home'
-import HourlyData  from './pages/HourlyData'
-import Climate     from './pages/Climate'
-import Precipsnow  from './pages/precipsnow'
-import ENSO        from './pages/ENSO'
-import Seasons     from './pages/Seasons'
-import Hurricanes  from './pages/Hurricanes'
-import Solar       from './pages/Solar'
+import Header from './components/Header'
+import Home             from './pages/Home'
+import HourlyData       from './pages/HourlyData'
+import Climate          from './pages/Climate'
+import ENSO             from './pages/ENSO'
+import Seasons          from './pages/Seasons'
+import IspLive          from './pages/IspLive'
+import PrecipSnow       from './pages/PrecipSnow'
 import NortheastClimate from './pages/NortheastClimate'
-import IspLive     from './pages/IspLive'
+
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
 // with client-side routing (no server config needed).
@@ -25,16 +24,14 @@ export default function App() {
       <Header />
       <main>
         <Routes>
-          <Route path="/"        element={<Home />}      />
-          <Route path="/monthly" element={<HourlyData />} />
-          <Route path="/annual" element={<Climate />} />
-          <Route path="/enso"    element={<ENSO />}      />
-          <Route path="/seasons" element={<Seasons />}   />
-          <Route path="/hurricanes" element={<Hurricanes />} />
-          <Route path="/solar" element={<Solar />} />
+          <Route path="/"                  element={<Home />}             />
+          <Route path="/isp-live"          element={<IspLive />}          />
+          <Route path="/precipsnow"        element={<PrecipSnow />}       />
           <Route path="/northeast-climate" element={<NortheastClimate />} />
-          <Route path="/precipsnow" element={<Precipsnow />} />
-          <Route path="/isp-live" element={<IspLive />} />
+          <Route path="/seasons"           element={<Seasons />}          />
+          <Route path="/hourly"            element={<HourlyData />}       />
+          <Route path="/climate"           element={<Climate />}          />
+          <Route path="/enso"              element={<ENSO />}             />
         </Routes>
       </main>
       <footer style={{
