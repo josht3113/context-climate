@@ -2,12 +2,9 @@ import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Home',         to: '/'        },
-  { label: 'Monthly Data', to: '/monthly'  },
-  { label: 'Annual',       to: '/annual'  },
-  { label: 'ENSO',         to: '/enso'    },
-  { label: 'Seasons',      to: '/seasons' },
-  { label: 'Precip',       to: '/precipsnow' },
+  { label: 'Home',   to: '/'        },
+  { label: 'Hourly', to: '/monthly' },
+  { label: 'Live',   to: '/live'    },
 ]
 
 function BracketMark() {
