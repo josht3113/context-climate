@@ -2,11 +2,11 @@ import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Home',       to: '/'                  },
-  { label: 'Live',       to: '/isp-live'           },
-  { label: 'Climo',      to: '/precipsnow'         },
-  { label: 'NE Climate', to: '/northeast-climate'  },
-  { label: 'Seasons',    to: '/seasons'            },
+  { label: 'Home',                      to: '/'                  },
+  { label: 'Islip Weather',             to: '/isp-live'           },
+  { label: 'Precip & Snow Climo',       to: '/precipsnow'         },
+  { label: 'NE Climate Dashboard',      to: '/northeast-climate'  },
+  { label: 'Meteorological Seasons',    to: '/seasons'            },
 ]
 
 function BracketMark() {
