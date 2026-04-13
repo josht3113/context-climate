@@ -9,7 +9,7 @@ import styles from './Home.module.css'
 const SECTIONS = [
   {
     id:    'local',
-    label: 'Long Island & NY Metro',
+    label: 'Long Island | NY Metro | Northeast US',
     cards: [
       {
         tags:       ['ISP Current', 'Updates Hourly'],
@@ -104,7 +104,7 @@ const SECTIONS = [
   },
   {
     id:    'solar',
-    label: 'Solar Visualizations',
+    label: 'Solar',
     cards: [
       {
         tags:       ['Solar', 'Astronomy', 'Interactive'],
