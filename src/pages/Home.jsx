@@ -9,13 +9,13 @@ import styles from './Home.module.css'
 const SECTIONS = [
   {
     id:    'local',
-    label: 'Long Island | NY Metro | Northeast US',
+    label: 'Long Island  |  NY Metro  |  Northeast US',
     cards: [
       {
         tags:       ['ISP Current', 'Updates Hourly'],
         title:      'Islip Weather Conditions',
         description:'current weather | month-to-date graph | recent observations table | model output forecast',
-        footerTags: ['ISP Current Conditions | Recent Weather'],
+        footerTags: ['ISP Current Conditions', 'Recent Weather'],
         to:         '/isp-live',
         accentVar:  '--accent-hourly',
         thumb:      '/ISPlive_thumbnail.png',
