@@ -82,7 +82,7 @@ const SECTIONS = [
         thumb:      '/ENSOThumbnail.png',
       },
       {
-        tags:       ['ENSO PHASE COMPARISONS, 'TROPICAL CYCLONES'],
+        tags:       ['ENSO PHASE COMPARISONS', 'TROPICAL CYCLONES'],
         title:      'Tropical Cyclones ENSO Phase Comparison',
         description:'Atlantic and Eastern Pacific hurricane activity by ENSO phase — named storms, hurricane days, and ACE from 1851 onward.',
         footerTags: ['Atlantic', 'East Pacific', 'ACE', '1851–2025'],
