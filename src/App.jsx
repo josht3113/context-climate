@@ -24,7 +24,7 @@ export default function App() {
   return (
     <HashRouter>
       <Header />
-      <main>
+      <main style={{ overflowX: 'hidden' }}>
         <Routes>
           <Route path="/"                  element={<Home />}             />
           <Route path="/isp-live"          element={<IspLive />}          />
