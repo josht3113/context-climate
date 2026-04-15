@@ -36,6 +36,7 @@ export default function App() {
           <Route path="/enso"              element={<ENSO />}             />
           <Route path="/hurricanes"        element={<Hurricanes />}       />
           <Route path="/solar"             element={<Solar />}            />
+          <Route path="/igneous"           element={<Igneous />} />
         </Routes>
       </main>
       <footer style={{
