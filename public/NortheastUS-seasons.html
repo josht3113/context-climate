@@ -42,7 +42,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14
 .tab{font-family:var(--sans);font-size:12px;font-weight:500;padding:11px 16px;border:none;background:transparent;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;text-transform:uppercase;letter-spacing:0.5px;transition:all 0.15s;}
 .tab:hover{color:var(--text2);}
 .tab.active{color:var(--tab-color,var(--c-summer));border-bottom-color:var(--tab-color,var(--c-summer));}
-.content{padding:26px 32px;max-width:1400px;}
+.content{padding:26px 32px;max-width:1400px;margin:0 auto;}
 .section{display:none;}.section.active{display:block;}
 .sec-label{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text3);margin-bottom:20px;}
 .sec-label::before{content:'';display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--c-summer);margin-right:8px;vertical-align:middle;}
@@ -223,7 +223,7 @@ const STATIONS=[
   {id:'KISP',    label:'Islip, NY',        short:'ISP',state:'NY'},
   {id:'KLGA',    label:'LaGuardia, NY',    short:'LGA',state:'NY'},
   {id:'KJFK',    label:'JFK, NY',          short:'JFK',state:'NY'},
-  {id:'94728 6', label:'Central Park, NY', short:'NYC',state:'NY'},
+  {id:'USW00094728', label:'Central Park, NY', short:'NYC',state:'NY', fallback:['94728 6','305801 3','KNYC']},
   {id:'KEWR',    label:'Newark, NJ',       short:'EWR',state:'NJ'},
   {id:'KBDR',    label:'Bridgeport, CT',   short:'BDR',state:'CT'},
   {id:'KTTN',    label:'Trenton, NJ',      short:'TTN',state:'NJ'},
@@ -362,24 +362,37 @@ function applyCache(sid){
 }
 
 // ─── FETCH ─────────────────────────────────────────────────
+async function tryFetch(sid){
+  const res=await fetch('https://data.rcc-acis.org/StnData',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sid,sdate:'por',edate:'por',elems:[{name:'maxt'},{name:'mint'}]})
+  });
+  if(!res.ok) throw new Error('API '+res.status);
+  const json=await res.json();
+  if(json.error) throw new Error('ACIS: '+json.error);
+  if(!json.data||!json.data.length) throw new Error('No data returned');
+  return json.data;
+}
+
 async function fetchData(sid){
   setStatus('loading');
-  try{
-    const res=await fetch('https://data.rcc-acis.org/StnData',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sid,sdate:'por',edate:'por',elems:[{name:'maxt'},{name:'mint'}]})
-    });
-    if(!res.ok) throw new Error('API '+res.status);
-    const json=await res.json();
-    if(json.error) throw new Error(json.error);
-    dataCache[sid]=processData(json.data);
-    applyCache(sid);
-    setStatus('ok','Live — through '+parsed[parsed.length-1]?.date);
-    initAll();
-  }catch(e){
-    setStatus('error','Failed — '+activeStation.label);
-    console.error(e);
+  const stn=STATIONS.find(s=>s.id===sid);
+  const candidates=[sid,...(stn?.fallback||[])];
+  let lastErr='';
+  for(const candidate of candidates){
+    try{
+      const data=await tryFetch(candidate);
+      dataCache[sid]=processData(data);
+      applyCache(sid);
+      setStatus('ok','Live — through '+parsed[parsed.length-1]?.date);
+      initAll();
+      return;
+    }catch(e){
+      lastErr=e.message;
+      console.warn(`fetchData: ${candidate} failed — ${e.message}`);
+    }
   }
+  setStatus('error',`Failed — ${stn?.label||sid} (${lastErr})`);
 }
 
 async function selectStation(stn){
@@ -899,6 +912,10 @@ function drawCompare(results){
 // ─── INIT ──────────────────────────────────────────────────
 buildStnSel();
 fetchData(activeStation.id);
+if(window.self!==window.top){
+  const h=document.querySelector('.header');
+  if(h)h.style.display='none';
+}
 </script>
 </body>
 </html>
