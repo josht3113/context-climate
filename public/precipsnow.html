@@ -72,6 +72,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16
 .chart-h300{position:relative;height:300px;}
 .chart-h360{position:relative;height:360px;}
 .chart-h400{position:relative;height:420px;}
+.chart-h520{position:relative;height:680px;}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;margin-bottom:20px;}
 .stat-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:13px 15px;}
 .slabel{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:3px;}
@@ -175,7 +176,7 @@ footer a:hover{color:var(--text);}
     <div class="toggle-group" id="cumPrecipControls">
       <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">Highlight year:</span>
     </div>
-    <div class="chart-h400"><canvas id="cumPrecipChart"></canvas></div>
+    <div class="chart-h520"><canvas id="cumPrecipChart"></canvas></div>
   </div>
 </div>
 
@@ -189,6 +190,7 @@ footer a:hover{color:var(--text);}
   </div>
   <div class="card mb20">
     <div class="card-title">Cumulative Seasonal Snowfall</div>
+    <div id="cumSnowDebug" style="font-family:var(--mono);font-size:10px;color:#e85050;margin-bottom:8px;"></div>
     <div class="toggle-group" id="cumSnowControls">
       <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">Highlight season:</span>
     </div>
@@ -196,7 +198,7 @@ footer a:hover{color:var(--text);}
       <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">Decade avgs:</span>
       <button class="toggle-btn active" id="decToggle" style="border-color:#378ADD;background:#378ADD;color:#fff;" onclick="toggleDecades(this)">Show</button>
     </div>
-    <div class="chart-h400"><canvas id="cumSnowChart"></canvas></div>
+    <div class="chart-h520"><canvas id="cumSnowChart"></canvas></div>
   </div>
   <div class="card">
     <div class="card-title">Percent Frequency of Snowfall by Day</div>
@@ -699,7 +701,7 @@ function renderCumulativePrecip(){
   years.forEach(yr=>{
     if(!yearData[yr])return;
     const isCur=yr===curYr;
-    datasets.push({label:String(yr),data:yearData[yr],borderColor:isCur?'#d4920a':'rgba(255,255,255,0.06)',
+    datasets.push({label:String(yr),data:yearData[yr],borderColor:isCur?'#d4920a':'rgba(255,255,255,0.14)',
       borderWidth:isCur?3:0.75,pointRadius:0,tension:0,order:isCur?1:10});
   });
   // Endpoint dot for current year
@@ -707,7 +709,7 @@ function renderCumulativePrecip(){
   datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
   const ctrl=document.getElementById('cumPrecipControls');
   ctrl.innerHTML='<span style="font-family:var(--mono);font-size:11px;color:var(--text3);">Highlight year:</span>';
-  years.filter(y=>y>=curYr-12).sort((a,b)=>b-a).forEach(yr=>{
+  years.sort((a,b)=>b-a).forEach(yr=>{
     const btn=document.createElement('button');
     btn.className='year-btn'+(yr===curYr?' active':'');
     btn.textContent=yr;
@@ -718,11 +720,20 @@ function renderCumulativePrecip(){
   charts['cumPrecipChart']=new Chart(document.getElementById('cumPrecipChart'),{
     type:'line',data:{labels:xlabels,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},
+      onClick:(event,elements,chart)=>{
+        if(!elements.length)return;
+        const label=chart.data.datasets[elements[0].datasetIndex].label;
+        const yr=parseInt(label);
+        if(!isNaN(yr)&&yearData[yr])highlightPrecipYear(yr,yearData,avgArr,xlabels,years,curYr);
+      },
+      onHover:(event,elements)=>{
+        event.native.target.style.cursor=elements.length?'pointer':'default';
+      },
       plugins:{legend:{display:true,labels:{filter:i=>i.label==='Average'||i.label===String(curYr),
         color:'#7a9bb8',boxWidth:20,font:{size:11}}},
         tooltip:{mode:'index',intersect:false,filter:i=>i.dataset.order<=2,
           callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`}}},
-      scales:{x:{...so({maxTicksLimit:14}),grid:{display:false}},y:{...so(),ticks:{callback:v=>v+'"'}}}}
+      scales:{x:{...so({maxTicksLimit:14,autoSkip:false}),grid:{display:false}},y:{...so(),ticks:{callback:v=>v+'"'}}}}
   });
 }
 
@@ -743,7 +754,7 @@ function highlightPrecipYear(yr,yearData,avgArr,xlabels,years,curYr){
   years.forEach(y=>{
     if(!yearData[y])return;
     const isHL=y===yr;
-    datasets.push({label:String(y),data:yearData[y],borderColor:isHL?'#d4920a':'rgba(255,255,255,0.06)',
+    datasets.push({label:String(y),data:yearData[y],borderColor:isHL?'#d4920a':'rgba(255,255,255,0.14)',
       borderWidth:isHL?3:0.75,pointRadius:0,tension:0,order:isHL?1:10});
   });
   addEndpointDot(datasets,yearData[yr],'#d4920a',String(yr));
@@ -873,19 +884,11 @@ function renderFullSeasonSnowCal(){
 }
 
 function renderCumulativeSnow(){
-  try{
   const allSYs=[...new Set(parsed.filter(r=>SNOW_MONTHS.includes(r.month)).map(r=>getSnowSY(r.year,r.month)))].sort();
-  // Build x-axis labels
   const xlabels=Array.from({length:SNOW_XMAX},(_,i)=>{
-    if(i===0)return'Nov 1';if(i===15)return'Nov 15';
-    if(i===30)return'Dec 1';if(i===45)return'Dec 15';
-    if(i===61)return'Jan 1';if(i===76)return'Jan 15';
-    if(i===92)return'Feb 1';if(i===106)return'Feb 15';
-    if(i===120)return'Mar 1';if(i===135)return'Mar 15';
-    if(i===151)return'Apr 1';if(i===166)return'Apr 15';
-    return'';
+    if(i===0)return'Nov 1';if(i===30)return'Dec 1';if(i===61)return'Jan 1';
+    if(i===92)return'Feb 1';if(i===120)return'Mar 1';if(i===151)return'Apr 1';return'';
   });
-  // Compute cumulative for each season
   const seasonData={};
   allSYs.forEach(sy=>{
     const arr=new Array(SNOW_XMAX).fill(null);
@@ -894,112 +897,74 @@ function renderCumulativeSnow(){
       const calYear=m>=10?sy:sy+1;
       const dim=daysInMonth(calYear,m);
       for(let d=1;d<=dim;d++){
-        const idx=snowDayIdx(m,d);
-        if(idx<0||idx>=SNOW_XMAX)continue;
-        const ds=fmtDate(calYear,m,d);
-        const rec=byDate[ds];
+        const idx=snowDayIdx(m,d);if(idx<0||idx>=SNOW_XMAX)continue;
+        const ds=fmtDate(calYear,m,d);const rec=byDate[ds];
         if(rec&&!rec.snow.missing){cum+=rec.snow.val||0;hasData=true;}
         arr[idx]=hasData?+cum.toFixed(1):null;
       }
     });
     if(hasData)seasonData[sy]=arr;
   });
-  // Decade averages
-  const decades={};
-  const decColors={'1960s':'#3dab6e','1970s':'#7F77DD','1980s':'#378ADD','1990s':'#d4920a','2000s':'#BA7517','2010s':'#D85A30','2020s':'#ffffff'};
-  ['1960s','1970s','1980s','1990s','2000s','2010s','2020s'].forEach(d=>{
-    const start=parseInt(d);
-    const sysInDec=allSYs.filter(sy=>sy>=start&&sy<start+10&&seasonData[sy]);
-    if(!sysInDec.length)return;
-    const avg=Array.from({length:SNOW_XMAX},(_,i)=>{
-      const vals=sysInDec.map(sy=>seasonData[sy][i]).filter(v=>v!==null);
-      return vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):null;
-    });
-    decades[d]={data:avg,color:decColors[d]};
+  const avgArr=Array.from({length:SNOW_XMAX},(_,i)=>{
+    const vals=allSYs.map(sy=>seasonData[sy]?.[i]).filter(v=>v!==null);
+    return vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):null;
   });
-  // Gray background datasets
-  const datasets=[];
   const curSy=curSY();
+  const datasets=[];
   allSYs.forEach(sy=>{
     if(!seasonData[sy])return;
     const isCur=sy===curSy;
-    datasets.push({
-      label:SYL(sy),data:seasonData[sy],
-      borderColor:isCur?'#d4920a':'rgba(255,255,255,0.07)',
-      borderWidth:isCur?2.5:0.75,
-      pointRadius:0,tension:0,
-      order:isCur?1:10
-    });
+    datasets.push({label:SYL(sy),data:seasonData[sy],
+      borderColor:isCur?'#d4920a':'rgba(255,255,255,0.14)',
+      borderWidth:isCur?3:0.75,pointRadius:0,tension:0,order:isCur?1:10});
   });
-  // Decade average datasets
-  if(showDecades){
-    Object.entries(decades).forEach(([dec,{data,color}])=>{
-      datasets.push({
-        label:dec+' avg',data,borderColor:color,borderWidth:2,
-        borderDash:[6,3],pointRadius:0,tension:0,order:2
-      });
-    });
-  }
-  dc('cumSnowChart');
-  if(!Object.keys(seasonData).length){
-    document.getElementById('cumSnowChart').parentElement.innerHTML=
-      '<div style="padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3);">No snowfall data available for this station.</div>';
-    return;
-  }
-  charts['cumSnowChart']=new Chart(document.getElementById('cumSnowChart'),{
-    type:'line',
-    data:{labels:xlabels,datasets},
-    options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},
-      plugins:{legend:{display:true,labels:{
-        filter:item=>item.label.includes('avg')||item.label===SYL(curSy),
-        color:'#7a9bb8',boxWidth:20,font:{size:11}
-      }},
-      tooltip:{mode:'index',intersect:false,filter:item=>item.dataset.order===1||item.dataset.order===2,
-        callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`}}},
-      scales:{x:{...so({maxTicksLimit:14}),grid:{display:false}},
-        y:{...so(),ticks:{callback:v=>v+'"'}}}}
-  });
-  // Build season year selector
+  datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
   const ctrl=document.getElementById('cumSnowControls');
   ctrl.innerHTML='<span style="font-family:var(--mono);font-size:11px;color:var(--text3);">Highlight season:</span>';
-  const recent=allSYs.filter(sy=>sy>=curSy-12).sort((a,b)=>b-a);
-  recent.forEach(sy=>{
+  [...allSYs].filter(sy=>seasonData[sy]).sort((a,b)=>b-a).forEach(sy=>{
     const btn=document.createElement('button');
     btn.className='year-btn'+(sy===curSy?' active':'');
     btn.textContent=SYL(sy);
-    btn.onclick=()=>highlightSeason(sy,seasonData,decades,xlabels,allSYs,curSy);
+    btn.onclick=()=>highlightSnowSeason(sy,seasonData,avgArr,xlabels,allSYs);
     ctrl.appendChild(btn);
   });
-  }catch(e){console.error('renderCumulativeSnow error:',e);}
+  dc('cumSnowChart');
+  charts['cumSnowChart']=new Chart(document.getElementById('cumSnowChart'),{
+    type:'line',data:{labels:xlabels,datasets},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:0},
+      onClick:(event,elements,chart)=>{
+        if(!elements.length)return;
+        const label=chart.data.datasets[elements[0].datasetIndex].label;
+        if(!label||label==='Average')return;
+        const sy=allSYs.find(s=>SYL(s)===label);
+        if(sy!==undefined&&seasonData[sy])highlightSnowSeason(sy,seasonData,avgArr,xlabels,allSYs);
+      },
+      onHover:(event,elements)=>{if(event.native)event.native.target.style.cursor=elements.length?'pointer':'default';},
+      plugins:{legend:{display:true,labels:{filter:i=>i.label==='Average'||i.label===SYL(curSy),
+        color:'#7a9bb8',boxWidth:20,font:{size:11}}},
+        tooltip:{mode:'index',intersect:false,filter:i=>i.dataset.order<=2,
+          callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`}}},
+      scales:{x:{...so({maxTicksLimit:14,autoSkip:false}),grid:{display:false}},
+        y:{...so(),ticks:{callback:v=>v+'"'}}}}
+  });
+  const dbgEl=document.getElementById('cumSnowDebug');
+  if(dbgEl)dbgEl.textContent='';
 }
 
-let _activeCumSY=null;
-function highlightSeason(sy,seasonData,decades,xlabels,allSYs,curSy){
-  _activeCumSY=sy;
-  document.getElementById('cumSnowControls').querySelectorAll('.year-btn').forEach(b=>{
-    b.classList.toggle('active',b.textContent===SYL(sy));
-  });
+function highlightSnowSeason(sy,seasonData,avgArr,xlabels,allSYs){
+  document.getElementById('cumSnowControls').querySelectorAll('.year-btn').forEach(b=>b.classList.toggle('active',b.textContent===SYL(sy)));
   const datasets=[];
   allSYs.forEach(s=>{
     if(!seasonData[s])return;
     const isHL=s===sy;
-    datasets.push({
-      label:SYL(s),data:seasonData[s],
-      borderColor:isHL?'#d4920a':'rgba(255,255,255,0.07)',
-      borderWidth:isHL?2.5:0.75,
-      pointRadius:0,tension:0,order:isHL?1:10
-    });
+    datasets.push({label:SYL(s),data:seasonData[s],
+      borderColor:isHL?'#d4920a':'rgba(255,255,255,0.14)',
+      borderWidth:isHL?3:0.75,pointRadius:0,tension:0,order:isHL?1:10});
   });
-  if(showDecades){
-    Object.entries(decades).forEach(([dec,{data,color}])=>{
-      datasets.push({label:dec+' avg',data,borderColor:color,borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
-    });
-  }
-  if(charts['cumSnowChart']){
-    charts['cumSnowChart'].data.datasets=datasets;
-    charts['cumSnowChart'].update('none');
-  }
+  datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
+  if(charts['cumSnowChart']){charts['cumSnowChart'].data.datasets=datasets;charts['cumSnowChart'].update('none');}
 }
+
 
 function toggleDecades(btn){
   showDecades=!showDecades;
@@ -1040,11 +1005,19 @@ function renderSnowFreq(){
     if(i===92)return'Feb 1';if(i===120)return'Mar 1';if(i===151)return'Apr 1';return'';
   });
   dc('snowFreqChart');
+  const freqCanvas=document.getElementById('snowFreqChart');
+  if(!freqCanvas)return;
+  freqCanvas.parentElement.querySelectorAll('.no-data-msg').forEach(el=>el.remove());
   if(cnt.every(v=>v===0)){
-    document.getElementById('snowFreqChart').parentElement.innerHTML=
-      '<div style="padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3);">No snowfall frequency data available for this station.</div>';
+    freqCanvas.style.display='none';
+    const msg=document.createElement('div');
+    msg.className='no-data-msg';
+    msg.style='padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3);';
+    msg.textContent='No snowfall frequency data available for this station.';
+    freqCanvas.parentElement.appendChild(msg);
     return;
   }
+  freqCanvas.style.display='';
   charts['snowFreqChart']=new Chart(document.getElementById('snowFreqChart'),{
     type:'bar',
     data:{labels:xlabels,datasets:[
