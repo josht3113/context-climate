@@ -138,6 +138,42 @@ const SECTIONS = [
       },
     ],
   },
+   {
+    id:    'earth-space',
+    label: 'Earth & Space Science',
+    cards: [
+      {
+        tags:       ['Earth Science', 'Geology', 'Interactive'],
+        title:      'Igneous Crystallization Simulator',
+        description:'Explore how cooling rate and magma composition control crystal size and rock texture in igneous systems.',
+        footerTags: ['Magma', 'Crystal Growth', 'Rock Texture', 'Geology'],
+        to:         '/igneous',
+        accentVar:  '--accent-earth',
+        thumb:      '/IgneousCrystallization_thumbnail.png',
+        status:     'live',
+      },
+      {
+        tags:       ['COMING SOON'],
+        title:      'More Earth Science Tools',
+        description:'Additional Earth science visualizations and simulations currently in development.',
+        footerTags: [],
+        to:         null,
+        accentVar:  '--accent-earth',
+        thumb:      null,
+        status:     'soon',
+      },
+      {
+        tags:       ['COMING SOON'],
+        title:      'More Earth Science Tools',
+        description:'Additional Earth science visualizations and simulations currently in development.',
+        footerTags: [],
+        to:         null,
+        accentVar:  '--accent-earth',
+        thumb:      null,
+        status:     'soon',
+      },
+    ],
+  },
 ]
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
