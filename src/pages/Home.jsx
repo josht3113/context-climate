@@ -149,7 +149,7 @@ const SECTIONS = [
         footerTags: ['Magma', 'Crystal Growth', 'Rock Texture', 'Geology'],
         to:         '/igneous',
         accentVar:  '--accent-earth',
-        thumb:      'IgneousCrystallization_thumbnail.png',
+        thumb:      '/IgneousCrystallization_thumbnail.png',
         status:     'live',
       },
       {
