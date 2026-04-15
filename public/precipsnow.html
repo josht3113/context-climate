@@ -149,12 +149,6 @@ footer a:hover{color:var(--text);}
 
 <!-- TAB 1: PRECIPITATION -->
 <div class="section active" id="sec-precip">
-  <div class="sec-label">Daily Precipitation Heatmap — Select Month</div>
-  <div class="month-sel" id="precipMonthSel"></div>
-  <div class="card mb20">
-    <div class="card-title" id="precipCalTitle">Precipitation Calendar</div>
-    <div class="cal-outer" id="precipCalWrap"></div>
-  </div>
   <div class="grid-2">
     <div class="card">
       <div class="card-title" id="precipBarTitle">Monthly Totals by Year</div>
@@ -178,16 +172,16 @@ footer a:hover{color:var(--text);}
     </div>
     <div class="chart-h520"><canvas id="cumPrecipChart"></canvas></div>
   </div>
+  <div class="sec-label">Daily Precipitation Heatmap — Select Month</div>
+  <div class="month-sel" id="precipMonthSel"></div>
+  <div class="card mb20">
+    <div class="card-title" id="precipCalTitle">Precipitation Calendar</div>
+    <div class="cal-outer" id="precipCalWrap"></div>
+  </div>
 </div>
 
 <!-- TAB 2: SNOW SEASON -->
 <div class="section" id="sec-snow">
-  <div class="sec-label">Snowfall Event Calendar — Select Month · <span style="color:var(--text2);font-size:9px;">or choose Full Season View</span></div>
-  <div class="month-sel" id="snowMonthSel"></div>
-  <div class="card mb20">
-    <div class="card-title" id="snowCalTitle">Snowfall Calendar</div>
-    <div class="cal-outer" id="snowCalWrap"></div>
-  </div>
   <div class="card mb20">
     <div class="card-title">Cumulative Seasonal Snowfall</div>
     <div id="cumSnowDebug" style="font-family:var(--mono);font-size:10px;color:#e85050;margin-bottom:8px;"></div>
@@ -200,12 +194,18 @@ footer a:hover{color:var(--text);}
     </div>
     <div class="chart-h520"><canvas id="cumSnowChart"></canvas></div>
   </div>
-  <div class="card">
-    <div class="card-title">Percent Frequency of Snowfall by Day</div>
+  <div class="card mb20">
+    <div class="card-title">Percent Frequency of Snow Depth ≥ 1", 3", 6" &amp; 12"</div>
     <div class="toggle-group">
-      <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">Thresholds shown: ≥0.1" · ≥1.0" · ≥3.0"  &nbsp;|&nbsp;  Lines = 7-day moving avg</span>
+      <span style="font-family:var(--mono);font-size:11px;color:var(--text3);">Daily snow cover depth thresholds &nbsp;|&nbsp; Lines = 7-day moving avg</span>
     </div>
-    <div class="chart-h300"><canvas id="snowFreqChart"></canvas></div>
+    <div class="chart-h520"><canvas id="snowFreqChart"></canvas></div>
+  </div>
+  <div class="sec-label">Snowfall Event Calendar — Select Month · <span style="color:var(--text2);font-size:9px;">or choose Full Season View</span></div>
+  <div class="month-sel" id="snowMonthSel"></div>
+  <div class="card mb20">
+    <div class="card-title" id="snowCalTitle">Snowfall Calendar</div>
+    <div class="cal-outer" id="snowCalWrap"></div>
   </div>
 </div>
 
@@ -304,7 +304,7 @@ const STATIONS=[
   {id:'KISP',    label:'Islip, NY',        short:'ISP', state:'NY'},
   {id:'KLGA',    label:'LaGuardia, NY',    short:'LGA', state:'NY'},
   {id:'KJFK',    label:'JFK, NY',          short:'JFK', state:'NY'},
-  {id:'94728 6', label:'Central Park, NY', short:'NYC', state:'NY'},
+  {id:'USW00094728', label:'Central Park, NY', short:'NYC', state:'NY', fallback:['94728 6','305801 3','KNYC']},
   {id:'KEWR',    label:'Newark, NJ',       short:'EWR', state:'NJ'},
   {id:'KBDR',    label:'Bridgeport, CT',   short:'BDR', state:'CT'},
   {id:'KTTN',    label:'Trenton, NJ',      short:'TTN', state:'NJ'},
@@ -430,26 +430,40 @@ function snowDepthColor(val,trace){
 }
 
 // ─── FETCH ─────────────────────────────────────────────────
+async function tryFetch(sid){
+  const res=await fetch('https://data.rcc-acis.org/StnData',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({sid,sdate:'por',edate:'por',elems:[{name:'pcpn'},{name:'snow'},{name:'snwd'}]})
+  });
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const json=await res.json();
+  if(json.error)throw new Error('ACIS: '+json.error);
+  if(!json.data||!json.data.length)throw new Error('No data returned');
+  return json.data;
+}
+
 async function fetchData(sid){
   setStatus('loading');
-  try{
-    const res=await fetch('https://data.rcc-acis.org/StnData',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sid,sdate:'por',edate:'por',elems:[{name:'pcpn'},{name:'snow'},{name:'snwd'}]})
-    });
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const json=await res.json();
-    if(json.error)throw new Error(json.error);
-    const processed=processData(json.data);
-    dataCache[sid]=processed;
-    applyCache(sid);
-    const last=parsed[parsed.length-1];
-    setStatus('ok','Live — through '+(last?last.date:'—'));
-    initAll();
-  }catch(e){
-    setStatus('error','Failed — '+activeStation.label);
-    console.error(e);
+  const stn=STATIONS.find(s=>s.id===sid);
+  const candidates=[sid,...(stn?.fallback||[])];
+  let lastErr='';
+  for(const candidate of candidates){
+    try{
+      const data=await tryFetch(candidate);
+      const processed=processData(data);
+      // Cache under primary id so station switching works correctly
+      dataCache[sid]=processed;
+      applyCache(sid);
+      const last=parsed[parsed.length-1];
+      setStatus('ok','Live — through '+(last?last.date:'—'));
+      initAll();
+      return;
+    }catch(e){
+      lastErr=e.message;
+      console.warn(`fetchData: ${candidate} failed — ${e.message}`);
+    }
   }
+  setStatus('error',`Failed — ${stn?.label||sid} (${lastErr})`);
 }
 
 function processData(raw){
@@ -531,7 +545,7 @@ function renderSection(id){
 function initAll(){
   buildStnSel();
   buildMonthSelectors();
-  renderSection('precip');
+  renderSection(activeTab);
 }
 
 // ─── MONTH SELECTORS ────────────────────────────────────────
@@ -975,11 +989,11 @@ function toggleDecades(btn){
 }
 
 function renderSnowFreq(){
-  try{
   const allSYs=[...new Set(parsed.filter(r=>SNOW_MONTHS.includes(r.month)).map(r=>getSnowSY(r.year,r.month)))].sort();
   const freq01=new Array(SNOW_XMAX).fill(0);
-  const freq10=new Array(SNOW_XMAX).fill(0);
-  const freq30=new Array(SNOW_XMAX).fill(0);
+  const freq03=new Array(SNOW_XMAX).fill(0);
+  const freq06=new Array(SNOW_XMAX).fill(0);
+  const freq12=new Array(SNOW_XMAX).fill(0);
   const cnt=new Array(SNOW_XMAX).fill(0);
   allSYs.forEach(sy=>{
     SNOW_MONTHS.forEach(m=>{
@@ -988,53 +1002,57 @@ function renderSnowFreq(){
       for(let d=1;d<=dim;d++){
         const idx=snowDayIdx(m,d);if(idx<0||idx>=SNOW_XMAX)continue;
         const ds=fmtDate(calYear,m,d);const rec=byDate[ds];
-        if(!rec||rec.snow.missing)continue;
+        if(!rec||rec.snwd.missing)continue;
         cnt[idx]++;
-        if(rec.snow.val>=0.1)freq01[idx]++;
-        if(rec.snow.val>=1.0)freq10[idx]++;
-        if(rec.snow.val>=3.0)freq30[idx]++;
+        if((rec.snwd.val||0)>=1) freq01[idx]++;
+        if((rec.snwd.val||0)>=3) freq03[idx]++;
+        if((rec.snwd.val||0)>=6) freq06[idx]++;
+        if((rec.snwd.val||0)>=12)freq12[idx]++;
       }
     });
   });
   const pct01=freq01.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
-  const pct10=freq10.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
-  const pct30=freq30.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
-  const ma=arr=>{const half=3;return arr.map((_,i)=>{const s=arr.slice(Math.max(0,i-half),Math.min(arr.length,i+half+1)).filter(v=>v>0);return s.length?+(s.reduce((a,b)=>a+b,0)/s.length).toFixed(1):0;});};
+  const pct03=freq03.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
+  const pct06=freq06.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
+  const pct12=freq12.map((v,i)=>cnt[i]?+(v/cnt[i]*100).toFixed(1):0);
+  const ma=arr=>{const w=3;return arr.map((_,i)=>{const s=arr.slice(Math.max(0,i-w),Math.min(arr.length,i+w+1));const nz=s.filter(v=>v>0);return nz.length?+(nz.reduce((a,b)=>a+b,0)/nz.length).toFixed(1):0;});};
+  // Weekly x-axis labels
+  const mInfo=[{n:'Nov',s:0,d:30},{n:'Dec',s:30,d:31},{n:'Jan',s:61,d:31},{n:'Feb',s:92,d:29},{n:'Mar',s:120,d:31},{n:'Apr',s:151,d:30}];
   const xlabels=Array.from({length:SNOW_XMAX},(_,i)=>{
-    if(i===0)return'Nov 1';if(i===30)return'Dec 1';if(i===61)return'Jan 1';
-    if(i===92)return'Feb 1';if(i===120)return'Mar 1';if(i===151)return'Apr 1';return'';
+    if(i%7!==0)return'';
+    for(const m of mInfo){if(i>=m.s&&i<m.s+m.d)return`${i-m.s+1} ${m.n}`;}return'';
   });
-  dc('snowFreqChart');
   const freqCanvas=document.getElementById('snowFreqChart');
   if(!freqCanvas)return;
+  dc('snowFreqChart');
   freqCanvas.parentElement.querySelectorAll('.no-data-msg').forEach(el=>el.remove());
   if(cnt.every(v=>v===0)){
     freqCanvas.style.display='none';
-    const msg=document.createElement('div');
-    msg.className='no-data-msg';
+    const msg=document.createElement('div');msg.className='no-data-msg';
     msg.style='padding:40px;text-align:center;font-family:var(--mono);font-size:12px;color:var(--text3);';
-    msg.textContent='No snowfall frequency data available for this station.';
-    freqCanvas.parentElement.appendChild(msg);
-    return;
+    msg.textContent='No snow depth data available for this station.';
+    freqCanvas.parentElement.appendChild(msg);return;
   }
   freqCanvas.style.display='';
   charts['snowFreqChart']=new Chart(document.getElementById('snowFreqChart'),{
     type:'bar',
     data:{labels:xlabels,datasets:[
-      {type:'bar',label:'≥0.1"',data:pct01,backgroundColor:'#4a8fd433',borderColor:'transparent',order:3},
-      {type:'bar',label:'≥1.0"',data:pct10,backgroundColor:'#1d9e7533',borderColor:'transparent',order:2},
-      {type:'bar',label:'≥3.0"',data:pct30,backgroundColor:'#d940e033',borderColor:'transparent',order:1},
-      {type:'line',label:'0.1" avg',data:ma(pct01),borderColor:'#4a8fd4',borderWidth:1.5,pointRadius:0,tension:0.3,order:0},
-      {type:'line',label:'1.0" avg',data:ma(pct10),borderColor:'#1d9e75',borderWidth:1.5,pointRadius:0,tension:0.3,order:0},
-      {type:'line',label:'3.0" avg',data:ma(pct30),borderColor:'#d940e0',borderWidth:1.5,pointRadius:0,tension:0.3,order:0},
+      {type:'bar', label:'≥1"',  data:pct01, backgroundColor:'rgba(20,50,130,0.80)', borderColor:'transparent', order:4},
+      {type:'bar', label:'≥3"',  data:pct03, backgroundColor:'rgba(70,110,200,0.80)', borderColor:'transparent', order:3},
+      {type:'bar', label:'≥6"',  data:pct06, backgroundColor:'rgba(160,50,180,0.82)', borderColor:'transparent', order:2},
+      {type:'bar', label:'≥12"', data:pct12, backgroundColor:'rgba(255,30,170,0.88)', borderColor:'transparent', order:1},
+      {type:'line',label:'≥1" avg',  data:ma(pct01),borderColor:'#d4920a',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0.4,order:0},
+      {type:'line',label:'≥3" avg',  data:ma(pct03),borderColor:'#ffe033',borderWidth:2,pointRadius:0,tension:0.4,order:0},
+      {type:'line',label:'≥6" avg',  data:ma(pct06),borderColor:'#ffffff',borderWidth:1.5,borderDash:[3,2],pointRadius:0,tension:0.4,order:0},
+      {type:'line',label:'≥12" avg', data:ma(pct12),borderColor:'#ff88dd',borderWidth:1.5,pointRadius:0,tension:0.4,order:0},
     ]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:true,labels:{color:'#7a9bb8',boxWidth:12,font:{size:11}}},
+      plugins:{legend:{display:true,labels:{color:'#c8d4e8',boxWidth:14,font:{size:11},padding:12}},
         tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}%`}}},
-      scales:{x:{...so({maxTicksLimit:10}),grid:{display:false}},
-        y:{...so(),ticks:{callback:v=>v+'%'},max:30}}}
+      scales:{
+        x:{...so({autoSkip:false}),grid:{display:false},ticks:{maxRotation:45,minRotation:45,font:{size:10}}},
+        y:{...so(),ticks:{callback:v=>v+'%'},min:0}}}
   });
-  }catch(e){console.error('renderSnowFreq error:',e);}
 }
 
 // ─── TAB 3: SNOW COVER ─────────────────────────────────────
