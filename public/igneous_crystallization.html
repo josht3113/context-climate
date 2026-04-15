@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Igneous Crystallization Simulator</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #f5f3ef;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: #1a1816;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px 48px;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    color: #1a1816;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  .tagline {
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: #7a7060;
+    margin-bottom: 28px;
+    font-weight: 500;
+  }
+
+  .sbtn, .cbtn {
+    background: #fff;
+    border: 1px solid #ccc8c0;
+    color: #5a5248;
+    font-size: 11px;
+    letter-spacing: .08em;
+    padding: 8px 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: inherit;
+    text-transform: uppercase;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .sbtn:hover, .cbtn:hover { border-color: #8a7a6a; color: #1a1816; }
+  .sbtn.on, .cbtn.on {
+    background: #f0ece4;
+    border-color: #8a7a6a;
+    color: #1a1816;
+    font-weight: 600;
+  }
+
+  .btn-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+
+  .comp-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .comp-label {
+    font-size: 11px;
+    color: #8a7a6a;
+    letter-spacing: .06em;
+  }
+
+  #desc {
+    font-size: 13px;
+    color: #5a5248;
+    min-height: 20px;
+    margin-bottom: 14px;
+    line-height: 1.5;
+    max-width: 480px;
+    text-align: center;
+  }
+
+  .viz-row { display: flex; gap: 10px; align-items: stretch; }
+
+  canvas {
+    display: block;
+    border: 1px solid #d4cfc8;
+    border-radius: 8px;
+    flex-shrink: 0;
+    width: 380px;
+    height: 380px;
+  }
+
+  .gauge-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 36px;
+    gap: 3px;
+  }
+  .gauge-lbl {
+    font-size: 9px;
+    color: #8a7a6a;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+  }
+  .gauge-track {
+    width: 10px;
+    background: #e8e4dc;
+    border: 1px solid #d4cfc8;
+    border-radius: 5px;
+    overflow: hidden;
+    position: relative;
+  }
+  .gauge-fill {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 0%;
+  }
+  .gauge-val {
+    font-size: 11px;
+    color: #7a7060;
+    text-align: center;
+    line-height: 1.3;
+    min-height: 28px;
+  }
+  .gauge-divider {
+    width: 100%;
+    height: 1px;
+    background: #d4cfc8;
+    margin: 4px 0;
+  }
+
+  .result-box {
+    margin-top: 22px;
+    text-align: center;
+    opacity: 0;
+    transform: translateY(5px);
+    transition: opacity .65s, transform .65s;
+    pointer-events: none;
+  }
+  .result-box.on {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .tex {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1a1816;
+    margin-bottom: 4px;
+  }
+  .rks {
+    font-size: 11px;
+    color: #5a5248;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .nt {
+    font-size: 12px;
+    color: #7a7060;
+    margin-bottom: 12px;
+  }
+  .essrt-tag {
+    display: inline-block;
+    border: 1px solid #ccc8c0;
+    padding: 4px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    color: #7a7060;
+    letter-spacing: .08em;
+  }
+
+  .replay-wrap { text-align: center; margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<h1>Igneous Crystallization</h1>
+<p class="tagline">Cooling rate → crystal texture → rock type</p>
+
+<div class="btn-row">
+  <button class="sbtn" data-k="slow">① Deep intrusive</button>
+  <button class="sbtn" data-k="fast">② Surface lava flow</button>
+  <button class="sbtn" data-k="glassy">③ Explosive eruption</button>
+  <button class="sbtn" data-k="porphyritic">④ Porphyritic</button>
+</div>
+
+<div class="comp-row">
+  <span class="comp-label">Composition:</span>
+  <button class="cbtn on" data-c="felsic">Felsic — granitic</button>
+  <button class="cbtn" data-c="mafic">Mafic — basaltic</button>
+</div>
+
+<p id="desc">Select a cooling environment above</p>
+
+<div class="viz-row">
+  <canvas id="cv" width="380" height="380"></canvas>
+
+  <div class="gauge-col">
+    <div class="gauge-lbl">temp</div>
+    <div class="gauge-track" style="flex:1">
+      <div id="tf" class="gauge-fill" style="background:linear-gradient(to top,#c82800,#e86000,#f5a200);transition:height 90ms linear"></div>
+    </div>
+    <div id="tr" class="gauge-val">—</div>
+
+    <div class="gauge-divider"></div>
+
+    <div class="gauge-lbl">depth</div>
+    <div class="gauge-track" style="height:88px">
+      <div id="df" class="gauge-fill" style="background:linear-gradient(to top,#3a2010,#7a5030);transition:height 180ms ease-out"></div>
+    </div>
+    <div id="dr" class="gauge-val">—</div>
+    <div class="gauge-lbl">km</div>
+  </div>
+</div>
+
+<div class="result-box" id="res">
+  <div class="tex" id="tex"></div>
+  <div class="rks" id="rks"></div>
+  <div class="nt" id="nt"></div>
+  <div class="essrt-tag">ESSRT p. 14 — Igneous rock identification</div>
+</div>
+
+<div class="replay-wrap">
+  <button id="rp" class="sbtn" style="display:none">↺ Replay</button>
+</div>
+
+<script>
+const cv = document.getElementById('cv');
+const cx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+let token = 0, cur = null, comp = 'felsic';
+
+const SC = {
+  slow:       { n:7,   dur:8000, desc:'Magma cooling slowly over millions of years, kilometers underground',                                      tex:'Phaneritic',   rks:'Granite · Gabbro · Diorite',                    nt:'Crystal size: several mm to cm — visible to the naked eye',                                                   t0:900,  t1:620, depth:15 },
+  fast:       { n:240, dur:2500, desc:'Lava cooling rapidly over days to weeks at Earth\'s surface',                                             tex:'Aphanitic',    rks:'Basalt · Rhyolite · Andesite',                  nt:'Crystal size: < 1mm — requires magnification to see',                                                         t0:1100, t1:760, depth:0  },
+  glassy:     { n:0,   dur:1300, desc:'Magma quenched almost instantly — no time for crystal structure to form',                                 tex:'Glassy',       rks:'Obsidian · Pumice · Scoria',                    nt:'No crystalline structure — amorphous solid glass',                                                            t0:1200, t1:680, depth:0  },
+  porphyritic:{ n:null,dur:6500, desc:'Slow underground cooling builds large phenocrysts — then eruption causes rapid groundmass crystallization',tex:'Porphyritic',  rks:'Porphyry · Porphyritic basalt · Porphyritic rhyolite', nt:'Large phenocrysts (slow cooling) within fine-grained groundmass (fast cooling) — evidence of two-stage cooling history', t0:1200, t1:620 }
+};
+
+const PAL = {
+  felsic: v => { if(v<.35)return[214,158,126]; if(v<.60)return[222,212,196]; if(v<.85)return[178,188,200]; if(v<.95)return[26,32,18]; return[38,24,10]; },
+  mafic:  v => { if(v<.20)return[56,86,32];   if(v<.55)return[30,44,26];    if(v<.80)return[146,156,150]; if(v<.93)return[16,20,14]; return[22,30,17]; }
+};
+
+function rng(seed) { let s=seed|0; return ()=>{ s=Math.imul(s,1664525)+1013904223; return(s>>>0)/4294967296; }; }
+
+function placeSeeds(n, rand, minD) {
+  if (!n) return [];
+  const a = [], md = minD || Math.sqrt(W*H/n) * .65;
+  let t = 0;
+  while (a.length < n && t < n*25) {
+    const x=rand()*W, y=rand()*H;
+    let ok = true;
+    for (const s of a) if ((x-s.x)**2+(y-s.y)**2 < md*md) { ok=false; break; }
+    if (ok) a.push({x,y});
+    t++;
+  }
+  while (a.length < n) a.push({x:rand()*W, y:rand()*H});
+  return a;
+}
+
+function buildVoronoi(pts) {
+  const N=pts.length, own=new Int32Array(W*H), dst=new Float32Array(W*H), mxD=new Float32Array(N);
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++) {
+    let md=1e12, best=0;
+    for (let i=0; i<N; i++) { const dx=x-pts[i].x, dy=y-pts[i].y, d2=dx*dx+dy*dy; if(d2<md){md=d2;best=i;} }
+    const i=y*W+x; own[i]=best; dst[i]=Math.sqrt(md);
+    if (dst[i]>mxD[best]) mxD[best]=dst[i];
+  }
+  const norm=new Float32Array(W*H);
+  for (let i=0; i<W*H; i++) norm[i]=dst[i]/mxD[own[i]];
+  const bnd=new Uint8Array(W*H);
+  for (let y=1; y<H-1; y++) for (let x=1; x<W-1; x++) {
+    const i=y*W+x, c=own[i];
+    if (own[i-1]!==c||own[i+1]!==c||own[i-W]!==c||own[i+W]!==c) bnd[i]=1;
+  }
+  return {own, norm, bnd};
+}
+
+function mkColor(rand) {
+  const base = PAL[comp](rand()), j = (rand()-.5)*22;
+  return base.map(c => Math.min(255, Math.max(0, (c+j)|0)));
+}
+
+function setTemp(raw, sc) {
+  const t = Math.round(sc.t0-(sc.t0-sc.t1)*raw);
+  const pct = (t-400)/(1400-400)*100;
+  document.getElementById('tf').style.height = Math.max(0,pct)+'%';
+  document.getElementById('tr').innerHTML = t+'<br>°C';
+}
+
+function setDepth(km) {
+  const pct = Math.min(km/15,1)*100;
+  document.getElementById('df').style.height = pct+'%';
+  document.getElementById('dr').innerHTML = km+'<br>km';
+}
+
+function showResult(sc) {
+  document.getElementById('tex').textContent = sc.tex;
+  document.getElementById('rks').textContent = sc.rks;
+  document.getElementById('nt').textContent  = sc.nt;
+  const r = document.getElementById('res');
+  r.classList.add('on');
+  document.getElementById('rp').style.display = 'inline-block';
+}
+
+function runCrystal(key, tk) {
+  const sc=SC[key], rand=rng(2025), pts=placeSeeds(sc.n, rand);
+  if (token!==tk) return;
+  const {own,norm,bnd} = buildVoronoi(pts);
+  if (token!==tk) return;
+  const col = Array.from({length:sc.n}, ()=>mkColor(rand));
+  const img=cx.createImageData(W,H), px=img.data;
+  for (let i=0; i<W*H; i++) { px[i*4]=145; px[i*4+1]=46; px[i*4+2]=8; px[i*4+3]=255; }
+  setDepth(sc.depth);
+  const t0=performance.now();
+  function frm(now) {
+    if (token!==tk) return;
+    const raw=Math.min((now-t0)/sc.dur,1);
+    const p=raw<.5?2*raw*raw:-1+(4-2*raw)*raw;
+    setTemp(raw,sc);
+    for (let i=0; i<W*H; i++) {
+      const b=i*4;
+      if (norm[i]<=p) { const c=own[i],f=bnd[i]?.38:1; px[b]=(col[c][0]*f)|0; px[b+1]=(col[c][1]*f)|0; px[b+2]=(col[c][2]*f)|0; }
+      else { const g=1-raw*.42; px[b]=(145*g)|0; px[b+1]=(46*g)|0; px[b+2]=(8*g)|0; }
+    }
+    cx.putImageData(img,0,0);
+    if (raw<1) requestAnimationFrame(frm); else showResult(sc);
+  }
+  requestAnimationFrame(frm);
+}
+
+function runGlassy(key, tk) {
+  const sc=SC[key], rand=rng(55);
+  const shim=new Float32Array(W*H);
+  for (let y=0; y<H; y++) for (let x=0; x<W; x++)
+    shim[y*W+x] = Math.sin(x*.038+y*.033)*5 + Math.sin(x*.014-y*.019)*3;
+  const ves = Array.from({length:28}, ()=>({x:rand()*W, y:rand()*H, r:4+rand()*13, at:.1+rand()*.55}));
+  const img=cx.createImageData(W,H), px=img.data;
+  for (let i=0; i<W*H; i++) px[i*4+3]=255;
+  setDepth(0);
+  const t0=performance.now();
+  function frm(now) {
+    if (token!==tk) return;
+    const raw=Math.min((now-t0)/sc.dur,1), p=raw*raw;
+    setTemp(raw,sc);
+    for (let i=0; i<W*H; i++) {
+      const b=i*4, s=shim[i];
+      px[b]  =(145*(1-p)+(12+s*.25)*p)|0;
+      px[b+1]=(46*(1-p)+9*p)|0;
+      px[b+2]=(8*(1-p)+(17+s*.45)*p)|0;
+    }
+    cx.putImageData(img,0,0);
+    ves.forEach(v => {
+      if (raw>v.at) {
+        const vp=Math.min((raw-v.at)/.22,1);
+        cx.beginPath(); cx.arc(v.x,v.y,v.r*vp,0,Math.PI*2);
+        cx.fillStyle=`rgba(4,4,9,${vp*.5})`; cx.fill();
+        cx.strokeStyle=`rgba(28,24,38,${vp*.45})`; cx.lineWidth=1; cx.stroke();
+      }
+    });
+    if (raw<1) requestAnimationFrame(frm); else showResult(sc);
+  }
+  requestAnimationFrame(frm);
+}
+
+function runPorphyritic(key, tk) {
+  const sc=SC[key], rand=rng(3333);
+  const nPh=6, nMx=220;
+  const phPts = placeSeeds(nPh, rand, 88);
+  const mxPts = Array.from({length:nMx}, ()=>({x:rand()*W, y:rand()*H}));
+  if (token!==tk) return;
+  const phV  = buildVoronoi(phPts);
+  if (token!==tk) return;
+  const allV = buildVoronoi([...phPts,...mxPts]);
+  if (token!==tk) return;
+
+  const phCol = Array.from({length:nPh}, ()=>mkColor(rand));
+  const mxRand = rng(7777);
+  const mxCol = Array.from({length:nMx}, ()=>{
+    const base=PAL[comp](mxRand()), j=(mxRand()-.5)*16-30;
+    return base.map(c => Math.min(255,Math.max(0,(c+j)|0)));
+  });
+
+  const img=cx.createImageData(W,H), px=img.data;
+  for (let i=0; i<W*H; i++) { px[i*4]=145; px[i*4+1]=46; px[i*4+2]=8; px[i*4+3]=255; }
+
+  const P1=4200, P2=2300, TOTAL=P1+P2, PHRESH=0.42;
+  setDepth(12);
+  const t0=performance.now();
+
+  function frm(now) {
+    if (token!==tk) return;
+    const el=now-t0, rawAll=Math.min(el/TOTAL,1);
+    const p1r=Math.min(el/P1,1);
+    const p2r=el<=P1?0:Math.min((el-P1)/P2,1);
+    const p1=p1r<.5?2*p1r*p1r:-1+(4-2*p1r)*p1r;
+    const p2=p2r<.5?2*p2r*p2r:-1+(4-2*p2r)*p2r;
+
+    const temp = el<=P1 ? Math.round(1200-250*p1r) : Math.round(950-330*p2r);
+    const tpct = (temp-400)/(1400-400)*100;
+    document.getElementById('tf').style.height = Math.max(0,tpct)+'%';
+    document.getElementById('tr').innerHTML = temp+'<br>°C';
+    setDepth(el<=P1 ? 12 : Math.round(12*(1-p2r*p2r)));
+
+    const pThresh=PHRESH*p1;
+    for (let i=0; i<W*H; i++) {
+      const b=i*4;
+      const phRevealed = phV.norm[i]<=pThresh;
+      const fullOwner  = allV.own[i];
+      const isPhOwned  = fullOwner<nPh;
+      const isPhEdge   = !phRevealed && isPhOwned && p2>0.01;
+
+      if (phRevealed||isPhEdge) {
+        const ci=phV.own[i], f=(phRevealed?phV.bnd[i]:allV.bnd[i])?.38:1, c=phCol[ci];
+        px[b]=(c[0]*f)|0; px[b+1]=(c[1]*f)|0; px[b+2]=(c[2]*f)|0;
+      } else if (!isPhOwned && allV.norm[i]<=p2) {
+        const ci=fullOwner-nPh, f=allV.bnd[i]?.35:1, c=mxCol[ci];
+        px[b]=(c[0]*f)|0; px[b+1]=(c[1]*f)|0; px[b+2]=(c[2]*f)|0;
+      } else {
+        const g=1-rawAll*.42;
+        px[b]=(145*g)|0; px[b+1]=(46*g)|0; px[b+2]=(8*g)|0;
+      }
+    }
+    cx.putImageData(img,0,0);
+
+    if (el>P1-40 && el<P1+280) {
+      const fa=Math.max(0,1-(el-P1+40)/320);
+      cx.fillStyle=`rgba(255,120,8,${fa*.6})`; cx.fillRect(0,0,W,H);
+    }
+
+    if (rawAll<1) requestAnimationFrame(frm); else showResult(sc);
+  }
+  requestAnimationFrame(frm);
+}
+
+function run(key) {
+  const tk=++token; cur=key;
+  const r=document.getElementById('res');
+  r.classList.remove('on'); r.style.opacity='0'; r.style.transform='translateY(5px)';
+  document.getElementById('rp').style.display='none';
+  document.getElementById('desc').textContent=SC[key].desc;
+  cx.fillStyle='#0e0b0a'; cx.fillRect(0,0,W,H);
+  setTimeout(()=>{
+    if (token!==tk) return;
+    if (key==='glassy')       runGlassy(key,tk);
+    else if (key==='porphyritic') runPorphyritic(key,tk);
+    else                      runCrystal(key,tk);
+  }, 12);
+}
+
+// idle state
+cx.fillStyle='#111010'; cx.fillRect(0,0,W,H);
+cx.fillStyle='rgba(140,120,90,.5)'; cx.font='12px system-ui,sans-serif';
+cx.textAlign='center'; cx.textBaseline='middle';
+cx.fillText('Select a cooling environment to begin', W/2, H/2);
+
+document.querySelectorAll('.sbtn[data-k]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.sbtn[data-k]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); run(b.dataset.k);
+  });
+});
+document.querySelectorAll('.cbtn[data-c]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.cbtn[data-c]').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); comp=b.dataset.c;
+    if (cur) run(cur);
+  });
+});
+document.getElementById('rp').addEventListener('click', ()=>{ if(cur) run(cur); });
+</script>
+</body>
+</html>
