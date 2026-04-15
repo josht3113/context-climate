@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Seasons Analysis — ContextClimate</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -90,9 +91,30 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14
 .method-box strong{color:var(--text);}
 .spinner{width:26px;height:26px;border:2px solid var(--border2);border-top-color:var(--c-summer);border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
-footer{padding:18px 32px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);font-family:var(--mono);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+.prob-grid-outer{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+@media(max-width:900px){.prob-grid-outer{grid-template-columns:1fr;}}
+.prob-card-hdr{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+.prob-card-station{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text2);}
+.prob-card-title{font-family:var(--mono);font-size:11px;font-weight:600;}
+.prob-legend{display:flex;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);flex-direction:column;gap:4px;}
+.prob-legend-bar{display:flex;height:10px;border-radius:2px;overflow:hidden;}
+.prob-legend-labels{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text3);}
+/* Dual range slider */
+.prob-slider-wrap{position:relative;height:24px;display:flex;align-items:center;}
+.prob-slider-track{position:absolute;left:0;right:0;height:4px;background:var(--border2);border-radius:2px;}
+.prob-slider-fill{position:absolute;height:4px;background:var(--text2);border-radius:2px;pointer-events:none;}
+.prob-range{position:absolute;width:100%;appearance:none;-webkit-appearance:none;background:transparent;outline:none;height:4px;margin:0;pointer-events:none;}
+.prob-range::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--text);border:2px solid var(--bg);cursor:pointer;pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,0.5);}
+.prob-range::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--text);border:2px solid var(--bg);cursor:pointer;pointer-events:auto;box-shadow:0 1px 4px rgba(0,0,0,0.5);}
+.prob-range::-webkit-slider-runnable-track{background:transparent;height:4px;}
+.prob-range::-moz-range-track{background:transparent;height:4px;}
+font-size:11px;color:var(--text3);font-family:var(--mono);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
 footer a{color:var(--text2);text-decoration:none;}
 footer a:hover{color:var(--text);}
+.copy-btn{font-family:var(--mono);font-size:10px;padding:4px 11px;border-radius:4px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0;}
+.copy-btn:hover{border-color:var(--text2);color:var(--text);}
+.copy-btn:disabled{opacity:0.5;cursor:default;}
+.cal-credit{font-family:var(--mono);font-size:10px;color:var(--text3);text-align:right;margin-top:10px;padding-top:8px;border-top:1px solid var(--border);letter-spacing:0.4px;}
 </style>
 </head>
 <body>
@@ -176,9 +198,16 @@ footer a:hover{color:var(--text);}
   <div class="section" id="sec-calendar">
     <div class="sec-label">Calendar Heatmap — Season by Day (Dec–Nov, temp in °F)</div>
     <div class="year-sel" id="calYearSel"></div>
-    <div class="card">
-      <div class="card-title" id="calTitle">Season Calendar</div>
+    <div class="card" id="calCard">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div class="card-title" id="calTitle" style="margin-bottom:0;">Season Calendar</div>
+        <button class="copy-btn" id="copyCalBtn" onclick="copyCalendar()">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2H3.5A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          Copy
+        </button>
+      </div>
       <div class="cal-outer" id="calWrap"></div>
+      <div class="cal-credit">contextclimate.io</div>
     </div>
     <div class="method-box" style="margin-top:14px">
       Each cell shows the rounded daily mean temperature (°F) and is color-coded by season. Rows = months December through November. Columns = days 1–31.
@@ -187,13 +216,11 @@ footer a:hover{color:var(--text);}
 
   <div class="section" id="sec-probability">
     <div class="sec-label">Seasonal Probability — By Calendar Day</div>
-    <div class="grid-2 mb20">
-      <div class="card"><div class="card-title">% of Years Classified as Summer</div><div class="chart-wrap"><canvas id="probSummer"></canvas></div></div>
-      <div class="card"><div class="card-title">% of Years Classified as Winter</div><div class="chart-wrap"><canvas id="probWinter"></canvas></div></div>
-    </div>
-    <div class="grid-2">
-      <div class="card"><div class="card-title">% of Years Classified as Spring</div><div class="chart-wrap"><canvas id="probSpring"></canvas></div></div>
-      <div class="card"><div class="card-title">% of Years Classified as Autumn</div><div class="chart-wrap"><canvas id="probAutumn"></canvas></div></div>
+    <div id="probControls" style="margin-bottom:20px;"></div>
+    <div id="probGridWrap" class="prob-grid-outer"></div>
+    <div class="method-box" style="margin-top:16px;">
+      Each cell shows the % of years in the selected period where that calendar day was classified as that season.
+      Colors graduate from dark (rare) to full season color (always). <strong>Feb 29</strong> reflects leap years only.
     </div>
   </div>
 
@@ -747,7 +774,7 @@ function drawCalendar(){
 
   if(calClimo){
     // CLIMO MODE — show dominant season per calendar day across all complete years
-    document.getElementById('calTitle').textContent=`Season Calendar — Climatology (${completeSYs().length}-year dominant season)`;
+    document.getElementById('calTitle').textContent=`${activeStation.label} · Season Calendar — Climatology (${completeSYs().length}-year dominant season)`;
     const climoMap=buildClimoMap();
     html+=`<div style="display:grid;gap:2px;min-width:${LW+maxD*(CW+2)}px;">`;
     // Use a standard non-leap year for climo layout (Jan 1 = any year)
@@ -771,7 +798,7 @@ function drawCalendar(){
   } else {
     // SPECIFIC YEAR MODE
     const sy=calSY;
-    document.getElementById('calTitle').textContent=`Season Calendar — ${SYL(sy)}`;
+    document.getElementById('calTitle').textContent=`${activeStation.label} · Season Calendar — ${SYL(sy)}`;
     html+=`<div style="display:grid;gap:2px;min-width:${LW+maxD*(CW+2)}px;">`;
     CAL_M.forEach(({m,yo})=>{
       const actualYear=sy+yo;
@@ -797,35 +824,169 @@ function drawCalendar(){
 }
 
 // ─── 4. PROBABILITY ────────────────────────────────────────
+let probStartSY=null,probEndSY=null;
+
 function renderProbability(){
-  const sys=goodSYs();
-  const N=sys.length;
-  const prob={summer:new Array(365).fill(0),spring:new Array(365).fill(0),autumn:new Array(365).fill(0),winter:new Array(365).fill(0)};
-  sys.forEach(sy=>{
-    bySY[sy].forEach(d=>{
-      if(!d.season) return;
-      const di=doy(d.month,d.day);
-      if(di>=1&&di<=365) prob[d.season][di-1]++;
-    });
+  const sys=completeSYs();
+  if(!sys.length) return;
+  const minSY=sys[0],maxSY=sys[sys.length-1];
+  // Reset to full POR each time (station changes always trigger a fresh render)
+  probStartSY=minSY;
+  probEndSY=maxSY;
+  document.getElementById('probControls').innerHTML='';
+  document.getElementById('probGridWrap').innerHTML='';
+  buildProbSlider(minSY,maxSY);
+  drawAllProbGrids();
+}
+
+function buildProbSlider(minSY,maxSY){
+  const ctrl=document.getElementById('probControls');
+  ctrl.innerHTML=`
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px 20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:1px;">Period</span>
+        <span id="probPeriodLabel" style="font-family:var(--mono);font-size:11px;color:var(--text);">${SYL(probStartSY)} – ${SYL(probEndSY)}</span>
+      </div>
+      <div class="prob-slider-wrap" id="probSliderWrap">
+        <div class="prob-slider-track"></div>
+        <div class="prob-slider-fill" id="probSliderFill"></div>
+        <input class="prob-range" type="range" id="probRangeMin" min="${minSY}" max="${maxSY}" value="${probStartSY}" step="1">
+        <input class="prob-range" type="range" id="probRangeMax" min="${minSY}" max="${maxSY}" value="${probEndSY}" step="1">
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:10px;color:var(--text3);margin-top:6px;">
+        <span>${SYL(minSY)}</span><span>${SYL(maxSY)}</span>
+      </div>
+    </div>`;
+
+  const rMin=document.getElementById('probRangeMin');
+  const rMax=document.getElementById('probRangeMax');
+  const fill=document.getElementById('probSliderFill');
+  const lbl=document.getElementById('probPeriodLabel');
+  const span=maxSY-minSY||1;
+
+  function syncFill(){
+    const l=((probStartSY-minSY)/span)*100;
+    const r=((probEndSY-minSY)/span)*100;
+    fill.style.left=l+'%';
+    fill.style.width=(r-l)+'%';
+    lbl.textContent=`${SYL(probStartSY)} – ${SYL(probEndSY)}`;
+  }
+  rMin.addEventListener('input',()=>{
+    probStartSY=Math.min(+rMin.value,probEndSY-4);
+    rMin.value=probStartSY;
+    syncFill();
+    drawAllProbGrids();
   });
-  const doyL=Array.from({length:365},(_,i)=>i%30===0?doyStr(i+1):'');
-  const pdata={};
-  ['summer','spring','autumn','winter'].forEach(s=>{pdata[s]=prob[s].map(v=>+(v/N*100).toFixed(1));});
-  function pChart(id,data,color,lbl){
-    dc(id);
-    charts[id]=new Chart(document.getElementById(id),{
-      type:'line',
-      data:{labels:doyL,datasets:[{label:lbl,data,borderColor:color,backgroundColor:color+'33',borderWidth:1.5,pointRadius:0,fill:true,tension:0.3}]},
-      options:{responsive:true,
-        plugins:{tooltip:{callbacks:{label:ctx=>`${ctx.raw}%`}}},
-        scales:{x:{...so(),grid:{display:false},ticks:{maxTicksLimit:12,padding:4}},
-          y:{...so(),min:0,max:100,ticks:{callback:v=>v+'%',padding:4}}}}
+  rMax.addEventListener('input',()=>{
+    probEndSY=Math.max(+rMax.value,probStartSY+4);
+    rMax.value=probEndSY;
+    syncFill();
+    drawAllProbGrids();
+  });
+  syncFill();
+}
+
+function hexToRgb(hex){
+  return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)];
+}
+function probCellBg(pct,fg){
+  // interpolate #0d1826 (surface) → season color
+  const bg=[13,24,38],t=pct/100;
+  return `rgb(${Math.round(bg[0]+(fg[0]-bg[0])*t)},${Math.round(bg[1]+(fg[1]-bg[1])*t)},${Math.round(bg[2]+(fg[2]-bg[2])*t)})`;
+}
+
+function drawAllProbGrids(){
+  const SEASONS=[
+    {key:'winter', label:'Winter Day Percentages', color:SC.winter},
+    {key:'spring', label:'Spring Day Percentages', color:SC.spring},
+    {key:'summer', label:'Summer Day Percentages', color:SC.summer},
+    {key:'autumn', label:'Autumn Day Percentages', color:SC.autumn},
+  ];
+  const CW=38,CH=30,LW=42,maxD=31;
+  const wrap=document.getElementById('probGridWrap');
+
+  // Rebuild grid cards if empty (first render or station change)
+  if(!wrap.children.length){
+    wrap.innerHTML=SEASONS.map(s=>`
+      <div class="card">
+        <div class="prob-card-hdr">
+          <span class="prob-card-station" id="probStn-${s.key}">${activeStation.label}</span>
+          <span class="prob-card-title" style="color:${s.color};" id="probTitle-${s.key}">${s.label}</span>
+        </div>
+        <div class="cal-outer" id="probGrid-${s.key}"></div>
+        <div class="prob-legend" id="probLegend-${s.key}"></div>
+      </div>`).join('');
+  } else {
+    // Update station name + title on slider change
+    SEASONS.forEach(s=>{
+      const t=document.getElementById(`probTitle-${s.key}`);
+      const st=document.getElementById(`probStn-${s.key}`);
+      if(t) t.textContent=s.label;
+      if(st) st.textContent=activeStation.label;
     });
   }
-  pChart('probSummer',pdata.summer,SC.summer,'Summer %');
-  pChart('probWinter',pdata.winter,SC.winter,'Winter %');
-  pChart('probSpring',pdata.spring,SC.spring,'Spring %');
-  pChart('probAutumn',pdata.autumn,SC.autumn,'Autumn %');
+
+  SEASONS.forEach(s=>{
+    const fgRgb=hexToRgb(s.color);
+    // Build m-d probability lookup filtered by SY range
+    const pmap={};
+    CAL_M.forEach(({m})=>{
+      for(let d=1;d<=DIM[m];d++){
+        const key=`${m}-${d}`;
+        const recs=(calData[key]||[]).filter(r=>r.sy>=probStartSY&&r.sy<=probEndSY&&r.season!==null);
+        const total=recs.length;
+        const count=recs.filter(r=>r.season===s.key).length;
+        pmap[key]=total>0?{count,total,pct:Math.round(count/total*100)}:null;
+      }
+      // Feb 29 — only exists in calData if leap years in range
+      if(m===1){
+        const key='1-29';
+        const recs=(calData[key]||[]).filter(r=>r.sy>=probStartSY&&r.sy<=probEndSY&&r.season!==null);
+        const total=recs.length;
+        const count=recs.filter(r=>r.season===s.key).length;
+        pmap[key]=total>0?{count,total,pct:Math.round(count/total*100),leap:true}:null;
+      }
+    });
+
+    // Day number header row
+    let html=`<div style="display:grid;grid-template-columns:${LW}px repeat(${maxD},${CW}px);gap:2px;min-width:${LW+maxD*(CW+2)}px;margin-bottom:3px;">`;
+    html+=`<div></div>`;
+    for(let d=1;d<=maxD;d++) html+=`<div style="width:${CW}px;height:16px;font-family:var(--mono);font-size:9px;color:var(--text3);display:flex;align-items:center;justify-content:center;">${d}</div>`;
+    html+='</div>';
+
+    // Month rows (Dec–Nov order)
+    html+=`<div style="display:grid;gap:2px;min-width:${LW+maxD*(CW+2)}px;">`;
+    CAL_M.forEach(({m})=>{
+      const dim2=m===1?29:DIM[m]; // show Feb 29 slot
+      html+=`<div style="display:grid;grid-template-columns:${LW}px repeat(${maxD},${CW}px);gap:2px;">`;
+      html+=`<div style="width:${LW}px;height:${CH}px;font-family:var(--mono);font-size:11px;color:var(--text2);display:flex;align-items:center;padding-right:4px;justify-content:flex-end;">${MN[m]}</div>`;
+      for(let d=1;d<=maxD;d++){
+        if(d>dim2){html+=`<div class="cal-cell empty" style="width:${CW}px;height:${CH}px;"></div>`;continue;}
+        const key=`${m}-${d}`;
+        const rec=pmap[key];
+        const pct=rec?.pct??null;
+        const bgCol=pct!==null?probCellBg(pct,fgRgb):'var(--border)';
+        // Text: white once past ~35%, season color for low values, text3 for zero
+        const txtCol=pct===null?'var(--text3)':pct>=35?'rgba(255,255,255,0.92)':pct>0?s.color:'var(--text3)';
+        const txt=pct!==null&&pct>0?pct+'%':'';
+        const leapNote=rec?.leap?' (leap yrs only)':'';
+        const tt=`${MN[m]} ${d}: ${pct!==null?pct+'% '+s.key+' ('+rec.count+'/'+rec.total+' yrs)':'No data'}${leapNote}`;
+        html+=`<div class="cal-cell" style="width:${CW}px;height:${CH}px;background:${bgCol};color:${txtCol};font-size:9px;font-weight:500;" title="${tt}">${txt}</div>`;
+      }
+      html+='</div>';
+    });
+    html+='</div>';
+
+    document.getElementById(`probGrid-${s.key}`).innerHTML=html;
+
+    // Gradient legend bar
+    const steps=40;
+    let stops='';
+    for(let i=0;i<=steps;i++) stops+=`<div style="flex:1;background:${probCellBg((i/steps)*100,fgRgb)};"></div>`;
+    document.getElementById(`probLegend-${s.key}`).innerHTML=`
+      <div class="prob-legend-bar">${stops}</div>
+      <div class="prob-legend-labels"><span>0% — Never</span><span>100% — Always</span></div>`;
+  });
 }
 
 // ─── 5. COMPARE ────────────────────────────────────────────
@@ -907,6 +1068,50 @@ function drawCompare(results){
   });
   html+='</tbody></table>';
   document.getElementById('cmpTableWrap').innerHTML=html;
+}
+
+// ─── COPY CALENDAR ─────────────────────────────────────────
+async function copyCalendar(){
+  const btn=document.getElementById('copyCalBtn');
+  const orig=btn.innerHTML;
+  btn.innerHTML='⏳ Capturing…';
+  btn.disabled=true;
+  try{
+    const card=document.getElementById('calCard');
+    const canvas=await html2canvas(card,{
+      backgroundColor:'#0d1826',
+      scale:2,
+      useCORS:true,
+      logging:false,
+      onclone:(doc)=>{
+        // ensure credit is fully visible in capture
+        const credit=doc.getElementById('calCard').querySelector('.cal-credit');
+        if(credit) credit.style.color='#3d5a77';
+      }
+    });
+    canvas.toBlob(async blob=>{
+      let copied=false;
+      try{
+        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+        copied=true;
+      }catch(e){}
+      if(copied){
+        btn.innerHTML='✓ Copied!';
+      } else {
+        // fallback: download
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download=`season-calendar-${activeStation.short}-${calClimo?'climo':calSY}.png`;
+        a.click();
+        btn.innerHTML='✓ Downloaded!';
+      }
+      setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2200);
+    },'image/png');
+  }catch(e){
+    console.error('copyCalendar:',e);
+    btn.innerHTML='Error';
+    setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2000);
+  }
 }
 
 // ─── INIT ──────────────────────────────────────────────────
