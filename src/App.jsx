@@ -10,7 +10,8 @@ import PrecipSnow       from './pages/PrecipSnow'
 import NortheastClimate from './pages/NortheastClimate'
 import Hurricanes       from './pages/Hurricanes'
 import Solar            from './pages/Solar'
-import Igneous         from './pages/Igneous'
+import Igneous          from './pages/Igneous'
+import ScrollToTop      from './components/ScrollToTop
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -23,8 +24,9 @@ import Igneous         from './pages/Igneous'
 
 export default function App() {
   return (
-    <HashRouter>
-      <Header />
+   <HashRouter>
+  <ScrollToTop />
+  <Header />
       <main style={{ overflowX: 'hidden' }}>
         <Routes>
           <Route path="/"                  element={<Home />}             />
