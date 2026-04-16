@@ -11,7 +11,7 @@ import NortheastClimate from './pages/NortheastClimate'
 import Hurricanes       from './pages/Hurricanes'
 import Solar            from './pages/Solar'
 import Igneous          from './pages/Igneous'
-import ScrollToTop      from './components/ScrollToTop
+import ScrollToTop      from './components/ScrollToTop'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
