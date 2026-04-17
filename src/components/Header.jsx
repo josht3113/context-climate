@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { label: 'Precip & Snow Climo',       to: '/precipsnow'         },
   { label: 'NE Climate Dashboard',      to: '/northeast-climate'  },
   { label: 'Meteorological Seasons',    to: '/seasons'            },
+  { label: 'Earth & Space',             to: '/earthandspace'  },
 ]
 
 function BracketMark() {
