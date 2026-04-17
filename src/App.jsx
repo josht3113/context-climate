@@ -12,6 +12,8 @@ import Hurricanes       from './pages/Hurricanes'
 import Solar            from './pages/Solar'
 import Igneous          from './pages/Igneous'
 import ScrollToTop      from './components/ScrollToTop'
+import EarthAndSpace    from './pages/EarthAndSpace'
+
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -40,6 +42,7 @@ export default function App() {
           <Route path="/hurricanes"        element={<Hurricanes />}       />
           <Route path="/solar"             element={<Solar />}            />
           <Route path="/igneous"           element={<Igneous />} />
+          <Route path="/earthandspace"     element={<EarthAndSpace />} />
         </Routes>
       </main>
       <footer style={{
