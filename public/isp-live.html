@@ -249,7 +249,7 @@
     }
     .section-subtitle { font-size: 15px; color: var(--muted); }
 
-    /* ---- MTD STATS ---- */
+    /* ---- 10-DAY STATS ---- */
     .mtd-stats {
       display: flex;
       gap: 10px;
@@ -265,40 +265,45 @@
     .stat-chip-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 3px; }
     .stat-chip-value { font-family: var(--font-data); font-size: 24px; color: var(--text); }
 
-    /* ---- CHART ---- */
-    #mtd-chart { width: 100%; height: 380px; }
-
-    /* ---- FORECAST ---- */
-    .forecast-disclaimer {
-      font-size: 12px;
+    /* ---- WIND DIRECTION KEY ---- */
+    .wind-dir-key {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .wind-key-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
       color: var(--muted);
-      background: rgba(186,117,23,0.08);
-      border: 1px solid rgba(186,117,23,0.3);
-      border-left: 3px solid var(--gold);
-      padding: 8px 14px;
-      margin-bottom: 16px;
-      border-radius: 0 4px 4px 0;
-      line-height: 1.5;
+      margin-right: 8px;
+      white-space: nowrap;
     }
-    .forecast-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
-      gap: 8px;
-    }
-    .forecast-card {
-      background: var(--surface);
+    .wind-key-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-data);
+      font-size: 11px;
+      color: var(--muted);
+      padding: 3px 8px 3px 5px;
+      border-radius: 4px;
+      background: var(--surface2);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 14px 10px;
-      text-align: center;
-      transition: border-color 0.2s;
+      white-space: nowrap;
     }
-    .forecast-card:hover { border-color: var(--dimmer); }
-    .fc-period { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; line-height: 1.3; }
-    .fc-temp { font-family: var(--font-data); font-size: 30px; line-height: 1; }
-    .fc-temp-unit { font-size: 15px; color: var(--muted); }
-    .fc-condition { font-size: 12px; color: var(--text); margin-top: 8px; line-height: 1.3; }
-    .fc-wind { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .wind-key-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ---- CHARTS ---- */
+    #mtd-chart { width: 100%; height: 380px; }
+    #pressure-precip-chart { width: 100%; height: 240px; margin-top: 4px; }
 
     /* ---- TABLE ---- */
     .table-wrapper { overflow-x: auto; }
@@ -412,37 +417,28 @@
   </div>
 </div>
 
-<!-- ==================== MTD CHART ==================== -->
+<!-- ==================== 10-DAY CHARTS ==================== -->
 <div class="section">
   <div class="section-header">
-    <span class="section-title">Month-to-Date</span>
+    <span class="section-title">Past 10 Days</span>
     <span class="section-subtitle" id="mtd-label">&mdash;</span>
   </div>
   <div class="mtd-stats" id="mtd-stats"></div>
+  <div class="wind-dir-key" id="wind-dir-key"></div>
+  <!-- Temperature / Wind chart -->
   <div id="mtd-chart">
     <div class="loading-state"><div class="spinner"></div>Loading chart&hellip;</div>
   </div>
-</div>
-
-<!-- ==================== FORECAST ==================== -->
-<div class="section">
-  <div class="section-header">
-    <span class="section-title">NWS Forecast</span>
-    <span class="section-subtitle">Islip / KISP Area</span>
-  </div>
-  <div class="forecast-disclaimer">
-    ⚠&nbsp; Forecast data is derived from raw NWS model output and may differ from official forecasts.
-    Always consult official NWS products for critical weather decisions.
-  </div>
-  <div class="forecast-grid" id="forecast-grid">
-    <div class="loading-state"><div class="spinner"></div>Loading forecast&hellip;</div>
+  <!-- Pressure / Precip chart -->
+  <div id="pressure-precip-chart">
+    <div class="loading-state"><div class="spinner"></div></div>
   </div>
 </div>
 
-<!-- ==================== 7-DAY TABLE ==================== -->
+<!-- ==================== 10-DAY TABLE ==================== -->
 <div class="section">
   <div class="section-header">
-    <span class="section-title">Past 7 Days</span>
+    <span class="section-title">Past 10 Days</span>
     <span class="section-subtitle">Hourly Observations &mdash; KISP</span>
   </div>
   <div class="table-wrapper">
@@ -487,7 +483,7 @@ const REFRESH_MS = 60 * 60 * 1000;
 let countdownInterval = null;
 let nextRefreshAt     = null;
 let tableAscending    = false;  // default: newest first
-let sevenDayData      = [];
+let tenDayData        = [];
 
 // ============================================================
 //  UNIT CONVERSIONS
@@ -542,6 +538,35 @@ function dirLabel(deg) {
 }
 
 // ============================================================
+//  HELPER: WIND DIRECTION → COLOR  (continuous hue wheel)
+//  N=blue(215°), E=purple(290°), S=orange-red(15°), W=teal(165°)
+//  Arrows showing direction are encoded in dot color instead.
+// ============================================================
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = n => {
+    const k = (n + h / 30) % 12;
+    return Math.round(255 * (l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)))
+      .toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function windDirColor(deg) {
+  if (deg == null) return 'rgba(140,150,180,0.35)';
+  const d = ((deg % 360) + 360) % 360;
+  // Piecewise hue mapping around the compass:
+  // N(0°)→hue215  E(90°)→hue290  S(180°)→hue15(+360=375)  W(270°)→hue165
+  let hue;
+  if (d < 90)       hue = 215 + (d / 90) * 75;          // 215→290
+  else if (d < 180) hue = 290 + ((d - 90)  / 90) * 85;  // 290→375
+  else if (d < 270) hue = 375 + ((d - 180) / 90) * 150; // 375→525(=165)
+  else              hue = 525 + ((d - 270) / 90) * 50;   // 525→575(=215)
+  return hslToHex(hue % 360, 72, 62);
+}
+
+// ============================================================
 //  HELPER: CLOUD COVER LABEL
 // ============================================================
 function cloudLabel(layers) {
@@ -574,10 +599,8 @@ function sunTimes(dateLocal, lat, lon) {
   const cosH  = (Math.cos(90.833*rad) - Math.sin(latR)*Math.sin(delta)) / (Math.cos(latR)*Math.cos(delta));
   if (Math.abs(cosH) > 1) return { srH: null, ssH: null, srStr: '—', ssStr: '—' };
   const H  = Math.acos(cosH) / rad;
-  // EoT (minutes)
   const RA  = Math.atan2(Math.cos(eps)*Math.sin(lam), Math.cos(lam)) / rad / 15;
   const EoT = (((L/15+12)%24) - RA) * 60;
-  // UTC offset (dynamic for DST)
   const tzOffset = -new Date(dateLocal.getFullYear(), dateLocal.getMonth(), dateLocal.getDate(), 12).getTimezoneOffset()/60;
   const lonH  = lon/15;
   const srUTC = 12 - H/15 - lonH + EoT/60;
@@ -592,7 +615,6 @@ function sunTimes(dateLocal, lat, lon) {
 
 // ============================================================
 //  Deduplicate to one obs per UTC hour, closest to :56.
-//  Eliminates special/intermediate reports cleanly.
 // ============================================================
 function deduplicateHourly(features) {
   const groups = {};
@@ -637,8 +659,7 @@ function deriveFltCat(props) {
 //  FETCH
 // ============================================================
 
-// Fetch the most recent *routine* hourly obs by pulling the last 3 hours
-// and applying deduplicateHourly — consistent with the chart and table.
+// Most recent routine hourly obs (last 3 hours)
 async function fetchCurrentObs() {
   const start = new Date(Date.now() - 3*60*60*1000).toISOString().slice(0,19)+'Z';
   const r = await fetch(`https://api.weather.gov/stations/${STATION}/observations?start=${start}&limit=20`,
@@ -648,25 +669,16 @@ async function fetchCurrentObs() {
   return hourly.length > 0 ? hourly[hourly.length-1].properties : null;
 }
 
-async function fetchMTDObs() {
-  const now   = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), 1, 0,0,0).toISOString().slice(0,19)+'Z';
-  const r = await fetch(`https://api.weather.gov/stations/${STATION}/observations?start=${start}&limit=500`,
-    {headers:{Accept:'application/geo+json'}});
-  const d = await r.json();
-  return deduplicateHourly(d.features||[]);
-}
-
-async function fetch7DayObs() {
-  // KISP files every ~5 min; limit=500 only covers ~2 days.
-  // Split 7 days into 4 parallel ~44-hour chunks so each fits within limit=500.
+// Last 240 hours (10 days) — split into 7 parallel ~34-hour chunks to stay under limit=500
+async function fetch10DayObs() {
   const now = Date.now();
   const DAY = 24 * 60 * 60 * 1000;
-  const bounds = [0, 1.75, 3.5, 5.25, 7].map(d =>
-    new Date(now - d * DAY).toISOString().slice(0,19) + 'Z'
+  const NCHUNKS = 7;
+  const bounds = Array.from({length: NCHUNKS + 1}, (_, i) =>
+    new Date(now - (i * 10 / NCHUNKS) * DAY).toISOString().slice(0,19) + 'Z'
   );
   const fetches = [];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < NCHUNKS; i++) {
     const url = `https://api.weather.gov/stations/${STATION}/observations?start=${bounds[i+1]}&end=${bounds[i]}&limit=500`;
     fetches.push(
       fetch(url, {headers:{Accept:'application/geo+json'}})
@@ -677,16 +689,6 @@ async function fetch7DayObs() {
   }
   const chunks = await Promise.all(fetches);
   return deduplicateHourly(chunks.flat());
-}
-
-async function fetchForecast() {
-  const pr = await fetch(`https://api.weather.gov/points/${LAT},${LON}`);
-  const pd = await pr.json();
-  const url = pd.properties?.forecast;
-  if (!url) return [];
-  const fr = await fetch(url);
-  const fd = await fr.json();
-  return fd.properties?.periods || [];
 }
 
 async function fetchAlerts() {
@@ -713,7 +715,7 @@ function renderAlerts(alerts) {
 // ============================================================
 function conditionIcon(text) {
   const t = (text || '').toLowerCase();
-  const s = 32; // viewBox size
+  const s = 32;
   const stroke = '#dde2ee';
   const sun     = `<circle cx="16" cy="16" r="5.5" stroke="${stroke}" stroke-width="1.8" fill="none"/>` +
     [0,45,90,135,180,225,270,315].map(a => {
@@ -754,13 +756,13 @@ function conditionIcon(text) {
     return wrap(moon);
   if (t.includes('clear') || t.includes('sunny') || t.includes('fair'))
     return wrap(sun);
-  return wrap(sun); // fallback
+  return wrap(sun);
 }
 
 // ============================================================
-//  RENDER: HERO  (uses NWS latest observation format)
+//  RENDER: HERO
 // ============================================================
-function renderHero(obs, mtdObs) {
+function renderHero(obs, tenDayObs) {
   const hero = document.getElementById('hero');
   if (!obs) {
     hero.innerHTML = '<div class="error-state" style="grid-column:1/-1;padding:40px;text-align:center">⚠ Could not load current observations. Data will retry on next refresh.</div>';
@@ -781,11 +783,11 @@ function renderHero(obs, mtdObs) {
   const cldLayers= obs.cloudLayers || [];
   const cover    = cloudLabel(cldLayers);
 
-  // Pressure trend from last 2 MTD obs
+  // Pressure trend from last 2 obs
   let pTrend = '→', pColor = 'var(--muted)';
-  if (mtdObs && mtdObs.length >= 2) {
-    const p1 = mtdObs[mtdObs.length-1]?.properties?.seaLevelPressure?.value;
-    const p2 = mtdObs[mtdObs.length-2]?.properties?.seaLevelPressure?.value;
+  if (tenDayObs && tenDayObs.length >= 2) {
+    const p1 = tenDayObs[tenDayObs.length-1]?.properties?.seaLevelPressure?.value;
+    const p2 = tenDayObs[tenDayObs.length-2]?.properties?.seaLevelPressure?.value;
     if (p1 != null && p2 != null) {
       const diff = p1 - p2;
       if (diff > 60)       { pTrend = '↑'; pColor = '#1D9E75'; }
@@ -873,73 +875,107 @@ function renderHero(obs, mtdObs) {
 }
 
 // ============================================================
-//  RENDER: MTD CHART
+//  RENDER: TEMP / WIND CHART  (top chart)
 // ============================================================
-function renderChart(mtdObs) {
+function renderTempWindChart(obs10day) {
   const chartEl = document.getElementById('mtd-chart');
   const statsEl = document.getElementById('mtd-stats');
 
-  if (!mtdObs || mtdObs.length === 0) {
-    chartEl.innerHTML = '<div class="loading-state">No month-to-date data available.</div>';
+  if (!obs10day || obs10day.length === 0) {
+    chartEl.innerHTML = '<div class="loading-state">No data available.</div>';
     return;
   }
 
-  const times=[], temps=[], dews=[], winds=[];
-  let hi=-Infinity, lo=Infinity, sum=0, cnt=0;
+  const times=[], temps=[], dews=[], winds=[], windDirs=[];
+  let hi=-Infinity, lo=Infinity, sum=0, cnt=0, precipTotal=0;
 
-  for (const f of mtdObs) {
+  for (const f of obs10day) {
     const p  = f.properties;
     const t  = new Date(p.timestamp);
     const tf = cToF(p.temperature?.value);
     const df = cToF(p.dewpoint?.value);
     const wf = kmhToMph(p.windSpeed?.value);
+    const wd = p.windDirection?.value;
+    const pc = p.precipitationLastHour?.value; // meters
+
     times.push(t);
     temps.push(tf);
     dews.push(df);
     winds.push(wf);
+    windDirs.push(wd != null ? wd : null);
+
     if (tf != null) { if(tf>hi)hi=tf; if(tf<lo)lo=tf; sum+=tf; cnt++; }
+    if (pc != null && pc > 0) precipTotal += pc * 0.0393701; // mm → in
   }
 
-  // MTD stats
-  const now = new Date();
-  const monthLabel = now.toLocaleString('en-US',{month:'long'});
-  document.getElementById('mtd-label').textContent = `Islip, NY | ${monthLabel} ${now.getFullYear()}`;
+  // Update section subtitle
+  document.getElementById('mtd-label').textContent = `Islip, NY | Last 240 Hours`;
+
+  // Stat chips
   statsEl.innerHTML = `
     <div class="stat-chip">
-      <div class="stat-chip-label">MTD High</div>
+      <div class="stat-chip-label">10-Day High</div>
       <div class="stat-chip-value" style="color:#e05252">${hi>-Infinity?Math.round(hi)+'°F':'—'}</div>
     </div>
     <div class="stat-chip">
-      <div class="stat-chip-label">MTD Low</div>
+      <div class="stat-chip-label">10-Day Low</div>
       <div class="stat-chip-value" style="color:#378ADD">${lo<Infinity?Math.round(lo)+'°F':'—'}</div>
     </div>
     <div class="stat-chip">
-      <div class="stat-chip-label">MTD Mean</div>
+      <div class="stat-chip-label">10-Day Mean</div>
       <div class="stat-chip-value">${cnt>0?Math.round(sum/cnt)+'°F':'—'}</div>
+    </div>
+    <div class="stat-chip">
+      <div class="stat-chip-label">10-Day Precip</div>
+      <div class="stat-chip-value" style="color:#1D9E75">${precipTotal>0?precipTotal.toFixed(2)+'"':'0.00"'}</div>
     </div>
   `;
 
-  // Day/night shapes
+  // Wind direction color key — 8 cardinal/intercardinal points
+  const keyDirs = [
+    { label:'N', deg:0 }, { label:'NE', deg:45 }, { label:'E', deg:90 },
+    { label:'SE', deg:135 }, { label:'S', deg:180 }, { label:'SW', deg:225 },
+    { label:'W', deg:270 }, { label:'NW', deg:315 }
+  ];
+  const keyEl = document.getElementById('wind-dir-key');
+  keyEl.innerHTML =
+    `<span class="wind-key-label">Wind Dir</span>` +
+    keyDirs.map(({ label, deg }) =>
+      `<div class="wind-key-item">
+        <div class="wind-key-dot" style="background:${windDirColor(deg)}"></div>
+        ${label}
+      </div>`
+    ).join('');
+
+  // Wind dot colors: continuous hue wheel keyed to direction
+  const windColors = times.map((_, i) => windDirColor(windDirs[i]));
+  const windDirLabels = windDirs.map(d => d != null ? dirLabel(d) : '—');
+
+  // Shapes: night shading (dark overlay midnight→sunrise, sunset→midnight)
+  // + midnight boundary lines for clear day separators
   const shapes = [];
   if (times.length > 1) {
     let d = new Date(times[0].getFullYear(), times[0].getMonth(), times[0].getDate());
     const last = times[times.length-1];
     while (d <= last) {
       const sun = sunTimes(d, LAT, LON);
+      const midnight = new Date(d);
+      // Midnight boundary line for this day
+      shapes.push({ type:'line', xref:'x', yref:'paper', layer:'below',
+        x0: midnight.toISOString(), x1: midnight.toISOString(), y0:0, y1:1,
+        line:{ color:'#2a3856', width:1 } });
       if (sun.srH != null) {
-        // pre-sunrise night
-        const dayStart = d.toISOString();
-        const srTime   = new Date(d); srTime.setHours(0,0,0,0);
         const srMoment = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(sun.srH), Math.round((sun.srH%1)*60));
         const ssMoment = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(sun.ssH), Math.round((sun.ssH%1)*60));
         const nextDay  = new Date(d); nextDay.setDate(nextDay.getDate()+1);
-
+        // Night: midnight → sunrise
         shapes.push({ type:'rect', xref:'x', yref:'paper', layer:'below',
-          x0: dayStart, x1: srMoment.toISOString(), y0:0, y1:1,
-          fillcolor:'rgba(200,220,255,0.03)', line:{width:0} });
+          x0: midnight.toISOString(), x1: srMoment.toISOString(), y0:0, y1:1,
+          fillcolor:'rgba(0,5,25,0.32)', line:{width:0} });
+        // Night: sunset → next midnight
         shapes.push({ type:'rect', xref:'x', yref:'paper', layer:'below',
           x0: ssMoment.toISOString(), x1: nextDay.toISOString(), y0:0, y1:1,
-          fillcolor:'rgba(200,220,255,0.03)', line:{width:0} });
+          fillcolor:'rgba(0,5,25,0.32)', line:{width:0} });
       }
       d = new Date(d); d.setDate(d.getDate()+1);
     }
@@ -948,14 +984,7 @@ function renderChart(mtdObs) {
   chartEl.innerHTML = '';
 
   Plotly.newPlot('mtd-chart', [
-    { // wind bars (background)
-      x: times, y: winds,
-      type: 'bar', name: 'Wind',
-      yaxis: 'y2',
-      marker: { color:'rgba(190,198,225,0.18)', line:{width:0} },
-      hovertemplate: '%{y:.0f} mph<extra>Wind</extra>'
-    },
-    { // temperature
+    {
       x: times, y: temps,
       type: 'scatter', mode: 'lines',
       name: 'Temperature',
@@ -963,34 +992,46 @@ function renderChart(mtdObs) {
       connectgaps: true,
       hovertemplate: '%{y:.1f}°F<extra>Temperature</extra>'
     },
-    { // dewpoint
+    {
       x: times, y: dews,
       type: 'scatter', mode: 'lines',
       name: 'Dewpoint',
       line: { color:'#7ec850', width:2.5 },
       connectgaps: true,
       hovertemplate: '%{y:.1f}°F<extra>Dewpoint</extra>'
+    },
+    {
+      // Wind speed dots — color-coded by direction via hue wheel
+      // N=blue, E=purple, S=orange-red, W=teal
+      x: times, y: winds,
+      type: 'scatter', mode: 'markers',
+      name: 'Wind (color=dir)',
+      yaxis: 'y2',
+      marker: { color: windColors, size:5, line:{width:0}, opacity:0.85 },
+      customdata: windDirLabels,
+      hovertemplate: '%{y:.0f} mph from %{customdata}<extra>Wind</extra>'
     }
   ], {
     paper_bgcolor: 'transparent',
     plot_bgcolor:  '#0e1016',
     font: { family:"'JetBrains Mono',monospace", color:'#8a93a8', size:11 },
-    margin: { t:10, b:48, l:55, r:58 },
+    margin: { t:10, b:10, l:55, r:58 },
     xaxis: {
-      type:'date', gridcolor:'#1a2030', tickcolor:'#1a2030',
-      linecolor:'#1a2030', tickfont:{size:10},
+      type:'date', gridcolor:'#253040', tickcolor:'#253040',
+      linecolor:'#253040', tickfont:{size:10},
+      showticklabels: false,
       dtick: 86400000, tickformat:'%b %d'
     },
     yaxis: {
       title:{ text:'Temperature (°F)', font:{size:10}, standoff:6 },
-      gridcolor:'#1a2030', tickcolor:'#1a2030',
-      zerolinecolor:'#252c3a', linecolor:'#1a2030', tickfont:{size:10}
+      gridcolor:'#1e2a3a', tickcolor:'#253040',
+      zerolinecolor:'#2a3550', linecolor:'#253040', tickfont:{size:10}
     },
     yaxis2: {
       title:{ text:'Wind Speed (mph)', font:{size:10}, standoff:6 },
       overlaying:'y', side:'right',
-      gridcolor:'transparent', tickcolor:'#1a2030',
-      rangemode:'nonnegative', tickfont:{size:10}, linecolor:'#1a2030'
+      gridcolor:'transparent', tickcolor:'#253040',
+      rangemode:'nonnegative', tickfont:{size:10}, linecolor:'#253040'
     },
     legend: {
       x:0.01, y:0.99, orientation:'h',
@@ -1004,29 +1045,144 @@ function renderChart(mtdObs) {
 }
 
 // ============================================================
-//  RENDER: FORECAST
+//  RENDER: PRESSURE / PRECIP CHART  (bottom chart)
 // ============================================================
-function renderForecast(periods) {
-  const grid = document.getElementById('forecast-grid');
-  if (!periods || periods.length === 0) {
-    grid.innerHTML = '<div class="loading-state">Forecast data unavailable.</div>';
+function renderPressurePrecipChart(obs10day) {
+  const chartEl = document.getElementById('pressure-precip-chart');
+
+  if (!obs10day || obs10day.length === 0) {
+    chartEl.innerHTML = '';
     return;
   }
-  grid.innerHTML = periods.slice(0,14).map(p => {
-    const col = p.isDaytime ? '#e07060' : '#5a9ecc';
-    return `
-      <div class="forecast-card">
-        <div class="fc-period">${p.name}</div>
-        <div class="fc-temp" style="color:${col}">${p.temperature}<span class="fc-temp-unit">°${p.temperatureUnit}</span></div>
-        <div class="fc-condition">${p.shortForecast}</div>
-        <div class="fc-wind">&#128168; ${p.windSpeed} ${p.windDirection}</div>
-      </div>
-    `;
-  }).join('');
+
+  const times=[], pressures=[], precipTimes=[], precipVals=[];
+
+  for (const f of obs10day) {
+    const p  = f.properties;
+    const t  = new Date(p.timestamp);
+    const pr = paToMb(p.seaLevelPressure?.value);
+    const pc = p.precipitationLastHour?.value; // mm
+
+    times.push(t);
+    pressures.push(pr);
+
+    if (pc != null && pc > 0) {
+      precipTimes.push(t);
+      precipVals.push(+(pc * 0.0393701).toFixed(3));
+    }
+  }
+
+  // Shapes: night shading + midnight boundary lines (mirrors top chart)
+  const shapes = [];
+  if (times.length > 1) {
+    let d = new Date(times[0].getFullYear(), times[0].getMonth(), times[0].getDate());
+    const last = times[times.length-1];
+    while (d <= last) {
+      const sun = sunTimes(d, LAT, LON);
+      const midnight = new Date(d);
+      shapes.push({ type:'line', xref:'x', yref:'paper', layer:'below',
+        x0: midnight.toISOString(), x1: midnight.toISOString(), y0:0, y1:1,
+        line:{ color:'#2a3856', width:1 } });
+      if (sun.srH != null) {
+        const srMoment = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(sun.srH), Math.round((sun.srH%1)*60));
+        const ssMoment = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(sun.ssH), Math.round((sun.ssH%1)*60));
+        const nextDay  = new Date(d); nextDay.setDate(nextDay.getDate()+1);
+        shapes.push({ type:'rect', xref:'x', yref:'paper', layer:'below',
+          x0: midnight.toISOString(), x1: srMoment.toISOString(), y0:0, y1:1,
+          fillcolor:'rgba(0,5,25,0.32)', line:{width:0} });
+        shapes.push({ type:'rect', xref:'x', yref:'paper', layer:'below',
+          x0: ssMoment.toISOString(), x1: nextDay.toISOString(), y0:0, y1:1,
+          fillcolor:'rgba(0,5,25,0.32)', line:{width:0} });
+      }
+      d = new Date(d); d.setDate(d.getDate()+1);
+    }
+  }
+
+  chartEl.innerHTML = '';
+
+  Plotly.newPlot('pressure-precip-chart', [
+    {
+      x: times, y: pressures,
+      type: 'scatter', mode: 'lines',
+      name: 'Pressure',
+      line: { color:'#BA7517', width:2 },
+      connectgaps: true,
+      hovertemplate: '%{y:.1f} mb<extra>Pressure</extra>'
+    },
+    {
+      x: precipTimes, y: precipVals,
+      type: 'bar',
+      name: 'Precip',
+      yaxis: 'y2',
+      marker: { color:'rgba(29,158,117,0.75)', line:{width:0} },
+      hovertemplate: '%{y:.2f}"<extra>Precip</extra>'
+    }
+  ], {
+    paper_bgcolor: 'transparent',
+    plot_bgcolor:  '#0e1016',
+    font: { family:"'JetBrains Mono',monospace", color:'#8a93a8', size:11 },
+    margin: { t:4, b:48, l:55, r:58 },
+    xaxis: {
+      type:'date', gridcolor:'#253040', tickcolor:'#253040',
+      linecolor:'#253040', tickfont:{size:10},
+      dtick: 86400000, tickformat:'%b %d'
+    },
+    yaxis: {
+      title:{ text:'Pressure (mb)', font:{size:10}, standoff:6 },
+      gridcolor:'#1e2a3a', tickcolor:'#253040',
+      zerolinecolor:'#2a3550', linecolor:'#253040', tickfont:{size:10}
+    },
+    yaxis2: {
+      title:{ text:'Precip (in)', font:{size:10}, standoff:6 },
+      overlaying:'y', side:'right',
+      gridcolor:'transparent', tickcolor:'#253040',
+      rangemode:'nonnegative', tickfont:{size:10}, linecolor:'#253040'
+    },
+    legend: {
+      x:0.01, y:0.99, orientation:'h',
+      bgcolor:'rgba(14,16,22,0.85)', bordercolor:'#1a2030', borderwidth:1,
+      font:{size:11}
+    },
+    shapes,
+    hovermode:'x unified',
+    hoverlabel:{ bgcolor:'#181d28', bordercolor:'#2a3245', font:{family:"'JetBrains Mono',monospace",size:12} }
+  }, { responsive:true, displayModeBar:false });
 }
 
 // ============================================================
-//  RENDER: 7-DAY TABLE
+//  LINK CHART X-AXES  (zoom/pan one → syncs the other)
+// ============================================================
+let _axisSync = false;
+function linkChartAxes() {
+  const c1 = document.getElementById('mtd-chart');
+  const c2 = document.getElementById('pressure-precip-chart');
+  if (!c1 || !c2) return;
+
+  function syncFrom(src, dstId) {
+    src.on('plotly_relayout', function(ed) {
+      if (_axisSync) return;
+      _axisSync = true;
+      const update = {};
+      if (ed['xaxis.range[0]'] !== undefined) {
+        update['xaxis.range[0]'] = ed['xaxis.range[0]'];
+        update['xaxis.range[1]'] = ed['xaxis.range[1]'];
+      } else if (ed['xaxis.autorange']) {
+        update['xaxis.autorange'] = true;
+      }
+      if (Object.keys(update).length > 0) {
+        Plotly.relayout(dstId, update).then(() => { _axisSync = false; });
+      } else {
+        _axisSync = false;
+      }
+    });
+  }
+
+  syncFrom(c1, 'pressure-precip-chart');
+  syncFrom(c2, 'mtd-chart');
+}
+
+// ============================================================
+//  RENDER: 10-DAY OBSERVATION TABLE
 // ============================================================
 function renderTable(obs) {
   const tbody = document.getElementById('obs-tbody');
@@ -1090,29 +1246,30 @@ function startCountdown() {
 function toggleSort() {
   tableAscending = !tableAscending;
   document.getElementById('sort-arrow').textContent = tableAscending ? '↑' : '↓';
-  renderTable(sevenDayData);
+  renderTable(tenDayData);
 }
 
 // ============================================================
 //  MAIN INIT
 // ============================================================
 async function init() {
-  const [currentObs, mtdObs, sevenDay, forecast, alerts] = await Promise.allSettled([
-    fetchCurrentObs(), fetchMTDObs(), fetch7DayObs(), fetchForecast(), fetchAlerts()
+  const [currentObs, tenDayObs, alerts] = await Promise.allSettled([
+    fetchCurrentObs(), fetch10DayObs(), fetchAlerts()
   ]);
 
-  const obs = currentObs.status === 'fulfilled' ? currentObs.value : null;
-  const mtd = mtdObs.status    === 'fulfilled' ? mtdObs.value     : [];
-  const sd  = sevenDay.status  === 'fulfilled' ? sevenDay.value   : [];
-  const fc  = forecast.status  === 'fulfilled' ? forecast.value   : [];
-  const al  = alerts.status    === 'fulfilled' ? alerts.value     : [];
+  const obs    = currentObs.status === 'fulfilled' ? currentObs.value : null;
+  const tenDay = tenDayObs.status  === 'fulfilled' ? tenDayObs.value  : [];
+  const al     = alerts.status     === 'fulfilled' ? alerts.value     : [];
 
   renderAlerts(al);
-  renderHero(obs, mtd);
-  renderChart(mtd);
-  renderForecast(fc);
-  sevenDayData = sd;
-  renderTable(sd);
+  renderHero(obs, tenDay);
+  renderTempWindChart(tenDay);
+  renderPressurePrecipChart(tenDay);
+  linkChartAxes();
+
+  tenDayData = tenDay;
+  renderTable(tenDay);
+
   updateTimestamp();
   startCountdown();
 }
