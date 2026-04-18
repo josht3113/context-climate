@@ -17,6 +17,36 @@ const CARDS = [
     status:     'live',
   },
   {
+    tags:       ['Earth Science', 'Geology', 'Interactive'],
+    title:      "Bowen's Reaction Series Simulator",
+    description:"Visualize how magma cools and minerals crystallize in sequence, tracing both the discontinuous and continuous reaction series to predict igneous rock type.",
+    footerTags: ["Bowen's Series", 'Mineral Crystallization', 'Igneous Rocks', 'Geology'],
+    to:         '/bowens',
+    accentVar:  '--accent-earth',
+    thumb:      '/BowensReactionSeries_thumbnail.png',
+    status:     'live',
+  },
+  {
+    tags:       ['Earth Science', 'Geology', 'Interactive'],
+    title:      'Metamorphic Transformation Simulator',
+    description:'Apply heat and pressure to parent rocks and watch mineralogy shift through Barrovian metamorphic grades — from shale to slate, phyllite, schist, and gneiss.',
+    footerTags: ['Metamorphism', 'Index Minerals', 'Rock Cycle', 'Geology'],
+    to:         '/metamorphic',
+    accentVar:  '--accent-earth',
+    thumb:      '/MetamorphicTransformation_thumbnail.png',
+    status:     'live',
+  },
+  {
+    tags:       ['Earth Science', 'Geology', 'Interactive'],
+    title:      'Stream Sediment Transport Simulator',
+    description:'Control stream velocity and observe how erosion, saltation, suspension, and deposition respond — bringing the Hjulström curve to life.',
+    footerTags: ['Stream Transport', 'Erosion & Deposition', 'Sedimentology', 'Geology'],
+    to:         '/stream-transport',
+    accentVar:  '--accent-earth',
+    thumb:      '/StreamTransport_thumbnail.png',
+    status:     'live',
+  },
+  {
     tags:       ['COMING SOON'],
     title:      'More Earth & Space Tools',
     description:'Additional Earth and Space Science visualizations and simulations currently in development.',
@@ -48,8 +78,8 @@ export default function EarthAndSpace() {
         <p className="page-eyebrow">Earth &amp; Space Science</p>
         <h1 className="page-title">Animations &amp; Tools for Understanding Earth &amp; Space Science</h1>
         <p className="page-subtitle">
-          Interactive simulations and visualizations exploring concepts in geology, astronomy, and Earth systems. 
-          Aligned with New York State Earth &amp; Space Sciences curriculum.
+          Interactive simulations and visualizations exploring concepts in geology, astronomy, and Earth systems —
+          aligned with New York State Earth &amp; Space Sciences curriculum.
         </p>
       </section>
 
