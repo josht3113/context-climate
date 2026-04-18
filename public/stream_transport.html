@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stream Sediment Transport Simulator</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#f5f3ef;font-family:system-ui,-apple-system,sans-serif;color:#1a1816;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 16px 48px}
+h1{font-size:22px;font-weight:600;color:#1a1816;margin-bottom:3px;text-align:center}
+.tagline{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7a7060;margin-bottom:16px;font-weight:500}
+#desc{font-size:13.5px;color:#5a5248;min-height:34px;margin-bottom:10px;line-height:1.5;max-width:520px;text-align:center;transition:color .3s}
+canvas{display:block;border:1px solid #d4cfc8;border-radius:8px}
+
+/* ── Velocity control ── */
+.vel-wrap{width:420px;margin:12px 0 4px}
+.vel-top{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:10px}
+.vel-num{font-size:44px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em;transition:color .12s}
+.vel-cms{font-size:13px;color:#8a7a6a;letter-spacing:.06em;padding-bottom:6px}
+.vel-stage{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:4px 12px;border-radius:20px;transition:background .25s,color .25s;white-space:nowrap;margin-bottom:6px}
+
+/* Custom range slider */
+.slider-row{position:relative}
+#vsl{
+  -webkit-appearance:none;appearance:none;
+  width:100%;height:10px;border-radius:5px;
+  outline:none;cursor:pointer;
+  margin:20px 0 8px;
+  box-shadow:inset 0 1px 4px rgba(0,0,0,.18);
+  border:1px solid rgba(0,0,0,.07);
+}
+#vsl::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  width:24px;height:54px;border-radius:6px;
+  background:linear-gradient(180deg,#fff 60%,#f5f0ea 100%);
+  border:1.5px solid #a09080;
+  box-shadow:0 2px 10px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.9);
+  cursor:grab;transition:box-shadow .12s;
+}
+#vsl::-webkit-slider-thumb:active{cursor:grabbing;box-shadow:0 1px 5px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.9)}
+#vsl::-moz-range-thumb{width:24px;height:54px;border-radius:6px;background:#fff;border:1.5px solid #a09080;cursor:grab}
+
+/* Stage tick marks */
+.ticks{display:flex;position:relative;padding:0 1px}
+.tick{flex:1;text-align:center;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#a89880;position:relative}
+.tick::before{content:'';display:block;width:1px;height:4px;background:#ccc8c0;margin:0 auto 2px}
+.tick:first-child{text-align:left}.tick:first-child::before{display:none}
+.tick:last-child{text-align:right}
+
+/* Hjulström */
+#hjcv{display:block;border:1px solid #d4cfc8;border-radius:8px;margin-top:10px}
+
+/* Result */
+.res-wrap{margin-top:14px;text-align:center;max-width:460px}
+.rbadge{display:inline-block;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 14px;border-radius:6px;margin-bottom:7px;font-weight:600;transition:all .3s}
+.rname{font-size:20px;font-weight:600;color:#1a1816;margin-bottom:5px;transition:color .2s}
+.rnote{font-size:13px;color:#7a7060;line-height:1.55;max-width:440px;margin:0 auto 10px}
+.essrt-tag{display:inline-block;border:1px solid #ccc8c0;padding:4px 14px;border-radius:6px;font-size:12px;color:#7a7060;letter-spacing:.08em}
+
+/* Flood button */
+.act-row{text-align:center;margin-top:13px}
+.sbtn{background:#fff;border:1px solid #ccc8c0;color:#5a5248;font-size:12px;letter-spacing:.08em;padding:8px 18px;cursor:pointer;border-radius:6px;font-family:inherit;text-transform:uppercase;transition:all .15s;white-space:nowrap}
+.sbtn:hover{border-color:#8a7a6a;color:#1a1816}
+.sbtn.on{background:#ede9e1;border-color:#8a7a6a;color:#1a1816;font-weight:600}
+</style>
+</head>
+<body>
+
+<h1>Stream Sediment Transport Simulator</h1>
+<p class="tagline">Velocity · Erosion · Saltation · Suspension · Deposition</p>
+<p id="desc">Drag the slider to control stream velocity and watch sediment respond</p>
+
+<canvas id="cv" width="420" height="306"></canvas>
+
+<div class="vel-wrap">
+  <div class="vel-top">
+    <div>
+      <span class="vel-num" id="vnum">0</span>
+      <span class="vel-cms">cm/s</span>
+    </div>
+    <span class="vel-stage" id="vstage">Slack water</span>
+  </div>
+  <div class="slider-row">
+    <input type="range" id="vsl" min="0" max="400" value="0" step="1">
+  </div>
+  <div class="ticks">
+    <span class="tick">Slack</span>
+    <span class="tick">Traction</span>
+    <span class="tick">Saltation</span>
+    <span class="tick">Suspension</span>
+    <span class="tick">Flood</span>
+  </div>
+</div>
+
+<canvas id="hjcv" width="420" height="138"></canvas>
+
+<div class="res-wrap">
+  <div class="rbadge" id="rbadge">Deposition</div>
+  <div class="rname"  id="rname">Everything at rest</div>
+  <div class="rnote"  id="rnote">At very low velocities the stream lacks energy to move any particles. All sediment — including silt and clay — is deposited on the bed.</div>
+  <div class="essrt-tag">ESSRT p. 14 — Rock cycle · Sediment transport</div>
+</div>
+
+<div class="act-row">
+  <button class="sbtn" id="fbtn">▶ Flood &amp; deposit cycle</button>
+</div>
+
+<script>
+// ── Canvas setup ─────────────────────────────────────────────────────────
+var cv=document.getElementById('cv'),cx=cv.getContext('2d');
+var hj=document.getElementById('hjcv'),hx=hj.getContext('2d');
+var W=420,H=306,HJW=420,HJH=138;
+
+// ── Scene geometry ───────────────────────────────────────────────────────
+var SKY_BOT=30;    // bottom of air zone
+var BED_TOP=222;   // top of sediment bed
+var BED_BOT=268;   // bedrock surface / bottom of particles
+var ROCK_BOT=H;    // canvas bottom
+
+// ── Seeded RNG ───────────────────────────────────────────────────────────
+function mkRng(seed){var s=seed|0;return function(){s=Math.imul(s,1664525)+1013904223;return(s>>>0)/4294967296;};}
+var R=mkRng(73);
+
+// ── Color helpers ─────────────────────────────────────────────────────────
+function hx2rgb(h){return[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];}
+function lighten(h,a){var c=hx2rgb(h);return'rgb('+Math.min(255,c[0]+a)+','+Math.min(255,c[1]+a)+','+Math.min(255,c[2]+a)+')';}
+function darken(h,a){var c=hx2rgb(h);return'rgb('+Math.max(0,c[0]-a)+','+Math.max(0,c[1]-a)+','+Math.max(0,c[2]-a)+')';}
+function lerpClr(c1,c2,t){
+  var a=hx2rgb(c1),b=hx2rgb(c2);
+  return'rgb('+Math.round(a[0]+(b[0]-a[0])*t)+','+Math.round(a[1]+(b[1]-a[1])*t)+','+Math.round(a[2]+(b[2]-a[2])*t)+')';}
+
+// ── Grain definitions ─────────────────────────────────────────────────────
+// Key: silt.erode > sand.erode — the HJULSTRÖM COHESION EFFECT
+var GR={
+  boulder: {r:27, erode:999, settle:500, diam:20,   c1:'#646870', c2:'#6e6560'},
+  cobble:  {r:13, erode:210, settle:130, diam:8,    c1:'#786858', c2:'#806050'},
+  pebble:  {r:5.5,erode:80,  settle:48,  diam:1.2,  c1:'#907860', c2:'#9a8062'},
+  sand:    {r:2.2,erode:22,  settle:6,   diam:0.04, c1:'#c8a850', c2:'#d4b060'},
+  silt:    {r:1.0,erode:55,  settle:0.4, diam:0.001,c1:'#b8b090', c2:'#c0b898'}
+};
+
+// ── Particle init ─────────────────────────────────────────────────────────
+var particles=[];
+function makeVerts(r,sides,rng){
+  var v=[];
+  for(var i=0;i<sides;i++){
+    var a=i/sides*Math.PI*2+(rng()-.5)*.4;
+    var rv=r*(0.68+rng()*0.44);
+    v.push([Math.cos(a)*rv,Math.sin(a)*rv]);
+  }
+  return v;
+}
+function initParts(){
+  particles=[];
+  var r=mkRng(42);
+  // Boulders — never move, embedded in bed
+  var bxs=[58,185,318];
+  for(var i=0;i<3;i++){
+    var g=GR.boulder,rx=r()*.8+.6;
+    var pr=g.r*rx;
+    particles.push({type:'boulder',g,x:bxs[i]+(r()-.5)*12,baseY:BED_BOT-pr*.55,
+      y:BED_BOT-pr*.55,r:pr,col:i%2?g.c1:g.c2,state:'rest',sp:0,
+      verts:makeVerts(pr,7,mkRng(i*77+1)),angle:(r()-.5)*.35});
+  }
+  // Cobbles
+  var cxs=[25,98,148,228,270,345,388];
+  for(var i=0;i<6;i++){
+    var g=GR.cobble,pr=g.r+(r()-.5)*3;
+    var x=cxs[i]+(r()-.5)*14;
+    particles.push({type:'cobble',g,x,baseY:BED_BOT-pr*.6,
+      y:BED_BOT-pr*.6,r:pr,col:i%2?g.c1:g.c2,state:'rest',sp:r(),
+      verts:makeVerts(pr,6,mkRng(i*53+10)),angle:(r()-.5)*.5});
+  }
+  // Pebbles
+  for(var i=0;i<18;i++){
+    var g=GR.pebble,pr=g.r+(r()-.5)*1.5;
+    var x=8+r()*404;
+    var depthOff=(r()-.5)*22;
+    particles.push({type:'pebble',g,x,baseY:BED_BOT-pr*.5+depthOff*.25,
+      y:BED_BOT-pr*.5+depthOff*.25,r:pr,col:r()>.5?g.c1:g.c2,state:'rest',sp:r(),
+      verts:makeVerts(pr,5,mkRng(i*31+20)),angle:r()*Math.PI});
+  }
+  // Sand
+  for(var i=0;i<48;i++){
+    var g=GR.sand,pr=g.r+(r()-.5)*.4;
+    particles.push({type:'sand',g,x:r()*W,baseY:BED_TOP+4+(r()-.5)*18,
+      y:BED_TOP+4+(r()-.5)*18,r:pr,col:r()>.5?g.c1:g.c2,state:'rest',sp:r()*Math.PI*2,
+      verts:null,angle:0});
+  }
+  // Silt
+  for(var i=0;i<72;i++){
+    var g=GR.silt;
+    particles.push({type:'silt',g,x:r()*W,baseY:BED_TOP+2+(r()-.5)*24,
+      y:BED_TOP+2+(r()-.5)*24,r:g.r,col:r()>.5?g.c1:g.c2,state:'rest',sp:r()*Math.PI*2,
+      verts:null,angle:0});
+  }
+}
+
+// ── Water color function ──────────────────────────────────────────────────
+function wCol(v){
+  if(v<20)  return [45,108,168];
+  if(v<80)  return [48,112,138];
+  if(v<160) return [108,98,58];
+  if(v<280) return [134,86,38];
+  return [148,76,28];
+}
+
+// ── Animation state ───────────────────────────────────────────────────────
+var vel=0,wavePhase=0;
+var foam=[],streaks=[];
+var floodRunning=false,floodTok=0;
+
+// ── Particle update ───────────────────────────────────────────────────────
+function updateParts(v){
+  var pArr=particles;
+  for(var i=0;i<pArr.length;i++){
+    var p=pArr[i];
+    var g=p.g;
+    var excess=Math.max(0,v-g.erode);
+
+    if(p.type==='boulder'){p.y=p.baseY;p.state='rest';continue;}
+
+    if(v<g.settle){
+      // settling back to bed
+      p.state='rest';
+      p.y+=(p.baseY-p.y)*0.1;
+      if(p.type==='silt'||p.type==='sand'){p.x+=0.2;if(p.x>W+4)p.x=-4;}
+      continue;
+    }
+
+    if(p.type==='silt'){
+      p.state='susp';
+      var lift=Math.min(1,(v-55)/160);
+      var minY=SKY_BOT+15+(1-lift)*160;
+      p.sp+=0.038+lift*.018;
+      p.y+=Math.sin(p.sp)*.9+(p.y>minY+40?-.7:.1);
+      p.x+=v*.011+Math.sin(p.sp*1.4)*.35;
+      p.y=Math.max(minY,Math.min(BED_BOT-3,p.y));
+      if(p.x>W+4)p.x=-4;
+      continue;
+    }
+
+    if(p.type==='sand'){
+      p.state='salt';
+      var arcH=Math.min(32,5+excess*.09);
+      var arcSpd=0.038+excess*.0004;
+      p.sp+=arcSpd;
+      if(p.sp>Math.PI*2)p.sp-=Math.PI*2;
+      var t=p.sp/(Math.PI*2);
+      p.y=p.baseY-Math.max(0,Math.sin(t*Math.PI))*arcH;
+      p.x+=v*.009+(arcH*.04);
+      if(p.x>W+4)p.x=-4;
+      continue;
+    }
+
+    if(p.type==='pebble'){
+      p.state='roll';
+      var spd=0.4+excess*.013;
+      p.x+=spd;p.angle+=spd*.035;
+      p.y=p.baseY+Math.sin(p.x*.06)*1.4;
+      if(p.x>W+p.r*2)p.x=-p.r*2;
+      continue;
+    }
+
+    if(p.type==='cobble'){
+      p.state='roll';
+      var spd=0.15+excess*.005;
+      p.x+=spd;p.angle+=spd*.022;
+      p.y=p.baseY+Math.sin(p.x*.035)*2.2;
+      if(p.x>W+p.r*2)p.x=-p.r*2;
+      continue;
+    }
+  }
+
+  // Foam at surface (high velocity)
+  if(v>180&&Math.random()<(v-180)/600){
+    foam.push({x:Math.random()*W,y:SKY_BOT+Math.random()*10,
+      r:1.2+Math.random()*2.8,life:1,vx:v*.009,vy:-.4+Math.random()*.5});
+  }
+  foam=foam.filter(function(f){f.x+=f.vx;f.y+=f.vy;f.life-=.022;return f.life>0&&f.x<W+8;});
+
+  // Horizontal streaks (fast flow)
+  if(v>90&&Math.random()<(v-90)/500){
+    streaks.push({x:-80+Math.random()*20,y:SKY_BOT+14+Math.random()*(BED_TOP-SKY_BOT-22),
+      len:22+Math.random()*65,a:.08+Math.random()*.14,vy:(Math.random()-.5)*.3});
+  }
+  streaks=streaks.filter(function(s){s.x+=v*.024;s.y+=s.vy;return s.x<W+s.len;});
+}
+
+// ── Main render ───────────────────────────────────────────────────────────
+function render(){
+  var v=vel;
+  var wc=wCol(v);
+  var wTop=SKY_BOT-v*.018;   // water level rises slightly at high velocity
+
+  // Sky
+  var sg=cx.createLinearGradient(0,0,0,SKY_BOT+18);
+  sg.addColorStop(0,'#c4d8ea');sg.addColorStop(1,'#a4bcd4');
+  cx.fillStyle=sg;cx.fillRect(0,0,W,SKY_BOT+18);
+
+  // Water body
+  var wg=cx.createLinearGradient(0,wTop,0,BED_TOP);
+  wg.addColorStop(0,'rgba('+wc[0]+','+wc[1]+','+wc[2]+',.80)');
+  wg.addColorStop(.5,'rgba('+(wc[0]-8)+','+(wc[1]-8)+','+wc[2]+',.86)');
+  wg.addColorStop(1,'rgba('+(wc[0]-25)+','+(wc[1]-25)+','+(wc[2]-12)+',.92)');
+  var wAmp=1.0+v*.033;var wFreq=.02+v*.00014;
+  cx.beginPath();cx.moveTo(0,wTop);
+  for(var x=0;x<=W;x+=2){
+    cx.lineTo(x,wTop+wAmp*Math.sin(x*wFreq+wavePhase)+wAmp*.38*Math.sin(x*wFreq*2.2+wavePhase*1.4));
+  }
+  cx.lineTo(W,H);cx.lineTo(0,H);cx.closePath();
+  cx.fillStyle=wg;cx.fill();
+
+  // Streak lines
+  cx.save();cx.beginPath();cx.rect(0,wTop,W,BED_TOP-wTop+5);cx.clip();
+  for(var i=0;i<streaks.length;i++){var s=streaks[i];
+    cx.strokeStyle='rgba(255,255,255,'+s.a+')';cx.lineWidth=.8;
+    cx.beginPath();cx.moveTo(s.x,s.y);cx.lineTo(s.x-s.len,s.y);cx.stroke();
+  }
+  cx.restore();
+
+  // Sediment bed
+  var bg=cx.createLinearGradient(0,BED_TOP,0,BED_BOT);
+  bg.addColorStop(0,'#a89878');bg.addColorStop(.4,'#907860');bg.addColorStop(1,'#785840');
+  cx.fillStyle=bg;cx.fillRect(0,BED_TOP,W,BED_BOT-BED_TOP);
+
+  // Bedrock
+  var rg=cx.createLinearGradient(0,BED_BOT,0,H);
+  rg.addColorStop(0,'#484040');rg.addColorStop(1,'#343030');
+  cx.fillStyle=rg;cx.fillRect(0,BED_BOT,W,H-BED_BOT);
+  cx.strokeStyle='rgba(0,0,0,.15)';cx.lineWidth=1;
+  for(var y=BED_BOT+9;y<H;y+=11){
+    cx.beginPath();
+    for(var x=0;x<W;x+=18){cx.moveTo(x,y+(x%36?1:-1));cx.lineTo(x+16,y+(x%36?-1:1));}
+    cx.stroke();
+  }
+
+  // Particles (back to front)
+  var order=['boulder','cobble','pebble','sand','silt'];
+  for(var oi=0;oi<order.length;oi++){
+    for(var pi=0;pi<particles.length;pi++){
+      if(particles[pi].type===order[oi])drawPart(particles[pi],v);
+    }
+  }
+
+  // Water surface wave (overlaid)
+  cx.strokeStyle='rgba(255,255,255,'+(0.28+v*.0008)+')';cx.lineWidth=1.3;
+  cx.beginPath();
+  for(var x=0;x<=W;x+=2){
+    var y=wTop+wAmp*Math.sin(x*wFreq+wavePhase)+wAmp*.38*Math.sin(x*wFreq*2.2+wavePhase*1.4);
+    x===0?cx.moveTo(x,y):cx.lineTo(x,y);
+  }
+  cx.stroke();
+
+  // Foam blobs
+  for(var i=0;i<foam.length;i++){var f=foam[i];
+    cx.beginPath();cx.arc(f.x,f.y,f.r,0,Math.PI*2);
+    cx.fillStyle='rgba(255,255,255,'+(f.life*.65)+')';cx.fill();
+  }
+
+  // Deposition label at rest
+  if(v<12){
+    cx.font='10px system-ui';cx.textAlign='center';cx.textBaseline='middle';
+    cx.fillStyle='rgba(255,255,255,.38)';
+    cx.fillText('← DEPOSITION ZONE →',W/2,(wTop+BED_TOP)/2);
+  }
+}
+
+function drawPart(p,v){
+  var moving=p.state!=='rest'&&p.type!=='boulder';
+  cx.save();cx.translate(p.x,p.y);
+  if(p.angle)cx.rotate(p.angle);
+
+  if(p.type==='silt'){
+    var al=p.state==='susp'?.58:.3;
+    cx.beginPath();cx.arc(0,0,p.r,0,Math.PI*2);
+    cx.fillStyle='rgba('+hx2rgb(p.col).join(',')+','+al+')';cx.fill();
+    cx.restore();return;
+  }
+
+  if(p.type==='sand'){
+    // trail
+    if(moving&&v>20){
+      for(var i=1;i<=3;i++){
+        cx.beginPath();cx.arc(-i*v*.012,0,p.r*(1-i*.22),0,Math.PI*2);
+        cx.fillStyle='rgba(200,168,76,'+(0.22-i*.06)+')';cx.fill();
+      }
+    }
+    var sg=cx.createRadialGradient(-p.r*.3,-p.r*.3,0,0,0,p.r*1.5);
+    sg.addColorStop(0,lighten(p.col,32));sg.addColorStop(1,p.col);
+    cx.beginPath();cx.arc(0,0,p.r,0,Math.PI*2);cx.fillStyle=sg;cx.fill();
+    cx.restore();return;
+  }
+
+  // Larger polygonal particles (pebble/cobble/boulder)
+  if(p.verts&&p.verts.length){
+    cx.beginPath();
+    cx.moveTo(p.verts[0][0],p.verts[0][1]);
+    for(var i=1;i<p.verts.length;i++)cx.lineTo(p.verts[i][0],p.verts[i][1]);
+    cx.closePath();
+    var gr=cx.createRadialGradient(-p.r*.3,-p.r*.35,0,0,0,p.r*1.3);
+    gr.addColorStop(0,lighten(p.col,38));gr.addColorStop(.55,p.col);gr.addColorStop(1,darken(p.col,28));
+    cx.fillStyle=gr;cx.fill();
+    cx.strokeStyle='rgba(255,255,255,.13)';cx.lineWidth=.9;cx.stroke();
+    // subtle rim shadow
+    cx.strokeStyle='rgba(0,0,0,.14)';cx.lineWidth=.6;
+    cx.beginPath();cx.arc(p.r*.08,p.r*.08,p.r*.8,Math.PI*.2,Math.PI*.9);cx.stroke();
+  }
+  cx.restore();
+}
+
+// ── Hjulström chart ───────────────────────────────────────────────────────
+var HJL=50,HJR=HJW-12,HJT=7,HJB=HJH-28;
+var HJW2=HJR-HJL,HJH2=HJB-HJT;
+var DMIN=.00004,DMAX=120;
+
+function xfD(d){return HJL+(Math.log10(d)-Math.log10(DMIN))/(Math.log10(DMAX)-Math.log10(DMIN))*HJW2;}
+function yfV(v){return HJB-(v/400)*HJH2;}
+
+// Hjulström curves [diam_cm, vel_cm_s]
+// Erode curve: minimum velocity to BEGIN erosion
+// Note the "dip" at fine sand (0.02-0.06 cm) — cohesion makes clays harder to erode than sand
+var EC=[[.00004,105],[.0001,82],[.0003,62],[.001,52],[.003,46],[.01,32],[.025,19],[.06,20],[.15,26],[.4,38],[1,58],[3,90],[8,142],[25,218],[80,330]];
+// Settle curve: velocity at which grains fall out of transport
+var SC2=[[.0002,.28],[.0008,.4],[.003,.7],[.008,1.3],[.02,2.8],[.06,5],[.15,9],[.4,18],[1,40],[3,85],[8,140],[25,210]];
+
+function drawHjul(){
+  hx.clearRect(0,0,HJW,HJH);
+  hx.fillStyle='#faf8f4';hx.fillRect(0,0,HJW,HJH);
+  hx.fillStyle='#f4f2ee';hx.fillRect(HJL,HJT,HJW2,HJH2);
+
+  // Zone fills
+  // Erosion zone (above erode curve)
+  hx.beginPath();hx.moveTo(HJL,HJT);
+  for(var i=0;i<EC.length;i++){var p=EC[i];var x=Math.min(HJR,xfD(p[0]));hx.lineTo(x,Math.max(HJT,yfV(p[1])));}
+  hx.lineTo(HJR,HJT);hx.closePath();
+  hx.fillStyle='rgba(185,45,15,.07)';hx.fill();
+
+  // Transport zone
+  hx.beginPath();
+  for(var i=0;i<EC.length;i++){var p=EC[i];hx.lineTo(Math.min(HJR,xfD(p[0])),Math.max(HJT,yfV(p[1])));}
+  for(var i=SC2.length-1;i>=0;i--){var p=SC2[i];hx.lineTo(Math.min(HJR,xfD(p[0])),yfV(p[1]));}
+  hx.closePath();hx.fillStyle='rgba(50,120,195,.09)';hx.fill();
+
+  // Deposition zone
+  hx.beginPath();hx.moveTo(HJL,HJB);
+  for(var i=0;i<SC2.length;i++){var p=SC2[i];hx.lineTo(Math.min(HJR,xfD(p[0])),yfV(p[1]));}
+  hx.lineTo(HJR,HJB);hx.closePath();
+  hx.fillStyle='rgba(30,115,55,.08)';hx.fill();
+
+  // Subtle vertical gridlines
+  hx.strokeStyle='rgba(0,0,0,.055)';hx.lineWidth=1;
+  var dTicks=[.001,.01,.1,1,10,100];
+  for(var i=0;i<dTicks.length;i++){var x=xfD(dTicks[i]);if(x>HJL&&x<HJR){hx.beginPath();hx.moveTo(x,HJT);hx.lineTo(x,HJB);hx.stroke();}}
+
+  // Zone labels
+  hx.font='8.5px system-ui';hx.textBaseline='top';
+  hx.fillStyle='rgba(178,42,12,.62)';hx.textAlign='left';hx.fillText('EROSION / TRANSPORT',HJL+3,HJT+2);
+  hx.fillStyle='rgba(28,90,175,.52)';hx.fillText('TRANSPORT ONLY',HJL+3,HJT+HJH2*.44);
+  hx.fillStyle='rgba(18,98,42,.48)';hx.fillText('DEPOSITION',HJL+3,HJB-14);
+
+  // Curves
+  hx.setLineDash([4,2]);
+  hx.strokeStyle='rgba(175,40,10,.68)';hx.lineWidth=1.5;
+  hx.beginPath();
+  for(var i=0;i<EC.length;i++){var p=EC[i];var x=Math.min(HJR,xfD(p[0]));var y=Math.max(HJT,yfV(p[1]));i===0?hx.moveTo(x,y):hx.lineTo(x,y);}
+  hx.stroke();
+  hx.strokeStyle='rgba(28,95,175,.58)';hx.lineWidth=1.2;
+  hx.beginPath();
+  for(var i=0;i<SC2.length;i++){var p=SC2[i];var x=Math.min(HJR,xfD(p[0]));var y=yfV(p[1]);i===0?hx.moveTo(x,y):hx.lineTo(x,y);}
+  hx.stroke();
+  hx.setLineDash([]);
+
+  // Grain size labels
+  var grainTicks={silt:.001,sand:.04,pebble:1.2,cobble:8,boulder:20};
+  var grainNames={silt:'Silt',sand:'Sand',pebble:'Pebble',cobble:'Cobble',boulder:'Boulder'};
+  hx.font='8px system-ui';hx.textAlign='center';hx.textBaseline='bottom';hx.fillStyle='rgba(0,0,0,.32)';
+  for(var k in grainTicks){
+    var x=xfD(grainTicks[k]);
+    if(x>HJL&&x<HJR){
+      hx.strokeStyle='rgba(0,0,0,.07)';hx.lineWidth=1;hx.beginPath();hx.moveTo(x,HJT);hx.lineTo(x,HJB);hx.stroke();
+      hx.fillStyle='rgba(0,0,0,.32)';hx.fillText(grainNames[k],x,HJH-1);
+    }
+  }
+
+  // Axes
+  hx.strokeStyle='#b0a898';hx.lineWidth=1;
+  hx.beginPath();hx.moveTo(HJL,HJT);hx.lineTo(HJL,HJB);hx.lineTo(HJR,HJB);hx.stroke();
+
+  // Y-axis ticks
+  hx.font='9px system-ui';hx.textAlign='right';hx.textBaseline='middle';hx.fillStyle='#8a7a6a';
+  [0,100,200,300,400].forEach(function(v){hx.fillText(v,HJL-3,yfV(v));});
+
+  // Y-axis title
+  hx.save();hx.translate(11,HJT+HJH2/2);hx.rotate(-Math.PI/2);
+  hx.textAlign='center';hx.font='9px system-ui';hx.fillStyle='#8a7a6a';
+  hx.fillText('Velocity (cm/s)',0,0);hx.restore();
+
+  // Current velocity line
+  if(vel>V_EPS){
+    var y=yfV(vel);
+    if(y>=HJT&&y<=HJB){
+      hx.strokeStyle='rgba(0,0,0,.2)';hx.lineWidth=.9;hx.setLineDash([3,2]);
+      hx.beginPath();hx.moveTo(HJL,y);hx.lineTo(HJR,y);hx.stroke();
+      hx.setLineDash([]);
+    }
+  }
+
+  // Dots for each grain type at current velocity
+  for(var k in grainTicks){
+    var x=xfD(grainTicks[k]);if(x<HJL||x>HJR)continue;
+    var g=GR[k];
+    var y=Math.max(HJT+3,Math.min(HJB-3,yfV(vel)));
+    var dotR,dotCol;
+    if(vel>=g.erode){dotR=5.5;dotCol='rgba(178,42,12,.88)';}
+    else if(vel>=g.settle){dotR=4.5;dotCol='rgba(28,95,175,.8)';}
+    else{dotR=3.5;dotCol='rgba(22,100,44,.72)';}
+    hx.beginPath();hx.arc(x,y,dotR,0,Math.PI*2);
+    hx.fillStyle=dotCol;hx.fill();
+    hx.strokeStyle='rgba(255,255,255,.75)';hx.lineWidth=1.2;hx.stroke();
+  }
+}
+
+// ── Regime info ───────────────────────────────────────────────────────────
+var V_EPS=.5;
+var REGIMES=[
+  {min:0,  max:20,  stage:'Slack water',   badge:'Deposition',
+   bc:'#d4e8d0',tc:'#1a4a1a',
+   name:'Everything at rest',
+   note:'Below ~20 cm/s the stream has no power to move any particles. All sediment settles to the bed by size — a process called graded settling.'},
+  {min:20, max:55,  stage:'Traction',      badge:'Traction',
+   bc:'#e4e0c0',tc:'#4a3a00',
+   name:'Sand rolling — silt still fixed',
+   note:'Sand (erodes at ~22 cm/s) starts rolling and sliding along the bed. Silt and clay are NOT yet moving — their cohesive particle bonds require more energy to break. This is the HJULSTRÖM COHESION EFFECT: the fine sediment curve bends UPWARD, not down.'},
+  {min:55, max:120, stage:'Saltation',     badge:'Saltation',
+   bc:'#e8d4a8',tc:'#5a3000',
+   name:'Sand saltates — silt suspends',
+   note:'Sand bounces in parabolic arcs called saltation. Silt and clay (erode at ~55 cm/s) now lift into suspension, making water turbid. Pebbles begin rolling but cobbles hold firm.'},
+  {min:120,max:220, stage:'Full transport',badge:'Suspension',
+   bc:'#dfc0a0',tc:'#5a2000',
+   name:'Pebbles rolling, fines suspended',
+   note:'Pebbles roll and skip along the bed. Sand and silt are fully suspended — the water turns brownish. Cobbles begin to shift. Competence (the largest particle a stream can carry) scales as velocity squared.'},
+  {min:220,max:320, stage:'Flood stage',   badge:'Flood stage',
+   bc:'#d4a880',tc:'#581800',
+   name:'Cobbles mobilized — flood conditions',
+   note:'Cobbles are rolling downstream. The water is heavily laden with suspended sediment. Only boulders remain anchored. A stream doing this much work actively deepens and widens its channel.'},
+  {min:320,max:999, stage:'Extreme flood', badge:'Extreme',
+   bc:'#c89070',tc:'#480e00',
+   name:'Near-total bed mobilization',
+   note:'Almost all sediment is in motion. When this velocity drops — even temporarily — deposition begins instantly with the largest grains settling first, forming GRADED BEDDING: boulders at base, clay at top.'}
+];
+function getRegime(v){for(var i=0;i<REGIMES.length;i++){var r=REGIMES[i];if(v>=r.min&&v<r.max)return r;}return REGIMES[REGIMES.length-1];}
+
+// ── Slider color function ─────────────────────────────────────────────────
+var VCS=[[0,'#2864a0'],[55,'#3a8870'],[120,'#8a7830'],[220,'#8a4010'],[320,'#a02808']];
+function velCol(v){
+  for(var i=VCS.length-2;i>=0;i--){
+    if(v>=VCS[i][0])return lerpClr(VCS[i][1],VCS[i+1][1],Math.min(1,(v-VCS[i][0])/(VCS[i+1][0]-VCS[i][0])));
+  }
+  return VCS[0][1];
+}
+function updateSliderBg(v){
+  var pct=v/400*100;
+  // Build a multi-stop gradient up to current position
+  var stops=VCS.filter(function(c){return c[0]<=v;}).map(function(c){return c[1]+' '+(c[0]/400*100)+'%';});
+  stops.push(velCol(v)+' '+pct+'%');
+  stops.push('#d8d0c8 '+pct+'%');
+  document.getElementById('vsl').style.background='linear-gradient(to right,'+stops.join(',')+')';
+}
+
+// ── UI update ─────────────────────────────────────────────────────────────
+function updateUI(v){
+  var reg=getRegime(v);
+  var col=velCol(v);
+  document.getElementById('vnum').textContent=Math.round(v);
+  document.getElementById('vnum').style.color=col;
+  document.getElementById('vstage').textContent=reg.stage;
+  document.getElementById('vstage').style.background=reg.bc;
+  document.getElementById('vstage').style.color=reg.tc;
+  document.getElementById('rbadge').textContent=reg.badge;
+  document.getElementById('rbadge').style.background=reg.bc;
+  document.getElementById('rbadge').style.color=reg.tc;
+  document.getElementById('rname').textContent=reg.name;
+  document.getElementById('rnote').textContent=reg.note;
+  var descT=v<5?'Drag the slider to control stream velocity and watch sediment respond':
+    v<25?'At very low velocity, even the finest particles stay on the bed — the stream is depositional.':
+    v<58?'Sand is moving but silt stays fixed. Find this on the Hjulström chart: silt\'s erode threshold is HIGHER than sand due to cohesion.':
+    v<125?'Watch the Hjulström dots: sand and silt are in the red erosion zone while pebbles are green (deposition).':
+    v<225?'Pebbles rolling, cobbles about to shift. The stream is doing serious geologic work.':
+    'Extreme conditions. When this slows down, graded bedding forms — largest grains settle first.';
+  document.getElementById('desc').textContent=descT;
+  updateSliderBg(v);
+  drawHjul();
+}
+
+// ── Slider events ─────────────────────────────────────────────────────────
+document.getElementById('vsl').addEventListener('input',function(){
+  vel=parseInt(this.value);updateUI(vel);
+});
+
+// ── Flood cycle animation ─────────────────────────────────────────────────
+var fbtn=document.getElementById('fbtn');
+function runFlood(){
+  if(floodRunning)return;
+  floodRunning=true;fbtn.classList.add('on');
+  var tk=++floodTok;
+  var PHASES=[
+    {name:'Rising flood…',   tgt:350, dur:3800},
+    {name:'Peak flood',      tgt:355, dur:1000},
+    {name:'Flow falling…',   tgt:0,   dur:5500},
+    {name:'Graded bedding forming…', tgt:0, dur:600}
+  ];
+  var ph=0,phStart=null,startV=0;
+  function step(now){
+    if(floodTok!==tk){floodRunning=false;return;}
+    var P=PHASES[ph];
+    if(!phStart){phStart=now;startV=vel;}
+    var raw=Math.min((now-phStart)/P.dur,1);
+    var p=raw<.5?2*raw*raw:-1+(4-2*raw)*raw;
+    vel=startV+(P.tgt-startV)*p;
+    document.getElementById('vsl').value=Math.round(vel);
+    updateUI(vel);fbtn.textContent=P.name;
+    if(raw>=1){ph++;if(ph>=PHASES.length){floodRunning=false;fbtn.classList.remove('on');fbtn.textContent='▶ Flood & deposit cycle';vel=0;document.getElementById('vsl').value=0;updateUI(0);return;}phStart=null;}
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+fbtn.addEventListener('click',runFlood);
+
+// ── Main loop ─────────────────────────────────────────────────────────────
+var lastT=0;
+function loop(ts){
+  var dt=Math.min(ts-lastT,50);lastT=ts;
+  wavePhase+=.038+vel*.0007;
+  updateParts(vel);
+  render();
+  requestAnimationFrame(loop);
+}
+
+initParts();
+updateUI(0);
+drawHjul();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
