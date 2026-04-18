@@ -8,7 +8,7 @@ const NAV_ITEMS = [
   { label: 'Climo',              to: '/precipsnow'         },
   { label: 'NE Climate',         to: '/northeast-climate'  },
   { label: 'Seasons',            to: '/seasons'            },
-  { label: 'Earth & Space',      to: '/pages/earthandspace'},
+  { label: 'Earth & Space',      to: '/pages/EarthAndSpace'},
 ]
 
 function BracketMark() {
