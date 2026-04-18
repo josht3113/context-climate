@@ -13,6 +13,9 @@ import Solar            from './pages/Solar'
 import Igneous          from './pages/Igneous'
 import ScrollToTop      from './components/ScrollToTop'
 import EarthAndSpace    from './pages/EarthAndSpace'
+import Bowens           from './pages/Bowens'
+import Metamorphic      from './pages/Metamorphic'
+import StreamTransport  from './pages/StreamTransport'
 
 
 // ── App shell ─────────────────────────────────────────
@@ -41,8 +44,11 @@ export default function App() {
           <Route path="/enso"              element={<ENSO />}             />
           <Route path="/hurricanes"        element={<Hurricanes />}       />
           <Route path="/solar"             element={<Solar />}            />
-          <Route path="/igneous"           element={<Igneous />} />
-          <Route path="/earthandspace"     element={<EarthAndSpace />} />
+          <Route path="/igneous"           element={<Igneous />}          />
+          <Route path="/earthandspace"     element={<EarthAndSpace />}    />
+          <Route path="/bowens"            element={<Bowens />}           />
+          <Route path="/metamorphic"       element={<Metamorphic />}      />
+          <Route path="/stream-transport"  element={<StreamTransport />}  />
         </Routes>
       </main>
       <footer style={{
