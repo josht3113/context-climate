@@ -1,13 +1,14 @@
-import { NavLink } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Home',                      to: '/'                  },
-  { label: 'Islip Weather',             to: '/isp-live'           },
-  { label: 'Precip & Snow Climo',       to: '/precipsnow'         },
-  { label: 'NE Climate Dashboard',      to: '/northeast-climate'  },
-  { label: 'Meteorological Seasons',    to: '/seasons'            },
-  { label: 'Earth & Space',             to: '/earthandspace'  },
+  { label: 'Home',               to: '/'                  },
+  { label: 'Live',               to: '/isp-live'           },
+  { label: 'Climo',              to: '/precipsnow'         },
+  { label: 'NE Climate',         to: '/northeast-climate'  },
+  { label: 'Seasons',            to: '/seasons'            },
+  { label: 'Earth & Space',      to: '/solar'              },
 ]
 
 function BracketMark() {
@@ -21,37 +22,74 @@ function BracketMark() {
 }
 
 export default function Header() {
+  const [open, setOpen] = useState(false)
+  const location = useLocation()
+
+  // Close drawer on navigation
+  const handleNavClick = () => setOpen(false)
+
   return (
-    <header className={styles.header}>
-      <div className={styles.inner}>
+    <>
+      <header className={styles.header}>
+        <div className={styles.inner}>
 
-        {/* ── Logo ── */}
-        <NavLink to="/" className={styles.logo}>
-          <BracketMark />
-          <span className={styles.logoText}>ContextClimate</span>
-        </NavLink>
+          {/* ── Logo ── */}
+          <NavLink to="/" className={styles.logo} onClick={handleNavClick}>
+            <BracketMark />
+            <span className={styles.logoText}>ContextClimate</span>
+          </NavLink>
 
-        {/* ── Nav + geo badge ── */}
-        <div className={styles.navGroup}>
-          <nav className={styles.nav}>
-            {NAV_ITEMS.map(({ label, to }) => (
-              <NavLink
-                key={to}
-                to={to}
-                end={to === '/'}
-                className={({ isActive }) =>
-                  `${styles.navItem} ${isActive ? styles.navActive : ''}`
-                }
-              >
-                {label}
-              </NavLink>
-            ))}
-          </nav>
-          <div className={styles.navDivider} />
-          <span className={styles.geoBadge}>Weather · Climate · Context</span>
+          {/* ── Desktop nav + geo badge ── */}
+          <div className={styles.navGroup}>
+            <nav className={styles.nav}>
+              {NAV_ITEMS.map(({ label, to }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  className={({ isActive }) =>
+                    `${styles.navItem} ${isActive ? styles.navActive : ''}`
+                  }
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+            <div className={styles.navDivider} />
+            <span className={styles.geoBadge}>Weather · Climate · Context</span>
+          </div>
+
+          {/* ── Hamburger (mobile only) ── */}
+          <button
+            className={styles.hamburger}
+            onClick={() => setOpen(o => !o)}
+            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-expanded={open}
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+
         </div>
+      </header>
 
-      </div>
-    </header>
+      {/* ── Mobile drawer ── */}
+      <nav className={`${styles.drawer} ${open ? styles.drawerOpen : ''}`}>
+        {NAV_ITEMS.map(({ label, to }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            className={({ isActive }) =>
+              `${styles.drawerItem} ${isActive ? styles.drawerItemActive : ''}`
+            }
+            onClick={handleNavClick}
+          >
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+    </>
   )
 }
