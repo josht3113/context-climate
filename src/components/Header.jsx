@@ -3,12 +3,12 @@ import { NavLink, useLocation } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Home',               to: '/'                  },
+  { label: 'Home',               to: '/'                   },
   { label: 'Live',               to: '/isp-live'           },
   { label: 'Climo',              to: '/precipsnow'         },
   { label: 'NE Climate',         to: '/northeast-climate'  },
   { label: 'Seasons',            to: '/seasons'            },
-  { label: 'Earth & Space',      to: '/solar'              },
+  { label: 'Earth & Space',      to: '/pages/earthandspace'},
 ]
 
 function BracketMark() {
