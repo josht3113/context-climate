@@ -1,3 +1,8 @@
 export default function Igneous() {
-  return <iframe src="/igneous_crystallization.html" style={{ width:'100%', height:'100vh', border:'none' }} title="Igneous Crystallization Simulator" />
-}
+  return (
+  <iframe
+    src="/bowens_simulator.html"
+    title="Bowen's Reaction Series Simulator"
+    style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
+  />
+)
