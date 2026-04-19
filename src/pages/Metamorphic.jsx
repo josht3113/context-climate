@@ -3,7 +3,7 @@ export default function Metamorphic() {
     <iframe
       src="/metamorphic_simulator.html"
       title="Metamorphic Transformation Simulator"
-      style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
     />
   )
 }
