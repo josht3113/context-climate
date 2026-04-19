@@ -80,6 +80,8 @@ export default function EarthAndSpace() {
         <p className="page-subtitle">
           Interactive simulations and visualizations exploring concepts in geology, astronomy, and Earth systems —
           aligned with New York State Earth &amp; Space Sciences curriculum.
+          
+          Created and maintained by Josh Timlin
         </p>
       </section>
 
