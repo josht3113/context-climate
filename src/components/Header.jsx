@@ -3,12 +3,8 @@ import { NavLink, useLocation } from 'react-router-dom'
 import styles from './Header.module.css'
 
 const NAV_ITEMS = [
-  { label: 'Home',               to: '/'                   },
-  { label: 'Live',               to: '/isp-live'           },
-  { label: 'Climo',              to: '/precipsnow'         },
-  { label: 'NE Climate',         to: '/northeast-climate'  },
-  { label: 'Seasons',            to: '/seasons'            },
-  { label: 'Earth & Space',      to: '/earthandspace'      },
+  { label: 'Home',          to: '/'       },
+  { label: 'Earth & Space', to: '/earthandspace' },
 ]
 
 function BracketMark() {
@@ -55,8 +51,6 @@ export default function Header() {
                 </NavLink>
               ))}
             </nav>
-            <div className={styles.navDivider} />
-            <span className={styles.geoBadge}>Weather · Climate · Context</span>
           </div>
 
           {/* ── Hamburger (mobile only) ── */}
