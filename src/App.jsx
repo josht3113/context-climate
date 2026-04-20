@@ -16,6 +16,7 @@ import EarthAndSpace    from './pages/EarthAndSpace'
 import Bowens           from './pages/Bowens'
 import Metamorphic      from './pages/Metamorphic'
 import StreamTransport  from './pages/StreamTransport'
+import BowensGoldich    from './pages/BowensGoldich'
 
 
 // ── App shell ─────────────────────────────────────────
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/bowens"            element={<Bowens />}           />
           <Route path="/metamorphic"       element={<Metamorphic />}      />
           <Route path="/stream-transport"  element={<StreamTransport />}  />
+          <Route path="/bowensgoldich"     element={<BowensGoldich />} />
         </Routes>
       </main>
       <footer style={{
