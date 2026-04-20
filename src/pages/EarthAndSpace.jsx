@@ -78,9 +78,6 @@ export default function EarthAndSpace() {
         <p className="page-eyebrow">Earth &amp; Space Science</p>
         <h1 className="page-title">Animations &amp; Tools for Understanding Earth &amp; Space Science</h1>
         <p className="page-subtitle">
-          Interactive simulations and visualizations exploring concepts in geology, astronomy, and Earth systems —
-          aligned with New York State Earth &amp; Space Sciences curriculum.
-          <br />
           <br />
           Created and maintained by Josh Timlin
         </p>
