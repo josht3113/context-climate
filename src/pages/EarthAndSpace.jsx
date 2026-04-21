@@ -20,7 +20,7 @@ const CARDS = [
     tags:       ['Earth Science', 'Geology', 'Interactive'],
     title:      "Bowen's Reaction Series Simulator",
     description:"Visualize how magma cools and minerals crystallize in sequence, tracing both the discontinuous and continuous reaction series to predict igneous rock type.",
-    footerTags: ["Bowen's Series", 'Mineral Crystallization', 'Igneous Rocks', 'Geology'],
+    footerTags: ["Bowen's Series", 'Crystal Growth', 'Igneous', 'Geology'],
     to:         '/bowens',
     accentVar:  '--accent-earth',
     thumb:      '/BowensReactionSeries_thumbnail.png',
