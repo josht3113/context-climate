@@ -76,7 +76,7 @@ export default function EarthAndSpace() {
       {/* Hero */}
       <section className="page-hero">
         <p className="page-eyebrow">Earth &amp; Space Science</p>
-        <h1 className="page-title">Animations &amp; Tools for Understanding Earth &amp; Space Science</h1>
+        <h1 className="page-title">Earth &amp; Space Science Visualizations </h1>
         <p className="page-subtitle">
           Created and maintained by Josh Timlin
         </p>
