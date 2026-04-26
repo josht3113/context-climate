@@ -57,14 +57,14 @@ const CARDS = [
   status:     'live',
 },
   {
-    tags:       ['COMING SOON'],
-    title:      'More Earth & Space Tools',
-    description:'Additional Earth and Space Science visualizations and simulations currently in development.',
-    footerTags: [],
-    to:         null,
+    tags:       ['Earth Science', 'Geology', 'Interactive'],
+    title:      'INteractive ESSRT NY State Maps',
+    description:'Zommable maps - toggle between pages 8, 9 and 10 of the ESSRT and digital elevation maps.',
+    footerTags: ['ESSRT', 'Surfcae Geology', 'Landscape Regions', 'Topography'],
+    to:         '/ESSRT_8_9_10',
     accentVar:  '--accent-earth',
-    thumb:      null,
-    status:     'soon',
+    thumb:      '/ESSRT_8_9_10_thumbnail.png',
+    status:     'live',
   },
 ]
 
