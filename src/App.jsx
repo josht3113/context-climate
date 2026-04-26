@@ -17,7 +17,7 @@ import Bowens           from './pages/Bowens'
 import Metamorphic      from './pages/Metamorphic'
 import StreamTransport  from './pages/StreamTransport'
 import BowensGoldich    from './pages/BowensGoldich'
-
+import ESSRT_8_9_10     from './pages/ESSRT_8_9_10'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -50,7 +50,8 @@ export default function App() {
           <Route path="/bowens"            element={<Bowens />}           />
           <Route path="/metamorphic"       element={<Metamorphic />}      />
           <Route path="/stream-transport"  element={<StreamTransport />}  />
-          <Route path="/bowensgoldich"     element={<BowensGoldich />} />
+          <Route path="/bowensgoldich"     element={<BowensGoldich />}    />
+          <Route path="/ESSRT_8_9_10"      element={<ESSRT_8_9_10 />}     />
         </Routes>
       </main>
       <footer style={{
