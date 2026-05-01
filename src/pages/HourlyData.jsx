@@ -12,6 +12,7 @@ export default function HourlyData() {
       <iframe
         src="https://josht3113.github.io/Islip-Monthly-Charts/"
         title="ISP Hourly Heatmaps"
+        allow="clipboard-write"
         style={{
           flex: 1,
           width: '100%',
