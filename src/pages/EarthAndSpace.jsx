@@ -80,6 +80,15 @@ const SECTIONS = [
         thumb:       '/MetamorphicTransformation_thumbnail.png',
         status:      'live',
       },
+       {
+        tags:        ['Earth Science', 'Geology', 'Interactive'],
+        title:       "Bowen's Reaction Series & Godich Stability Series",
+        description: "Simulate mineral crystalization from cooling magma, then flip to weathering mode to watch the same minerals break down in reverse stability order.",
+        footerTags:  ["Bowen's Series", 'Goldich Satbility Series', 'Weathering', 'Soil development'],
+        to:          '/bowens_goldich',
+        thumb:       '/BowensGoldich_thumbnail.png',
+        status:      'live',
+      },
       {
         tags:        ['Earth Science', 'Geology', 'Interactive'],
         title:       'Stream Sediment Transport Simulator',
