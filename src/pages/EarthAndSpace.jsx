@@ -19,27 +19,27 @@ const SECTIONS = [
     cards: [
       {
         tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Solar System & Star Data Explorer',
-        description: 'Navigate the ESSRT Solar System Objects Data Table and H-R Diagram interactively — compare planetary properties and stellar classifications side by side.',
-        footerTags:  ['Solar System', 'H-R Diagram', 'Data Tables', 'Reference'],
-        to:          null,
-        thumb:       null,
-        status:      'soon',
-      },
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Geologic History Timeline',
-        description: 'Scroll through the full ESSRT Geologic History of New York State — explore eons, eras, and periods with fossil distributions and key geologic events highlighted.',
+        title:       'Geologic History of New York State',
+        description: 'Explore ESSRT pages 6–7 interactively — navigate the Geologic History of New York State, with fossil time distributions, key events, and inferred positions of Earth\'s landmasses.',
         footerTags:  ['Geologic Time', 'Fossils', 'New York State', 'Reference'],
-        to:          null,
-        thumb:       null,
-        status:      'soon',
+        to:          '/ESSRT_6_7',
+        thumb:       '/ESSRT_6_7_thumbnail.png',
+        status:      'live',
       },
       {
         tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Mineral Identification Tool',
-        description: 'Walk through the ESSRT Mineral Identification Flowchart step by step — input observed properties and follow the decision tree to identify common minerals.',
-        footerTags:  ['Minerals', 'Identification', 'Flowchart', 'Reference'],
+        title:       'NYS Bedrock, Resources & Landscape Regions',
+        description: 'Explore ESSRT pages 8–10 interactively — surface bedrock geology, energy and mineral resources, and the geographic province and landscape regions of New York State.',
+        footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions', 'Reference'],
+        to:          '/ESSRT_8_9_10',
+        thumb:       '/ESSRT_8_9_10_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'More ESSRT Pages Coming Soon',
+        description: 'Additional interactive ESSRT reference pages currently in development — covering topics across astronomy, meteorology, and Earth systems.',
+        footerTags:  [],
         to:          null,
         thumb:       null,
         status:      'soon',
@@ -198,23 +198,9 @@ export default function EarthAndSpace() {
     <div className="page-container">
 
       {/* Hero */}
-      <section className="page-hero" style={{ position: 'relative' }}>
+      <section className="page-hero">
 
-        {/* Logo — top-right of hero, non-intrusive */}
-        <img
-          src="/earth_space_bracket_logo.png"
-          alt="Earth & Space Science"
-          style={{
-            position:  'absolute',
-            top:       0,
-            right:     0,
-            height:    '72px',
-            width:     'auto',
-            opacity:   0.90,
-          }}
-        />
-
-        <p className="page-eyebrow">Earth &amp; Space Science</p>
+          <p className="page-eyebrow">Earth &amp; Space Science</p>
         <h1 className="page-title">Animations &amp; Tools for Understanding Earth &amp; Space Science</h1>
         <p className="page-subtitle">
           Interactive simulations and visualizations exploring concepts in geology, astronomy, and Earth systems —
