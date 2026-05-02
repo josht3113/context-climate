@@ -1,10 +1,8 @@
-import { useState } from 'react'
-
 export default function RadioactiveDecaySimulator() {
   return (
     <iframe
-      src={`${process.env.PUBLIC_URL}/radioactive_decay_simulator.html`}
-      style={{ width:'100%', height:'100vh', border:'none', display:'block' }}
+      src="/radioactive_decay_simulator.html"
+      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
       title="Radioactive Decay Simulator"
     />
   )
