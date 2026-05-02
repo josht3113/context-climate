@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export default function radioactive_decay_simulator() {
+export default function RadioactiveDecaySimulator() {
   return (
     <iframe
       src={`${process.env.PUBLIC_URL}/radioactive_decay_simulator.html`}
