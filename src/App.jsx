@@ -19,7 +19,7 @@ import StreamTransport             from './pages/StreamTransport'
 import BowensGoldich               from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
-import Radioactive Decay           from './pages/Radioactive_decay_simulator'
+import RadioactiveDecay           from './pages/Radioactive_decay_simulator'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
