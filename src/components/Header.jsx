@@ -13,28 +13,30 @@ function BracketMark() {
 }
 
 function EarthSpaceLogo() {
+  // textLength forces the label to fill exactly 96px → equal 6px gaps on both sides of the brackets
   return (
     <svg
-      width="160"
+      width="150"
       height="36"
-      viewBox="0 0 160 36"
+      viewBox="0 0 150 36"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Earth & Space"
     >
-      <text x="6" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">[</text>
+      <text x="4" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">[</text>
       <text
-        x="24"
+        x="27"
         y="25"
         fontSize="15"
         fontWeight="500"
         fill="#ffffff"
         fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-        letterSpacing="0.3"
+        textLength="96"
+        lengthAdjust="spacing"
       >
         Earth &amp; Space
       </text>
-      <text x="140" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">]</text>
+      <text x="129" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">]</text>
     </svg>
   )
 }
