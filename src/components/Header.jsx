@@ -17,6 +17,36 @@ function BracketMark() {
   )
 }
 
+function EarthSpaceLogo() {
+  return (
+    <svg
+      width="160"
+      height="36"
+      viewBox="0 0 160 36"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="Earth & Space"
+    >
+      {/* Left bracket */}
+      <text x="6" y="26" fontSize="28" fontWeight="400" fill="#4ECDC4" fontFamily="monospace">[</text>
+      {/* Label */}
+      <text
+        x="24"
+        y="25"
+        fontSize="15"
+        fontWeight="500"
+        fill="#ffffff"
+        fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        letterSpacing="0.3"
+      >
+        Earth &amp; Space
+      </text>
+      {/* Right bracket */}
+      <text x="140" y="26" fontSize="28" fontWeight="400" fill="#4ECDC4" fontFamily="monospace">]</text>
+    </svg>
+  )
+}
+
 export default function Header() {
   const [open, setOpen] = useState(false)
   const location = useLocation()
@@ -35,8 +65,21 @@ export default function Header() {
             <span className={styles.logoText}>ContextClimate</span>
           </NavLink>
 
-          {/* ── Desktop nav + geo badge ── */}
+          {/* ── Desktop nav + Earth & Space logo badge ── */}
           <div className={styles.navGroup}>
+
+            {/* Earth & Space clickable logo badge */}
+            <NavLink
+              to="/earthandspace"
+              className={({ isActive }) =>
+                `${styles.earthSpaceBadge} ${isActive ? styles.earthSpaceBadgeActive : ''}`
+              }
+              aria-label="Earth & Space"
+              onClick={handleNavClick}
+            >
+              <EarthSpaceLogo />
+            </NavLink>
+
             <nav className={styles.nav}>
               {NAV_ITEMS.map(({ label, to }) => (
                 <NavLink
@@ -70,6 +113,19 @@ export default function Header() {
 
       {/* ── Mobile drawer ── */}
       <nav className={`${styles.drawer} ${open ? styles.drawerOpen : ''}`}>
+
+        {/* Earth & Space logo in mobile drawer */}
+        <NavLink
+          to="/earthandspace"
+          className={({ isActive }) =>
+            `${styles.drawerEarthSpace} ${isActive ? styles.drawerItemActive : ''}`
+          }
+          onClick={handleNavClick}
+          aria-label="Earth & Space"
+        >
+          <EarthSpaceLogo />
+        </NavLink>
+
         {NAV_ITEMS.map(({ label, to }) => (
           <NavLink
             key={to}
