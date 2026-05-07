@@ -1,11 +1,6 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
-
-const NAV_ITEMS = [
-  { label: 'Home',          to: '/'       },
-  { label: 'Earth & Space', to: '/earthandspace' },
-]
 
 function BracketMark() {
   return (
@@ -27,9 +22,7 @@ function EarthSpaceLogo() {
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Earth & Space"
     >
-      {/* Left bracket */}
-      <text x="6" y="26" fontSize="28" fontWeight="400" fill="#4ECDC4" fontFamily="monospace">[</text>
-      {/* Label */}
+      <text x="6" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">[</text>
       <text
         x="24"
         y="25"
@@ -41,17 +34,13 @@ function EarthSpaceLogo() {
       >
         Earth &amp; Space
       </text>
-      {/* Right bracket */}
-      <text x="140" y="26" fontSize="28" fontWeight="400" fill="#4ECDC4" fontFamily="monospace">]</text>
+      <text x="140" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">]</text>
     </svg>
   )
 }
 
 export default function Header() {
   const [open, setOpen] = useState(false)
-  const location = useLocation()
-
-  // Close drawer on navigation
   const handleNavClick = () => setOpen(false)
 
   return (
@@ -59,16 +48,29 @@ export default function Header() {
       <header className={styles.header}>
         <div className={styles.inner}>
 
-          {/* ── Logo ── */}
-          <NavLink to="/" className={styles.logo} onClick={handleNavClick}>
-            <BracketMark />
-            <span className={styles.logoText}>ContextClimate</span>
-          </NavLink>
+          {/* ── Left: ContextClimate logo ── */}
+          <div className={styles.innerLeft}>
+            <NavLink to="/" className={styles.logo} onClick={handleNavClick}>
+              <BracketMark />
+              <span className={styles.logoText}>ContextClimate</span>
+            </NavLink>
+          </div>
 
-          {/* ── Desktop nav + Earth & Space logo badge ── */}
-          <div className={styles.navGroup}>
+          {/* ── Center: Home nav link (desktop only) ── */}
+          <nav className={styles.nav}>
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                `${styles.navItem} ${isActive ? styles.navActive : ''}`
+              }
+            >
+              Home
+            </NavLink>
+          </nav>
 
-            {/* Earth & Space clickable logo badge */}
+          {/* ── Right: Earth & Space logo + hamburger ── */}
+          <div className={styles.innerRight}>
             <NavLink
               to="/earthandspace"
               className={({ isActive }) =>
@@ -80,41 +82,23 @@ export default function Header() {
               <EarthSpaceLogo />
             </NavLink>
 
-            <nav className={styles.nav}>
-              {NAV_ITEMS.map(({ label, to }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={to === '/'}
-                  className={({ isActive }) =>
-                    `${styles.navItem} ${isActive ? styles.navActive : ''}`
-                  }
-                >
-                  {label}
-                </NavLink>
-              ))}
-            </nav>
+            <button
+              className={styles.hamburger}
+              onClick={() => setOpen(o => !o)}
+              aria-label={open ? 'Close menu' : 'Open menu'}
+              aria-expanded={open}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
           </div>
-
-          {/* ── Hamburger (mobile only) ── */}
-          <button
-            className={styles.hamburger}
-            onClick={() => setOpen(o => !o)}
-            aria-label={open ? 'Close menu' : 'Open menu'}
-            aria-expanded={open}
-          >
-            <span />
-            <span />
-            <span />
-          </button>
 
         </div>
       </header>
 
       {/* ── Mobile drawer ── */}
       <nav className={`${styles.drawer} ${open ? styles.drawerOpen : ''}`}>
-
-        {/* Earth & Space logo in mobile drawer */}
         <NavLink
           to="/earthandspace"
           className={({ isActive }) =>
@@ -126,7 +110,10 @@ export default function Header() {
           <EarthSpaceLogo />
         </NavLink>
 
-        {NAV_ITEMS.map(({ label, to }) => (
+        {[
+          { label: 'Home', to: '/' },
+          { label: 'Earth & Space', to: '/earthandspace' },
+        ].map(({ label, to }) => (
           <NavLink
             key={to}
             to={to}
