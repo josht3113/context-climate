@@ -108,7 +108,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags: [Seismic Waves, 'Earth\'s Interior'],
+        tags: ['Seismic Waves', 'Earth\'s Interior'],
         title: 'Seismic Wave Explorer',
         description: 'Visualize P- and S-wave propagation through Earth\'s interior layers and discover how seismic data reveals internal structure.',
         footerTags: ['HS-ESS2-3', 'Seismology'],
