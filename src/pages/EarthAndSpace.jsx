@@ -138,7 +138,7 @@ const SECTIONS = [
        {
         tags: ['ESS2', 'Atmosphere'],
         title: 'Cloud Formation Lab',
-        description: 'Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes',
+        description: 'Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
         footerTags: ['Cloud Formation', 'Thermodynamics'],
         to: '/earthandspace/cloud-formation-lab',
         accentVar: '--accent',
