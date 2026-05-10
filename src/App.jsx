@@ -20,6 +20,8 @@ import BowensGoldich               from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
+import CloudFormationLab           from './pages/CloudFormationLab'
+import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}     />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}        />
           <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />} />
+          <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />} />
+          <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />} />
         </Routes>
       </main>
       <footer style={{
