@@ -10,6 +10,7 @@ import PrecipSnow                  from './pages/PrecipSnow'
 import NortheastClimate            from './pages/NortheastClimate'
 import Hurricanes                  from './pages/Hurricanes'
 import Solar                       from './pages/Solar'
+import SolarCalendar               from './pages/SolarCalendar'
 import Igneous                     from './pages/Igneous'
 import ScrollToTop                 from './components/ScrollToTop'
 import EarthAndSpace               from './pages/EarthAndSpace'
@@ -45,10 +46,11 @@ export default function App() {
           <Route path="/northeast-climate"                   element={<NortheastClimate />} />
           <Route path="/seasons"                             element={<Seasons />}          />
           <Route path="/monthly"                             element={<HourlyData />}       />
-          <Route path="/annual"                              element={<Climate />}          />
+          <Route path="/annual"                             element={<Climate />}          />
           <Route path="/enso"                                element={<ENSO />}             />
           <Route path="/hurricanes"                          element={<Hurricanes />}       />
           <Route path="/solar"                               element={<Solar />}            />
+          <Route path="/solar-calendar"                      element={<SolarCalendar />}    />
           <Route path="/igneous"                             element={<Igneous />}          />
           <Route path="/earthandspace"                       element={<EarthAndSpace />}    />
           <Route path="/bowens"                              element={<Bowens />}           />
