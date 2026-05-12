@@ -117,10 +117,10 @@ const SECTIONS = [
         status:     'live',
       },
       {
-        tags:       ['Solar', 'Astronomy', 'Interactive'],
+        tags:       ['Solar Angle Calendar', 'US & Global Cities', 'Interactive'],
         title:      'Solar Calendar',
-        description:'Day-by-day solar data across the full year — sunrise, sunset, day length, and solar noon by location.',
-        footerTags: ['Sunrise', 'Sunset', 'Day Length', 'Solar Noon'],
+        description:'Day-by-day solar angle and duration data across the full year by location.',
+        footerTags: ['Solar Angle', 'Day Length', 'Insolation Index'],
         to:         '/solar-calendar',
         accentVar:  '--accent-enso',
         thumb:      '/SolarCalendar_thumbnail.png',
