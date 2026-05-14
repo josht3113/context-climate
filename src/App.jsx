@@ -23,6 +23,7 @@ import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
 import CloudFormationLab           from './pages/CloudFormationLab'
 import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
+import HomerunDerby               from './pages/HomerunDerby'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -62,6 +63,7 @@ export default function App() {
           <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />} />
           <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />} />
           <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />} />
+          <Route path="/earthandspace/homerun-derby"         element={<HomerunDerby />}        />
         </Routes>
       </main>
       <footer style={{
