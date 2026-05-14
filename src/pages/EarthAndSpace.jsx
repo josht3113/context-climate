@@ -136,7 +136,7 @@ const SECTIONS = [
     accent: ACCENT.meteor,
     cards: [
        {
-        tags: ['ESS2', 'Atmosphere'],
+        tags: ['Clouds', 'Atmosphere'],
         title: 'Cloud Formation Lab',
         description: 'Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
         footerTags: ['Cloud Formation', 'Thermodynamics'],
@@ -146,10 +146,10 @@ const SECTIONS = [
         status: 'live',
       },
       {
-        tags:        ['ESS2', 'ESS3', 'Atmosphere', 'Interactive'],
+        tags:        ['Air Density', 'Baseball', 'Interactive'],
         title:       'Homerun Derby Simulator',
         description: 'Step up to the plate and discover how altitude, air density, and temperature determine how far a baseball travels. Hit the ball and watch atmospheric physics decide if it clears the fence — with real MLB stadium dimensions from Fenway to Coors Field.',
-        footerTags:  ['Air Density', 'Altitude', 'Atmospheric Physics', 'ESS2', 'ESS3'],
+        footerTags:  ['Air Density', 'Altitude', 'Atmospheric Physics', 'Baseball'],
         to:          '/earthandspace/homerun-derby',
         thumb:       'homerun-derby_thumbnail.png',
         status:      'live',
