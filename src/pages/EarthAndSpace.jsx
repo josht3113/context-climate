@@ -146,6 +146,15 @@ const SECTIONS = [
         status: 'live',
       },
       {
+        tags:        ['ESS2', 'ESS3', 'Atmosphere', 'Interactive'],
+        title:       'Homerun Derby Simulator',
+        description: 'Step up to the plate and discover how altitude, air density, and temperature determine how far a baseball travels. Hit the ball and watch atmospheric physics decide if it clears the fence — with real MLB stadium dimensions from Fenway to Coors Field.',
+        footerTags:  ['Air Density', 'Altitude', 'Atmospheric Physics', 'ESS2', 'ESS3'],
+        to:          '/earthandspace/homerun-derby',
+        thumb:       'homerun-derby_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Earth Science', 'Climate', 'Interactive'],
         title:       'Planetary Wind Belt Simulator',
         description: "Explore the Hadley, Ferrel, and Polar cells and how global pressure belts drive Earth's trade winds, westerlies, and polar easterlies across every latitude.",
