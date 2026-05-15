@@ -6,7 +6,6 @@
 <title>Seismic Wave Explorer — Earth's Interior</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Space+Mono:wght@400;700&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
 <style>
 :root {
   --bg:    #030a1a;
@@ -188,28 +187,6 @@ main {
 }
 .sci-card h4 { font-size:13.5px; font-weight:600; margin-bottom:7px; }
 .sci-card p  { font-size:12px; color:var(--muted); line-height:1.7; }
-
-/* GIF export */
-.btn-gif {
-  background:rgba(58,175,169,.1); border-color:rgba(58,175,169,.38); color:#6dd5d0;
-}
-.btn-gif:hover { background:rgba(58,175,169,.22); border-color:rgba(58,175,169,.6); }
-.btn-gif:disabled {
-  cursor:default; opacity:.7;
-  background:rgba(58,175,169,.06); border-color:rgba(58,175,169,.2); color:#6dd5d0;
-}
-.gif-progress {
-  height:3px; border-radius:2px; background:rgba(58,175,169,.15);
-  overflow:hidden; display:none;
-}
-.gif-progress-bar {
-  height:100%; background:#3aafa9; border-radius:2px;
-  transition:width .1s linear; width:0%;
-}
-.gif-status {
-  font-size:11px; color:var(--muted); font-family:'Space Mono',monospace;
-  text-align:center; display:none; margin-top:2px;
-}
 </style>
 </head>
 <body>
@@ -271,9 +248,6 @@ main {
 
     <button class="btn btn-acc" onclick="replay()">↺  Replay Animation</button>
     <button class="btn" onclick="resetAll()">⊕  Reset Epicenter</button>
-    <button class="btn btn-gif" id="btnGIF" onclick="exportGIF()">🎞  Download GIF</button>
-    <div class="gif-progress" id="gifProgress"><div class="gif-progress-bar" id="gifBar"></div></div>
-    <div class="gif-status" id="gifStatus"></div>
 
     <div>
       <div class="sec-label" style="margin-bottom:10px">Animation Speed</div>
@@ -507,11 +481,30 @@ function traceRay(epicA, takeoffDeg, type) {
   return {path,cumT};
 }
 
+function surfaceAngDist(path, epicA) {
+  // Returns angular distance in degrees from epicenter to ray's surface endpoint,
+  // or -1 if the ray did not actually reach the surface.
+  const last = path[path.length - 1];
+  const distFromCenter = Math.sqrt((last.x-CX)**2 + (last.y-CY)**2);
+  if (Math.abs(distFromCenter - RS) > 10) return -1;
+  let d = Math.abs(Math.atan2(last.y-CY, last.x-CX) - epicA);
+  if (d > Math.PI) d = Math.PI*2 - d;
+  return d * 180 / Math.PI;
+}
+
 function generateRays(epicA, type) {
-  const rays=[];
-  for (let deg=-88;deg<=88;deg+=2) {
-    const r=traceRay(epicA,deg,type);
-    if (r.path.length>1) rays.push(r);
+  const rays = [];
+  for (let deg = -88; deg <= 88; deg += 2) {
+    const r = traceRay(epicA, deg, type);
+    if (r.path.length < 2) continue;
+    if (type === 'P') {
+      // The discrete-layer model lets a handful of rays numerically surface inside
+      // the true P-wave shadow zone (105deg-140deg). Filter them out so the
+      // simulation matches real Earth behaviour.
+      const ad = surfaceAngDist(r.path, epicA);
+      if (ad >= 103 && ad <= 142) continue;
+    }
+    rays.push(r);
   }
   return rays;
 }
@@ -855,172 +848,6 @@ function setSpeed(mult){
   document.getElementById('spdSlow').className='spd-btn'+(mult===0.35?' active':'');
   document.getElementById('spdNorm').className='spd-btn'+(mult===1?' active':'');
   document.getElementById('spdFast').className='spd-btn'+(mult===3.5?' active':'');
-}
-
-// ── GIF Export ────────────────────────────────────────
-async function exportGIF() {
-  if (!epicAngle) {
-    alert('Place an epicenter on Earth first, then export.');
-    return;
-  }
-
-  const btn      = document.getElementById('btnGIF');
-  const progWrap = document.getElementById('gifProgress');
-  const bar      = document.getElementById('gifBar');
-  const status   = document.getElementById('gifStatus');
-
-  btn.disabled = true;
-  progWrap.style.display = 'block';
-  status.style.display   = 'block';
-  status.textContent     = 'Loading encoder…';
-  bar.style.width        = '0%';
-
-  // ── Fetch gif.worker.js and wrap in a same-origin Blob URL ──
-  // A CDN URL passed directly as workerScript fails the browser's
-  // cross-origin restriction for Worker scripts.  Fetching the text
-  // and re-packaging it as a blob: URL sidesteps that entirely.
-  let workerBlobUrl;
-  try {
-    const resp = await fetch(
-      'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
-    );
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    const code = await resp.text();
-    workerBlobUrl = URL.createObjectURL(
-      new Blob([code], { type: 'text/javascript' })
-    );
-  } catch (e) {
-    status.textContent = 'Could not load GIF encoder — check network.';
-    btn.disabled = false;
-    console.error('gif.worker fetch failed:', e);
-    return;
-  }
-
-  // ── GIF settings ──────────────────────────────────
-  const FPS          = 12;   // frames per second
-  const TOTAL_FRAMES = 60;   // frames to capture
-  const FRAME_DELAY  = Math.round(1000 / FPS);
-  const GIF_SCALE    = 0.75; // 75% scale → smaller file
-  const GW = Math.round(W * GIF_SCALE);
-  const GH = Math.round(H * GIF_SCALE);
-
-  // Off-screen canvas for scaled-down frames
-  const offC = document.createElement('canvas');
-  offC.width = GW; offC.height = GH;
-  const offCtx = offC.getContext('2d');
-
-  const gif = new GIF({
-    workers:      2,
-    quality:      8,
-    workerScript: workerBlobUrl,   // ← blob URL, always same-origin
-    width:        GW,
-    height:       GH,
-    repeat:       0,               // 0 = loop forever
-  });
-
-  // Pause live animation while capturing
-  const wasRunning = animRunning;
-  animRunning = false;
-
-  // Freeze pulse offsets so they animate nicely across frames
-  // Each frame advances by one FPS-tick worth of "real" ms
-  const baseTime   = Date.now();
-  const msPerFrame = 1000 / FPS;
-
-  status.textContent = 'Capturing frames…';
-
-  for (let i = 0; i <= TOTAL_FRAMES; i++) {
-    const pct    = i / TOTAL_FRAMES;
-    const simT   = pct * maxSimTime;
-    const fakeNow = baseTime + i * msPerFrame * 4; // 4× to make pulses visible
-
-    // Override Date.now for this frame so pulse animations advance
-    const origDateNow = Date.now;
-    Date.now = () => fakeNow;
-
-    // ── Render frame onto main canvas ─────────────
-    ctx.clearRect(0, 0, W, H);
-
-    // Solid dark background so GIF isn't transparent
-    ctx.fillStyle = '#030a1a';
-    ctx.fillRect(0, 0, W, H);
-
-    // Ambient radial gradient
-    const bg = ctx.createRadialGradient(CX, CY, 0, CX, CY, W * .72);
-    bg.addColorStop(0, 'rgba(8,20,55,.6)');
-    bg.addColorStop(1, 'rgba(3,10,26,0)');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    drawEarth();
-    drawShadowZones(epicAngle);
-    if (showP) drawRaySet(pRays, '#f5c518', '#ffdd00', simT);
-    if (showS) drawRaySet(sRays, '#00d9ff', '#00aaff', simT);
-    drawStations(simT);
-    drawEpicenter(epicAngle);
-    drawLayerLabels();
-
-    Date.now = origDateNow;
-
-    // ── Scale down to off-screen canvas ──────────
-    offCtx.clearRect(0, 0, GW, GH);
-    offCtx.drawImage(cv, 0, 0, GW, GH);
-
-    gif.addFrame(offC, { copy: true, delay: FRAME_DELAY });
-
-    // Update progress bar
-    const capPct = Math.round(pct * 80); // capture = 0→80%
-    bar.style.width = capPct + '%';
-    status.textContent = `Capturing… ${Math.round(pct * 100)}%`;
-
-    // Yield to browser between frames so UI doesn't freeze
-    await new Promise(r => setTimeout(r, 0));
-  }
-
-  // Restore live animation
-  animRunning = wasRunning;
-  // Re-trigger the live loop to resume
-  if (animRunning) lastTS = null;
-
-  status.textContent = 'Encoding GIF…';
-  bar.style.width = '85%';
-
-  gif.on('progress', p => {
-    bar.style.width = (85 + Math.round(p * 15)) + '%';
-  });
-
-  gif.on('finished', blob => {
-    URL.revokeObjectURL(workerBlobUrl); // clean up worker blob
-    bar.style.width = '100%';
-    status.textContent = 'Done! Downloading…';
-
-    const url = URL.createObjectURL(blob);
-    const a   = document.createElement('a');
-    a.href     = url;
-    a.download = `seismic_wave_epicenter_${Math.round((((epicAngle + Math.PI/2) * 180 / Math.PI) % 360 + 360) % 360)}deg.gif`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    setTimeout(() => {
-      btn.disabled           = false;
-      progWrap.style.display = 'none';
-      status.style.display   = 'none';
-      bar.style.width        = '0%';
-      status.textContent     = '';
-    }, 1800);
-  });
-
-  gif.on('error', err => {
-    URL.revokeObjectURL(workerBlobUrl);
-    console.error('GIF error:', err);
-    status.textContent = 'Encoding error — see console';
-    btn.disabled = false;
-    animRunning  = wasRunning;
-  });
-
-  gif.render();
 }
 
 // Boot
