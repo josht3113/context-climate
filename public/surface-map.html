@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Surface Weather Map — Northeast US</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600&family=Barlow+Condensed:wght@400;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0f1117;
+  color: #e0e4ee;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+header {
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+header h1 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1D9E75;
+}
+
+header .sub {
+  font-size: 12px;
+  color: rgba(255,255,255,0.35);
+}
+
+.status {
+  padding: 7px 20px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #1D9E75;
+  flex-shrink: 0;
+  animation: blink 2.5s ease-in-out infinite;
+}
+
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+.map-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 20px;
+  flex: 1;
+}
+
+canvas {
+  border-radius: 6px;
+  max-width: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+.overlay {
+  position: absolute;
+  inset: 20px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,17,23,0.7);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+#share-btn {
+  position: absolute;
+  top: 32px;
+  right: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15,17,23,0.82);
+  border: 1px solid rgba(29,158,117,0.3);
+  border-radius: 999px;
+  padding: 6px 13px 6px 10px;
+  color: rgba(255,255,255,0.6);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.15s, color 0.15s;
+  z-index: 10;
+}
+
+#share-btn:hover {
+  border-color: rgba(29,158,117,0.7);
+  color: #1D9E75;
+}
+
+#share-btn.copied {
+  border-color: #1D9E75;
+  color: #1D9E75;
+}
+
+#tip {
+  position: fixed;
+  background: rgba(10,12,18,0.96);
+  border: 1px solid rgba(29,158,117,0.22);
+  border-radius: 7px;
+  padding: 10px 13px;
+  display: none;
+  pointer-events: none;
+  z-index: 200;
+  min-width: 175px;
+  font-size: 12px;
+  backdrop-filter: blur(8px);
+}
+
+#tip .tip-id {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1D9E75;
+  margin-bottom: 7px;
+  letter-spacing: 0.03em;
+}
+
+#tip .tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.75;
+  color: rgba(255,255,255,0.75);
+}
+
+#tip .tip-lbl { color: rgba(255,255,255,0.33); }
+
+.legend {
+  padding: 10px 20px 18px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: rgba(255,255,255,0.38);
+}
+
+.lg { display: flex; align-items: center; gap: 5px; }
+.lg-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Surface Map</h1>
+  <span class="sub">Northeast US &middot; ASOS / AWOS Hourly Observations</span>
+</header>
+
+<div class="status">
+  <div class="dot"></div>
+  <span id="stext">Initializing&hellip;</span>
+</div>
+
+<div class="map-wrap">
+  <canvas id="cv"></canvas>
+
+  <button id="share-btn" title="Copy map as image">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/>
+      <polyline points="16 6 12 2 8 6"/>
+      <line x1="12" y1="2" x2="12" y2="15"/>
+    </svg>
+    <span id="share-label">Copy Map</span>
+  </button>
+
+  <div class="overlay" id="ov">Loading boundary data&hellip;</div>
+</div>
+
+<div id="tip"></div>
+
+<div class="legend">
+  <div class="lg"><div class="lg-dot" style="background:#e05252"></div>Temperature &deg;F</div>
+  <div class="lg"><div class="lg-dot" style="background:#6aabee"></div>Dewpoint &deg;F</div>
+  <div class="lg"><div class="lg-dot" style="background:rgba(255,255,255,0.55)"></div>Pressure (coded mb)</div>
+  <div class="lg"><div class="lg-dot" style="border:1px solid rgba(255,255,255,0.45);background:transparent"></div>Wind barb &middot; Sky cover</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// MAP BOUNDS & CANVAS
+// ═══════════════════════════════════════════════════
+const B   = { west: -75.5, east: -69.2, north: 43.4, south: 40.0 };
+const CW  = 900;
+const MID = Math.PI * (B.north + B.south) / 2 / 180;
+const CH  = Math.round(CW * (B.north - B.south) / ((B.east - B.west) * Math.cos(MID)));
+
+const REFRESH_MS = 60 * 60 * 1000; // hourly
+
+// ═══════════════════════════════════════════════════
+// STATIONS
+// ═══════════════════════════════════════════════════
+const STATIONS = [
+  'KISP','KFOK','KFRG','KJFK','KLGA',
+  'KEWR','KTEB','KCDW',
+  'KHPN','KSWF','KPOU','KALB','KSCH',
+  'KDXR','KOXC','KBDR','KHVN','KBDL','KGON','KIJD',
+  'KWST','KPVD',
+  'KORH','KBOS','KACK','KMVY','KFMH','KORE',
+];
+
+const NAMES = {
+  KISP:'Islip', KFOK:'Westhampton', KFRG:'Farmingdale',
+  KJFK:'Kennedy', KLGA:'LaGuardia',
+  KEWR:'Newark', KTEB:'Teterboro', KCDW:'Caldwell NJ',
+  KHPN:'White Plains', KSWF:'Newburgh', KPOU:'Poughkeepsie',
+  KALB:'Albany', KSCH:'Schenectady',
+  KDXR:'Danbury', KOXC:'Oxford CT', KBDR:'Bridgeport',
+  KHVN:'New Haven', KBDL:'Hartford', KGON:'Groton', KIJD:'Willimantic',
+  KWST:'Westerly RI', KPVD:'Providence',
+  KORH:'Worcester', KBOS:'Boston', KACK:'Nantucket',
+  KMVY:"Martha's Vineyard", KFMH:'Falmouth/Otis', KORE:'Orange MA',
+};
+
+// ═══════════════════════════════════════════════════
+// CANVAS SETUP
+// ═══════════════════════════════════════════════════
+const cv  = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+cv.width  = CW * dpr;
+cv.height = CH * dpr;
+cv.style.width  = CW + 'px';
+cv.style.height = CH + 'px';
+ctx.scale(dpr, dpr);
+
+// ═══════════════════════════════════════════════════
+// PROJECTION
+// ═══════════════════════════════════════════════════
+const proj = (lon, lat) => [
+  (lon - B.west)  / (B.east  - B.west)  * CW,
+  (B.north - lat) / (B.north - B.south) * CH,
+];
+
+// ═══════════════════════════════════════════════════
+// UNIT HELPERS
+// ═══════════════════════════════════════════════════
+const cToF    = c => c != null ? Math.round(c * 9/5 + 32) : null;
+const kmhToKt = k => k != null ? k / 1.852 : null;
+const paToMb  = p => p != null ? p / 100 : null;
+
+function fmtPres(mb) {
+  if (mb == null) return '';
+  return String(Math.round(mb * 10) % 1000).padStart(3, '0');
+}
+
+function skyFrac(clouds) {
+  if (!clouds || !clouds.length) return null;
+  const rank = { CLR:0, SKC:0, FEW:1, SCT:2, BKN:3, OVC:4, VV:5 };
+  let best = 'CLR';
+  for (const l of clouds) {
+    if ((rank[l.amount] ?? -1) > (rank[best] ?? -1)) best = l.amount;
+  }
+  return { CLR:0, SKC:0, FEW:0.2, SCT:0.5, BKN:0.75, OVC:1, VV:-1 }[best] ?? 0;
+}
+
+// ═══════════════════════════════════════════════════
+// SKY COVER CIRCLE
+// ═══════════════════════════════════════════════════
+function drawSky(x, y, r, frac) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  if (frac == null || frac === 0) return;
+
+  if (frac === -1) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 0.8;
+    const d = r * 0.62;
+    ctx.beginPath();
+    ctx.moveTo(x-d, y-d); ctx.lineTo(x+d, y+d);
+    ctx.moveTo(x+d, y-d); ctx.lineTo(x-d, y+d);
+    ctx.stroke();
+    return;
+  }
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(x, y, r - 0.5, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  ctx.fillRect(x - r, y - r, r * 2 * frac, r * 2);
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════
+// WIND BARB
+// ═══════════════════════════════════════════════════
+function drawBarb(x, y, dirDeg, speedKt) {
+  if (speedKt == null) return;
+
+  if (speedKt < 2.5) {
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    return;
+  }
+
+  const rad = dirDeg * Math.PI / 180;
+  const dx =  Math.sin(rad);
+  const dy = -Math.cos(rad);
+  const SL = 24, BL = 9, BS = 5;
+  const tx = x + dx * SL, ty = y + dy * SL;
+  const px = -dy, py = dx;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.78)';
+  ctx.fillStyle   = 'rgba(255,255,255,0.78)';
+  ctx.lineWidth   = 1;
+
+  ctx.beginPath();
+  ctx.moveTo(x, y); ctx.lineTo(tx, ty);
+  ctx.stroke();
+
+  let rem = Math.round(speedKt / 5) * 5;
+  let pos = 0;
+
+  while (rem >= 50) {
+    const bx = tx - dx*pos, by = ty - dy*pos;
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(bx + px*BL, by + py*BL);
+    ctx.lineTo(bx - dx*BS, by - dy*BS);
+    ctx.closePath(); ctx.fill();
+    rem -= 50; pos += BS + 1;
+  }
+  while (rem >= 10) {
+    const bx = tx - dx*pos, by = ty - dy*pos;
+    ctx.beginPath();
+    ctx.moveTo(bx, by); ctx.lineTo(bx + px*BL, by + py*BL);
+    ctx.stroke();
+    rem -= 10; pos += BS;
+  }
+  if (rem >= 5) {
+    const bx = tx - dx*pos, by = ty - dy*pos;
+    ctx.beginPath();
+    ctx.moveTo(bx, by); ctx.lineTo(bx + px*(BL/2), by + py*(BL/2));
+    ctx.stroke();
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// STATION MODEL
+// ═══════════════════════════════════════════════════
+function drawStation(stn) {
+  const [x, y] = proj(stn.lon, stn.lat);
+  if (x < -30 || x > CW+30 || y < -30 || y > CH+30) return;
+
+  const R   = 5;
+  const off = R + 4;
+  const kt  = kmhToKt(stn.windSpeed);
+  const mb  = paToMb(stn.pres);
+
+  drawSky(x, y, R, skyFrac(stn.clouds));
+  if (stn.windDir != null && kt != null) drawBarb(x, y, stn.windDir, kt);
+
+  ctx.textBaseline = 'middle';
+
+  const tF = cToF(stn.temp);
+  if (tF != null) {
+    ctx.font = '600 11px "Barlow Condensed"';
+    ctx.fillStyle = '#e05252'; ctx.textAlign = 'right';
+    ctx.fillText(tF, x - off, y - off);
+  }
+
+  const dF = cToF(stn.dew);
+  if (dF != null) {
+    ctx.font = '600 11px "Barlow Condensed"';
+    ctx.fillStyle = '#6aabee'; ctx.textAlign = 'right';
+    ctx.fillText(dF, x - off, y + off);
+  }
+
+  if (mb != null) {
+    ctx.font = '600 11px "Barlow Condensed"';
+    ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.textAlign = 'left';
+    ctx.fillText(fmtPres(mb), x + off, y - off);
+  }
+
+  ctx.font = '9px "Barlow Condensed"';
+  ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.textAlign = 'left';
+  ctx.fillText(stn.id.slice(1), x + off, y + off);
+}
+
+// ═══════════════════════════════════════════════════
+// CANVAS STAMP
+// ═══════════════════════════════════════════════════
+function drawStamp(validTime) {
+  const PAD  = 12;
+  const logo = '[ contextclimate ]';
+  let   ts   = '';
+
+  if (validTime) {
+    const hh = String(validTime.getUTCHours()).padStart(2,'0');
+    const mm = String(validTime.getUTCMinutes()).padStart(2,'0');
+    const mo = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][validTime.getUTCMonth()];
+    const dd = String(validTime.getUTCDate()).padStart(2,'0');
+    const yy = validTime.getUTCFullYear();
+    ts = `VALID ${hh}${mm}Z  ${dd} ${mo} ${yy}`;
+  }
+
+  ctx.save();
+  ctx.textBaseline = 'bottom';
+
+  ctx.font = '600 11px "Barlow Condensed"';
+  ctx.fillStyle = '#1D9E75';
+  ctx.textAlign = 'left';
+  ctx.fillText(logo, PAD, CH - PAD);
+
+  if (ts) {
+    const logoW = ctx.measureText(logo).width;
+    ctx.font = '10px "JetBrains Mono"';
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillText('  ·  ' + ts, PAD + logoW, CH - PAD - 0.5);
+  }
+
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════
+// MAP BACKGROUND  (500k GeoJSON — no topojson needed)
+// ═══════════════════════════════════════════════════
+let statesGeo = null;
+
+async function loadGeo() {
+  const r = await fetch('states-500k.geojson');
+  statesGeo = await r.json();
+}
+
+function geoRing(coords) {
+  let first = true;
+  for (const [lon, lat] of coords) {
+    const [px, py] = proj(lon, lat);
+    if (first) { ctx.moveTo(px, py); first = false; }
+    else ctx.lineTo(px, py);
+  }
+}
+
+function drawBase() {
+  // Ocean / background
+  ctx.fillStyle = '#111620';
+  ctx.fillRect(0, 0, CW, CH);
+
+  if (!statesGeo) return;
+
+  // --- land fills ---
+  ctx.fillStyle = '#1b2130';
+  for (const feature of statesGeo.features) {
+    const geo = feature.geometry;
+    if (!geo) continue;
+    const polys = geo.type === 'Polygon' ? [geo.coordinates] : geo.coordinates;
+    for (const poly of polys) {
+      ctx.beginPath();
+      for (const ring of poly) geoRing(ring);
+      ctx.fill();
+    }
+  }
+
+  // --- state outlines (coastline + borders in one pass) ---
+  // Two-pass stroke: thicker dim line first, then brighter thinner on top
+  // gives a subtle glow that helps coastlines read against the ocean
+  for (const feature of statesGeo.features) {
+    const geo = feature.geometry;
+    if (!geo) continue;
+    const polys = geo.type === 'Polygon' ? [geo.coordinates] : geo.coordinates;
+    for (const poly of polys) {
+      ctx.beginPath();
+      for (const ring of poly) geoRing(ring);
+      ctx.strokeStyle = 'rgba(80,120,160,0.25)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.strokeStyle = '#3a5068';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// FETCH OBS  (routine hourly METARs only)
+// ═══════════════════════════════════════════════════
+let obs = [];
+
+async function fetchStn(id) {
+  try {
+    const r = await fetch(
+      `https://api.weather.gov/stations/${id}/observations?limit=6`,
+      { headers: { 'User-Agent': 'contextclimate.io' } }
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    const features = j.features;
+    if (!features?.length) return null;
+
+    // Prefer routine METAR: issued at :45–:59 or :00–:05
+    const feat = features.find(f => {
+      const min = new Date(f.properties?.timestamp).getUTCMinutes();
+      return min >= 45 || min <= 5;
+    }) || features[0];
+
+    const p      = feat.properties;
+    const coords = feat.geometry?.coordinates;
+    if (!coords) return null;
+
+    return {
+      id,
+      lon:       coords[0],
+      lat:       coords[1],
+      temp:      p.temperature?.value,
+      dew:       p.dewpoint?.value,
+      windDir:   p.windDirection?.value,
+      windSpeed: p.windSpeed?.value,
+      pres:      p.barometricPressure?.value,
+      clouds:    p.cloudLayers,
+      vis:       p.visibility?.value,
+      ts:        p.timestamp,
+    };
+  } catch { return null; }
+}
+
+async function loadObs() {
+  const results = await Promise.all(STATIONS.map(fetchStn));
+  obs = results.filter(r => r?.lat != null && r?.lon != null);
+}
+
+function getValidTime() {
+  const times = obs.map(s => s.ts).filter(Boolean)
+    .map(t => new Date(t)).filter(t => !isNaN(t));
+  if (!times.length) return null;
+  return new Date(Math.max(...times.map(t => t.getTime())));
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════
+function render() {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, CW, CH);
+  ctx.clip();
+  drawBase();
+  for (const stn of obs) drawStation(stn);
+  drawStamp(getValidTime());
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════
+// TOOLTIP
+// ═══════════════════════════════════════════════════
+const tip = document.getElementById('tip');
+
+cv.addEventListener('mousemove', e => {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * (CW / rect.width);
+  const my = (e.clientY - rect.top)  * (CH / rect.height);
+
+  let best = null, bestD = 22;
+  for (const s of obs) {
+    const [sx, sy] = proj(s.lon, s.lat);
+    const d = Math.hypot(mx - sx, my - sy);
+    if (d < bestD) { bestD = d; best = s; }
+  }
+
+  if (!best) { tip.style.display = 'none'; return; }
+
+  const tF    = cToF(best.temp);
+  const dF    = cToF(best.dew);
+  const mb    = paToMb(best.pres);
+  const kt    = kmhToKt(best.windSpeed);
+  const mph   = best.windSpeed != null ? Math.round(best.windSpeed * 0.621) : null;
+  const visMi = best.vis != null ? (best.vis / 1609.34).toFixed(1) : null;
+
+  tip.innerHTML = `
+    <div class="tip-id">${best.id} &middot; ${NAMES[best.id] || best.id}</div>
+    ${tF    != null ? `<div class="tip-row"><span class="tip-lbl">Temp</span><span>${tF}&deg;F</span></div>` : ''}
+    ${dF    != null ? `<div class="tip-row"><span class="tip-lbl">Dewpoint</span><span>${dF}&deg;F</span></div>` : ''}
+    ${mb    != null ? `<div class="tip-row"><span class="tip-lbl">Pressure</span><span>${mb.toFixed(1)} mb</span></div>` : ''}
+    ${kt    != null ? `<div class="tip-row"><span class="tip-lbl">Wind</span><span>${best.windDir != null ? best.windDir+'&deg; @ ' : ''}${Math.round(kt)} kt &middot; ${mph} mph</span></div>` : ''}
+    ${visMi != null ? `<div class="tip-row"><span class="tip-lbl">Visibility</span><span>${visMi} mi</span></div>` : ''}
+  `;
+
+  tip.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let lx = e.clientX + 16, ly = e.clientY - th/2;
+  if (lx + tw > window.innerWidth - 8) lx = e.clientX - tw - 16;
+  if (ly < 4) ly = 4;
+  tip.style.left = lx + 'px';
+  tip.style.top  = ly + 'px';
+});
+
+cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+
+// ═══════════════════════════════════════════════════
+// SHARE / COPY PILL
+// ═══════════════════════════════════════════════════
+const shareBtn   = document.getElementById('share-btn');
+const shareLabel = document.getElementById('share-label');
+
+shareBtn.addEventListener('click', () => {
+  cv.toBlob(async blob => {
+    const file = new File([blob], 'contextclimate-surface-map.png', { type: 'image/png' });
+
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Surface Weather Map — contextclimate.io' });
+        flash('Shared!'); return;
+      } catch { /* cancelled */ }
+    }
+
+    if (navigator.clipboard?.write) {
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        flash('Copied!'); return;
+      } catch { /* fall through */ }
+    }
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'contextclimate-surface-map.png';
+    a.click();
+    flash('Saved!');
+  }, 'image/png');
+});
+
+function flash(msg) {
+  shareLabel.textContent = msg;
+  shareBtn.classList.add('copied');
+  setTimeout(() => {
+    shareLabel.textContent = 'Copy Map';
+    shareBtn.classList.remove('copied');
+  }, 2200);
+}
+
+// ═══════════════════════════════════════════════════
+// STATUS
+// ═══════════════════════════════════════════════════
+const setStatus = msg => { document.getElementById('stext').textContent = msg; };
+
+// ═══════════════════════════════════════════════════
+// INIT + REFRESH
+// ═══════════════════════════════════════════════════
+async function init() {
+  setStatus('Loading map boundaries…');
+  await loadGeo();
+  await document.fonts.ready;
+  drawBase();
+
+  const ov = document.getElementById('ov');
+  ov.textContent = 'Fetching observations…';
+  setStatus('Fetching station observations…');
+
+  await loadObs();
+  render();
+  ov.style.display = 'none';
+
+  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  setStatus(`${obs.length} of ${STATIONS.length} stations loaded · ${t}`);
+}
+
+async function refresh() {
+  await loadObs();
+  render();
+  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  setStatus(`${obs.length} stations · Refreshed ${t}`);
+}
+
+init();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>
