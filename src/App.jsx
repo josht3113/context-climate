@@ -27,6 +27,7 @@ import HomerunDerby               from './pages/HomerunDerby'
 import DewpointFrequency           from './pages/DewpointFrequency'
 import TempFrequency               from './pages/TempFrequency'
 import WindHourHeatmap             from './pages/WindHourHeatmap'
+import SubductionExplorer          from './pages/SubductionExplorer'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/dewpoint-frequency"                  element={<DewpointFrequency />}   />
           <Route path="/temp-frequency"                      element={<TempFrequency />}        />
           <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}      />
+          <Route path="/earthandspace/subduction-explorer"   element={<SubductionExplorer />}   />
         </Routes>
       </main>
       <footer style={{
