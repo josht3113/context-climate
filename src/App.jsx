@@ -24,6 +24,9 @@ import RadioactiveDecay            from './pages/radioactive_decay_simulator'
 import CloudFormationLab           from './pages/CloudFormationLab'
 import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
 import HomerunDerby               from './pages/HomerunDerby'
+import DewpointFrequency           from './pages/DewpointFrequency'
+import TempFrequency               from './pages/TempFrequency'
+import WindHourHeatmap             from './pages/WindHourHeatmap'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -64,6 +67,9 @@ export default function App() {
           <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />} />
           <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />} />
           <Route path="/earthandspace/homerun-derby"         element={<HomerunDerby />}        />
+          <Route path="/dewpoint-frequency"                  element={<DewpointFrequency />}   />
+          <Route path="/temp-frequency"                      element={<TempFrequency />}        />
+          <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}      />
         </Routes>
       </main>
       <footer style={{
