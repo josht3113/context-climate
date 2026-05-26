@@ -70,7 +70,7 @@ const SECTIONS = [
   },
   {
     id:    'connections',
-    label: 'Climate Connections',
+    label: 'Climatology Charts',
     cards: [
       {
         tags:       ['ENSO PHASE COMPARISONS', 'SELECT US CITIES'],
