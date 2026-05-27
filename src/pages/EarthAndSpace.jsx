@@ -119,6 +119,15 @@ const SECTIONS = [
 },
       {
         tags:        ['Earth Science', 'Geology', 'Interactive'],
+        title:       'Subduction Zone Explorer',
+        description: 'Simulate the collision of oceanic and continental plates — visualize subduction, trench formation, volcanic arcs, and the geologic features that emerge at convergent boundaries.',
+        footerTags:  ['Plate Tectonics', 'Subduction', 'Convergent Boundaries', 'Geology'],
+        to:          '/earthandspace/subduction-explorer',
+        thumb:       '/SubductionExplorer_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Earth Science', 'Geology', 'Interactive'],
         title:       'More tools',
         description: 'Work in progress',
         footerTags:  ['Earth Science', 'Geology'],
