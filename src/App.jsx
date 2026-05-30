@@ -23,11 +23,19 @@ import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
 import CloudFormationLab           from './pages/CloudFormationLab'
 import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
-import HomerunDerby               from './pages/HomerunDerby'
+import HomerunDerby                from './pages/HomerunDerby'
 import DewpointFrequency           from './pages/DewpointFrequency'
 import TempFrequency               from './pages/TempFrequency'
 import WindHourHeatmap             from './pages/WindHourHeatmap'
 import SubductionExplorer          from './pages/SubductionExplorer'
+import DewpointThresholdHeatmap    from './pages/DewpointThresholdHeatmap'
+import FogHeatmap                  from './pages/FogHeatmap'
+import ThunderstormHeatmap         from './pages/ThunderstormHeatmap'
+import WinterPrecipHeatmap         from './pages/WinterPrecipHeatmap'
+import SnowfallSeasonWindow        from './pages/SnowfallSeasonWindow'
+import SnowFrequency               from './pages/SnowFrequency'
+import UsPrecipYears               from './pages/UsPrecipYears'
+import UsSnowSeasons               from './pages/UsSnowSeasons'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -45,33 +53,41 @@ export default function App() {
   <Header />
       <main style={{ overflowX: 'hidden' }}>
         <Routes>
-          <Route path="/"                                    element={<Home />}             />
-          <Route path="/isp-live"                            element={<IspLive />}          />
-          <Route path="/precipsnow"                          element={<PrecipSnow />}       />
-          <Route path="/northeast-climate"                   element={<NortheastClimate />} />
-          <Route path="/seasons"                             element={<Seasons />}          />
-          <Route path="/monthly"                             element={<HourlyData />}       />
-          <Route path="/annual"                             element={<Climate />}          />
-          <Route path="/enso"                                element={<ENSO />}             />
-          <Route path="/hurricanes"                          element={<Hurricanes />}       />
-          <Route path="/solar"                               element={<Solar />}            />
-          <Route path="/solar-calendar"                      element={<SolarCalendar />}    />
-          <Route path="/igneous"                             element={<Igneous />}          />
-          <Route path="/earthandspace"                       element={<EarthAndSpace />}    />
-          <Route path="/bowens"                              element={<Bowens />}           />
-          <Route path="/metamorphic"                         element={<Metamorphic />}      />
-          <Route path="/stream-transport"                    element={<StreamTransport />}  />
-          <Route path="/bowensgoldich"                       element={<BowensGoldich />}    />
-          <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}     />
-          <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}        />
-          <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />} />
-          <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />} />
-          <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />} />
-          <Route path="/earthandspace/homerun-derby"         element={<HomerunDerby />}        />
-          <Route path="/dewpoint-frequency"                  element={<DewpointFrequency />}   />
-          <Route path="/temp-frequency"                      element={<TempFrequency />}        />
-          <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}      />
-          <Route path="/earthandspace/subduction-explorer"   element={<SubductionExplorer />}   />
+          <Route path="/"                                    element={<Home />}                    />
+          <Route path="/isp-live"                            element={<IspLive />}                 />
+          <Route path="/precipsnow"                          element={<PrecipSnow />}              />
+          <Route path="/northeast-climate"                   element={<NortheastClimate />}        />
+          <Route path="/seasons"                             element={<Seasons />}                 />
+          <Route path="/monthly"                             element={<HourlyData />}              />
+          <Route path="/annual"                             element={<Climate />}                 />
+          <Route path="/enso"                                element={<ENSO />}                    />
+          <Route path="/hurricanes"                          element={<Hurricanes />}              />
+          <Route path="/solar"                               element={<Solar />}                   />
+          <Route path="/solar-calendar"                      element={<SolarCalendar />}           />
+          <Route path="/igneous"                             element={<Igneous />}                 />
+          <Route path="/earthandspace"                       element={<EarthAndSpace />}           />
+          <Route path="/bowens"                              element={<Bowens />}                  />
+          <Route path="/metamorphic"                         element={<Metamorphic />}             />
+          <Route path="/stream-transport"                    element={<StreamTransport />}         />
+          <Route path="/bowensgoldich"                       element={<BowensGoldich />}           />
+          <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
+          <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
+          <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />}        />
+          <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />}       />
+          <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />}     />
+          <Route path="/earthandspace/homerun-derby"         element={<HomerunDerby />}            />
+          <Route path="/dewpoint-frequency"                  element={<DewpointFrequency />}       />
+          <Route path="/temp-frequency"                      element={<TempFrequency />}           />
+          <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}         />
+          <Route path="/earthandspace/subduction-explorer"   element={<SubductionExplorer />}      />
+          <Route path="/dewpoint-threshold-heatmap"          element={<DewpointThresholdHeatmap />} />
+          <Route path="/fog-heatmap"                         element={<FogHeatmap />}              />
+          <Route path="/thunderstorm-heatmap"                element={<ThunderstormHeatmap />}     />
+          <Route path="/winter-precip-heatmap"               element={<WinterPrecipHeatmap />}     />
+          <Route path="/snowfall-season-window"              element={<SnowfallSeasonWindow />}    />
+          <Route path="/snow-frequency"                      element={<SnowFrequency />}           />
+          <Route path="/us-precip-years"                     element={<UsPrecipYears />}           />
+          <Route path="/us-snow-seasons"                     element={<UsSnowSeasons />}           />
         </Routes>
       </main>
       <footer style={{
