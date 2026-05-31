@@ -49,7 +49,7 @@ const SECTIONS = [
       {
         tags:       ['Temperature Threshold Frequencies', 'Various US Cities'],
         title:      'Temperature Threshold Heatmap',
-        description:'Probability of hourly temperatures meeting or exceeding key hot and cold thresholds at various US cities.
+        description:'Probability of hourly temperatures meeting or exceeding key hot and cold thresholds at various US cities.',
         footerTags: ['Temperature', 'Climatology'],
         to:         '/temp-threshold-heatmap',
         accentVar:  '--accent-hourly',
