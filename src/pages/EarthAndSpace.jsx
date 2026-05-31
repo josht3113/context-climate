@@ -191,6 +191,15 @@ const SECTIONS = [
     accent: ACCENT.astro,
     cards: [
       {
+        tags:        ['Earth Science', 'Astronomy', 'Game'],
+        title:       'Flapstronaut',
+        description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive in space?',
+        footerTags:  ['Gravity', 'Space Physics', 'Astronomy'],
+        to:          '/earthandspace/flapstronaut',
+        thumb:       '/flapstronaut_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Earth Science', 'Astronomy', 'Interactive'],
         title:       'H-R Diagram Explorer',
         description: 'Plot stars by temperature and luminosity on an interactive Hertzsprung-Russell diagram — identify main sequence stars, giants, supergiants, and white dwarfs from the ESSRT.',
