@@ -8,10 +8,13 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#e8e6df;font-family:'Segoe UI',system-ui,sans-serif;color:#1a1a1a;min-height:100vh}
 
-.brand{font-size:14px;color:#999;font-weight:400;letter-spacing:.01em;margin-bottom:8px;display:flex;align-items:center;gap:4px}
+.brand{font-size:14px;color:#999;font-weight:400;letter-spacing:.01em;display:flex;align-items:center;gap:4px}
+.top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.back-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#3AAFA9;text-decoration:none;border:1.5px solid #3AAFA9;border-radius:20px;padding:4px 12px;font-weight:500;transition:all .12s;letter-spacing:.02em;white-space:nowrap}
+.back-pill:hover{background:#3AAFA9;color:#fff}
 .brand-bracket{color:#4ecb8d;font-size:15px}
 
-.page{max-width:860px;margin:0 auto;padding:40px 24px 70px}
+.page{max-width:1060px;margin:0 auto;padding:40px 24px 70px}
 
 .tool-title{font-size:32px;font-weight:600;color:#1a1a1a;text-align:center;margin-bottom:7px;letter-spacing:-.02em}
 .tool-sub{font-size:12px;letter-spacing:.12em;color:#888;text-align:center;margin-bottom:12px;text-transform:uppercase}
@@ -99,7 +102,10 @@ body{background:#e8e6df;font-family:'Segoe UI',system-ui,sans-serif;color:#1a1a1
 </head>
 <body>
 <div class="page">
-  <div class="brand"><span class="brand-bracket">[</span>ContextClimate<span class="brand-bracket">]</span></div>
+  <div class="top-bar">
+    <div class="brand"><span class="brand-bracket">[</span>ContextClimate<span class="brand-bracket">]</span></div>
+    <a href="https://contextclimate.io/#/earthandspace" class="back-pill" target="_blank" rel="noopener">← Earth &amp; Space</a>
+  </div>
   <h1 class="tool-title">Radioactive Decay Simulator</h1>
   <p class="tool-sub">Parent · Daughter · Half-life · Radiometric Dating</p>
   <p class="tool-desc">Select an isotope from the NYSSED reference table and explore probabilistic decay</p>
@@ -143,6 +149,7 @@ body{background:#e8e6df;font-family:'Segoe UI',system-ui,sans-serif;color:#1a1a1
       <label class="ctrl-lbl">speed <select id="spds"><option value=".5">½×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="5">5×</option></select></label>
       <label class="ctrl-lbl"><input type="checkbox" id="logCk"> log scale</label>
       <label class="ctrl-lbl"><input type="checkbox" id="apCk"> pause at each t½</label>
+      <label class="ctrl-lbl"><input type="checkbox" id="dauCk"> show daughter</label>
       <div class="btn-group">
         <button class="btn" id="stepB">Step</button>
         <button class="btn pri" id="playB">▶ Play</button>
@@ -196,7 +203,7 @@ const ISO=[
 ];
 const MHL=8,THl=0.02;
 let iI=0,fI=0,n0=200,atoms=[],hist=[],hl=0,run=false,spd=1,tmr=null;
-let logSc=false,autP=false,hvrT=null,mode='sim',mathMode='simple';
+let logSc=false,autP=false,showDau=false,hvrT=null,mode='sim',mathMode='simple';
 let tgtHL=0,gssHL=null,tableLog=[];
 
 const clr=(i)=>ISO[i??iI].lc;
@@ -382,11 +389,35 @@ function baseGraph(cv,iIdx,N0_){
 function drawSGraph(){
   const cv=document.getElementById('gC');
   const{ctx,xS,yS,pt,gH,gW,pl,txt,N0}=baseGraph(cv,iI,n0);
+  const dauClr='#3AAFA9';
+  const canDau=showDau&&!logSc;
+
+  // Daughter lines drawn first (behind parent)
+  if(canDau){
+    // Theoretical daughter curve (dashed)
+    ctx.beginPath();ctx.strokeStyle=dauClr;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+    let fd=true;
+    for(let i=0;i<=300;i++){
+      const t=i/300*MHL,d=N0*(1-Math.pow(2,-t)),y=yS(d);
+      if(fd){ctx.moveTo(xS(t),y);fd=false;}else ctx.lineTo(xS(t),y);
+    }
+    ctx.stroke();ctx.setLineDash([]);
+    // Actual daughter history
+    if(hist.length>1){
+      ctx.beginPath();ctx.strokeStyle=dauClr;ctx.lineWidth=2;let mf=true;
+      hist.forEach(p=>{const d=N0-p.n,y=yS(d);if(mf){ctx.moveTo(xS(p.t),y);mf=false;}else ctx.lineTo(xS(p.t),y);});
+      ctx.stroke();
+    }
+  }
+
+  // Parent actual curve
   if(hist.length>1){
     ctx.beginPath();ctx.strokeStyle=clr();ctx.lineWidth=2;let mf=true;
     hist.forEach(p=>{if(logSc&&p.n<1){mf=true;return;}const y=yS(p.n);if(mf){ctx.moveTo(xS(p.t),y);mf=false;}else ctx.lineTo(xS(p.t),y);});
     ctx.stroke();
   }
+
+  // Hover crosshair + tooltips
   if(hvrT!==null){
     const hx=xS(hvrT),hn=N0*Math.pow(2,-hvrT),hy=yS(hn);
     ctx.beginPath();ctx.strokeStyle='rgba(0,0,0,.2)';ctx.lineWidth=.5;ctx.setLineDash([3,2]);
@@ -398,12 +429,36 @@ function drawSGraph(){
     ctx.font='11px "Courier New"';ctx.fillStyle=txt;ctx.textAlign=right?'right':'left';
     ctx.fillText(`N = ${Math.round(hn)} (${(hn/N0*100).toFixed(1)}%)`,tx,hy-16);
     ctx.fillText(fT(hvrT),tx,hy-4);
+    // Daughter hover dot + label
+    if(canDau){
+      const hd=N0-hn,dhy=yS(hd);
+      ctx.beginPath();ctx.arc(hx,dhy,4,0,Math.PI*2);ctx.fillStyle=dauClr;ctx.fill();
+      ctx.fillStyle=dauClr;ctx.textAlign=right?'right':'left';
+      ctx.fillText(`D = ${Math.round(hd)} (${(hd/N0*100).toFixed(1)}%)`,tx,dhy-4);
+    }
   }
+
+  // Legend
   ctx.font='11px "Courier New"';ctx.textAlign='left';
-  ctx.beginPath();ctx.strokeStyle='rgba(0,0,0,.14)';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);ctx.moveTo(pl+2,pt+9);ctx.lineTo(pl+18,pt+9);ctx.stroke();ctx.setLineDash([]);
-  ctx.fillStyle=txt;ctx.fillText('N₀·(½)^t',pl+21,pt+13);
-  ctx.beginPath();ctx.strokeStyle=clr();ctx.lineWidth=2;ctx.moveTo(pl+2,pt+23);ctx.lineTo(pl+18,pt+23);ctx.stroke();
-  ctx.fillStyle=clr();ctx.fillText('actual',pl+21,pt+27);
+  let ly=0;
+  // Parent theory (dashed black)
+  ctx.beginPath();ctx.strokeStyle='rgba(0,0,0,.14)';ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+  ctx.moveTo(pl+2,pt+9+ly);ctx.lineTo(pl+18,pt+9+ly);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle=txt;ctx.fillText('N₀·(½)^t',pl+21,pt+13+ly);ly+=14;
+  // Parent actual (solid isotope color)
+  ctx.beginPath();ctx.strokeStyle=clr();ctx.lineWidth=2;
+  ctx.moveTo(pl+2,pt+9+ly);ctx.lineTo(pl+18,pt+9+ly);ctx.stroke();
+  ctx.fillStyle=clr();ctx.fillText(canDau?'parent':'actual',pl+21,pt+13+ly);ly+=14;
+  if(canDau){
+    // Daughter theory (dashed teal)
+    ctx.beginPath();ctx.strokeStyle=dauClr;ctx.lineWidth=1.5;ctx.setLineDash([5,4]);
+    ctx.moveTo(pl+2,pt+9+ly);ctx.lineTo(pl+18,pt+9+ly);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=dauClr;ctx.fillText('N₀·(1−½^t)',pl+21,pt+13+ly);ly+=14;
+    // Daughter actual (solid teal)
+    ctx.beginPath();ctx.strokeStyle=dauClr;ctx.lineWidth=2;
+    ctx.moveTo(pl+2,pt+9+ly);ctx.lineTo(pl+18,pt+9+ly);ctx.stroke();
+    ctx.fillStyle=dauClr;ctx.fillText('daughter',pl+21,pt+13+ly);
+  }
 }
 
 function newSample(){
@@ -480,6 +535,7 @@ document.getElementById('n0s').onchange=e=>{n0=+e.target.value;stopSim();init();
 document.getElementById('spds').onchange=e=>{spd=+e.target.value;if(run){clearInterval(tmr);tmr=setInterval(tick,Math.round(100/spd));}};
 document.getElementById('logCk').onchange=e=>{logSc=e.target.checked;render();};
 document.getElementById('apCk').onchange=e=>{autP=e.target.checked;};
+document.getElementById('dauCk').onchange=e=>{showDau=e.target.checked;render();};
 
 const gCv=document.getElementById('gC');
 gCv.addEventListener('mousemove',e=>{
@@ -500,7 +556,7 @@ document.getElementById('clrB').onclick=()=>{
 function resizeSimCanvases(){
   const panels=document.querySelectorAll('.sim-panel');
   if(panels.length>=2){
-    [['aC',.78],['gC',.78]].forEach(([id,r],i)=>{
+    [['aC',.90],['gC',.90]].forEach(([id,r],i)=>{
       const cv=document.getElementById(id);
       const w=Math.max(panels[i].clientWidth-28,80);
       cv.width=w;cv.height=Math.round(w*r);
@@ -511,7 +567,7 @@ function resizeFACanvas(){
   const faC=document.getElementById('faC');
   const page=document.querySelector('.page');
   const pw=page?Math.max(page.clientWidth-48,300):800;
-  faC.width=pw;faC.height=Math.round(pw*.46);
+  faC.width=pw;faC.height=Math.round(pw*.52);
 }
 function resize(){
   resizeSimCanvases();
