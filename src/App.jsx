@@ -28,6 +28,7 @@ import DewpointFrequency           from './pages/DewpointFrequency'
 import TempFrequency               from './pages/TempFrequency'
 import WindHourHeatmap             from './pages/WindHourHeatmap'
 import SubductionExplorer          from './pages/SubductionExplorer'
+import Flapstronaut               from './pages/Flapstronaut'
 import DewpointThresholdHeatmap    from './pages/DewpointThresholdHeatmap'
 import FogHeatmap                  from './pages/FogHeatmap'
 import ThunderstormHeatmap         from './pages/ThunderstormHeatmap'
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="/temp-frequency"                      element={<TempFrequency />}           />
           <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}         />
           <Route path="/earthandspace/subduction-explorer"   element={<SubductionExplorer />}      />
+          <Route path="/earthandspace/flapstronaut"          element={<Flapstronaut />}            />
           <Route path="/dewpoint-threshold-heatmap"          element={<DewpointThresholdHeatmap />} />
           <Route path="/fog-heatmap"                         element={<FogHeatmap />}              />
           <Route path="/thunderstorm-heatmap"                element={<ThunderstormHeatmap />}     />
