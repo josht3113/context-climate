@@ -40,6 +40,10 @@ import UsSnowSeasons               from './pages/UsSnowSeasons'
 import TempThresholdHeatmap        from './pages/TempThresholdHeatmap'
 import SlpHeatmap                  from './pages/SlpHeatmap'
 import WindThresholdHeatmap        from './pages/WindThresholdHeatmap'
+import TempHeatmapMonthly          from './pages/TempHeatmapMonthly'
+import TempHeatmapAnnual           from './pages/TempHeatmapAnnual'
+import PrecipHeatmapMonthly        from './pages/PrecipHeatmapMonthly'
+import PrecipHeatmapAnnual         from './pages/PrecipHeatmapAnnual'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -96,6 +100,10 @@ export default function App() {
           <Route path="/temp-threshold-heatmap"              element={<TempThresholdHeatmap />}    />
           <Route path="/slp-heatmap"                         element={<SlpHeatmap />}              />
           <Route path="/wind-threshold-heatmap"              element={<WindThresholdHeatmap />}    />
+          <Route path="/temp-heatmap-monthly"                element={<TempHeatmapMonthly />}      />
+          <Route path="/temp-heatmap-annual"                 element={<TempHeatmapAnnual />}       />
+          <Route path="/precip-heatmap-monthly"              element={<PrecipHeatmapMonthly />}    />
+          <Route path="/precip-heatmap-annual"               element={<PrecipHeatmapAnnual />}     />
         </Routes>
       </main>
       <footer style={{
