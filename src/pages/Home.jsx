@@ -7,6 +7,57 @@ import styles from './Home.module.css'
 
 const SECTIONS = [
   {
+    id:    'live-heatmaps',
+    label: 'Live Heatmaps  ·  Updates Continuously',
+    cards: [
+      {
+        tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
+        title:      'Monthly Temperature Heatmap',
+        description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
+        footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies', 'Live'],
+        to:         '/temp-heatmap-monthly',
+        accentVar:  '--accent-live',
+        thumb:      '/OG_Monthly_Heatmap_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
+        title:      'Annual Temperature Heatmap',
+        description:'Full-year hourly temperature and weather patterns at a glance — 366 days × 24 hours in a single view. Grows in real time through the current year.',
+        footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Live'],
+        to:         '/temp-heatmap-annual',
+        accentVar:  '--accent-live',
+        thumb:      '/OG_Annual_Heatmap_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
+        title:      'Monthly Precipitation Heatmap',
+        description:'Hourly liquid-equivalent precipitation for any month and station. Radar-inspired color palette reveals storm timing and intensity at the hourly level. Live for the current month.',
+        footerTags: ['Hourly Precip', 'Daily Totals', 'Wet Hours', 'Live'],
+        to:         '/precip-heatmap-monthly',
+        accentVar:  '--accent-live',
+        thumb:      '/precip_heatmap_monthly_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
+        title:      'Annual Precipitation Heatmap',
+        description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day — instantly reveals seasonal wet and dry patterns. Live through the current year.',
+        footerTags: ['Hourly Precip', 'Daily Totals', 'Annual Total', 'Live'],
+        to:         '/precip-heatmap-annual',
+        accentVar:  '--accent-live',
+        thumb:      '/precip_heatmap_annual_thumbnail.png',
+      },
+      {
+        tags:       ['SEASONS', 'NE US CITIES', 'UPDATES DAILY'],
+        title:      'Meteorological Seasons',
+        description:'Meteorological season lengths tracked year by year for various cities.',
+        footerTags: ['Seasons', 'Trends', 'Calendars'],
+        to:         '/seasons',
+        accentVar:  '--accent-live',
+        thumb:      '/Seasons_thumbnail.png',
+      },
+    ],
+  },
+  {
     id:    'heatmaps',
     label: 'Climatology Heatmaps',
     cards: [
@@ -177,15 +228,6 @@ const SECTIONS = [
         to:         '/us-snow-seasons',
         accentVar:  '--accent-climate',
         thumb:      '/US_seasonal_snowfall_thumbnail.png',
-      },
-      {
-        tags:       ['SEASONS', 'NE US CITIES', 'UPDATES DAILY'],
-        title:      'Meteorological Seasons',
-        description:'Meteorological season lengths tracked year by year for various cities.',
-        footerTags: ['Seasons', 'Trends', 'Calendars'],
-        to:         '/seasons',
-        accentVar:  '--accent-climate',
-        thumb:      '/Seasons_thumbnail.png',
       },
     ],
   },
