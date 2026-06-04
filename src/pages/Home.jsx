@@ -253,6 +253,15 @@ const SECTIONS = [
         accentVar:  '--accent-enso',
         thumb:      '/SolarCalendar_thumbnail.png',
       },
+      {
+        tags:       ['Sunrise & Sunset', 'Global Cities', 'DST-Aware'],
+        title:      'Sunrise & Sunset Calendar',
+        description:'Daily sunrise and sunset clock times across the full year — revealing how the earliest sunrise and latest sunset are offset from the solstice by the equation of time.',
+        footerTags: ['Sunrise', 'Sunset', 'Equation of Time', 'DST'],
+        to:         '/sunrise-sunset-calendar',
+        accentVar:  '--accent-enso',
+        thumb:      '/SunriseSunsetCalendar_thumbnail.png',
+      },
     ],
   },
   {
