@@ -246,39 +246,6 @@ const SECTIONS = [
       },
     ],
   },
-  {
-    id:    'local',
-    label: 'Long Island  |  NY Metro  |  Northeast US',
-    cards: [
-      {
-        tags:       ['ISP Current', 'Updates Hourly'],
-        title:      'Islip Weather Conditions',
-        description:'current weather | month-to-date graph | recent observations table | model output forecast',
-        footerTags: ['ISP Current Conditions', 'Recent Weather'],
-        to:         '/isp-live',
-        accentVar:  '--accent-hourly',
-        thumb:      '/ISPlive_thumbnail.png',
-      },
-      {
-        tags:       ['Precip', 'Snow', 'NE US Cities'],
-        title:      'Precip & Snowfall Climo',
-        description:'Daily average temperatures with record highs and lows. Seasonal variability and extreme range by calendar day.',
-        footerTags: ['Precip Records', 'Snowfall Records', 'Snow Cover'],
-        to:         '/precipsnow',
-        accentVar:  '--accent-live',
-        thumb:      '/PrecipSnow_thumbnail.png',
-      },
-      {
-        tags:       ['Normals', 'Records', 'Updates Daily'],
-        title:      'NORTHEAST CLIMATE DASHBOARD',
-        description:'Daily, monthly and yearly climate data and trends for select cities in the Northeast US.',
-        footerTags: ['11 Stations', 'Temp', 'Precip', 'Snow'],
-        to:         '/northeast-climate',
-        accentVar:  '--accent-seasons',
-        thumb:      '/NEclimatedashboard_thumbnail.png',
-      },
-    ],
-  },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
