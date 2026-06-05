@@ -49,7 +49,7 @@ const SECTIONS = [
       {
         tags:       ['SEASONS', 'NE US CITIES', 'UPDATES DAILY'],
         title:      'Meteorological Seasons',
-        description:'Meteorological seasons explores the stochastic nature of how seasons are actually experienced at any given location. Updates daily.',
+        description:'Meteorological seasons explores the stochastic way in which the seasons unfold at any given location. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],
         to:         '/seasons',
         accentVar:  '--accent-live',
