@@ -8,7 +8,7 @@ import styles from './Home.module.css'
 const SECTIONS = [
   {
     id:    'live-heatmaps',
-    label: 'Live Heatmaps  ·  Updates Continuously',
+    label: 'Live  ·  Updates Continuously',
     cards: [
       {
         tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
@@ -31,8 +31,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
         title:      'Monthly Precipitation Heatmap',
-        description:'Hourly liquid-equivalent precipitation for any month and station. Radar-inspired color palette reveals storm timing and intensity at the hourly level. Live for the current month.',
-        footerTags: ['Hourly Precip', 'Daily Totals', 'Wet Hours', 'Live'],
+        description:'Hourly liquid-equivalent precipitation for any month and station. Streams live data for the current month.',
+        footerTags: ['Hourly Precip', 'Daily Totals', 'Live'],
         to:         '/precip-heatmap-monthly',
         accentVar:  '--accent-live',
         thumb:      '/precip_heatmap_monthly_thumbnail.png',
@@ -40,7 +40,7 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
         title:      'Annual Precipitation Heatmap',
-        description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day — instantly reveals seasonal wet and dry patterns. Live through the current year.',
+        description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day revealing seasonal wet and dry patterns. Live through the current year.',
         footerTags: ['Hourly Precip', 'Daily Totals', 'Annual Total', 'Live'],
         to:         '/precip-heatmap-annual',
         accentVar:  '--accent-live',
@@ -49,7 +49,7 @@ const SECTIONS = [
       {
         tags:       ['SEASONS', 'NE US CITIES', 'UPDATES DAILY'],
         title:      'Meteorological Seasons',
-        description:'Meteorological season lengths tracked year by year for various cities.',
+        description:'Meteorological seasons explores the stochastic nature of how seasons are actually experienced at any given location. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],
         to:         '/seasons',
         accentVar:  '--accent-live',
@@ -74,7 +74,7 @@ const SECTIONS = [
         tags:       ['US Cities', 'WIND', 'THRESHOLDS'],
         title:      'Wind Threshold Heatmap',
         description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year — from breezy to gale force.',
-        footerTags: ['Sustained', 'Gusts', 'Thresholds', 'Climatology'],
+        footerTags: ['Wind', 'Climatology'],
         to:         '/wind-threshold-heatmap',
         accentVar:  '--accent-hourly',
         thumb:      '/WindThresholdHeatmap_thumbnail.png',
@@ -89,7 +89,7 @@ const SECTIONS = [
         thumb:      '/DewptThresholdHeatmap_thumbnail.png',
       },
       {
-        tags:       ['Temperature Threshold Frequencies', 'Various US Cities'],
+        tags:       ['Temp Threshold Frequencies', 'US Cities'],
         title:      'Temperature Threshold Heatmap',
         description:'Probability of hourly temperatures meeting or exceeding key hot and cold thresholds at various US cities.',
         footerTags: ['Temperature', 'Climatology'],
@@ -98,7 +98,7 @@ const SECTIONS = [
         thumb:      '/TempThresholdHeatmap_thumbnail.png',
       },
       {
-        tags:       ['Fog', 'Various US Cities'],
+        tags:       ['Fog', 'US Cities'],
         title:      'Fog Climatology Heatmap',
         description:'Monthly and seasonal frequency of fog events at various US cities.',
         footerTags: ['Fog Days', 'Climatology'],
@@ -107,7 +107,7 @@ const SECTIONS = [
         thumb:      '/FogHeatmap_thumbnail.png',
       },
       {
-        tags:       ['Thunderstorm Days', 'Various US Cities'],
+        tags:       ['Thunderstorm Days', 'US Cities'],
         title:      'Thunderstorm Heatmap',
         description:'Monthly frequency of thunderstorm days at various US Cities.',
         footerTags: ['Thunderstorms', 'Climatology'],
@@ -116,7 +116,7 @@ const SECTIONS = [
         thumb:      '/ThunderstormHeatmap_thumbnail.png',
       },
       {
-        tags:       ['ISP', 'WINTER', 'Various US Cities'],
+        tags:       ['WINTER', 'CLIMO', 'US Cities'],
         title:      'Winter Precipitation Heatmap',
         description:'Heatmap of winter precipitation types and totals at various US cities.',
         footerTags: ['Snow', 'Sleet', 'Freezing Rain', 'Climatology'],
@@ -125,9 +125,9 @@ const SECTIONS = [
         thumb:      '/WinterPrecipHeatmap_thumbnail.png',
       },
       {
-        tags:       ['Various US Cities', 'SEA LEVEL PRESSURE'],
+        tags:       ['Barometric PRESSURE','US Cities'],
         title:      'Sea Level Pressure Heatmap',
-        description:'Climatological mean sea level pressure by hour and day of year — revealing seasonal cycles, storm-track signatures, and the semi-diurnal atmospheric tide.',
+        description:'Climatological mean sea level pressure by hour and day of year. Individual years are much more interesting with this one.',
         footerTags: ['SLP', 'Seasonal Cycle', 'Diurnal Signal'],
         to:         '/slp-heatmap',
         accentVar:  '--accent-hourly',
