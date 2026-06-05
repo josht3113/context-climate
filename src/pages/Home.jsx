@@ -11,6 +11,15 @@ const SECTIONS = [
     label: 'Live  ·  Updates Continuously',
     cards: [
       {
+        tags:       ['US Cities', 'LIVE CONDITIONS', 'UPDATES HOURLY'],
+        title:      'Current Conditions',
+        description:'Live ASOS station observations with time-series charts, climate normals, daily records, and solar data. Temperature, wind, pressure, precipitation, and more — updated continuously.',
+        footerTags: ['Live Obs', 'Climate Normals', 'Daily Records', 'Solar & Moon', 'Wind Charts'],
+        to:         '/current-conditions',
+        accentVar:  '--accent-live',
+        thumb:      '/current-conditions_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
         title:      'Monthly Temperature Heatmap',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
