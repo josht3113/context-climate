@@ -158,7 +158,7 @@ const SECTIONS = [
         thumb:      '/ENSOhurricanesThumbnail.png',
       },
       {
-        tags:       ['ISP', 'FREQUENCY DISTRIBUTION'],
+        tags:       ['US Cities', 'FREQUENCY DISTRIBUTION'],
         title:      'Dewpoint Frequency',
         description:'Distribution of dewpoint temperatures at Islip across months and seasons — how often each dewpoint range occurs throughout the year.',
         footerTags: ['Dewpoint', 'Frequency', 'ISP Climatology'],
@@ -167,7 +167,7 @@ const SECTIONS = [
         thumb:      '/DewpointFrequency_thumbnail.png',
       },
       {
-        tags:       ['ISP', 'FREQUENCY DISTRIBUTION'],
+        tags:       ['US CIties', 'FREQUENCY DISTRIBUTION'],
         title:      'Temperature Frequency',
         description:'Distribution of observed temperatures at Islip across months and seasons — how often each temperature range occurs throughout the year.',
         footerTags: ['Temperature', 'Frequency', 'ISP Climatology'],
