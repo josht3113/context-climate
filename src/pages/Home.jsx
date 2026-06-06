@@ -56,9 +56,9 @@ const SECTIONS = [
         thumb:      '/precip_heatmap_annual_thumbnail.png',
       },
       {
-        tags:       ['SEASONS', 'NE US CITIES', 'UPDATES DAILY'],
+        tags:       ['US CITIES', 'SEASONS', 'UPDATES DAILY'],
         title:      'Meteorological Seasons',
-        description:'Meteorological seasons explores the stochastic way in which the seasons unfold at any given location. Updates daily.',
+        description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],
         to:         '/seasons',
         accentVar:  '--accent-live',
