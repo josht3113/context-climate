@@ -149,7 +149,7 @@ const SECTIONS = [
     label: 'Climatology Charts',
     cards: [
       {
-        tags:       ['ENSO PHASE COMPARISONS', 'SELECT US CITIES'],
+        tags:       ['ENSO PHASE COMPARISONS', 'US CITIES'],
         title:      'ENSO Winter Analysis',
         description:'Snowfall and winter temperatures across various US cities, stratified by El Niño, La Niña, and neutral ENSO phases.',
         footerTags: ['ENSO', 'Snowfall', 'Temp'],
@@ -169,7 +169,7 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'FREQUENCY DISTRIBUTION'],
         title:      'Dewpoint Frequency',
-        description:'Distribution of dewpoint temperatures at Islip across months and seasons — how often each dewpoint range occurs throughout the year.',
+        description:'Distribution of dewpoint temperatures at various US cities across months and seasons.',
         footerTags: ['Dewpoint', 'Frequency', 'ISP Climatology'],
         to:         '/dewpoint-frequency',
         accentVar:  '--accent-climate',
@@ -188,7 +188,7 @@ const SECTIONS = [
         tags:       ['US Cities', 'FREQUENCY DISTRIBUTION', 'BY MONTH'],
         title:      'Monthly Dewpoint Frequency',
         description:'Hourly dewpoint observations broken down by month — select any month and period to see the full frequency distribution, with normal curve fit and current observation overlay.',
-        footerTags: ['Dewpoint', 'By Month', 'Hourly Obs', 'Normal Fit', 'Current Obs'],
+        footerTags: ['Dewpoint', 'Hourly Counts', 'Normal Fit', 'Current Obs'],
         to:         '/dewpoint-frequency-monthly',
         accentVar:  '--accent-climate',
         thumb:      '/DewpointFrequencyMonthly_thumbnail.png',
@@ -197,13 +197,13 @@ const SECTIONS = [
         tags:       ['US Cities', 'FREQUENCY DISTRIBUTION', 'BY MONTH'],
         title:      'Monthly Temperature Frequency',
         description:'Daily high, daily low, or hourly temperature observations broken down by month — explore the distribution for any month and period, with normal curve fit and current observation overlay.',
-        footerTags: ['Temperature', 'By Month', 'Daily High', 'Daily Low', 'Hourly Obs', 'Normal Fit'],
+        footerTags: ['Temperature', 'Daily High', 'Daily Low', 'Hourly Counts'],
         to:         '/temp-frequency-monthly',
         accentVar:  '--accent-climate',
         thumb:      '/TempFrequencyMonthly_thumbnail.png',
       },
       {
-        tags:       ['NE US CITIES', 'SNOWFALL'],
+        tags:       ['US CITIES', 'SNOWFALL'],
         title:      'Snowfall Season Window',
         description:'First and last snowfall dates and season length for Northeast cities — visualizing how the window of winter precipitation shifts year to year.',
         footerTags: ['First Snow', 'Last Snow', 'Season Length', 'Trends'],
@@ -212,7 +212,7 @@ const SECTIONS = [
         thumb:      '/snowfall_season_window_thumbnail.png',
       },
       {
-        tags:       ['NE US CITIES', 'SNOWFALL'],
+        tags:       ['US CITIES', 'SNOWFALL'],
         title:      'Snow Frequency',
         description:'Monthly snow day frequency for Northeast cities — how often measurable snowfall occurs by month and how that pattern has evolved over time.',
         footerTags: ['Snow Days', 'Monthly Frequency', 'Trends'],
