@@ -84,12 +84,23 @@
 
     /* ── Current obs button ── */
     .obs-btn {
-      margin-left: auto; font-family: var(--font-label); font-size: 0.84rem; font-weight: 700;
+      font-family: var(--font-label); font-size: 0.84rem; font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
       border-radius: 4px; border: 1px solid var(--border);
       background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
       display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
     }
+    /* ── Right button group + Fit Curve button ── */
+    .right-btn-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+    .curve-btn {
+      font-family: var(--font-label); font-size: 0.84rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .curve-btn:hover { border-color: rgba(255,255,255,0.38); color: var(--text); }
+    .curve-btn.active { border-color: rgba(255,255,255,0.52); color: var(--text); background: rgba(255,255,255,0.08); }
     .obs-btn:hover:not(:disabled) { border-color: var(--obs); color: var(--obs); }
     .obs-btn.active { border-color: var(--obs); color: var(--obs); background: rgba(58,175,169,0.12); }
     .obs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -178,17 +189,17 @@
     .action-pill:hover { border-color: var(--text-dim); color: var(--text); }
 
     /* ── Stat chips ── */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
     .stat-chip {
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; padding: 12px 16px; transition: border-color 0.15s;
+      border-radius: 6px; padding: 10px 11px; transition: border-color 0.15s;
     }
     .stat-chip:hover { border-color: var(--accent); }
     .stat-chip .lbl {
-      font-family: var(--font-label); font-size: 0.72rem; font-weight: 700;
+      font-family: var(--font-label); font-size: 0.68rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 6px;
     }
-    .stat-chip .val  { font-family: var(--font-mono); font-size: 1.75rem; font-weight: 500; color: var(--text); line-height: 1; }
+    .stat-chip .val  { font-family: var(--font-mono); font-size: 1.5rem;  font-weight: 500; color: var(--text); line-height: 1; }
     .stat-chip .unit { font-family: var(--font-label); font-size: 0.82rem; color: var(--text-dim); margin-left: 3px; }
     .stat-chip .sub  { font-family: var(--font-label); font-size: 0.7rem;  color: var(--text-dim); margin-top: 4px; }
   </style>
@@ -222,10 +233,13 @@
         <button class="elem-btn"        data-elem="mint">Daily Low</button>
         <button class="elem-btn"        data-elem="hourly">Hourly Obs</button>
       </div>
-      <button class="obs-btn" id="obs-btn" onclick="fetchCurrentObs()">
-        <span class="obs-pulse"></span>
-        <span id="obs-btn-label">&#x2295; Plot Current Obs</span>
-      </button>
+      <div class="right-btn-group">
+        <button class="curve-btn" id="curve-btn" onclick="toggleCurve()"><span id="curve-btn-label">&#x223C; Fit Curve</span></button>
+        <button class="obs-btn" id="obs-btn" onclick="fetchCurrentObs()">
+          <span class="obs-pulse"></span>
+          <span id="obs-btn-label">&#x2295; Plot Current Obs</span>
+        </button>
+      </div>
     </div>
 
     <div class="month-row">
@@ -399,6 +413,8 @@ let chart          = null;
 const cache        = {};
 let currentObsTemp = null;
 let obsTimestamp   = null;
+let showCurve      = false;
+let curveStats     = null;   // { meanRaw, sigma, n } — set when showCurve is true
 
 function isHourly() { return currentElem === 'hourly'; }
 
@@ -507,19 +523,29 @@ function periodAvailable(period) {
   return Math.min(period.endYear, lastYear) - Math.max(period.startYear, firstYear) >= 15;
 }
 
+
+// ═══════════════════════════════════════════════
+//  Normal distribution helpers
+// ═══════════════════════════════════════════════
+function normalPDF(x, mean, sigma) {
+  return (1 / (sigma * Math.sqrt(2 * Math.PI))) *
+         Math.exp(-0.5 * Math.pow((x - mean) / sigma, 2));
+}
 // ═══════════════════════════════════════════════
 //  Stats — chips adapt to all three modes
 // ═══════════════════════════════════════════════
 function computeStats(vals) {
   if (!vals.length) return null;
-  const sorted = [...vals].sort((a, b) => a - b);
-  const n      = vals.length;
-  const mean   = vals.reduce((s, t) => s + t, 0) / n;
-  const mid    = Math.floor(n / 2);
-  const median = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  const sorted   = [...vals].sort((a, b) => a - b);
+  const n        = vals.length;
+  const meanR    = vals.reduce((s, t) => s + t, 0) / n;
+  const variance = vals.reduce((s, t) => s + Math.pow(t - meanR, 2), 0) / n;
+  const sigma    = Math.sqrt(variance);
+  const mid      = Math.floor(n / 2);
+  const median   = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   return {
-    n,
-    mean:   mean.toFixed(1),
+    n, sigma, meanRaw: meanR,
+    mean:   meanR.toFixed(1),
     median: Math.round(median),
     hot90:  vals.filter(t => t >= 90).length,
     cold20: vals.filter(t => t <= 20).length,
@@ -677,6 +703,60 @@ const currentObsPlugin = {
   }
 };
 
+
+const sigmaLinesPlugin = {
+  id: 'sigmaLines',
+  afterDraw(ch) {
+    if (!showCurve || !curveStats) return;
+    const { ctx, chartArea, data, scales } = ch;
+    const labels = data.labels;
+    if (!labels.length) return;
+    const xScale     = scales.x;
+    const firstBinLo = parseInt(labels[0], 10);
+    const x0 = xScale.getPixelForValue(0);
+    const x1 = labels.length > 1 ? xScale.getPixelForValue(labels.length - 1) : x0;
+    const pxPerBin   = labels.length > 1 ? (x1 - x0) / (labels.length - 1) : 1;
+    const toPixel    = val => x0 + ((val - firstBinLo) / BIN_SIZE) * pxPerBin;
+    const { meanRaw, sigma } = curveStats;
+
+    // Mean line (μ)
+    const mx = toPixel(meanRaw);
+    if (mx >= chartArea.left && mx <= chartArea.right) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
+      ctx.beginPath(); ctx.moveTo(mx, chartArea.top + 4); ctx.lineTo(mx, chartArea.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '600 11px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('\u03bc', mx, chartArea.top + 28);
+      ctx.restore();
+    }
+
+    // ±1σ and ±2σ lines
+    [
+      { n: 1, color: 'rgba(255,255,255,0.42)', dash: [5, 4] },
+      { n: 2, color: 'rgba(255,255,255,0.26)', dash: [3, 5] },
+    ].forEach(({ n, color, dash }) => {
+      [-1, 1].forEach(sign => {
+        const val = meanRaw + sign * n * sigma;
+        const sx  = toPixel(val);
+        if (sx < chartArea.left || sx > chartArea.right) return;
+        const lbl = (sign > 0 ? '+' : '\u2212') + n + '\u03c3';
+        ctx.save();
+        ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.setLineDash(dash);
+        ctx.beginPath(); ctx.moveTo(sx, chartArea.top + 4); ctx.lineTo(sx, chartArea.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = color;
+        ctx.font = '600 11px "Barlow Condensed", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, sx, chartArea.top + 28);
+        ctx.restore();
+      });
+    });
+  }
+};
+
 // ═══════════════════════════════════════════════
 //  Chart render
 // ═══════════════════════════════════════════════
@@ -688,24 +768,32 @@ function renderChart(bins) {
   const yLabel   = isHourly() ? 'Hourly Observations' : 'Number of Days';
   const unitWord = isHourly() ? 'obs' : 'days';
 
+  const datasets = [{
+    label: yLabel,
+    data:            visible.map(b => b.count),
+    backgroundColor: bgColors,
+    borderColor:     bgColors,
+    borderWidth: 0, borderRadius: 1,
+    barPercentage: 1.0, categoryPercentage: 0.97,
+  }];
+  if (showCurve && curveStats) {
+    const { meanRaw, sigma, n } = curveStats;
+    datasets.push({
+      type: 'line', label: 'Normal Fit',
+      data: visible.map(b => n * BIN_SIZE * normalPDF(b.center, meanRaw, sigma)),
+      borderColor: 'rgba(255,255,255,0.82)', backgroundColor: 'transparent',
+      borderWidth: 2.5, pointRadius: 0, tension: 0.4, fill: false,
+    });
+  }
+
   if (chart) { chart.destroy(); chart = null; }
   const canvas = document.getElementById('main-chart');
   const ctx    = canvas.getContext('2d');
 
   chart = new Chart(ctx, {
     type: 'bar',
-    plugins: [thresholdLinesPlugin, currentObsPlugin],
-    data: {
-      labels,
-      datasets: [{
-        label: yLabel,
-        data:            visible.map(b => b.count),
-        backgroundColor: bgColors,
-        borderColor:     bgColors,
-        borderWidth: 0, borderRadius: 1,
-        barPercentage: 1.0, categoryPercentage: 0.97,
-      }],
-    },
+    plugins: [thresholdLinesPlugin, sigmaLinesPlugin, currentObsPlugin],
+    data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false, animation: { duration: 280 },
       plugins: {
@@ -756,8 +844,10 @@ function updateChart() {
   if (!rawData) return;
   const vals  = getFilteredObs(singlePeriod.startYear, singlePeriod.endYear, currentMonth);
   const years = getUniqueYears(singlePeriod.startYear, singlePeriod.endYear, currentMonth);
+  const stats = computeStats(vals);
+  curveStats  = (showCurve && stats) ? { meanRaw: stats.meanRaw, sigma: stats.sigma, n: stats.n } : null;
   renderChart(buildBins(vals));
-  renderStats(computeStats(vals), years, currentElem, currentMonth);
+  renderStats(stats, years, currentElem, currentMonth);
   updateHeaderMeta();
 }
 
@@ -803,6 +893,19 @@ function buildPeriodButtons() {
     };
     group.appendChild(btn);
   });
+}
+
+
+// ═══════════════════════════════════════════════
+//  Fit Curve toggle
+// ═══════════════════════════════════════════════
+function toggleCurve() {
+  showCurve = !showCurve;
+  const btn = document.getElementById('curve-btn');
+  btn.classList.toggle('active', showCurve);
+  document.getElementById('curve-btn-label').textContent =
+    showCurve ? '\u2715 Hide Curve' : '\u223C Fit Curve';
+  if (rawData) updateChart();
 }
 
 // ═══════════════════════════════════════════════
