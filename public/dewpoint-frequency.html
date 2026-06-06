@@ -17,6 +17,7 @@
       --accent:    #BA7517;
       --col-a:     #4a90d9;
       --col-b:     #d4601a;
+      --obs:       #3AAFA9;
       --font-body:  'Plus Jakarta Sans', sans-serif;
       --font-label: 'Barlow Condensed', sans-serif;
       --font-mono:  'JetBrains Mono', monospace;
@@ -121,8 +122,46 @@
     .elem-btn + .elem-btn { border-left: 1px solid var(--border); }
     .elem-btn.active { background: var(--surface2); color: var(--text); }
 
+    /* ── Right button group ── */
+    .right-btn-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+    .obs-btn {
+      font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+    .obs-btn:hover:not(:disabled) { border-color: var(--obs); color: var(--obs); }
+    .obs-btn.active { border-color: var(--obs); color: var(--obs); background: rgba(58,175,169,0.12); }
+    .obs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .obs-pulse {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--obs);
+      display: none; flex-shrink: 0; animation: obspulse 1.8s ease-in-out infinite;
+    }
+    .obs-btn.active .obs-pulse { display: block; }
+    @keyframes obspulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.55; transform: scale(0.75); }
+    }
+    .curve-btn {
+      font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .curve-btn:hover { border-color: rgba(255,255,255,0.38); color: var(--text); }
+    .curve-btn.active { border-color: rgba(255,255,255,0.52); color: var(--text); background: rgba(255,255,255,0.08); }
+    .obs-readout {
+      display: none; align-items: center; gap: 11px;
+      background: rgba(58,175,169,0.08); border: 1px solid rgba(58,175,169,0.32);
+      border-radius: 6px; padding: 10px 16px; margin-bottom: 10px;
+    }
+    .obs-readout.visible { display: flex; }
+    .obs-readout-dot   { width: 10px; height: 10px; border-radius: 50%; background: var(--obs); flex-shrink: 0; }
+    .obs-readout-label { font-family: var(--font-label); font-size: 0.94rem; font-weight: 600; color: var(--obs); letter-spacing: 0.04em; }
+    .obs-readout-time  { font-family: var(--font-label); font-size: 0.78rem; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
     .compare-toggle-btn {
-      margin-left: auto;
       font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
       border-radius: 4px; border: 1px solid var(--border);
@@ -273,11 +312,14 @@
 
   <div class="controls-section">
     <div class="top-controls-row">
-      <div class="elem-toggle">
-        <button class="elem-btn active" data-elem="max_dwpf">Daily Max Dew</button>
-        <button class="elem-btn"        data-elem="min_dwpf">Daily Min Dew</button>
+      <div class="right-btn-group">
+        <button class="curve-btn" id="curve-btn" onclick="toggleCurve()"><span id="curve-btn-label">&#x223C; KDE Curve</span></button>
+        <button class="obs-btn" id="obs-btn" onclick="fetchCurrentObs()">
+          <span class="obs-pulse"></span>
+          <span id="obs-btn-label">&#x2295; Plot Current Obs</span>
+        </button>
+        <button class="compare-toggle-btn" id="compare-toggle">Compare Periods</button>
       </div>
-      <button class="compare-toggle-btn" id="compare-toggle">Compare Periods</button>
     </div>
 
     <div id="single-controls">
@@ -314,6 +356,12 @@
       <div class="state-overlay" id="state-overlay"><div class="spinner"></div> Loading data…</div>
       <canvas id="main-chart"></canvas>
     </div>
+  </div>
+
+  <div class="obs-readout" id="obs-readout">
+    <div class="obs-readout-dot"></div>
+    <div class="obs-readout-label" id="obs-readout-label"></div>
+    <div class="obs-readout-time"  id="obs-readout-time"></div>
   </div>
 
   <div class="chart-actions">
@@ -448,11 +496,14 @@ const THRESHOLDS = [
 //  State
 // ═══════════════════════════════════════════════
 let currentStation = null;
-let currentElem    = 'max_dwpf';   // 'max_dwpf' | 'min_dwpf'
 let rawData        = null;
 let stationPOR     = { firstYear: null, lastYear: null };
 let chart          = null;
 const cache        = {};
+let currentObsDwpf = null;
+let obsTimestamp   = null;
+let showCurve      = false;
+let curveStats     = null;
 
 let compareMode  = false;
 let singlePeriod = FIXED_PERIODS[0];
@@ -461,6 +512,26 @@ let sliderPeriod = null;
 let periodA      = FIXED_PERIODS[4];
 let periodB      = FIXED_PERIODS[5];
 
+
+// ═══════════════════════════════════════════════
+//  Distribution helpers
+// ═══════════════════════════════════════════════
+function normalPDF(x, mean, sigma) {
+  return (1 / (sigma * Math.sqrt(2 * Math.PI))) *
+         Math.exp(-0.5 * Math.pow((x - mean) / sigma, 2));
+}
+
+function computeKDE(bins, bandwidth) {
+  // Binned KDE: use existing bin counts as kernel weights.
+  // Total area matches the histogram (sum of count * BIN_SIZE).
+  return bins.map(target => {
+    let sum = 0;
+    for (const src of bins) {
+      if (src.count > 0) sum += src.count * normalPDF(target.center, src.center, bandwidth);
+    }
+    return sum * BIN_SIZE;
+  });
+}
 // ═══════════════════════════════════════════════
 //  Color helpers
 // ═══════════════════════════════════════════════
@@ -553,35 +624,36 @@ function periodAvailable(period) {
 // ═══════════════════════════════════════════════
 //  Stats — interpolated median for decimal precision
 // ═══════════════════════════════════════════════
-function computeStats(temps, elem) {
+function computeStats(temps) {
   if (!temps.length) return null;
-  const sorted = [...temps].sort((a, b) => a - b);
-  const n      = temps.length;
-  const mean   = temps.reduce((s, t) => s + t, 0) / n;
-  const mid    = Math.floor(n / 2);
+  const sorted   = [...temps].sort((a, b) => a - b);
+  const n        = temps.length;
+  const meanR    = temps.reduce((s, t) => s + t, 0) / n;
+  const variance = temps.reduce((s, t) => s + Math.pow(t - meanR, 2), 0) / n;
+  const sigma    = Math.sqrt(variance);
+  const mid      = Math.floor(n / 2);
   const medianRaw = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   return {
-    n,
-    mean:      mean.toFixed(1),
+    n, sigma, meanRaw: meanR,
+    mean:      meanR.toFixed(1),
     medianRaw,
     median:    Math.round(medianRaw),
-    dp75:  temps.filter(t => t >= 75).length,   // oppressive or worse
-    dp0:   temps.filter(t => t <= 0).length,    // very dry / extreme cold
+    dp75:  temps.filter(t => t >= 75).length,
+    dp0:   temps.filter(t => t <= 0).length,
   };
 }
 
 function pct(n, total) { return ((n / total) * 100).toFixed(1) + '%'; }
 
-function renderStats(stats, elem) {
+function renderStats(stats) {
   const el = document.getElementById('stats-grid');
   if (!stats) { el.innerHTML = ''; return; }
-  const isMax = elem === 'max_dwpf';
   const chips = [
-    { lbl: 'Days on Record',                               val: stats.n.toLocaleString(),     unit: '',   sub: '' },
-    { lbl: isMax ? 'Mean Max Dew' : 'Mean Min Dew',        val: stats.mean,                   unit: '°F', sub: '' },
-    { lbl: isMax ? 'Median Max Dew' : 'Median Min Dew',    val: stats.median,                 unit: '°F', sub: '' },
-    { lbl: '≥ 75°F Days',  val: stats.dp75.toLocaleString(), unit: '', sub: pct(stats.dp75, stats.n) + ' of record · oppressive+' },
-    { lbl: '≤ 0°F Days',   val: stats.dp0.toLocaleString(),  unit: '', sub: pct(stats.dp0,  stats.n) + ' of record · very dry'    },
+    { lbl: 'Hourly Observations', val: stats.n.toLocaleString(),       unit: '',   sub: '' },
+    { lbl: 'Mean Dewpoint',       val: stats.mean,                     unit: '°F', sub: '' },
+    { lbl: 'Median Dewpoint',     val: stats.median,                   unit: '°F', sub: '' },
+    { lbl: '≥ 75°F Hours', val: stats.dp75.toLocaleString(), unit: '', sub: pct(stats.dp75, stats.n) + ' of record · oppressive+' },
+    { lbl: '≤ 0°F Hours',  val: stats.dp0.toLocaleString(),  unit: '', sub: pct(stats.dp0,  stats.n) + ' of record · very dry'   },
   ];
   el.innerHTML = chips.map(c => `
     <div class="stat-chip">
@@ -591,19 +663,16 @@ function renderStats(stats, elem) {
     </div>`).join('');
 }
 
-function renderShiftCard(pA, pB, tempsA, tempsB, elem) {
+function renderShiftCard(pA, pB, tempsA, tempsB) {
   const card   = document.getElementById('shift-card');
-  const statsA = computeStats(tempsA, elem);
-  const statsB = computeStats(tempsB, elem);
+  const statsA = computeStats(tempsA);
+  const statsB = computeStats(tempsB);
   if (!statsA || !statsB) { card.innerHTML = ''; return; }
 
-  // Use medianRaw (float) for true decimal delta
   const delta  = statsB.medianRaw - statsA.medianRaw;
   const sign   = delta > 0 ? '+' : '';
   const cls    = delta > 0 ? 'pos' : delta < 0 ? 'neg' : 'zero';
-  const eLabel = elem === 'max_dwpf' ? 'median daily max dewpoint' : 'median daily min dewpoint';
-
-  // Format median display: show .5 if not whole, else integer
+  const eLabel = 'median hourly dewpoint';
   const fmtMed = v => Number.isInteger(v) ? v : v.toFixed(1);
 
   document.getElementById('cl-a-text').innerHTML =
@@ -618,7 +687,7 @@ function renderShiftCard(pA, pB, tempsA, tempsB, elem) {
       <span class="shift-period b">${pB.label}: ${fmtMed(statsB.medianRaw)}°F</span>
       <span class="shift-delta ${cls}">${sign}${delta.toFixed(1)}°F</span>
     </div>
-    <div class="shift-sub">Shift in ${eLabel} between selected periods · n = ${statsA.n.toLocaleString()} vs ${statsB.n.toLocaleString()} days</div>
+    <div class="shift-sub">Shift in ${eLabel} between selected periods · n = ${statsA.n.toLocaleString()} vs ${statsB.n.toLocaleString()} obs</div>
   `;
 }
 
@@ -646,12 +715,103 @@ const thresholdLinesPlugin = {
   }
 };
 
+const sigmaLinesPlugin = {
+  id: 'sigmaLines',
+  afterDraw(ch) {
+    if (!showCurve || !curveStats) return;
+    const { ctx, chartArea, data, scales } = ch;
+    const labels = data.labels;
+    if (!labels.length) return;
+    const xScale     = scales.x;
+    const firstBinLo = parseInt(labels[0], 10);
+    const x0 = xScale.getPixelForValue(0);
+    const x1 = labels.length > 1 ? xScale.getPixelForValue(labels.length - 1) : x0;
+    const pxPerBin   = labels.length > 1 ? (x1 - x0) / (labels.length - 1) : 1;
+    const toPixel    = val => x0 + ((val - firstBinLo) / BIN_SIZE) * pxPerBin;
+    const { meanRaw } = curveStats;
+
+    // μ reference line — KDE shape is fully data-driven
+    const mx = toPixel(meanRaw);
+    if (mx >= chartArea.left && mx <= chartArea.right) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
+      ctx.beginPath(); ctx.moveTo(mx, chartArea.top + 4); ctx.lineTo(mx, chartArea.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '600 11px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('\u03bc', mx, chartArea.top + 28);
+      ctx.restore();
+    }
+  }
+};
+
+const currentObsPlugin = {
+  id: 'currentObs',
+  afterDraw(ch) {
+    if (currentObsDwpf === null) return;
+    const { ctx, chartArea, data, scales } = ch;
+    const labels = data.labels;
+    const xScale = scales.x;
+    const OBS_COLOR = '#3AAFA9';
+
+    let idx = -1;
+    for (let i = 0; i < labels.length; i++) {
+      const lo = parseInt(labels[i], 10);
+      if (currentObsDwpf >= lo && currentObsDwpf < lo + BIN_SIZE) { idx = i; break; }
+    }
+    if (idx < 0) idx = currentObsDwpf < parseInt(labels[0], 10) ? 0 : labels.length - 1;
+
+    const x = xScale.getPixelForValue(idx);
+    ctx.save();
+    ctx.strokeStyle = OBS_COLOR; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+
+    const text = 'NOW \u00b7 ' + Math.round(currentObsDwpf) + '\u00b0F';
+    ctx.font = '700 13px "Barlow Condensed", sans-serif';
+    const tw = ctx.measureText(text).width;
+    const padX = 9, boxW = tw + padX * 2, boxH = 23, triH = 7;
+    const boxY = chartArea.top + 26;
+    let boxX = x - boxW / 2;
+    boxX = Math.max(chartArea.left + 2, Math.min(chartArea.right - boxW - 2, boxX));
+    const triX = Math.max(boxX + 9, Math.min(boxX + boxW - 9, x));
+    const rad = 4;
+
+    ctx.fillStyle = OBS_COLOR;
+    ctx.beginPath();
+    ctx.moveTo(boxX + rad, boxY);
+    ctx.lineTo(boxX + boxW - rad, boxY);
+    ctx.arcTo(boxX + boxW, boxY,        boxX + boxW, boxY + rad,        rad);
+    ctx.lineTo(boxX + boxW, boxY + boxH - rad);
+    ctx.arcTo(boxX + boxW, boxY + boxH, boxX + boxW - rad, boxY + boxH, rad);
+    ctx.lineTo(boxX + rad, boxY + boxH);
+    ctx.arcTo(boxX,        boxY + boxH, boxX,        boxY + boxH - rad, rad);
+    ctx.lineTo(boxX, boxY + rad);
+    ctx.arcTo(boxX,        boxY,        boxX + rad,  boxY,              rad);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(triX - 5, boxY + boxH);
+    ctx.lineTo(triX + 5, boxY + boxH);
+    ctx.lineTo(triX,     boxY + boxH + triH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, boxX + boxW / 2, boxY + boxH / 2);
+    ctx.restore();
+  }
+};
+
 // ═══════════════════════════════════════════════
 //  Chart render
 // ═══════════════════════════════════════════════
 function renderChart(datasets) {
   const { first, last } = visibleSlice(datasets.map(d => d.bins));
-  const labels = datasets[0].bins.slice(first, last + 1).map(b => String(b.lo));
+  const visible0 = datasets[0].bins.slice(first, last + 1);
+  const labels   = visible0.map(b => String(b.lo));
 
   const chartDatasets = datasets.map((ds, i) => {
     const visible  = ds.bins.slice(first, last + 1);
@@ -664,13 +824,25 @@ function renderChart(datasets) {
     };
   });
 
+  // KDE curve overlay — single mode only; curveStats is null in compare mode
+  if (showCurve && curveStats) {
+    const { sigma, n } = curveStats;
+    const bandwidth = 1.06 * sigma * Math.pow(n, -0.2);
+    chartDatasets.push({
+      type: 'line', label: 'KDE',
+      data: computeKDE(visible0, bandwidth),
+      borderColor: 'rgba(255,255,255,0.82)', backgroundColor: 'transparent',
+      borderWidth: 2.5, pointRadius: 0, tension: 0.4, fill: false,
+    });
+  }
+
   if (chart) { chart.destroy(); chart = null; }
   const canvas = document.getElementById('main-chart');
   const ctx    = canvas.getContext('2d');
 
   chart = new Chart(ctx, {
     type: 'bar',
-    plugins: [thresholdLinesPlugin],
+    plugins: [thresholdLinesPlugin, sigmaLinesPlugin, currentObsPlugin],
     data: { labels, datasets: chartDatasets },
     options: {
       grouped: false, responsive: true, maintainAspectRatio: false, animation: { duration: 320 },
@@ -692,7 +864,7 @@ function renderChart(datasets) {
               const total = item.dataset.data.reduce((s, v) => s + v, 0);
               const p     = total > 0 ? ((item.raw / total) * 100).toFixed(2) : '0.00';
               const pfx   = datasets.length > 1 ? item.dataset.label + ': ' : '';
-              return ` ${pfx}${item.raw.toLocaleString()} days (${p}%)`;
+              return ` ${pfx}${item.raw.toLocaleString()} obs (${p}%)`;
             }
           }
         }
@@ -711,7 +883,7 @@ function renderChart(datasets) {
         y: {
           grid: { color: 'rgba(45,50,80,0.5)' }, border: { color: '#2d3250' },
           ticks: { font: { family: 'Barlow Condensed', size: 11 }, color: '#8890b0' },
-          title: { display: true, text: 'Number of Days', font: { family: 'Barlow Condensed', size: 12 }, color: '#8890b0' }
+          title: { display: true, text: 'Hourly Observations', font: { family: 'Barlow Condensed', size: 12 }, color: '#8890b0' }
         }
       }
     }
@@ -724,18 +896,21 @@ function renderChart(datasets) {
 function updateChart() {
   if (!rawData) return;
   if (compareMode) {
+    curveStats = null;
     const tempsA = getFilteredTemps(periodA.startYear, periodA.endYear);
     const tempsB = getFilteredTemps(periodB.startYear, periodB.endYear);
     renderChart([
       { bins: buildBins(tempsA), colorFn: null, solidColor: 'rgba(74,144,217,0.75)',  label: periodA.label },
       { bins: buildBins(tempsB), colorFn: null, solidColor: 'rgba(212,96,26,0.62)',   label: periodB.label },
     ]);
-    renderShiftCard(periodA, periodB, tempsA, tempsB, currentElem);
+    renderShiftCard(periodA, periodB, tempsA, tempsB);
   } else {
     const period = sliderActive ? sliderPeriod : singlePeriod;
     const temps  = getFilteredTemps(period.startYear, period.endYear);
+    const stats  = computeStats(temps);
+    curveStats   = (showCurve && stats) ? { meanRaw: stats.meanRaw, sigma: stats.sigma, n: stats.n } : null;
     renderChart([{ bins: buildBins(temps), colorFn: t => getDewpointColor(t), solidColor: null, label: period.label }]);
-    renderStats(computeStats(temps, currentElem), currentElem);
+    renderStats(stats);
   }
 }
 
@@ -838,19 +1013,14 @@ function refreshPeriodButtons() {
 //  Fetch
 // ═══════════════════════════════════════════════
 // ═══════════════════════════════════════════════
-//  Fetch — IEM ASOS hourly CSV → aggregate daily max/min dewpoint
-//  One request populates both max_dwpf and min_dwpf for a station.
+//  Fetch — IEM ASOS hourly dewpoint, routine METARs only.
+//  report_type=3 = no specials, no backfill.
+//  Hourly records stored directly — no daily aggregation.
 // ═══════════════════════════════════════════════
-async function fetchIEM(station, elem) {
-  const key = station.sid + '__' + elem;
+async function fetchIEM(station) {
+  const key = station.sid + '__hourly';
   if (cache[key]) return cache[key];
 
-  // If the other elem for this station is already cached, the hourly
-  // data was already aggregated — shouldn't happen, but guard anyway.
-  const altElem = elem === 'max_dwpf' ? 'min_dwpf' : 'max_dwpf';
-  const altKey  = station.sid + '__' + altElem;
-
-  // One IEM request gives us ALL hourly dewpoint obs for the full POR
   const url =
     `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py` +
     `?station=${encodeURIComponent(station.sid)}` +
@@ -862,60 +1032,137 @@ async function fetchIEM(station, elem) {
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const text = await res.text();
 
-  // Parse CSV (header: station,valid,dwpf)
-  const lines = text.trim().split('\n');
-  const dailyMap = {};   // { 'YYYY-MM-DD': { max, min } }
+  const lines   = text.trim().split('\n');
+  const records = [];
+  let firstDate = null, lastDate = null;
 
-  for (let i = 1; i < lines.length; i++) {          // skip header
-    const parts = lines[i].split(',');
+  for (let i = 1; i < lines.length; i++) {
+    const parts   = lines[i].split(',');
     if (parts.length < 3) continue;
     const dwpfStr = parts[2].trim();
     if (!dwpfStr || dwpfStr === 'M') continue;
-    const dwpf = parseFloat(dwpfStr);
+    const dwpf    = parseFloat(dwpfStr);
     if (isNaN(dwpf)) continue;
-    const day = parts[1].substring(0, 10);           // "YYYY-MM-DD HH:MM" → "YYYY-MM-DD"
-    if (!dailyMap[day]) {
-      dailyMap[day] = { max: dwpf, min: dwpf };
-    } else {
-      if (dwpf > dailyMap[day].max) dailyMap[day].max = dwpf;
-      if (dwpf < dailyMap[day].min) dailyMap[day].min = dwpf;
-    }
+    const dateStr = parts[1].substring(0, 10);   // 'YYYY-MM-DD'
+    records.push([dateStr, String(dwpf)]);
+    if (!firstDate) firstDate = dateStr;
+    lastDate = dateStr;
   }
 
-  const days = Object.keys(dailyMap).sort();
-  if (days.length === 0) throw new Error('No dewpoint observations found for ' + station.sid);
+  if (!records.length) throw new Error('No dewpoint observations for ' + station.sid);
 
-  const firstDate = days[0], lastDate = days[days.length - 1];
   const por = {
     firstYear: parseInt(firstDate.substring(0, 4), 10),
     lastYear:  parseInt(lastDate.substring(0, 4),  10),
     firstDate, lastDate,
   };
-  const mkNorm = field => days.map(d => [d, String(dailyMap[d][field])]);
 
-  // Cache both elems from this single fetch
-  cache[station.sid + '__max_dwpf'] = { data: mkNorm('max'), por };
-  cache[station.sid + '__min_dwpf'] = { data: mkNorm('min'), por };
-
+  cache[key] = { data: records, por };
   return cache[key];
+}
+
+// ═══════════════════════════════════════════════
+//  KDE Curve toggle
+// ═══════════════════════════════════════════════
+function toggleCurve() {
+  showCurve = !showCurve;
+  const btn = document.getElementById('curve-btn');
+  btn.classList.toggle('active', showCurve);
+  document.getElementById('curve-btn-label').textContent =
+    showCurve ? '\u2715 Hide Curve' : '\u223C KDE Curve';
+  if (rawData) updateChart();
+}
+
+// ═══════════════════════════════════════════════
+//  Current obs — dewpoint from NWS (routine METARs only)
+// ═══════════════════════════════════════════════
+function clearObs() {
+  currentObsDwpf = null;
+  obsTimestamp   = null;
+  const btn   = document.getElementById('obs-btn');
+  const label = document.getElementById('obs-btn-label');
+  if (btn)   { btn.classList.remove('active'); btn.disabled = false; }
+  if (label) label.textContent = '\u2295 Plot Current Obs';
+  document.getElementById('obs-readout').classList.remove('visible');
+}
+
+async function fetchCurrentObs() {
+  if (!currentStation) return;
+  const btn   = document.getElementById('obs-btn');
+  const label = document.getElementById('obs-btn-label');
+
+  if (currentObsDwpf !== null) {
+    clearObs();
+    if (chart) chart.update();
+    return;
+  }
+
+  btn.disabled = true;
+  label.textContent = 'Fetching\u2026';
+
+  try {
+    const sid = currentStation.sid;
+    const res = await fetch(
+      `https://api.weather.gov/stations/${sid}/observations?limit=10`,
+      { headers: { Accept: 'application/geo+json' } }
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json     = await res.json();
+    // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    const routine  = (json.features || []).find(f => {
+      const raw = (f.properties?.rawMessage || '').trim();
+      return raw.length > 0 && !raw.startsWith('SPECI');
+    });
+    if (!routine) throw new Error('No routine METAR available');
+    const props = routine.properties;
+    const dwpC  = props?.dewpoint?.value;
+    if (dwpC === null || dwpC === undefined) throw new Error('No dewpoint in observation');
+
+    currentObsDwpf = dwpC * 9 / 5 + 32;
+    obsTimestamp   = props.timestamp;
+
+    btn.disabled = false;
+    btn.classList.add('active');
+    label.textContent = '\u2715 Clear Obs';
+
+    const timeStr = obsTimestamp
+      ? new Date(obsTimestamp).toLocaleString(undefined, {
+          month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+        })
+      : '';
+    document.getElementById('obs-readout-label').textContent =
+      `Current Dewpoint: ${Math.round(currentObsDwpf)}\u00b0F  (${dwpC.toFixed(1)}\u00b0C)`;
+    document.getElementById('obs-readout-time').textContent =
+      timeStr ? `Observed ${timeStr}` : '';
+    document.getElementById('obs-readout').classList.add('visible');
+
+    if (chart) chart.update();
+
+  } catch (err) {
+    console.error('fetchCurrentObs:', err);
+    label.textContent = '\u26a0 Unavailable';
+    btn.style.borderColor = '#b04040'; btn.style.color = '#b04040';
+    setTimeout(() => {
+      label.textContent = '\u2295 Plot Current Obs';
+      btn.style.borderColor = ''; btn.style.color = ''; btn.disabled = false;
+    }, 2600);
+  }
 }
 
 // ═══════════════════════════════════════════════
 //  Load station
 // ═══════════════════════════════════════════════
-async function load(station, elem) {
+async function load(station) {
+  const stationChanged = !currentStation || currentStation.sid !== station.sid;
   currentStation = station;
-  currentElem    = elem;
-  singlePeriod   = FIXED_PERIODS[0]; // reset to Full Record on station change
+  singlePeriod   = FIXED_PERIODS[0];
+
+  if (stationChanged) clearObs();
 
   // Sync dropdown
   const sel = document.getElementById('station-select');
   if (sel && sel.value !== station.sid) sel.value = station.sid;
-
-  // Sync element buttons
-  document.querySelectorAll('.elem-btn').forEach(b =>
-    b.classList.toggle('active', b.dataset.elem === elem)
-  );
 
   // Show loading
   const overlay = document.getElementById('state-overlay');
@@ -927,13 +1174,13 @@ async function load(station, elem) {
   document.getElementById('shift-card').innerHTML = '';
 
   try {
-    const result = await fetchIEM(station, elem);
+    const result = await fetchIEM(station);
     rawData    = result.data;
     stationPOR = { firstYear: result.por.firstYear, lastYear: result.por.lastYear };
 
     document.getElementById('hdr-station').textContent = station.label;
     document.getElementById('hdr-meta').textContent =
-      `Period of record: ${result.por.firstDate} – ${result.por.lastDate}  ·  Data: IEM / ASOS`;
+      `Period of record: ${result.por.firstDate} – ${result.por.lastDate}  ·  Hourly Obs  ·  Data: IEM / ASOS`;
 
     initSlider();
     refreshPeriodButtons();
@@ -969,19 +1216,7 @@ STATION_REGIONS.forEach(({ region, stations }) => {
 });
 select.addEventListener('change', () => {
   const stn = STATIONS_FLAT[select.value];
-  if (stn) load(stn, currentElem);
-});
-
-// Element toggle
-document.querySelectorAll('.elem-btn').forEach(btn => {
-  btn.onclick = () => {
-    if (btn.dataset.elem === currentElem) return;
-    currentElem = btn.dataset.elem;
-    document.querySelectorAll('.elem-btn').forEach(b =>
-      b.classList.toggle('active', b.dataset.elem === currentElem)
-    );
-    if (currentStation) load(currentStation, currentElem);
-  };
+  if (stn) load(stn);
 });
 
 // Compare toggle
@@ -1058,12 +1293,18 @@ async function copyChartImage() {
     const periodStr = compareMode
       ? (periodA.label + ' vs ' + periodB.label)
       : (sliderActive ? sliderPeriod.label : singlePeriod.label);
-    const elemStr = currentElem === 'max_dwpf' ? 'Daily Max Dewpoint' : 'Daily Min Dewpoint';
     c.fillStyle = '#8890b0';
     c.font      = `${Math.round(11 * r)}px "Barlow Condensed", sans-serif`;
-    c.fillText(elemStr + '  ·  ' + periodStr + '  ·  Data: IEM / ASOS', PAD, y);
+    c.fillText(`Hourly Dewpoint  ·  ${periodStr}  ·  Data: IEM / ASOS`, PAD, y);
 
-    y += Math.round(22 * r);
+    if (currentObsDwpf !== null) {
+      c.fillStyle = '#3AAFA9';
+      c.font = `600 ${Math.round(10.5 * r)}px "Barlow Condensed", sans-serif`;
+      c.fillText(`Current Obs: ${Math.round(currentObsDwpf)}°F`, PAD, y + Math.round(16 * r));
+      y += Math.round(36 * r);
+    } else {
+      y += Math.round(22 * r);
+    }
 
     // Zone legend strip
     const zW = (W - PAD * 2) / ZONES.length;
@@ -1140,7 +1381,7 @@ async function copyChartImage() {
 }
 
 // Default load
-load(DEFAULT_STATION, 'max_dwpf');
+load(DEFAULT_STATION);
 </script>
 </body>
 </html>

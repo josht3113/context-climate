@@ -17,6 +17,7 @@
       --accent:    #BA7517;
       --col-a:     #4a90d9;
       --col-b:     #d4601a;
+      --obs:       #3AAFA9;
       --font-body:  'Plus Jakarta Sans', sans-serif;
       --font-label: 'Barlow Condensed', sans-serif;
       --font-mono:  'JetBrains Mono', monospace;
@@ -121,8 +122,46 @@
     .elem-btn + .elem-btn { border-left: 1px solid var(--border); }
     .elem-btn.active { background: var(--surface2); color: var(--text); }
 
+    /* ── Right button group ── */
+    .right-btn-group { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; }
+    .obs-btn {
+      font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+      display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+    }
+    .obs-btn:hover:not(:disabled) { border-color: var(--obs); color: var(--obs); }
+    .obs-btn.active { border-color: var(--obs); color: var(--obs); background: rgba(58,175,169,0.12); }
+    .obs-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .obs-pulse {
+      width: 9px; height: 9px; border-radius: 50%; background: var(--obs);
+      display: none; flex-shrink: 0; animation: obspulse 1.8s ease-in-out infinite;
+    }
+    .obs-btn.active .obs-pulse { display: block; }
+    @keyframes obspulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.55; transform: scale(0.75); }
+    }
+    .curve-btn {
+      font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
+      border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .curve-btn:hover { border-color: rgba(255,255,255,0.38); color: var(--text); }
+    .curve-btn.active { border-color: rgba(255,255,255,0.52); color: var(--text); background: rgba(255,255,255,0.08); }
+    .obs-readout {
+      display: none; align-items: center; gap: 11px;
+      background: rgba(58,175,169,0.08); border: 1px solid rgba(58,175,169,0.32);
+      border-radius: 6px; padding: 10px 16px; margin-bottom: 10px;
+    }
+    .obs-readout.visible { display: flex; }
+    .obs-readout-dot   { width: 10px; height: 10px; border-radius: 50%; background: var(--obs); flex-shrink: 0; }
+    .obs-readout-label { font-family: var(--font-label); font-size: 0.94rem; font-weight: 600; color: var(--obs); letter-spacing: 0.04em; }
+    .obs-readout-time  { font-family: var(--font-label); font-size: 0.78rem; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
     .compare-toggle-btn {
-      margin-left: auto;
       font-family: var(--font-label); font-size: 0.82rem; font-weight: 700;
       letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 16px;
       border-radius: 4px; border: 1px solid var(--border);
@@ -276,8 +315,16 @@
       <div class="elem-toggle">
         <button class="elem-btn active" data-elem="maxt">Daily High</button>
         <button class="elem-btn"        data-elem="mint">Daily Low</button>
+        <button class="elem-btn"        data-elem="hourly">Hourly Obs</button>
       </div>
-      <button class="compare-toggle-btn" id="compare-toggle">Compare Periods</button>
+      <div class="right-btn-group">
+        <button class="curve-btn" id="curve-btn" onclick="toggleCurve()"><span id="curve-btn-label">&#x223C; KDE Curve</span></button>
+        <button class="obs-btn" id="obs-btn" onclick="fetchCurrentObs()">
+          <span class="obs-pulse"></span>
+          <span id="obs-btn-label">&#x2295; Plot Current Obs</span>
+        </button>
+        <button class="compare-toggle-btn" id="compare-toggle">Compare Periods</button>
+      </div>
     </div>
 
     <div id="single-controls">
@@ -316,6 +363,12 @@
     </div>
   </div>
 
+  <div class="obs-readout" id="obs-readout">
+    <div class="obs-readout-dot"></div>
+    <div class="obs-readout-label" id="obs-readout-label"></div>
+    <div class="obs-readout-time"  id="obs-readout-time"></div>
+  </div>
+
   <div class="chart-actions">
     <button class="action-pill" id="copy-img-btn" onclick="copyChartImage()">⧉ Copy Image</button>
   </div>
@@ -342,7 +395,7 @@ const STATION_REGIONS = [
     { label: 'Islip (KISP), NY',  sid: 'KISP' },
     { label: 'New York (JFK)',     sid: 'KJFK' },
     { label: 'New York (LGA)',     sid: 'KLGA' },
-    { label: 'Central Park, NY',  sid: '94728 6', sidFallbacks: ['305801 3', 'KNYC'] },
+    { label: 'Central Park, NY',  sid: '94728 6', iemSid: 'KNYC', sidFallbacks: ['305801 3', 'KNYC'] },
   ]},
   { region: 'Mid-Atlantic', stations: [
     { label: 'Newark, NJ',        sid: 'KEWR' },
@@ -454,12 +507,38 @@ let stationPOR     = { firstYear: null, lastYear: null };
 let chart          = null;
 const cache        = {};
 
-let compareMode  = false;
-let singlePeriod = FIXED_PERIODS[0];
+let compareMode    = false;
+let currentObsTemp = null;
+let obsTimestamp   = null;
+let showCurve      = false;
+let curveStats     = null;
+let singlePeriod   = FIXED_PERIODS[0];
 let sliderActive = false;
 let sliderPeriod = null;
 let periodA      = FIXED_PERIODS[4];
 let periodB      = FIXED_PERIODS[5];
+
+function isHourly() { return currentElem === 'hourly'; }
+
+// ═══════════════════════════════════════════════
+//  Normal distribution helpers
+// ═══════════════════════════════════════════════
+function normalPDF(x, mean, sigma) {
+  return (1 / (sigma * Math.sqrt(2 * Math.PI))) *
+         Math.exp(-0.5 * Math.pow((x - mean) / sigma, 2));
+}
+function computeKDE(bins, bandwidth) {
+  // Binned KDE: approximate the kernel sum using existing bin counts as weights.
+  // Total area matches the histogram (sum of count * BIN_SIZE).
+  return bins.map(target => {
+    let sum = 0;
+    for (const src of bins) {
+      if (src.count > 0) sum += src.count * normalPDF(target.center, src.center, bandwidth);
+    }
+    return sum * BIN_SIZE;
+  });
+}
+
 
 // ═══════════════════════════════════════════════
 //  Color helpers
@@ -553,21 +632,23 @@ function periodAvailable(period) {
 // ═══════════════════════════════════════════════
 function computeStats(temps, elem) {
   if (!temps.length) return null;
-  const sorted = [...temps].sort((a, b) => a - b);
-  const n      = temps.length;
-  const mean   = temps.reduce((s, t) => s + t, 0) / n;
-  const mid    = Math.floor(n / 2);
-  // Proper median: average two middle values for even n → gives .5 precision
+  const sorted   = [...temps].sort((a, b) => a - b);
+  const n        = temps.length;
+  const meanR    = temps.reduce((s, t) => s + t, 0) / n;
+  const variance = temps.reduce((s, t) => s + Math.pow(t - meanR, 2), 0) / n;
+  const sigma    = Math.sqrt(variance);
+  const mid      = Math.floor(n / 2);
   const medianRaw = n % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   return {
-    n,
-    mean:      mean.toFixed(1),
-    medianRaw,                          // float for shift delta
-    median:    Math.round(medianRaw),   // integer for chip display
+    n, sigma, meanRaw: meanR,
+    mean:      meanR.toFixed(1),
+    medianRaw,
+    median:    Math.round(medianRaw),
     hot90:     temps.filter(t => t >= 90).length,
     cold20:    temps.filter(t => t <= 20).length,
     warm75:    temps.filter(t => t >= 75).length,
     cold10:    temps.filter(t => t <= 10).length,
+    freeze:    temps.filter(t => t <= 32).length,
   };
 }
 
@@ -578,17 +659,23 @@ function renderStats(stats, elem) {
   if (!stats) { el.innerHTML = ''; return; }
   const isHigh = elem === 'maxt';
   const chips  = isHigh ? [
-    { lbl: 'Days on Record',  val: stats.n.toLocaleString(),      unit: '',   sub: '' },
-    { lbl: 'Mean Daily High', val: stats.mean,                    unit: '°F', sub: '' },
-    { lbl: 'Median High',     val: stats.median,                  unit: '°F', sub: '' },
-    { lbl: '≥ 90°F Days',     val: stats.hot90.toLocaleString(),  unit: '',   sub: pct(stats.hot90,  stats.n) + ' of record' },
-    { lbl: '≤ 20°F Days',     val: stats.cold20.toLocaleString(), unit: '',   sub: pct(stats.cold20, stats.n) + ' of record' },
+    { lbl: 'Days on Record',  val: stats.n.toLocaleString(),       unit: '',   sub: '' },
+    { lbl: 'Mean Daily High', val: stats.mean,                     unit: '°F', sub: '' },
+    { lbl: 'Median High',     val: stats.median,                   unit: '°F', sub: '' },
+    { lbl: '≥ 90°F Days',     val: stats.hot90.toLocaleString(),   unit: '',   sub: pct(stats.hot90,  stats.n) + ' of record' },
+    { lbl: '≤ 20°F Days',     val: stats.cold20.toLocaleString(),  unit: '',   sub: pct(stats.cold20, stats.n) + ' of record' },
+  ] : elem === 'mint' ? [
+    { lbl: 'Days on Record', val: stats.n.toLocaleString(),        unit: '',   sub: '' },
+    { lbl: 'Mean Daily Low', val: stats.mean,                      unit: '°F', sub: '' },
+    { lbl: 'Median Low',     val: stats.median,                    unit: '°F', sub: '' },
+    { lbl: '≥ 75°F Nights',  val: stats.warm75.toLocaleString(),   unit: '',   sub: pct(stats.warm75, stats.n) + ' of record' },
+    { lbl: '≤ 10°F Nights',  val: stats.cold10.toLocaleString(),   unit: '',   sub: pct(stats.cold10, stats.n) + ' of record' },
   ] : [
-    { lbl: 'Days on Record', val: stats.n.toLocaleString(),       unit: '',   sub: '' },
-    { lbl: 'Mean Daily Low', val: stats.mean,                     unit: '°F', sub: '' },
-    { lbl: 'Median Low',     val: stats.median,                   unit: '°F', sub: '' },
-    { lbl: '≥ 75°F Nights',  val: stats.warm75.toLocaleString(),  unit: '',   sub: pct(stats.warm75, stats.n) + ' of record' },
-    { lbl: '≤ 10°F Nights',  val: stats.cold10.toLocaleString(),  unit: '',   sub: pct(stats.cold10, stats.n) + ' of record' },
+    { lbl: 'Hourly Observations', val: stats.n.toLocaleString(),      unit: '',   sub: '' },
+    { lbl: 'Mean Temperature',    val: stats.mean,                    unit: '°F', sub: '' },
+    { lbl: 'Median Temperature',  val: stats.median,                  unit: '°F', sub: '' },
+    { lbl: '≥ 90°F Hours',        val: stats.hot90.toLocaleString(),  unit: '',   sub: pct(stats.hot90,  stats.n) + ' of record' },
+    { lbl: '≤ 32°F Hours',        val: stats.freeze.toLocaleString(), unit: '',   sub: pct(stats.freeze, stats.n) + ' of record · at/below freezing' },
   ];
   el.innerHTML = chips.map(c => `
     <div class="stat-chip">
@@ -653,12 +740,104 @@ const thresholdLinesPlugin = {
   }
 };
 
+const sigmaLinesPlugin = {
+  id: 'sigmaLines',
+  afterDraw(ch) {
+    if (!showCurve || !curveStats) return;
+    const { ctx, chartArea, data, scales } = ch;
+    const labels = data.labels;
+    if (!labels.length) return;
+    const xScale     = scales.x;
+    const firstBinLo = parseInt(labels[0], 10);
+    const x0 = xScale.getPixelForValue(0);
+    const x1 = labels.length > 1 ? xScale.getPixelForValue(labels.length - 1) : x0;
+    const pxPerBin   = labels.length > 1 ? (x1 - x0) / (labels.length - 1) : 1;
+    const toPixel    = val => x0 + ((val - firstBinLo) / BIN_SIZE) * pxPerBin;
+    const { meanRaw } = curveStats;
+
+    // μ reference line — mean of the distribution; KDE shape is fully data-driven
+    const mx = toPixel(meanRaw);
+    if (mx >= chartArea.left && mx <= chartArea.right) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
+      ctx.beginPath(); ctx.moveTo(mx, chartArea.top + 4); ctx.lineTo(mx, chartArea.bottom); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.font = '600 11px "Barlow Condensed", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('\u03bc', mx, chartArea.top + 28);
+      ctx.restore();
+    }
+  }
+};
+
+const currentObsPlugin = {
+  id: 'currentObs',
+  afterDraw(ch) {
+    if (currentObsTemp === null) return;
+    const { ctx, chartArea, data, scales } = ch;
+    const labels = data.labels;
+    const xScale = scales.x;
+    const OBS_COLOR = '#3AAFA9';
+
+    let idx = -1;
+    for (let i = 0; i < labels.length; i++) {
+      const lo = parseInt(labels[i], 10);
+      if (currentObsTemp >= lo && currentObsTemp < lo + BIN_SIZE) { idx = i; break; }
+    }
+    if (idx < 0) idx = currentObsTemp < parseInt(labels[0], 10) ? 0 : labels.length - 1;
+
+    const x = xScale.getPixelForValue(idx);
+
+    ctx.save();
+    ctx.strokeStyle = OBS_COLOR; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.moveTo(x, chartArea.top); ctx.lineTo(x, chartArea.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+
+    const text = 'NOW \u00b7 ' + Math.round(currentObsTemp) + '\u00b0F';
+    ctx.font = '700 13px "Barlow Condensed", sans-serif';
+    const tw = ctx.measureText(text).width;
+    const padX = 9, boxW = tw + padX * 2, boxH = 23, triH = 7;
+    const boxY = chartArea.top + 26;
+    let boxX = x - boxW / 2;
+    boxX = Math.max(chartArea.left + 2, Math.min(chartArea.right - boxW - 2, boxX));
+    const triX = Math.max(boxX + 9, Math.min(boxX + boxW - 9, x));
+    const rad = 4;
+
+    ctx.fillStyle = OBS_COLOR;
+    ctx.beginPath();
+    ctx.moveTo(boxX + rad, boxY);
+    ctx.lineTo(boxX + boxW - rad, boxY);
+    ctx.arcTo(boxX + boxW, boxY,        boxX + boxW, boxY + rad,        rad);
+    ctx.lineTo(boxX + boxW, boxY + boxH - rad);
+    ctx.arcTo(boxX + boxW, boxY + boxH, boxX + boxW - rad, boxY + boxH, rad);
+    ctx.lineTo(boxX + rad, boxY + boxH);
+    ctx.arcTo(boxX,        boxY + boxH, boxX,        boxY + boxH - rad, rad);
+    ctx.lineTo(boxX, boxY + rad);
+    ctx.arcTo(boxX,        boxY,        boxX + rad,  boxY,              rad);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.moveTo(triX - 5, boxY + boxH);
+    ctx.lineTo(triX + 5, boxY + boxH);
+    ctx.lineTo(triX,     boxY + boxH + triH);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = '#ffffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(text, boxX + boxW / 2, boxY + boxH / 2);
+    ctx.restore();
+  }
+};
+
 // ═══════════════════════════════════════════════
 //  Chart render
 // ═══════════════════════════════════════════════
 function renderChart(datasets) {
   const { first, last } = visibleSlice(datasets.map(d => d.bins));
-  const labels = datasets[0].bins.slice(first, last + 1).map(b => String(b.lo));
+  const visible0 = datasets[0].bins.slice(first, last + 1);
+  const labels   = visible0.map(b => String(b.lo));
 
   const chartDatasets = datasets.map((ds, i) => {
     const visible  = ds.bins.slice(first, last + 1);
@@ -671,13 +850,26 @@ function renderChart(datasets) {
     };
   });
 
+  // KDE curve overlay — non-parametric; captures bimodal / skewed shapes.
+  // Bandwidth via Silverman's rule: h = 1.06 * sigma * n^(-0.2)
+  if (showCurve && curveStats) {
+    const { sigma, n } = curveStats;
+    const bandwidth = 1.06 * sigma * Math.pow(n, -0.2);
+    chartDatasets.push({
+      type: 'line', label: 'KDE',
+      data: computeKDE(visible0, bandwidth),
+      borderColor: 'rgba(255,255,255,0.82)', backgroundColor: 'transparent',
+      borderWidth: 2.5, pointRadius: 0, tension: 0.4, fill: false,
+    });
+  }
+
   if (chart) { chart.destroy(); chart = null; }
   const canvas = document.getElementById('main-chart');
   const ctx    = canvas.getContext('2d');
 
   chart = new Chart(ctx, {
     type: 'bar',
-    plugins: [thresholdLinesPlugin],
+    plugins: [thresholdLinesPlugin, sigmaLinesPlugin, currentObsPlugin],
     data: { labels, datasets: chartDatasets },
     options: {
       grouped: false, responsive: true, maintainAspectRatio: false, animation: { duration: 320 },
@@ -699,7 +891,8 @@ function renderChart(datasets) {
               const total = item.dataset.data.reduce((s, v) => s + v, 0);
               const p     = total > 0 ? ((item.raw / total) * 100).toFixed(2) : '0.00';
               const pfx   = datasets.length > 1 ? item.dataset.label + ': ' : '';
-              return ` ${pfx}${item.raw.toLocaleString()} days (${p}%)`;
+              const unit = isHourly() ? 'obs' : 'days';
+              return ` ${pfx}${item.raw.toLocaleString()} ${unit} (${p}%)`;
             }
           }
         }
@@ -718,7 +911,7 @@ function renderChart(datasets) {
         y: {
           grid: { color: 'rgba(45,50,80,0.5)' }, border: { color: '#2d3250' },
           ticks: { font: { family: 'Barlow Condensed', size: 11 }, color: '#8890b0' },
-          title: { display: true, text: 'Number of Days', font: { family: 'Barlow Condensed', size: 12 }, color: '#8890b0' }
+          title: { display: true, text: isHourly() ? 'Hourly Observations' : 'Number of Days', font: { family: 'Barlow Condensed', size: 12 }, color: '#8890b0' }
         }
       }
     }
@@ -730,7 +923,8 @@ function renderChart(datasets) {
 // ═══════════════════════════════════════════════
 function updateChart() {
   if (!rawData) return;
-  if (compareMode) {
+  if (compareMode && !isHourly()) {
+    curveStats = null;
     const tempsA = getFilteredTemps(periodA.startYear, periodA.endYear);
     const tempsB = getFilteredTemps(periodB.startYear, periodB.endYear);
     renderChart([
@@ -741,8 +935,10 @@ function updateChart() {
   } else {
     const period = sliderActive ? sliderPeriod : singlePeriod;
     const temps  = getFilteredTemps(period.startYear, period.endYear);
+    const stats  = computeStats(temps, currentElem);
+    curveStats   = (showCurve && stats) ? { meanRaw: stats.meanRaw, sigma: stats.sigma, n: stats.n } : null;
     renderChart([{ bins: buildBins(temps), colorFn: t => getTempColor(t), solidColor: null, label: period.label }]);
-    renderStats(computeStats(temps, currentElem), currentElem);
+    renderStats(stats, currentElem);
   }
 }
 
@@ -756,6 +952,10 @@ function updateModeUI() {
   document.getElementById('stats-grid').style.display       = compareMode ? 'none' : '';
   document.getElementById('shift-card').classList.toggle('visible', compareMode);
   document.getElementById('compare-toggle').classList.toggle('active', compareMode);
+  // Disable compare when hourly — datasets come from different sources
+  const cmpBtn = document.getElementById('compare-toggle');
+  cmpBtn.disabled     = isHourly();
+  cmpBtn.style.opacity = isHourly() ? '0.35' : '';
 }
 
 // ═══════════════════════════════════════════════
@@ -842,6 +1042,144 @@ function refreshPeriodButtons() {
 }
 
 // ═══════════════════════════════════════════════
+//  KDE Curve toggle
+// ═══════════════════════════════════════════════
+function toggleCurve() {
+  showCurve = !showCurve;
+  const btn = document.getElementById('curve-btn');
+  btn.classList.toggle('active', showCurve);
+  document.getElementById('curve-btn-label').textContent =
+    showCurve ? '\u2715 Hide Curve' : '\u223C KDE Curve';
+  if (rawData) updateChart();
+}
+
+// ═══════════════════════════════════════════════
+//  Current obs
+// ═══════════════════════════════════════════════
+function clearObs() {
+  currentObsTemp = null;
+  obsTimestamp   = null;
+  const btn   = document.getElementById('obs-btn');
+  const label = document.getElementById('obs-btn-label');
+  if (btn)   { btn.classList.remove('active'); btn.disabled = false; }
+  if (label) label.textContent = '\u2295 Plot Current Obs';
+  document.getElementById('obs-readout').classList.remove('visible');
+}
+
+async function fetchCurrentObs() {
+  if (!currentStation) return;
+  const btn   = document.getElementById('obs-btn');
+  const label = document.getElementById('obs-btn-label');
+
+  if (currentObsTemp !== null) {
+    clearObs();
+    if (chart) chart.update();
+    return;
+  }
+
+  btn.disabled = true;
+  label.textContent = 'Fetching\u2026';
+
+  try {
+    const nwsSid = currentStation.iemSid || currentStation.sid;
+    const res = await fetch(
+      `https://api.weather.gov/stations/${nwsSid}/observations?limit=10`,
+      { headers: { Accept: 'application/geo+json' } }
+    );
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json     = await res.json();
+    // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    const routine  = (json.features || []).find(f => {
+      const raw = (f.properties?.rawMessage || '').trim();
+      return raw.length > 0 && !raw.startsWith('SPECI');
+    });
+    if (!routine) throw new Error('No routine METAR available');
+    const props = routine.properties;
+    const tempC = props?.temperature?.value;
+    if (tempC === null || tempC === undefined) throw new Error('No temperature in observation');
+
+    currentObsTemp = tempC * 9 / 5 + 32;
+    obsTimestamp   = props.timestamp;
+
+    btn.disabled = false;
+    btn.classList.add('active');
+    label.textContent = '\u2715 Clear Obs';
+
+    const timeStr = obsTimestamp
+      ? new Date(obsTimestamp).toLocaleString(undefined, {
+          month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+        })
+      : '';
+    document.getElementById('obs-readout-label').textContent =
+      `Current Temp: ${Math.round(currentObsTemp)}\u00b0F  (${tempC.toFixed(1)}\u00b0C)`;
+    document.getElementById('obs-readout-time').textContent =
+      timeStr ? `Observed ${timeStr}` : '';
+    document.getElementById('obs-readout').classList.add('visible');
+
+    if (chart) chart.update();
+
+  } catch (err) {
+    console.error('fetchCurrentObs:', err);
+    label.textContent = '\u26a0 Unavailable';
+    btn.style.borderColor = '#b04040'; btn.style.color = '#b04040';
+    setTimeout(() => {
+      label.textContent = '\u2295 Plot Current Obs';
+      btn.style.borderColor = ''; btn.style.color = ''; btn.disabled = false;
+    }, 2600);
+  }
+}
+
+// ═══════════════════════════════════════════════
+//  IEM fetch — hourly temperature (tmpf), routine METARs only.
+//  report_type=3 = no specials, no backfill.
+// ═══════════════════════════════════════════════
+async function fetchIEM(station) {
+  const iemSid = station.iemSid || station.sid;
+  const key    = station.sid + '__hourly';
+  if (cache[key]) return cache[key];
+
+  const url =
+    'https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py' +
+    '?station=' + encodeURIComponent(iemSid) +
+    '&data=tmpf&tz=Etc%2FUTC&format=onlycomma' +
+    '&latlon=no&elev=no&missing=M&trace=T&direct=no&report_type=3' +
+    '&year1=1940&month1=1&day1=1&year2=2099&month2=12&day2=31';
+
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const text = await res.text();
+
+  const lines   = text.trim().split('\n');
+  const records = [];
+  let firstDate = null, lastDate = null;
+
+  for (let i = 1; i < lines.length; i++) {
+    const parts   = lines[i].split(',');
+    if (parts.length < 3) continue;
+    const tmpfStr = parts[2].trim();
+    if (!tmpfStr || tmpfStr === 'M') continue;
+    const tmpf    = parseFloat(tmpfStr);
+    if (isNaN(tmpf)) continue;
+    const dateStr = parts[1].substring(0, 10);
+    records.push([dateStr, String(tmpf)]);
+    if (!firstDate) firstDate = dateStr;
+    lastDate = dateStr;
+  }
+
+  if (!records.length) throw new Error('No temperature observations for ' + iemSid);
+
+  const por = {
+    firstYear: parseInt(firstDate.substring(0, 4), 10),
+    lastYear:  parseInt(lastDate.substring(0, 4),  10),
+    firstDate, lastDate,
+  };
+
+  cache[key] = { data: records, por };
+  return cache[key];
+}
+
+// ═══════════════════════════════════════════════
 //  Fetch
 // ═══════════════════════════════════════════════
 async function fetchACISOne(sid, elem) {
@@ -876,9 +1214,12 @@ async function fetchACIS(station, elem) {
 //  Load station
 // ═══════════════════════════════════════════════
 async function load(station, elem) {
+  const stationChanged = !currentStation || currentStation.sid !== station.sid;
   currentStation = station;
   currentElem    = elem;
-  singlePeriod   = FIXED_PERIODS[0]; // reset to Full Record on station change
+  singlePeriod   = FIXED_PERIODS[0];
+
+  if (stationChanged) clearObs();
 
   // Sync dropdown
   const sel = document.getElementById('station-select');
@@ -899,21 +1240,29 @@ async function load(station, elem) {
   document.getElementById('shift-card').innerHTML = '';
 
   try {
-    const json = await fetchACIS(station, elem);
-    rawData = json.data;
-    const meta = json.meta || {};
-    const dr   = meta.valid_daterange?.[0] || [];
-    stationPOR = {
-      firstYear: dr[0] ? parseInt(dr[0].substring(0, 4), 10) : null,
-      lastYear:  dr[1] ? parseInt(dr[1].substring(0, 4), 10) : null,
-    };
-
-    document.getElementById('hdr-station').textContent =
-      meta.name ? `${meta.name}, ${meta.state || ''}` : station.label;
-    document.getElementById('hdr-meta').textContent =
-      dr.length === 2
-        ? `Period of record: ${dr[0]} – ${dr[1]}  ·  Data: NOAA ACIS`
-        : 'Data: NOAA ACIS';
+    if (elem === 'hourly') {
+      const result = await fetchIEM(station);
+      rawData    = result.data;
+      stationPOR = { firstYear: result.por.firstYear, lastYear: result.por.lastYear };
+      document.getElementById('hdr-station').textContent = station.label;
+      document.getElementById('hdr-meta').textContent =
+        `Period of record: ${result.por.firstDate} – ${result.por.lastDate}  ·  Hourly Obs  ·  Data: IEM / ASOS`;
+    } else {
+      const json = await fetchACIS(station, elem);
+      rawData = json.data;
+      const meta = json.meta || {};
+      const dr   = meta.valid_daterange?.[0] || [];
+      stationPOR = {
+        firstYear: dr[0] ? parseInt(dr[0].substring(0, 4), 10) : null,
+        lastYear:  dr[1] ? parseInt(dr[1].substring(0, 4), 10) : null,
+      };
+      document.getElementById('hdr-station').textContent =
+        meta.name ? `${meta.name}, ${meta.state || ''}` : station.label;
+      document.getElementById('hdr-meta').textContent =
+        dr.length === 2
+          ? `Period of record: ${dr[0]} – ${dr[1]}  ·  Data: NOAA ACIS`
+          : 'Data: NOAA ACIS';
+    }
 
     initSlider();
     refreshPeriodButtons();
@@ -956,16 +1305,19 @@ select.addEventListener('change', () => {
 document.querySelectorAll('.elem-btn').forEach(btn => {
   btn.onclick = () => {
     if (btn.dataset.elem === currentElem) return;
+    if (btn.dataset.elem === 'hourly' && compareMode) compareMode = false;
     currentElem = btn.dataset.elem;
     document.querySelectorAll('.elem-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.elem === currentElem)
     );
+    updateModeUI();
     if (currentStation) load(currentStation, currentElem);
   };
 });
 
 // Compare toggle
 document.getElementById('compare-toggle').onclick = () => {
+  if (isHourly()) return;
   compareMode = !compareMode;
   updateModeUI();
   if (rawData) updateChart();
@@ -1038,12 +1390,20 @@ async function copyChartImage() {
     const periodStr = compareMode
       ? (periodA.label + ' vs ' + periodB.label)
       : (sliderActive ? sliderPeriod.label : singlePeriod.label);
-    const elemStr = currentElem === 'maxt' ? 'Daily High Temperature' : 'Daily Low Temperature';
+    const elemStr = isHourly() ? 'Hourly Temperature' : (currentElem === 'maxt' ? 'Daily High Temperature' : 'Daily Low Temperature');
+    const dataSrc = isHourly() ? 'IEM / ASOS' : 'NOAA ACIS';
     c.fillStyle = '#8890b0';
     c.font      = `${Math.round(11 * r)}px "Barlow Condensed", sans-serif`;
-    c.fillText(elemStr + '  ·  ' + periodStr + '  ·  Data: NOAA ACIS', PAD, y);
+    c.fillText(`${elemStr}  \u00b7  ${periodStr}  \u00b7  Data: ${dataSrc}`, PAD, y);
 
-    y += Math.round(22 * r);
+    if (currentObsTemp !== null) {
+      c.fillStyle = '#3AAFA9';
+      c.font = `600 ${Math.round(10.5 * r)}px "Barlow Condensed", sans-serif`;
+      c.fillText(`Current Obs: ${Math.round(currentObsTemp)}\u00b0F`, PAD, y + Math.round(16 * r));
+      y += Math.round(36 * r);
+    } else {
+      y += Math.round(22 * r);
+    }
 
     // Zone legend strip
     const zW = (W - PAD * 2) / ZONES.length;

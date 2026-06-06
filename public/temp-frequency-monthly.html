@@ -939,14 +939,20 @@ async function fetchCurrentObs() {
     // Use iemSid for non-ICAO stations (e.g. Central Park)
     const nwsSid = currentStation.iemSid || currentStation.sid;
     const res = await fetch(
-      `https://api.weather.gov/stations/${nwsSid}/observations/latest`,
+      `https://api.weather.gov/stations/${nwsSid}/observations?limit=10`,
       { headers: { Accept: 'application/geo+json' } }
     );
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json  = await res.json();
-    const props = json.properties;
+    const json     = await res.json();
+    // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    const routine  = (json.features || []).find(f => {
+      const raw = (f.properties?.rawMessage || '').trim();
+      return raw.length > 0 && !raw.startsWith('SPECI');
+    });
+    if (!routine) throw new Error('No routine METAR available');
+    const props = routine.properties;
     const tempC = props?.temperature?.value;
-    if (tempC === null || tempC === undefined) throw new Error('No temperature in response');
+    if (tempC === null || tempC === undefined) throw new Error('No temperature in observation');
 
     currentObsTemp = tempC * 9 / 5 + 32;
     obsTimestamp   = props.timestamp;
