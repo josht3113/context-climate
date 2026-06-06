@@ -28,6 +28,8 @@ import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
 import HomerunDerby                from './pages/HomerunDerby'
 import DewpointFrequency           from './pages/DewpointFrequency'
 import TempFrequency               from './pages/TempFrequency'
+import DewpointFrequencyMonthly    from './pages/DewpointFrequencyMonthly'
+import TempFrequencyMonthly        from './pages/TempFrequencyMonthly'
 import WindHourHeatmap             from './pages/WindHourHeatmap'
 import SubductionExplorer          from './pages/SubductionExplorer'
 import Flapstronaut               from './pages/Flapstronaut'
@@ -90,6 +92,8 @@ export default function App() {
           <Route path="/earthandspace/homerun-derby"         element={<HomerunDerby />}            />
           <Route path="/dewpoint-frequency"                  element={<DewpointFrequency />}       />
           <Route path="/temp-frequency"                      element={<TempFrequency />}           />
+          <Route path="/dewpoint-frequency-monthly"           element={<DewpointFrequencyMonthly />} />
+          <Route path="/temp-frequency-monthly"               element={<TempFrequencyMonthly />}    />
           <Route path="/wind-hour-heatmap"                   element={<WindHourHeatmap />}         />
           <Route path="/earthandspace/subduction-explorer"   element={<SubductionExplorer />}      />
           <Route path="/earthandspace/flapstronaut"          element={<Flapstronaut />}            />
