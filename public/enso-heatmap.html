@@ -295,14 +295,29 @@ const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','
 const MON_FULL  = ['January','February','March','April','May','June',
                    'July','August','September','October','November','December'];
 
+// ── Observed 2026 values not yet in PSL data file ───────────
+// Source: NOAA CPC / IRI monthly updates. 0-indexed months.
+// Merge directly into yearData so they render as full observed cells.
+const OBSERVED_2026 = {
+  0: -0.35,  // Jan 2026 — La Niña waning
+  1: -0.08,  // Feb 2026 — near neutral
+  2:  0.00,  // Mar 2026 — neutral (IRI confirmed)
+  3:  0.47,  // Apr 2026 — warming (IRI confirmed)
+  4:  0.78,  // May 2026 — est. from weekly +0.9 mid-May
+  5:  1.00,  // Jun 2026 — current est.
+};
+
 // ── Model Forecast ───────────────────────────────────────────
 // UPDATE MONTHLY: pull from NOAA CPC ENSO Diagnostic Discussion.
 // Values are Nino3.4 anomaly (°C). 0-indexed months (0=Jan, 11=Dec).
 // Source: NOAA CPC / IRI / ECMWF model consensus, June 2026.
+// Forecast extends through early 2027 (96% El Niño probability DJF 2026-27).
 const FORECAST = {
-  year:   2026,
-  values: { 6: 1.3, 7: 1.8, 8: 2.2, 9: 2.5, 10: 2.7, 11: 2.9 },
-  asOf:   'June 2026'
+  byYear: {
+    2026: { 6: 1.4, 7: 1.9, 8: 2.3, 9: 2.6, 10: 2.8, 11: 3.0 },
+    2027: { 0: 2.8, 1: 2.5, 2: 2.1 },
+  },
+  asOf: 'June 2026'
 };
 
 // ── Color Stops ──────────────────────────────────────────────
@@ -335,7 +350,7 @@ const LEGEND_H     = 20;
 // ════════════════════════════════════════════════════════════════
 
 let yearData     = {};
-let minYear, maxYear, topYear;
+let minYear, maxYear, topYear, calYear;
 let yearsArr     = [];   // most-recent first
 let showForecast = false;
 let showSupers   = false;
@@ -511,8 +526,8 @@ function renderHeatmap() {
     const row  = yearData[year] || Array(12).fill(null);
     const rowPeak = row.reduce((acc, v) => (v !== null ? Math.max(acc, v) : acc), -Infinity);
     const isSuperYear   = rowPeak >= 2.0;
-    const isCurrentYear = year === topYear;
-    const isFutureYear  = year > maxYear;  // in yearsArr but not in data
+    const isCurrentYear = year === calYear;
+    const isFutureYear  = year > maxYear && year !== calYear;  // in yearsArr but not in data
     const isDecade      = year % 10 === 0;
 
     // ── Year label ──────────────────────────────────────────
@@ -555,9 +570,9 @@ function renderHeatmap() {
       let isForecast = false;
 
       if (v === null && showForecast
-          && year === FORECAST.year
-          && FORECAST.values[m] !== undefined) {
-        v = FORECAST.values[m];
+          && FORECAST.byYear[year]
+          && FORECAST.byYear[year][m] !== undefined) {
+        v = FORECAST.byYear[year][m];
         isForecast = true;
       }
 
@@ -652,9 +667,9 @@ function setupTooltip() {
     let isForecast = false;
 
     if (v === null && showForecast
-        && year === FORECAST.year
-        && FORECAST.values[m] !== undefined) {
-      v = FORECAST.values[m];
+        && FORECAST.byYear[year]
+        && FORECAST.byYear[year][m] !== undefined) {
+      v = FORECAST.byYear[year][m];
       isForecast = true;
     }
 
@@ -756,8 +771,8 @@ function exportPNG() {
     const row  = yearData[year] || Array(12).fill(null);
     const rowPeak = row.reduce((acc, v) => (v !== null ? Math.max(acc, v) : acc), -Infinity);
     const isSuperYear   = rowPeak >= 2.0;
-    const isCurrentYear = year === topYear;
-    const isFutureYear  = year > maxYear;
+    const isCurrentYear = year === calYear;
+    const isFutureYear  = year > maxYear && year !== calYear;
     const isDecade      = year % 10 === 0;
 
     // Year label
@@ -793,8 +808,9 @@ function exportPNG() {
     for (let m = 0; m < 12; m++) {
       let v = row[m], isForecast = false;
       if (v === null && showForecast
-          && year === FORECAST.year && FORECAST.values[m] !== undefined) {
-        v = FORECAST.values[m]; isForecast = true;
+          && FORECAST.byYear[year]
+          && FORECAST.byYear[year][m] !== undefined) {
+        v = FORECAST.byYear[year][m]; isForecast = true;
       }
       let rgb = anomalyRGB(v, isForecast);
       if (showSupers && !isForecast && (v === null || v < 2.0)) {
@@ -898,8 +914,16 @@ async function init() {
 
     ({ yearData, minYear, maxYear } = parseData(text));
 
-    // Always show up to the forecast year at the top, even if not in data file
-    topYear = Math.max(maxYear, FORECAST.year, new Date().getFullYear());
+    // Merge known observed 2026 values not yet in data file
+    calYear = new Date().getFullYear();
+    if (!yearData[calYear]) yearData[calYear] = Array(12).fill(null);
+    for (const [m, v] of Object.entries(OBSERVED_2026)) {
+      if (yearData[calYear][m] === null) yearData[calYear][parseInt(m)] = v;
+    }
+
+    // Extend chart to cover all forecast years
+    const forecastYears = Object.keys(FORECAST.byYear).map(Number);
+    topYear = Math.max(maxYear, calYear, ...forecastYears);
     yearsArr = [];
     for (let y = topYear; y >= minYear; y--) yearsArr.push(y);
 
