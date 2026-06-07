@@ -151,6 +151,15 @@ const SECTIONS = [
         accentVar:  '--accent-hourly',
         thumb:      '/ENSO_Heatmap_thumbnail.png',
       },
+      {
+        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
+        title:      'ENSO Analog Spaghetti',
+        description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window — colored by strength tier, with the current event bold on top. Compare 1997–98 to today at a glance.',
+        footerTags: ['Niño 3.4', 'ONI', 'Analogs', '1870–Present'],
+        to:         '/enso-spaghetti',
+        accentVar:  '--accent-hourly',
+        thumb:      '/enso-analog-spaghetti_thumbnail.png',
+      },
     ],
   },
   {
