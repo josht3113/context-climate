@@ -14,15 +14,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Niño 3.4 anomaly data from NOAA PSL
+      - name: Download Niño 3.4 data from NOAA PSL
         run: |
-          curl -L -f \
+          curl -L \
             -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
             -H "Accept: text/plain, */*" \
             -H "Referer: https://psl.noaa.gov/gcos_wgsp/Timeseries/Nino34/" \
-            -o public/nino34.long.anom.data \
+            -o /tmp/nino34_raw.txt \
             "https://psl.noaa.gov/gcos_wgsp/Timeseries/Data/nino34.long.anom.data"
-          echo "Downloaded $(wc -l < public/nino34.long.anom.data) lines"
+          echo "Downloaded $(wc -c < /tmp/nino34_raw.txt) bytes"
+          echo "First line: $(head -1 /tmp/nino34_raw.txt)"
+
+      - name: Validate — must be numeric data, not HTML
+        run: |
+          first=$(head -1 /tmp/nino34_raw.txt | tr -d '[:space:]')
+          if [[ "$first" =~ ^[0-9]{4} ]]; then
+            echo "✓ Valid data file — starts with year: $first"
+            cp /tmp/nino34_raw.txt public/nino34.long.anom.data
+          else
+            echo "✗ PSL returned HTML or invalid content — keeping existing committed file"
+            echo "First 300 chars of download:"
+            head -c 300 /tmp/nino34_raw.txt
+            echo ""
+            # Exit 0 so Pages build still runs; existing file in repo is preserved
+            exit 0
+          fi
 
       - name: Commit if data changed
         run: |
@@ -30,5 +46,5 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/nino34.long.anom.data
           git diff --staged --quiet \
-            && echo "Data unchanged, skipping commit" \
+            && echo "Data unchanged — no commit needed" \
             || (git commit -m "chore: update Niño 3.4 anomaly data [automated]" && git push)
