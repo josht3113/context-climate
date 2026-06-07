@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ENSO Heatmap · Context Climate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:           #07070f;
+      --surface:      #12151f;
+      --border:       rgba(255,255,255,0.08);
+      --text:         #e8eaf0;
+      --text-dim:     #8892a4;
+      --accent:       #7F77DD;
+      --accent-faint: rgba(127,119,221,0.15);
+      --font-body:    'Plus Jakarta Sans', sans-serif;
+      --font-ui:      'Barlow Condensed', sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+    }
+    body { padding: 22px 24px 52px; }
+
+    /* ── HEADER ─────────────────────────────────────────────── */
+    .tool-header { margin-bottom: 18px; }
+    .tool-header h1 {
+      font-size: 24px; font-weight: 700; letter-spacing: -0.3px;
+    }
+    .tool-header .subtitle {
+      font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.6px;
+      text-transform: uppercase; color: var(--text-dim); margin-top: 4px;
+    }
+
+    /* ── CHIPS ──────────────────────────────────────────────── */
+    .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+    .chip {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; min-width: 118px;
+    }
+    .chip-label {
+      font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.8px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 5px;
+    }
+    .chip-value {
+      font-family: var(--font-mono); font-size: 26px;
+      font-weight: 500; line-height: 1;
+    }
+    .chip-sub {
+      font-family: var(--font-ui); font-size: 11px;
+      color: var(--text-dim); margin-top: 3px; letter-spacing: 0.3px;
+    }
+
+    /* ── CONTROLS ───────────────────────────────────────────── */
+    .controls {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 14px; flex-wrap: wrap;
+    }
+    .toggle-btn {
+      display: flex; align-items: center; gap: 7px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; padding: 7px 12px; cursor: pointer;
+      font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.4px;
+      color: var(--text-dim);
+      transition: border-color .15s, color .15s, background .15s;
+    }
+    .toggle-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+    .toggle-btn.active {
+      border-color: var(--accent); color: var(--accent);
+      background: var(--accent-faint);
+    }
+    .toggle-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: currentColor; flex-shrink: 0;
+    }
+    .export-btn {
+      margin-left: auto; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 7px 14px; cursor: pointer;
+      font-family: var(--font-ui); font-size: 13px; letter-spacing: 0.4px;
+      color: var(--text-dim); transition: border-color .15s, color .15s;
+    }
+    .export-btn:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+
+    /* ── CHART ──────────────────────────────────────────────── */
+    .chart-outer { overflow-x: auto; }
+    .month-labels-bar { display: flex; padding-bottom: 5px; }
+    .month-label {
+      font-family: var(--font-ui); font-size: 13px; font-weight: 600;
+      letter-spacing: 0.4px; color: var(--text-dim); text-align: center;
+      flex-shrink: 0;
+    }
+    #heatmap { display: block; cursor: crosshair; }
+
+    /* ── LEGEND ─────────────────────────────────────────────── */
+    .legend-section { margin-top: 14px; }
+    .legend-title {
+      font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.8px;
+      text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px;
+    }
+    #legend-canvas { display: block; border-radius: 3px; }
+    .legend-ticks {
+      display: flex; justify-content: space-between;
+      margin-top: 5px;
+    }
+    .legend-tick {
+      font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
+    }
+    .legend-bands {
+      display: flex; justify-content: space-between; margin-top: 3px;
+    }
+    .legend-band {
+      font-family: var(--font-ui); font-size: 11px; letter-spacing: 0.3px;
+      color: var(--text-dim);
+    }
+
+    /* ── TOOLTIP ────────────────────────────────────────────── */
+    .tooltip {
+      position: fixed;
+      background: rgba(18, 21, 35, 0.97);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px; padding: 11px 14px;
+      pointer-events: none; opacity: 0;
+      transition: opacity .08s; z-index: 1000;
+      min-width: 168px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.65);
+    }
+    .tooltip.visible { opacity: 1; }
+    .tt-period { font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+    .tt-value {
+      font-family: var(--font-mono); font-size: 24px;
+      font-weight: 500; line-height: 1; margin-bottom: 5px;
+    }
+    .tt-class {
+      font-family: var(--font-ui); font-size: 12px;
+      letter-spacing: 0.4px; color: var(--text-dim);
+    }
+    .tt-forecast-badge {
+      display: none; margin-top: 8px;
+      background: var(--accent-faint);
+      border: 1px solid rgba(127,119,221,0.35);
+      color: var(--accent);
+      font-family: var(--font-ui); font-size: 10px;
+      letter-spacing: 0.7px; text-transform: uppercase;
+      padding: 3px 7px; border-radius: 4px;
+    }
+
+    /* ── FOOTER ─────────────────────────────────────────────── */
+    .footer {
+      margin-top: 24px; padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-family: var(--font-ui); font-size: 12px;
+      color: var(--text-dim); letter-spacing: 0.3px; line-height: 1.8;
+    }
+
+    /* ── LOADING / ERROR ────────────────────────────────────── */
+    #loading {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 420px; gap: 14px;
+      font-family: var(--font-ui); font-size: 16px;
+      letter-spacing: 1px; color: var(--text-dim);
+    }
+    .loading-spinner {
+      width: 26px; height: 26px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-msg { color: #e05252; font-size: 15px; }
+    .error-sub {
+      font-size: 12px; color: var(--text-dim);
+      max-width: 440px; text-align: center; line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── LOADING STATE ────────────────────────────────────────── -->
+<div id="loading">
+  <div class="loading-spinner"></div>
+  <span>Loading ENSO Data&hellip;</span>
+</div>
+
+<!-- ── APP ──────────────────────────────────────────────────── -->
+<div id="app" style="display:none">
+
+  <div class="tool-header">
+    <h1>ENSO History &middot; Ni&ntilde;o 3.4 Index</h1>
+    <p class="subtitle">Monthly SST Anomaly &middot; 1870&ndash;Present &middot; HadISST 1.1 via NOAA PSL</p>
+  </div>
+
+  <div class="chips">
+    <div class="chip">
+      <div class="chip-label">Current</div>
+      <div class="chip-value" id="chip-cur-v">&mdash;</div>
+      <div class="chip-sub"  id="chip-cur-p"></div>
+    </div>
+    <div class="chip">
+      <div class="chip-label">Record El Ni&ntilde;o</div>
+      <div class="chip-value" id="chip-nino-v">&mdash;</div>
+      <div class="chip-sub"   id="chip-nino-p"></div>
+    </div>
+    <div class="chip">
+      <div class="chip-label">Record La Ni&ntilde;a</div>
+      <div class="chip-value" id="chip-nina-v">&mdash;</div>
+      <div class="chip-sub"   id="chip-nina-p"></div>
+    </div>
+    <div class="chip">
+      <div class="chip-label">Super El Ni&ntilde;os</div>
+      <div class="chip-value" id="chip-super-v" style="color:var(--accent)">&mdash;</div>
+      <div class="chip-sub">since 1870</div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="toggle-btn" id="btn-forecast" onclick="toggleForecast()">
+      <span class="toggle-dot"></span>Model Forecast
+    </button>
+    <button class="toggle-btn" id="btn-supers" onclick="toggleSupers()">
+      <span class="toggle-dot"></span>Highlight Supers
+    </button>
+    <button class="export-btn" onclick="exportPNG()">&darr; Export PNG</button>
+  </div>
+
+  <div class="chart-outer">
+    <div class="month-labels-bar" id="month-bar"></div>
+    <canvas id="heatmap"></canvas>
+  </div>
+
+  <div class="legend-section" id="legend-section">
+    <div class="legend-title">Ni&ntilde;o 3.4 Anomaly (&deg;C) &middot; 1981&ndash;2010 Baseline</div>
+    <canvas id="legend-canvas"></canvas>
+    <div class="legend-ticks" id="legend-ticks"></div>
+    <div class="legend-bands">
+      <span class="legend-band">La Ni&ntilde;a &larr;</span>
+      <span class="legend-band">Neutral</span>
+      <span class="legend-band">&rarr; El Ni&ntilde;o</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    Data: NOAA Physical Sciences Laboratory &middot; HadISST 1.1 &middot; Ni&ntilde;o 3.4 region (5&deg;N&ndash;5&deg;S, 170&deg;&ndash;120&deg;W).<br>
+    Pre-1950 values are based on statistical SST reconstruction; uncertainty increases before ~1900.
+    <span id="fcast-note" style="display:none">
+      &middot; Model forecast (consensus NOAA CPC / IRI / ECMWF) as of <span id="fcast-date"></span>.
+    </span>
+  </div>
+
+</div>
+
+<!-- ── TOOLTIP ───────────────────────────────────────────────── -->
+<div class="tooltip" id="tooltip">
+  <div class="tt-period"></div>
+  <div class="tt-value"></div>
+  <div class="tt-class"></div>
+  <div class="tt-forecast-badge">Model Forecast</div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════════════════════════════
+
+const DATA_URL = 'https://psl.noaa.gov/gcos_wgsp/Timeseries/Data/nino34.long.anom.data';
+
+const CELL_W  = 46;   // px per month column
+const CELL_H  = 14;   // px per year row
+const LABEL_W = 54;   // px for year label column
+
+const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MON_FULL  = ['January','February','March','April','May','June',
+                   'July','August','September','October','November','December'];
+
+// ── Model Forecast ───────────────────────────────────────────
+// UPDATE MONTHLY: pull from NOAA CPC ENSO Diagnostic Discussion.
+// Values are Nino3.4 anomaly (°C). 0-indexed months (0=Jan, 11=Dec).
+// Source: NOAA CPC / IRI / ECMWF model consensus, June 2026.
+const FORECAST = {
+  year:   2026,
+  values: { 6: 1.3, 7: 1.8, 8: 2.2, 9: 2.5, 10: 2.7, 11: 2.9 },
+  asOf:   'June 2026'
+};
+
+// ── Color Stops ──────────────────────────────────────────────
+// Both scales share the same neutral anchor so zero reads identically
+// regardless of which side you approach from.
+const WARM_STOPS = [
+  [0.0, [55,  58,  80]],   // neutral
+  [0.5, [253, 218, 148]],  // weak El Nino
+  [1.0, [246, 133,  42]],  // moderate
+  [1.5, [218,  52,  18]],  // strong
+  [2.0, [148,   8,   8]],  // super
+  [4.0, [ 72,   0,   5]],  // extreme (cap)
+];
+const COOL_STOPS = [
+  [0.0, [ 55,  58,  80]],  // neutral
+  [0.5, [163, 212, 255]],  // weak La Nina
+  [1.0, [ 55, 136, 218]],  // moderate
+  [1.5, [ 16,  70, 158]],  // strong
+  [2.0, [  4,  35, 110]],  // super
+  [4.0, [  2,  15,  58]],  // extreme (cap)
+];
+
+const LEGEND_TICKS = [-3, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3];
+const LEGEND_W     = 576; // 12 * CELL_W
+const LEGEND_H     = 18;
+
+
+// ════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════
+
+let yearData     = {};
+let minYear, maxYear;
+let yearsArr     = [];   // most-recent first
+let showForecast = false;
+let showSupers   = false;
+
+
+// ════════════════════════════════════════════════════════════════
+// COLOR UTILITIES
+// ════════════════════════════════════════════════════════════════
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function interpStops(abs, stops) {
+  const cap = Math.min(abs, stops[stops.length - 1][0]);
+  for (let i = 0; i < stops.length - 1; i++) {
+    const [v0, c0] = stops[i];
+    const [v1, c1] = stops[i + 1];
+    if (cap <= v1) {
+      const t = (cap - v0) / (v1 - v0);
+      return [
+        Math.round(lerp(c0[0], c1[0], t)),
+        Math.round(lerp(c0[1], c1[1], t)),
+        Math.round(lerp(c0[2], c1[2], t)),
+      ];
+    }
+  }
+  return stops[stops.length - 1][1].slice();
+}
+
+function anomalyRGB(v, isForecast = false) {
+  if (v === null) return [18, 21, 35];
+  const abs = Math.abs(v);
+  const rgb = (v >= 0) ? interpStops(abs, WARM_STOPS) : interpStops(abs, COOL_STOPS);
+  if (isForecast) {
+    // Ghost: blend toward near-black background at ~42% opacity
+    return rgb.map((c, i) => Math.round(lerp(14, c, 0.42)));
+  }
+  return rgb;
+}
+
+function rgbStr(rgb)  { return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }
+function rgbHex(rgb)  { return '#' + rgb.map(v => v.toString(16).padStart(2,'0')).join(''); }
+
+function classify(v) {
+  if (v === null) return 'No Data';
+  const a = Math.abs(v);
+  if (a < 0.5) return 'ENSO Neutral';
+  const phase = v > 0 ? 'El Ni\u00f1o' : 'La Ni\u00f1a';
+  const str   = a >= 2.0 ? 'Super'
+              : a >= 1.5 ? 'Strong'
+              : a >= 1.0 ? 'Moderate'
+              :             'Weak';
+  return `${str} ${phase}`;
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// DATA PARSING
+// ════════════════════════════════════════════════════════════════
+
+function parseData(text) {
+  const result = {};
+  let minY = Infinity, maxY = -Infinity;
+
+  for (const raw of text.split('\n')) {
+    const parts = raw.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 2) continue;
+    const yr = parseInt(parts[0]);
+    if (isNaN(yr) || yr < 1800 || yr > 2100) continue;
+
+    const vals = [];
+    for (let m = 0; m < 12; m++) {
+      const v = parseFloat(parts[m + 1]);
+      // Reject sentinels: NaN, or absurd anomaly (>50°C impossible)
+      vals.push((!isNaN(v) && Math.abs(v) < 50)
+        ? Math.round(v * 100) / 100
+        : null);
+    }
+    result[yr] = vals;
+    if (yr < minY) minY = yr;
+    if (yr > maxY) maxY = yr;
+  }
+
+  return { yearData: result, minYear: minY, maxYear: maxY };
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// STATISTICS
+// ════════════════════════════════════════════════════════════════
+
+function computeStats() {
+  let recNino  = { v: -Infinity, year: null, month: null };
+  let recNina  = { v:  Infinity, year: null, month: null };
+  let curV = null, curPeriod = '';
+  let superCount = 0;
+  let inSuper    = false;
+
+  const years = Object.keys(yearData).map(Number).sort((a, b) => a - b);
+
+  for (const yr of years) {
+    for (let m = 0; m < 12; m++) {
+      const v = yearData[yr][m];
+      if (v === null) continue;
+      if (v > recNino.v) recNino = { v, year: yr, month: m };
+      if (v < recNina.v) recNina = { v, year: yr, month: m };
+      // Count distinct super El Nino events (peak >= 2.0)
+      if (v >= 2.0 && !inSuper) { superCount++; inSuper = true; }
+      if (v < 1.5)                inSuper = false;
+    }
+  }
+
+  // Most recent observed value
+  outer:
+  for (let y = maxYear; y >= minYear; y--) {
+    const row = yearData[y];
+    if (!row) continue;
+    for (let m = 11; m >= 0; m--) {
+      if (row[m] !== null) {
+        curV = row[m];
+        curPeriod = `${MON_SHORT[m]} ${y}`;
+        break outer;
+      }
+    }
+  }
+
+  return { curV, curPeriod, recNino, recNina, superCount };
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// CHIP UPDATE
+// ════════════════════════════════════════════════════════════════
+
+function updateChips(s) {
+  const fmt = v => (v > 0 ? '+' : '') + v.toFixed(2) + '\u00b0C';
+
+  $('chip-cur-v').textContent  = s.curV !== null ? fmt(s.curV) : '\u2014';
+  $('chip-cur-v').style.color  = s.curV !== null ? rgbHex(anomalyRGB(s.curV)) : '#888';
+  $('chip-cur-p').textContent  = s.curPeriod;
+
+  $('chip-nino-v').textContent = s.recNino.v > -Infinity ? fmt(s.recNino.v) : '\u2014';
+  $('chip-nino-v').style.color = rgbHex(anomalyRGB(s.recNino.v));
+  $('chip-nino-p').textContent = s.recNino.year
+    ? `${MON_SHORT[s.recNino.month]} ${s.recNino.year}` : '';
+
+  $('chip-nina-v').textContent = s.recNina.v < Infinity ? fmt(s.recNina.v) : '\u2014';
+  $('chip-nina-v').style.color = rgbHex(anomalyRGB(s.recNina.v));
+  $('chip-nina-p').textContent = s.recNina.year
+    ? `${MON_SHORT[s.recNina.month]} ${s.recNina.year}` : '';
+
+  $('chip-super-v').textContent = s.superCount;
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// RENDER HEATMAP
+// ════════════════════════════════════════════════════════════════
+
+function renderHeatmap() {
+  const canvas = $('heatmap');
+  const ctx    = canvas.getContext('2d');
+  const W = LABEL_W + CELL_W * 12;
+  const H = CELL_H  * yearsArr.length;
+
+  canvas.width  = W;
+  canvas.height = H;
+
+  ctx.fillStyle = '#07070f';
+  ctx.fillRect(0, 0, W, H);
+
+  yearsArr.forEach((year, ri) => {
+    const rowY = ri * CELL_H;
+    const row  = yearData[year] || Array(12).fill(null);
+    const rowPeak = row.reduce((acc, v) => (v !== null ? Math.max(acc, v) : acc), -Infinity);
+    const isSuperYear   = rowPeak >= 2.0;
+    const isCurrentYear = year === maxYear;
+    const isDecade      = year % 10 === 0;
+
+    // ── Year label ──────────────────────────────────────────
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+
+    if (isCurrentYear) {
+      ctx.fillStyle = '#7F77DD';
+      ctx.font = "600 11px 'Barlow Condensed'";
+    } else if (isSuperYear) {
+      ctx.fillStyle = '#dd7040';
+      ctx.font = "600 11px 'Barlow Condensed'";
+    } else if (isDecade) {
+      ctx.fillStyle = '#8892a4';
+      ctx.font = "500 11px 'Barlow Condensed'";
+    } else {
+      ctx.fillStyle = '#46505e';
+      ctx.font = "400 10px 'Barlow Condensed'";
+    }
+    ctx.fillText(String(year), LABEL_W - 6, rowY + CELL_H / 2);
+
+    // Accent bar: current year
+    if (isCurrentYear) {
+      ctx.fillStyle = '#7F77DD';
+      ctx.fillRect(0, rowY, 3, CELL_H);
+    }
+
+    // Decade separator (subtle horizontal line)
+    if (isDecade && ri > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.055)';
+      ctx.fillRect(LABEL_W, rowY, CELL_W * 12, 1);
+    }
+
+    // ── Cells ───────────────────────────────────────────────
+    for (let m = 0; m < 12; m++) {
+      let v = row[m];
+      let isForecast = false;
+
+      if (v === null && showForecast
+          && year === FORECAST.year
+          && FORECAST.values[m] !== undefined) {
+        v = FORECAST.values[m];
+        isForecast = true;
+      }
+
+      const x = LABEL_W + m * CELL_W;
+      let rgb = anomalyRGB(v, isForecast);
+
+      // Highlight-supers mode: dim everything below the threshold
+      if (showSupers && !isForecast && (v === null || v < 2.0)) {
+        rgb = rgb.map(c => Math.round(c * 0.14 + 12));
+      }
+
+      ctx.fillStyle = rgbStr(rgb);
+      ctx.fillRect(x + 1, rowY + 1, CELL_W - 2, CELL_H - 2);
+
+      // Dashed border on forecast cells
+      if (isForecast) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(127,119,221,0.55)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.strokeRect(x + 1.5, rowY + 1.5, CELL_W - 3, CELL_H - 3);
+        ctx.restore();
+      }
+    }
+  });
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// LEGEND
+// ════════════════════════════════════════════════════════════════
+
+function drawLegend() {
+  const canvas = $('legend-canvas');
+  const ctx    = canvas.getContext('2d');
+  canvas.width  = LEGEND_W;
+  canvas.height = LEGEND_H;
+  canvas.style.cssText = `width:${LEGEND_W}px;height:${LEGEND_H}px`;
+
+  const grad = ctx.createLinearGradient(0, 0, LEGEND_W, 0);
+  for (const v of [-3, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3]) {
+    grad.addColorStop((v + 3) / 6, rgbStr(anomalyRGB(v)));
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, LEGEND_W, LEGEND_H);
+
+  // Threshold tick marks
+  for (const v of [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]) {
+    const x = Math.round((v + 3) / 6 * LEGEND_W);
+    ctx.fillStyle = 'rgba(7,7,15,0.5)';
+    ctx.fillRect(x, 0, 1, LEGEND_H);
+  }
+
+  // Numeric ticks below bar
+  const ticksDiv = $('legend-ticks');
+  ticksDiv.innerHTML = '';
+  LEGEND_TICKS.forEach(v => {
+    const sp = document.createElement('span');
+    sp.className   = 'legend-tick';
+    sp.textContent = (v > 0 ? '+' : '') + v;
+    ticksDiv.appendChild(sp);
+  });
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// TOOLTIP
+// ════════════════════════════════════════════════════════════════
+
+function setupTooltip() {
+  const canvas  = $('heatmap');
+  const tooltip = $('tooltip');
+
+  canvas.addEventListener('mousemove', e => {
+    const rect   = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top)  * scaleY;
+
+    const col = Math.floor((cx - LABEL_W) / CELL_W);
+    const row = Math.floor(cy / CELL_H);
+
+    if (col < 0 || col >= 12 || row < 0 || row >= yearsArr.length) {
+      tooltip.classList.remove('visible'); return;
+    }
+
+    const year = yearsArr[row];
+    const m    = col;
+    const rd   = yearData[year] || Array(12).fill(null);
+    let v = rd[m];
+    let isForecast = false;
+
+    if (v === null && showForecast
+        && year === FORECAST.year
+        && FORECAST.values[m] !== undefined) {
+      v = FORECAST.values[m];
+      isForecast = true;
+    }
+
+    const color = (v !== null) ? rgbHex(anomalyRGB(v)) : '#555';
+    tooltip.querySelector('.tt-period').textContent =
+      `${MON_FULL[m]} ${year}`;
+    const ttv = tooltip.querySelector('.tt-value');
+    ttv.textContent = (v !== null)
+      ? `${v > 0 ? '+' : ''}${v.toFixed(2)}\u00b0C` : '\u2014';
+    ttv.style.color = color;
+    tooltip.querySelector('.tt-class').textContent = classify(v);
+    tooltip.querySelector('.tt-forecast-badge').style.display =
+      isForecast ? '' : 'none';
+
+    tooltip.classList.add('visible');
+
+    // Smart positioning: flip if near viewport edges
+    const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+    const tx = e.clientX + 14, ty = e.clientY - 10;
+    tooltip.style.left =
+      (tx + tw > window.innerWidth  ? e.clientX - tw - 14 : tx) + 'px';
+    tooltip.style.top  =
+      (ty + th > window.innerHeight ? e.clientY - th - 10 : ty) + 'px';
+  });
+
+  canvas.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// TOGGLE HANDLERS
+// ════════════════════════════════════════════════════════════════
+
+function toggleForecast() {
+  showForecast = !showForecast;
+  $('btn-forecast').classList.toggle('active', showForecast);
+  $('fcast-note').style.display  = showForecast ? '' : 'none';
+  $('fcast-date').textContent    = FORECAST.asOf;
+  renderHeatmap();
+}
+
+function toggleSupers() {
+  showSupers = !showSupers;
+  $('btn-supers').classList.toggle('active', showSupers);
+  renderHeatmap();
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// PNG EXPORT
+// ════════════════════════════════════════════════════════════════
+
+function exportPNG() {
+  const HEADER_H = 70;
+  const MONTH_H  = 24;
+  const LEG_H    = 60;
+  const FOOT_H   = 28;
+  const PAD_X    = 20;
+  const GRID_W   = LABEL_W + CELL_W * 12;
+  const TOTAL_W  = PAD_X * 2 + GRID_W;
+  const DATA_H   = CELL_H * yearsArr.length;
+  const TOTAL_H  = HEADER_H + MONTH_H + DATA_H + LEG_H + FOOT_H;
+
+  const off = document.createElement('canvas');
+  off.width  = TOTAL_W;
+  off.height = TOTAL_H;
+  const ctx  = off.getContext('2d');
+  const OX   = PAD_X;  // grid origin x
+
+  ctx.fillStyle = '#07070f';
+  ctx.fillRect(0, 0, TOTAL_W, TOTAL_H);
+
+  // ── Header ──
+  ctx.fillStyle    = '#ffffff';
+  ctx.font         = "700 19px 'Plus Jakarta Sans', sans-serif";
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('ENSO History \u00b7 Ni\u00f1o 3.4 Index', OX + LABEL_W, 16);
+  ctx.fillStyle = '#8892a4';
+  ctx.font      = "500 12px 'Barlow Condensed', sans-serif";
+  ctx.fillText('Monthly SST Anomaly \u00b7 1870\u2013Present \u00b7 HadISST 1.1 via NOAA PSL',
+               OX + LABEL_W, 42);
+
+  // ── Month labels ──
+  ctx.font         = "600 12px 'Barlow Condensed', sans-serif";
+  ctx.fillStyle    = '#8892a4';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'middle';
+  MON_SHORT.forEach((mon, m) => {
+    ctx.fillText(mon,
+      OX + LABEL_W + m * CELL_W + CELL_W / 2,
+      HEADER_H + MONTH_H / 2);
+  });
+
+  // ── Heatmap rows ──
+  const DATA_Y = HEADER_H + MONTH_H;
+  yearsArr.forEach((year, ri) => {
+    const rowY = DATA_Y + ri * CELL_H;
+    const row  = yearData[year] || Array(12).fill(null);
+    const rowPeak = row.reduce((acc, v) => (v !== null ? Math.max(acc, v) : acc), -Infinity);
+    const isSuperYear   = rowPeak >= 2.0;
+    const isCurrentYear = year === maxYear;
+    const isDecade      = year % 10 === 0;
+
+    // Year label
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    if (isCurrentYear) {
+      ctx.fillStyle = '#7F77DD';
+      ctx.font = "600 11px 'Barlow Condensed', sans-serif";
+    } else if (isSuperYear) {
+      ctx.fillStyle = '#dd7040';
+      ctx.font = "600 11px 'Barlow Condensed', sans-serif";
+    } else if (isDecade) {
+      ctx.fillStyle = '#8892a4';
+      ctx.font = "500 11px 'Barlow Condensed', sans-serif";
+    } else {
+      ctx.fillStyle = '#46505e';
+      ctx.font = "400 10px 'Barlow Condensed', sans-serif";
+    }
+    ctx.fillText(String(year), OX + LABEL_W - 6, rowY + CELL_H / 2);
+
+    if (isCurrentYear) {
+      ctx.fillStyle = '#7F77DD';
+      ctx.fillRect(OX, rowY, 3, CELL_H);
+    }
+    if (isDecade && ri > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.055)';
+      ctx.fillRect(OX + LABEL_W, rowY, CELL_W * 12, 1);
+    }
+
+    for (let m = 0; m < 12; m++) {
+      let v = row[m], isForecast = false;
+      if (v === null && showForecast
+          && year === FORECAST.year && FORECAST.values[m] !== undefined) {
+        v = FORECAST.values[m]; isForecast = true;
+      }
+      let rgb = anomalyRGB(v, isForecast);
+      if (showSupers && !isForecast && (v === null || v < 2.0)) {
+        rgb = rgb.map(c => Math.round(c * 0.14 + 12));
+      }
+      const x = OX + LABEL_W + m * CELL_W;
+      ctx.fillStyle = rgbStr(rgb);
+      ctx.fillRect(x + 1, rowY + 1, CELL_W - 2, CELL_H - 2);
+      if (isForecast) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(127,119,221,0.55)';
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.strokeRect(x + 1.5, rowY + 1.5, CELL_W - 3, CELL_H - 3);
+        ctx.restore();
+      }
+    }
+  });
+
+  // ── Legend ──
+  const LEG_Y  = DATA_Y + DATA_H + 16;
+  const LEG_X  = OX + LABEL_W;
+  const LEG_GW = CELL_W * 12;
+  const grad   = ctx.createLinearGradient(LEG_X, 0, LEG_X + LEG_GW, 0);
+  for (const v of [-3, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3]) {
+    grad.addColorStop((v + 3) / 6, rgbStr(anomalyRGB(v)));
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(LEG_X, LEG_Y, LEG_GW, 16);
+
+  ctx.fillStyle    = '#8892a4';
+  ctx.font         = "400 10px 'JetBrains Mono', monospace";
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'top';
+  LEGEND_TICKS.forEach(v => {
+    ctx.fillText((v > 0 ? '+' : '') + v,
+      LEG_X + (v + 3) / 6 * LEG_GW,
+      LEG_Y + 20);
+  });
+
+  // ── Footer ──
+  ctx.fillStyle    = '#555a68';
+  ctx.font         = "400 11px 'Barlow Condensed', sans-serif";
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('contextclimate.io \u00b7 Data: NOAA PSL / HadISST 1.1',
+               OX + LABEL_W, TOTAL_H - 8);
+
+  const a    = document.createElement('a');
+  a.href     = off.toDataURL('image/png');
+  a.download = 'enso-heatmap-contextclimate.png';
+  a.click();
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════
+
+function $(id) { return document.getElementById(id); }
+
+function buildMonthLabels() {
+  const bar = $('month-bar');
+  bar.style.marginLeft = LABEL_W + 'px';
+  MON_SHORT.forEach(mon => {
+    const d = document.createElement('div');
+    d.className   = 'month-label';
+    d.style.width = CELL_W + 'px';
+    d.textContent = mon;
+    bar.appendChild(d);
+  });
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// DATA FETCH  (direct → CORS-proxy fallback)
+// ════════════════════════════════════════════════════════════════
+
+// corsproxy.io is used only if the direct PSL request fails (e.g.
+// when the page is opened via file:// or PSL blocks cross-origin).
+// On GitHub Pages the direct fetch should succeed without the proxy.
+const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(DATA_URL)}`;
+
+async function fetchENSOData() {
+  // ── Attempt 1: direct ──────────────────────────────────────
+  try {
+    const res = await fetch(DATA_URL);
+    if (!res.ok) throw new Error(`PSL returned HTTP ${res.status}`);
+    return await res.text();
+  } catch (_) { /* fall through to proxy */ }
+
+  // ── Attempt 2: CORS proxy ──────────────────────────────────
+  const res = await fetch(PROXY_URL);
+  if (!res.ok) throw new Error(`Proxy returned HTTP ${res.status}`);
+  return await res.text();
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════════════════════════════
+
+async function init() {
+  try {
+    const text = await fetchENSOData();
+
+    ({ yearData, minYear, maxYear } = parseData(text));
+
+    yearsArr = [];
+    for (let y = maxYear; y >= minYear; y--) yearsArr.push(y);
+
+    const stats = computeStats();
+
+    $('loading').style.display = 'none';
+    $('app').style.display     = '';
+
+    buildMonthLabels();
+    updateChips(stats);
+    renderHeatmap();
+    drawLegend();
+    setupTooltip();
+
+  } catch (err) {
+    $('loading').innerHTML = `
+      <div class="loading-spinner" style="border-top-color:#e05252"></div>
+      <span class="error-msg">Failed to load ENSO data</span>
+      <span class="error-sub">
+        ${err.message}<br><br>
+        <strong style="color:#c8cad4">Testing locally?</strong>
+        Opening via <code>file://</code> blocks all cross-origin requests.
+        Serve with a local HTTP server instead:<br>
+        <code style="display:inline-block;margin-top:6px;font-size:10px">
+          npx serve . &nbsp;or&nbsp; python -m http.server 8080
+        </code>
+      </span>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
