@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ENSO Analog Spaghetti · Context Climate</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Barlow+Condensed:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #07070f;
+      --surface: #0d1120;
+      --border: rgba(255,255,255,.08);
+      --text: #e8eaf0;
+      --muted: rgba(232,234,240,.52);
+      --accent: #7F77DD;
+      --en-super: #c0392b;
+      --en-strong: #e67e22;
+      --en-mod: #e8a020;
+      --en-weak: #8B6914;
+      --ln-strong: #1565c0;
+      --ln-mod: #1976d2;
+      --ln-weak: #42a5f5;
+      --cur1: #7F77DD;
+      --cur2: #1D9E75;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-size: 15px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .hdr { padding: 16px 24px 12px; border-bottom: 1px solid var(--border); }
+    .hdr h1 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 26px; font-weight: 600; letter-spacing: .03em;
+    }
+    .hdr p { font-size: 14px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Chips ── */
+    .chips {
+      display: flex; gap: 10px; padding: 12px 24px;
+      border-bottom: 1px solid var(--border); overflow-x: auto; flex-shrink: 0;
+    }
+    .chip {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 15px; flex-shrink: 0; min-width: 108px;
+    }
+    .chip-lbl {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+    }
+    .chip-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 28px; font-weight: 600; line-height: 1.15;
+    }
+    .chip-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+
+    /* ── Controls ── */
+    .ctrls {
+      display: flex; flex-wrap: wrap; align-items: center;
+      gap: 10px; padding: 9px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface); flex-shrink: 0;
+    }
+    .cg { display: flex; align-items: center; gap: 6px; }
+    .cl {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 12px; font-weight: 500;
+      text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    }
+    .seg { display: flex; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+    .seg button {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px; font-weight: 500; padding: 5px 12px;
+      background: transparent; border: none; border-right: 1px solid var(--border);
+      color: var(--muted); cursor: pointer; transition: background .12s, color .12s;
+      white-space: nowrap;
+    }
+    .seg button:last-child { border-right: none; }
+    .seg button.on { background: var(--accent); color: #fff; }
+    .seg button:hover:not(.on) { background: rgba(255,255,255,.05); color: var(--text); }
+    .pill {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px; font-weight: 500; padding: 5px 12px;
+      background: transparent; border: 1px solid var(--border); border-radius: 5px;
+      color: var(--muted); cursor: pointer; transition: all .12s; white-space: nowrap;
+    }
+    .pill.on { background: rgba(127,119,221,.15); border-color: var(--accent); color: var(--accent); }
+    .pill:hover:not(.on) { background: rgba(255,255,255,.05); color: var(--text); }
+
+    /* ── Chart ── */
+    .chart-wrap { flex: 1; padding: 14px 20px 0; position: relative; min-height: 0; }
+    #chartBox { position: relative; width: 100%; height: 490px; }
+
+    .loading {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px;
+      background: rgba(7,7,15,.8); border-radius: 4px; z-index: 20;
+    }
+    .spinner {
+      width: 34px; height: 34px;
+      border: 3px solid rgba(255,255,255,.1); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading p {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 15px; color: var(--muted);
+    }
+    .err {
+      display: none; padding: 48px; text-align: center;
+      font-family: 'Barlow Condensed', sans-serif; font-size: 16px; color: var(--muted);
+    }
+
+    /* ── Legend ── */
+    .legend {
+      display: flex; flex-wrap: wrap; gap: 14px; padding: 12px 24px;
+      border-top: 1px solid var(--border); align-items: center; flex-shrink: 0;
+    }
+    .li { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+    .ls { width: 28px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+    .ls-dashed {
+      width: 28px; height: 3px; flex-shrink: 0;
+      background: repeating-linear-gradient(90deg,var(--cur2) 0,var(--cur2) 5px,transparent 5px,transparent 9px);
+    }
+    .lsep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
+    /* ── Notable events panel ── */
+    .notable { padding: 0 24px 14px; display: none; flex-shrink: 0; }
+    .notable.on { display: block; }
+    .notable h3 {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--muted); margin-bottom: 8px; padding-top: 4px;
+    }
+    .ntags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .ntag {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 13px;
+      padding: 3px 10px; border-radius: 4px; cursor: pointer;
+      border: 1px solid transparent; transition: opacity .12s;
+      user-select: none;
+    }
+    .ntag:hover { opacity: .75; }
+    .ntag.hl { outline: 2px solid currentColor; outline-offset: 1px; }
+
+    /* ── Tooltip ── */
+    #tip {
+      position: fixed;
+      background: #111828; border: 1px solid rgba(255,255,255,.12);
+      border-radius: 10px; padding: 10px 14px;
+      pointer-events: none; z-index: 1000;
+      opacity: 0; transition: opacity .1s;
+      min-width: 215px; max-width: 300px;
+      box-shadow: 0 8px 32px rgba(0,0,0,.55);
+    }
+    #tip.on { opacity: 1; }
+    .tth {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 12px;
+      text-transform: uppercase; letter-spacing: .05em;
+      color: var(--muted); margin-bottom: 8px;
+    }
+    .ttr { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .ttsw { width: 22px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+    .ttn { flex: 1; font-size: 13px; color: var(--text); line-height: 1.3; }
+    .ttv { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+    .ttmore { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  </style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>ENSO Analog Spaghetti</h1>
+  <p>Historical event trajectories aligned by development year · Niño 3.4 · 1870–present · 24-month window</p>
+</div>
+
+<div class="chips">
+  <div class="chip">
+    <div class="chip-lbl">El Niño Events</div>
+    <div class="chip-val" id="cEN">—</div>
+    <div class="chip-sub">peak ≥ 1.0°C</div>
+  </div>
+  <div class="chip">
+    <div class="chip-lbl">La Niña Events</div>
+    <div class="chip-val" id="cLN">—</div>
+    <div class="chip-sub">peak ≥ 1.0°C</div>
+  </div>
+  <div class="chip">
+    <div class="chip-lbl">Record El Niño</div>
+    <div class="chip-val" style="color:var(--en-super)" id="cENrec">—</div>
+    <div class="chip-sub" id="cENrecYr">—</div>
+  </div>
+  <div class="chip">
+    <div class="chip-lbl">Record La Niña</div>
+    <div class="chip-val" style="color:var(--ln-mod)" id="cLNrec">—</div>
+    <div class="chip-sub" id="cLNrecYr">—</div>
+  </div>
+  <div class="chip">
+    <div class="chip-lbl">Latest Niño 3.4</div>
+    <div class="chip-val" id="cLat">—</div>
+    <div class="chip-sub" id="cLatDate">—</div>
+  </div>
+</div>
+
+<div class="ctrls">
+  <div class="cg">
+    <span class="cl">Events</span>
+    <div class="seg" id="sgMode">
+      <button class="on" data-v="both">Both</button>
+      <button data-v="elnino">El Niño</button>
+      <button data-v="lanina">La Niña</button>
+    </div>
+  </div>
+  <div class="cg">
+    <span class="cl">Threshold</span>
+    <div class="seg" id="sgThresh">
+      <button class="on" data-v="sig">Significant (≥ 1.0°C)</button>
+      <button data-v="all">All Events (≥ 0.5°C)</button>
+    </div>
+  </div>
+  <div class="cg">
+    <span class="cl">Metric</span>
+    <div class="seg" id="sgMetric">
+      <button class="on" data-v="oni">ONI (3-Mo. Mean)</button>
+      <button data-v="raw">Raw Anomaly</button>
+    </div>
+  </div>
+  <div class="cg">
+    <button class="pill on" id="btnNamed">Named Events</button>
+  </div>
+</div>
+
+<div class="chart-wrap">
+  <div id="chartBox">
+    <div class="loading" id="overlay">
+      <div class="spinner"></div>
+      <p>Fetching NOAA data…</p>
+    </div>
+    <div class="err" id="errMsg">Unable to load data. Check the browser console for details.</div>
+    <canvas id="cvs" role="img" aria-label="ENSO Analog Spaghetti Chart"></canvas>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="li"><div class="ls" style="background:var(--en-super)"></div>Super El Niño (≥ 2.0°C)</div>
+  <div class="li"><div class="ls" style="background:var(--en-strong)"></div>Strong (1.5–2.0°C)</div>
+  <div class="li"><div class="ls" style="background:var(--en-mod)"></div>Moderate (1.0–1.5°C)</div>
+  <div class="li"><div class="ls" style="background:var(--en-weak)"></div>Weak (0.5–1.0°C)</div>
+  <div class="lsep"></div>
+  <div class="li"><div class="ls" style="background:var(--ln-strong)"></div>Strong La Niña (≥ 1.5°C)</div>
+  <div class="li"><div class="ls" style="background:var(--ln-mod)"></div>Moderate La Niña (1.0–1.5°C)</div>
+  <div class="li"><div class="ls" style="background:var(--ln-weak)"></div>Weak La Niña (0.5–1.0°C)</div>
+  <div class="lsep"></div>
+  <div class="li"><div class="ls" style="background:var(--cur1);height:4px"></div>2024–25 La Niña (recent)</div>
+  <div class="li"><div class="ls-dashed"></div>2026 (developing)</div>
+</div>
+
+<div class="notable" id="notable">
+  <h3>Notable Events — click to highlight</h3>
+  <div class="ntags" id="ntagGrid"></div>
+</div>
+
+<div id="tip"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const TIERS = {
+  elnino: [
+    { min:2.0, label:'Super',    hex:'#c0392b', a:0.85, w:2.5 },
+    { min:1.5, label:'Strong',   hex:'#e67e22', a:0.65, w:2.0 },
+    { min:1.0, label:'Moderate', hex:'#e8a020', a:0.50, w:1.5 },
+    { min:0.5, label:'Weak',     hex:'#8B6914', a:0.35, w:1.2 },
+  ],
+  lanina: [
+    { min:1.5, label:'Strong',   hex:'#1565c0', a:0.80, w:2.5 },
+    { min:1.0, label:'Moderate', hex:'#1976d2', a:0.55, w:1.8 },
+    { min:0.5, label:'Weak',     hex:'#42a5f5', a:0.40, w:1.2 },
+  ],
+};
+
+// Notable events that get labels in the panel
+const HEADLINES = {
+  1877:'1877–78', 1888:'1888–89', 1899:'1899–00', 1902:'1902–03',
+  1905:'1905–06', 1911:'1911–12', 1918:'1918–19', 1925:'1925–26',
+  1930:'1930–31', 1957:'1957–58', 1965:'1965–66', 1972:'1972–73',
+  1982:'1982–83', 1991:'1991–92', 1997:'1997–98', 2009:'2009–10',
+  2015:'2015–16',
+  // La Niña
+  1889:'1889–90', 1916:'1916–17', 1954:'1954–55', 1964:'1964–65',
+  1973:'1973–74', 1975:'1975–76', 1988:'1988–89', 1998:'1998–99',
+  1999:'1999–00', 2007:'2007–08', 2010:'2010–11', 2020:'2020–21',
+  2024:'2024–25',
+};
+
+const XLABELS = [...MO, ...MO];  // 24-month x-axis labels
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let rawData = {}, oniData = {};
+let allEvents = [], currentLines = [];
+let chart = null;
+let dsMeta = [];  // parallel metadata array for chart.data.datasets
+let highlightedYear = null;
+const S = { mode:'both', thresh:'sig', metric:'oni', named:true };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function rgba(hex, a) {
+  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function getTier(peak, type) {
+  for (const t of TIERS[type]) if (peak >= t.min) return t;
+  return TIERS[type].at(-1);
+}
+function findPeakIdx(series, type) {
+  let best = -1;
+  for (let i = 0; i < series.length; i++) {
+    if (series[i] === null) continue;
+    if (best === -1) { best = i; continue; }
+    if (type === 'elnino' && series[i] > series[best]) best = i;
+    if (type === 'lanina' && series[i] < series[best]) best = i;
+  }
+  return best;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARSING
+// ─────────────────────────────────────────────────────────────────────────────
+function parse(text) {
+  const data = {};
+  let curYear = null, acc = [];
+
+  const flush = () => {
+    if (curYear && acc.length >= 12)
+      data[curYear] = acc.slice(0, 12).map(v => Math.abs(v) >= 9 ? null : v);
+  };
+
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split(/\s+/).filter(Boolean);
+    const first = parseFloat(parts[0]);
+    const isYearInt = !isNaN(first) && first >= 1800 && first <= 2030 && Math.round(first) === first;
+
+    if (isYearInt) {
+      const yr = Math.round(first);
+      // Skip header line "1870 2024"
+      if (parts.length === 2) {
+        const s = parseFloat(parts[1]);
+        if (!isNaN(s) && s >= 1800 && s <= 2030 && Math.round(s) === s) continue;
+      }
+      flush();
+      curYear = yr;
+      acc = parts.slice(1).map(parseFloat).filter(v => !isNaN(v));
+    } else if (curYear) {
+      acc.push(...parts.map(parseFloat).filter(v => !isNaN(v)));
+    }
+  }
+  flush();
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONI — 3-month centered running mean
+// ─────────────────────────────────────────────────────────────────────────────
+function calcONI(raw) {
+  const yrs = Object.keys(raw).map(Number).sort((a,b)=>a-b);
+  const flat = [];
+  for (const y of yrs) {
+    const vals = raw[y] || Array(12).fill(null);
+    for (let m = 0; m < 12; m++) flat.push({ y, m, v: vals[m] });
+  }
+  for (let i = 0; i < flat.length; i++) {
+    const p = flat[i-1]?.v ?? null;
+    const c = flat[i].v;
+    const n = flat[i+1]?.v ?? null;
+    flat[i].oni = (p !== null && c !== null && n !== null)
+      ? +((p + c + n) / 3).toFixed(3) : null;
+  }
+  const oni = {};
+  for (const { y, m, oni: o } of flat) {
+    if (!oni[y]) oni[y] = Array(12).fill(null);
+    oni[y][m] = o;
+  }
+  return { oni, years: yrs };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EVENT DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+function detect(raw, oni, years) {
+  const events = [];
+  // Process through 2024; 2025 handled as current-line context
+  const ys = years.filter(y => y <= 2024);
+
+  for (let i = 0; i < ys.length - 1; i++) {
+    const y0 = ys[i], y1 = ys[i+1];
+
+    // 24-month window
+    const oS = [...(oni[y0] || Array(12).fill(null)), ...(oni[y1] || Array(12).fill(null))];
+    const rS = [...(raw[y0] || Array(12).fill(null)), ...(raw[y1] || Array(12).fill(null))];
+
+    // Core window: Jul[0]–Jun[+1] = indices 6–17
+    const core = oS.slice(6, 18).filter(v => v !== null);
+    if (core.length < 4) continue;
+
+    const maxV = Math.max(...core);
+    const minV = Math.min(...core);
+
+    // Previous December ONI — determines whether this is a new event vs continuation
+    const prevDecONI = oni[y0 - 1]?.[11] ?? 0;
+
+    if (maxV >= 0.5 && maxV > Math.abs(minV) && prevDecONI < 0.5) {
+      // El Niño
+      const peakIdx = findPeakIdx(oS, 'elnino');
+      events.push({
+        year: y0, type: 'elnino', peak: +maxV.toFixed(2), peakIdx,
+        tier: getTier(maxV, 'elnino'),
+        oniSeries: oS, rawSeries: rS,
+        label: `${y0}–${String(y1).slice(2)} El Niño`,
+        isHeadline: !!HEADLINES[y0],
+      });
+    } else if (Math.abs(minV) >= 0.5 && Math.abs(minV) > maxV && prevDecONI > -0.5) {
+      // La Niña
+      const pk = +Math.abs(minV).toFixed(2);
+      const peakIdx = findPeakIdx(oS, 'lanina');
+      events.push({
+        year: y0, type: 'lanina', peak: pk, peakIdx,
+        tier: getTier(pk, 'lanina'),
+        oniSeries: oS, rawSeries: rS,
+        label: `${y0}–${String(y1).slice(2)} La Niña`,
+        isHeadline: !!HEADLINES[y0],
+      });
+    }
+  }
+  return events;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CURRENT EVENT LINES
+// ─────────────────────────────────────────────────────────────────────────────
+function buildCurrentLines(raw, oni) {
+  const lines = [];
+
+  // 2024–25 La Niña (year 0 = 2024, 24-month window = Jan 2024–Dec 2025)
+  const ln_oni = [...(oni[2024] || Array(12).fill(null)), ...(oni[2025] || Array(12).fill(null))];
+  const ln_raw = [...(raw[2024] || Array(12).fill(null)), ...(raw[2025] || Array(12).fill(null))];
+  lines.push({
+    year: 2024, type: 'lanina', label: '2024–25 La Niña (recent)',
+    oniSeries: ln_oni, rawSeries: ln_raw,
+    color: '#7F77DD', width: 3.5, dashed: false, isCurrent: true,
+  });
+
+  // 2026 developing trajectory (year 0 = 2026, stub: Jan–present 2026)
+  const dv_raw = [...(raw[2026] || Array(12).fill(null)), ...Array(12).fill(null)];
+  const dv_oni = [...(oni[2026] || Array(12).fill(null)), ...Array(12).fill(null)];
+  if (dv_raw.some(v => v !== null)) {
+    const lastIdx = dv_oni.reduce((b, v, i) => v !== null ? i : b, -1);
+    lines.push({
+      year: 2026, type: 'developing', label: '2026 (developing)',
+      oniSeries: dv_oni, rawSeries: dv_raw,
+      color: '#1D9E75', width: 3.5, dashed: true, isCurrent: true, lastIdx,
+    });
+  }
+  return lines;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DATASET BUILDING
+// ─────────────────────────────────────────────────────────────────────────────
+function buildDatasets(events, curLines, metric, mode, thresh) {
+  const ds = [];
+  dsMeta = [];
+
+  // Reference lines at 0, ±0.5, ±1.0, ±1.5, ±2.0
+  for (const v of [0, 0.5, 1.0, 1.5, 2.0, -0.5, -1.0, -1.5, -2.0]) {
+    ds.push({
+      label: `__ref_${v}`, data: Array(24).fill(v),
+      borderColor: v === 0 ? 'rgba(255,255,255,.18)' : 'rgba(255,255,255,.06)',
+      borderWidth: v === 0 ? 1 : 0.75,
+      borderDash: v !== 0 ? [4, 4] : [],
+      pointRadius: 0, tension: 0, fill: false, order: 99,
+    });
+    dsMeta.push({ kind: 'ref' });
+  }
+
+  // Filter events
+  let fev = [...events];
+  if (mode === 'elnino') fev = fev.filter(e => e.type === 'elnino');
+  if (mode === 'lanina') fev = fev.filter(e => e.type === 'lanina');
+  const minPeak = thresh === 'sig' ? 1.0 : 0.5;
+  fev = fev.filter(e => e.peak >= minPeak && e.year !== 2024 && e.year !== 2026);
+  // Weakest first → strongest draws on top
+  fev.sort((a, b) => a.peak - b.peak);
+
+  for (const ev of fev) {
+    const series = metric === 'oni' ? ev.oniSeries : ev.rawSeries;
+    const dim    = highlightedYear !== null && ev.year !== highlightedYear;
+    const bright = highlightedYear === ev.year;
+    const alpha  = dim ? ev.tier.a * 0.2 : bright ? 1.0 : ev.tier.a;
+    const width  = bright ? ev.tier.w + 1.5 : ev.tier.w;
+
+    ds.push({
+      label: ev.label,
+      data: series,
+      borderColor: rgba(ev.tier.hex, alpha),
+      borderWidth: width,
+      borderDash: [],
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      tension: 0.35,
+      fill: false,
+      spanGaps: false,
+      order: ev.tier.label === 'Super' ? 3 : ev.tier.label === 'Strong' ? 4 : 5,
+    });
+    dsMeta.push({ kind: 'event', ev });
+  }
+
+  // Current event lines — always on top
+  for (const cl of curLines) {
+    const series = metric === 'oni' ? cl.oniSeries : cl.rawSeries;
+
+    // Endpoint dot for the developing 2026 line
+    const pRadius = Array(24).fill(0);
+    const pBg     = Array(24).fill(cl.color);
+    if (cl.lastIdx !== undefined && cl.lastIdx >= 0) {
+      pRadius[cl.lastIdx] = 6;
+    }
+
+    ds.push({
+      label: cl.label,
+      data: series,
+      borderColor: cl.color,
+      borderWidth: cl.width,
+      borderDash: cl.dashed ? [9, 5] : [],
+      pointRadius: pRadius,
+      pointBackgroundColor: pBg,
+      pointBorderColor: 'transparent',
+      pointHoverRadius: 7,
+      tension: 0.35,
+      fill: false,
+      spanGaps: false,
+      order: 0,
+    });
+    dsMeta.push({ kind: 'current', cl });
+  }
+
+  return ds;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHART.JS PLUGINS
+// ─────────────────────────────────────────────────────────────────────────────
+const crosshairPlugin = {
+  id: 'xhair',
+  afterDraw(chart) {
+    if (!chart.tooltip._active?.length) return;
+    const { ctx, chartArea } = chart;
+    const x = chart.tooltip._active[0].element.x;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.strokeStyle = 'rgba(255,255,255,.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+
+const yearSepPlugin = {
+  id: 'ysep',
+  afterDraw(chart) {
+    const { ctx, chartArea } = chart;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+
+    const p11 = xScale.getPixelForValue(11);
+    const p12 = xScale.getPixelForValue(12);
+    const sep = (p11 + p12) / 2;
+
+    // Separator line
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(sep, chartArea.top);
+    ctx.lineTo(sep, chartArea.bottom + 4);
+    ctx.strokeStyle = 'rgba(255,255,255,.18)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Year 0 / Year +1 labels
+    ctx.fillStyle = 'rgba(232,234,240,.3)';
+    ctx.font = "600 12px 'Barlow Condensed', sans-serif";
+    ctx.textAlign = 'center';
+    ctx.fillText('Year 0',  (chartArea.left + sep) / 2, chartArea.top - 5);
+    ctx.fillText('Year +1', (sep + chartArea.right) / 2, chartArea.top - 5);
+    ctx.restore();
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHART INIT
+// ─────────────────────────────────────────────────────────────────────────────
+function initChart(datasets) {
+  const ctx = document.getElementById('cvs').getContext('2d');
+  if (chart) chart.destroy();
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: XLABELS, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 0 },
+      layout: { padding: { top: 22, right: 12 } },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false, external: extTooltip },
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,.04)', tickColor: 'transparent' },
+          border: { color: 'rgba(255,255,255,.1)' },
+          ticks: {
+            font: { family: 'Barlow Condensed', size: 14 },
+            color: 'rgba(232,234,240,.5)',
+            maxRotation: 0,
+            callback(_, i) { return MO[i % 12]; },
+          },
+        },
+        y: {
+          min: -3.5,
+          max: 3.5,
+          grid: { color: 'rgba(255,255,255,.04)' },
+          border: { color: 'rgba(255,255,255,.1)' },
+          ticks: {
+            font: { family: 'JetBrains Mono', size: 12 },
+            color: 'rgba(232,234,240,.5)',
+            stepSize: 0.5,
+            callback: v => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`,
+          },
+        },
+      },
+    },
+    plugins: [crosshairPlugin, yearSepPlugin],
+  });
+
+  // Hide tooltip when cursor leaves chart
+  document.getElementById('cvs').addEventListener('mouseleave', () => {
+    tipEl.classList.remove('on');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOOLTIP
+// ─────────────────────────────────────────────────────────────────────────────
+const tipEl = document.getElementById('tip');
+
+function extTooltip({ chart: c, tooltip: tip }) {
+  if (tip.opacity === 0) { tipEl.classList.remove('on'); return; }
+
+  const mi = tip.dataIndex;
+  const monLabel = `${MO[mi % 12]} · ${mi < 12 ? 'Year 0' : 'Year +1'}`;
+
+  const pts = tip.dataPoints
+    .filter(dp => {
+      const m = dsMeta[dp.datasetIndex];
+      return m?.kind !== 'ref' && dp.raw !== null;
+    })
+    .sort((a, b) => Math.abs(b.raw) - Math.abs(a.raw));
+
+  if (!pts.length) { tipEl.classList.remove('on'); return; }
+
+  const curPts  = pts.filter(dp => dsMeta[dp.datasetIndex]?.kind === 'current');
+  const evPts   = pts.filter(dp => dsMeta[dp.datasetIndex]?.kind === 'event');
+  const show    = [...curPts, ...evPts.slice(0, 5)];
+  const extra   = evPts.length - Math.min(5, evPts.length);
+
+  let html = `<div class="tth">${monLabel}</div>`;
+  for (const dp of show) {
+    const ds  = c.data.datasets[dp.datasetIndex];
+    const v   = dp.raw;
+    const sign = v >= 0 ? '+' : '';
+    const vc  = v >= 0.5 ? '#f39c12' : v <= -0.5 ? '#42a5f5' : 'rgba(232,234,240,.7)';
+    const bc  = typeof ds.borderColor === 'string' ? ds.borderColor : '#888';
+    html += `<div class="ttr">
+      <div class="ttsw" style="background:${bc}"></div>
+      <div class="ttn">${ds.label}</div>
+      <div class="ttv" style="color:${vc}">${sign}${v.toFixed(2)}°C</div>
+    </div>`;
+  }
+  if (extra > 0) html += `<div class="ttmore">+ ${extra} more events at this month</div>`;
+
+  tipEl.innerHTML = html;
+  tipEl.classList.add('on');
+
+  const r = c.canvas.getBoundingClientRect();
+  const tw = tipEl.offsetWidth || 230;
+  const th = tipEl.offsetHeight || 160;
+  let lx = r.left + tip.caretX + 14;
+  let ty = r.top  + tip.caretY - th / 2;
+  if (lx + tw > window.innerWidth  - 10) lx = r.left + tip.caretX - tw - 14;
+  if (ty < 4) ty = 4;
+  if (ty + th > window.innerHeight - 4) ty = window.innerHeight - th - 4;
+  tipEl.style.left = lx + 'px';
+  tipEl.style.top  = ty + 'px';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAT CHIPS
+// ─────────────────────────────────────────────────────────────────────────────
+function updateChips() {
+  const en = allEvents.filter(e => e.type === 'elnino' && e.peak >= 1.0);
+  const ln = allEvents.filter(e => e.type === 'lanina' && e.peak >= 1.0);
+
+  document.getElementById('cEN').textContent = en.length;
+  document.getElementById('cLN').textContent = ln.length;
+
+  const topEN = [...en].sort((a,b) => b.peak - a.peak)[0];
+  if (topEN) {
+    document.getElementById('cENrec').textContent = `+${topEN.peak.toFixed(1)}°C`;
+    document.getElementById('cENrecYr').textContent = topEN.label;
+  }
+  const topLN = [...ln].sort((a,b) => b.peak - a.peak)[0];
+  if (topLN) {
+    document.getElementById('cLNrec').textContent = `−${topLN.peak.toFixed(1)}°C`;
+    document.getElementById('cLNrecYr').textContent = topLN.label;
+  }
+
+  // Latest raw Niño 3.4 value
+  const yrs = Object.keys(rawData).map(Number).sort((a,b) => b - a);
+  outer:
+  for (const yr of yrs) {
+    for (let m = 11; m >= 0; m--) {
+      if (rawData[yr][m] !== null) {
+        const v = rawData[yr][m];
+        const el = document.getElementById('cLat');
+        el.textContent = `${v >= 0 ? '+' : ''}${v.toFixed(2)}°C`;
+        el.style.color = v >= 0.5 ? 'var(--en-mod)' : v <= -0.5 ? 'var(--ln-weak)' : 'var(--text)';
+        document.getElementById('cLatDate').textContent = `${MO[m]} ${yr}`;
+        break outer;
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTABLE EVENTS PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+function buildNotable() {
+  const grid = document.getElementById('ntagGrid');
+  grid.innerHTML = '';
+  const items = allEvents
+    .filter(e => e.isHeadline && e.peak >= 0.5)
+    .sort((a, b) => a.year - b.year);
+
+  for (const ev of items) {
+    const tag = document.createElement('div');
+    tag.className = 'ntag';
+    tag.textContent = ev.label;
+    tag.style.cssText = `background:${rgba(ev.tier.hex, .15)};color:${ev.tier.hex};border-color:${rgba(ev.tier.hex, .3)}`;
+    tag.title = `Peak ONI: ${ev.type === 'lanina' ? '−' : '+'}${ev.peak.toFixed(2)}°C · ${ev.tier.label} ${ev.type === 'lanina' ? 'La Niña' : 'El Niño'}`;
+    tag.addEventListener('click', () => toggleHL(ev.year, tag));
+    grid.appendChild(tag);
+  }
+}
+
+function toggleHL(year, tag) {
+  highlightedYear = highlightedYear === year ? null : year;
+  document.querySelectorAll('.ntag').forEach(t =>
+    t.classList.toggle('hl', t === tag && highlightedYear !== null)
+  );
+  rebuildChart();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTROLS
+// ─────────────────────────────────────────────────────────────────────────────
+function setupControls() {
+  const seg = (id, key) => {
+    document.getElementById(id).addEventListener('click', e => {
+      const btn = e.target.closest('button[data-v]');
+      if (!btn) return;
+      S[key] = btn.dataset.v;
+      document.querySelectorAll(`#${id} button`)
+        .forEach(b => b.classList.toggle('on', b === btn));
+      rebuildChart();
+    });
+  };
+  seg('sgMode',   'mode');
+  seg('sgThresh', 'thresh');
+  seg('sgMetric', 'metric');
+
+  document.getElementById('btnNamed').addEventListener('click', function() {
+    S.named = !S.named;
+    this.classList.toggle('on', S.named);
+    document.getElementById('notable').classList.toggle('on', S.named);
+  });
+}
+
+function rebuildChart() {
+  if (!chart) return;
+  currentLines = buildCurrentLines(rawData, oniData);
+  chart.data.datasets = buildDatasets(allEvents, currentLines, S.metric, S.mode, S.thresh);
+  chart.update('none');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────────────────────
+async function init() {
+  setupControls();
+  const overlay = document.getElementById('overlay');
+  const errEl   = document.getElementById('errMsg');
+
+  try {
+    const res = await fetch('https://psl.noaa.gov/gcos_wgsp/Timeseries/Data/nino34.long.anom.data');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+
+    rawData = parse(text);
+    const { oni, years } = calcONI(rawData);
+    oniData = oni;
+
+    allEvents    = detect(rawData, oniData, years);
+    currentLines = buildCurrentLines(rawData, oniData);
+
+    updateChips();
+    buildNotable();
+    document.getElementById('notable').classList.add('on');
+
+    const datasets = buildDatasets(allEvents, currentLines, S.metric, S.mode, S.thresh);
+    initChart(datasets);
+
+    overlay.style.display = 'none';
+  } catch (err) {
+    console.error('ENSO Spaghetti error:', err);
+    overlay.style.display = 'none';
+    errEl.style.display = 'block';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
