@@ -167,6 +167,15 @@ const SECTIONS = [
         thumb:      '/ENSOhurricanesThumbnail.png',
       },
       {
+        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
+        title:      'ENSO History Heatmap',
+        description:'Monthly Ni\u00f1o 3.4 SST anomaly from 1870 to present \u2014 placing the developing 2026 super El Ni\u00f1o in 156 years of historical context.',
+        footerTags: ['Ni\u00f1o 3.4', 'HadISST 1.1', 'Model Forecast', '1870\u2013Present'],
+        to:         '/enso-heatmap',
+        accentVar:  '--accent-enso',
+        thumb:      '/ENSO_Heatmap_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'FREQUENCY DISTRIBUTION'],
         title:      'Dewpoint Frequency',
         description:'Distribution of dewpoint temperatures at various US cities across months and seasons.',
