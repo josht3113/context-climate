@@ -142,6 +142,15 @@ const SECTIONS = [
         accentVar:  '--accent-hourly',
         thumb:      '/SLP_Heatmap_thumbnail.png',
       },
+      {
+        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
+        title:      'ENSO History Heatmap',
+        description:'Monthly Niño 3.4 SST anomaly from 1870 to present — placing the developing 2026 super El Niño in 156 years of historical context.',
+        footerTags: ['Niño 3.4', 'HadISST 1.1', 'Model Forecast', '1870–Present'],
+        to:         '/enso-heatmap',
+        accentVar:  '--accent-hourly',
+        thumb:      '/ENSO_Heatmap_thumbnail.png',
+      },
     ],
   },
   {
@@ -165,15 +174,6 @@ const SECTIONS = [
         to:         '/hurricanes',
         accentVar:  '--accent-climate',
         thumb:      '/ENSOhurricanesThumbnail.png',
-      },
-      {
-        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
-        title:      'ENSO History Heatmap',
-        description:'Monthly Ni\u00f1o 3.4 SST anomaly from 1870 to present \u2014 placing the developing 2026 super El Ni\u00f1o in 156 years of historical context.',
-        footerTags: ['Ni\u00f1o 3.4', 'HadISST 1.1', 'Model Forecast', '1870\u2013Present'],
-        to:         '/enso-heatmap',
-        accentVar:  '--accent-enso',
-        thumb:      '/ENSO_Heatmap_thumbnail.png',
       },
       {
         tags:       ['US Cities', 'FREQUENCY DISTRIBUTION'],
