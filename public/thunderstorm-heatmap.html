@@ -368,6 +368,11 @@ select:focus { border-color: var(--accent); }
   border-color: #3a3a5c;
   color: var(--text);
 }
+.now-btn.active {
+  border-color: #a78bfa;
+  color: #a78bfa;
+  background: rgba(124,58,237,0.12);
+}
 </style>
 </head>
 <body>
@@ -380,6 +385,7 @@ select:focus { border-color: var(--accent); }
     <span class="title-sep">|</span>
     <span id="title-period">1991–2025</span>
     <button class="download-btn" onclick="downloadPNG()" title="Download PNG with header">↓ PNG</button>
+    <button class="download-btn now-btn" id="btn-now" onclick="toggleNow()" title="Highlight current day and hour on the chart">⊕ Now</button>
     <a class="cc-pill" href="https://contextclimate.io" target="_blank">[ ] ContextClimate</a>
   </div>
 
@@ -613,11 +619,12 @@ function rgb(r, g, b)     { return `rgb(${r},${g},${b})`; }
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
-let mode        = 'climatology';
-let currentYear = CLIMO_END;
-let singleGrid  = null;
-let tsCount     = null;
-let dataCount   = null;
+let mode            = 'climatology';
+let currentYear     = CLIMO_END;
+let singleGrid      = null;
+let tsCount         = null;
+let dataCount       = null;
+let nowMarkerActive = false;
 
 // ═══════════════════════════════════════════════════════════════
 // DATE UTILITIES
@@ -760,6 +767,35 @@ function processYear(obs) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// NOW-MARKER HELPERS
+// ═══════════════════════════════════════════════════════════════
+function getNowInStationTZ() {
+  const st  = activeStation();
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: st.tz,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hourCycle: 'h23',
+  });
+  const parts = dtf.formatToParts(new Date());
+  const get   = type => parseInt(parts.find(p => p.type === type).value);
+  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour') % 24 };
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y);
+  c.arcTo(x + w, y,     x + w, y + r,     r);
+  c.lineTo(x + w, y + h - r);
+  c.arcTo(x + w, y + h, x + w - r, y + h, r);
+  c.lineTo(x + r, y + h);
+  c.arcTo(x,     y + h, x,     y + h - r, r);
+  c.lineTo(x, y + r);
+  c.arcTo(x,     y,     x + r, y,         r);
+  c.closePath();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // CANVAS / RENDER
 // ═══════════════════════════════════════════════════════════════
 const canvas = document.getElementById('heatmap-canvas');
@@ -836,6 +872,9 @@ function renderHeatmap() {
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
   const noonY = Math.round(12 * cellH) + 0.5;
   ctx.beginPath(); ctx.moveTo(0, noonY); ctx.lineTo(W, noonY); ctx.stroke();
+
+  // Now marker overlay (climatology mode only)
+  if (nowMarkerActive && mode === 'climatology') drawNowMarker();
 }
 
 // ── Legend ──────────────────────────────────────────────────
@@ -865,6 +904,64 @@ function renderLegend() {
     document.getElementById('legend-lo').textContent = 'No storm';
     document.getElementById('legend-hi').textContent = 'Storm';
   }
+}
+
+// ── Now marker ───────────────────────────────────────────────
+function drawNowMarker() {
+  const { year, month, day, hour } = getNowInStationTZ();
+  const doy = getDOY0(year, month, day);
+  if (doy < 0 || doy > 365) return;
+
+  const W     = canvas.width  / dpr;
+  const H     = canvas.height / dpr;
+  const cellW = W / 366;
+  const cellH = H / 24;
+  const x     = (doy  + 0.5) * cellW;
+  const y     = (hour + 0.5) * cellH;
+
+  ctx.save();
+
+  // Dashed crosshair lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.70)';
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Intersection dot
+  ctx.fillStyle   = '#ffffff';
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+  // Callout label
+  const label = `${MONTHS_SHORT[month - 1]} ${day}  \u00b7  ${fmtHour(hour)}`;
+  ctx.font     = 'bold 13px "Barlow Condensed", Arial, sans-serif';
+  const tw     = ctx.measureText(label).width;
+  const BP = 7, BH = 23, BW = tw + BP * 2;
+
+  let bx = x + 10, by = y - BH - 7;
+  if (bx + BW > W - 4) bx = x - BW - 10;
+  if (by < 4)           by = y + 8;
+
+  ctx.fillStyle   = 'rgba(8,8,24,0.93)';
+  ctx.strokeStyle = 'rgba(167,139,250,0.85)';
+  ctx.lineWidth   = 1;
+  roundRect(ctx, bx, by, BW, BH, 4); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#e6e6f0';
+  ctx.font      = 'bold 13px "Barlow Condensed", Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(label, bx + BP, by + BH - 6);
+
+  ctx.restore();
+}
+
+function toggleNow() {
+  nowMarkerActive = !nowMarkerActive;
+  document.getElementById('btn-now').classList.toggle('active', nowMarkerActive);
+  if (mode === 'climatology' && tsCount) renderHeatmap();
 }
 
 // ── Hour labels ──────────────────────────────────────────────
@@ -1177,18 +1274,27 @@ function downloadPNG() {
   const st       = activeStation();
   const period   = mode === 'single' ? String(currentYear) : `${CLIMO_START}–${CLIMO_END}`;
   const subtitle = mode === 'climatology'
-    ? `Probability of thunderstorm by hour and day of year  ·  ${CLIMO_START}–${CLIMO_END}`
-    : `Hours with observed thunderstorm  ·  ${currentYear}`;
+    ? `Probability of thunderstorm by hour and day of year  \u00b7  ${CLIMO_START}–${CLIMO_END}`
+    : `Hours with observed thunderstorm  \u00b7  ${currentYear}`;
 
-  const cw = canvas.width  / dpr;   // CSS-pixel width of heatmap
+  const cw = canvas.width  / dpr;
   const ch = canvas.height / dpr;
 
-  const PAD = 24, HDR = 86, FTR = 28, MONTH_H = 22;
-  const ow = cw + PAD * 2;          // add side padding
+  // Layout constants
+  const PAD_TOP    = 24;   // top padding inside header
+  const HDR        = 90;   // header area height
+  const MONTH_H    = 28;   // month label strip height
+  const FTR        = 46;   // footer area (x-axis label + source line)
+  const YTITLE_W   = 22;   // rotated y-axis title column width
+  const HLABEL_W   = 72;   // hour label column width
+  const LEFT       = YTITLE_W + HLABEL_W;
+  const RIGHT_PAD  = 28;
+
+  const ow = LEFT + cw + RIGHT_PAD;
   const oh = HDR + MONTH_H + ch + FTR;
 
   const off = document.createElement('canvas');
-  off.width  = ow * 2;              // 2× for HiDPI clarity
+  off.width  = ow * 2;
   off.height = oh * 2;
   const oc = off.getContext('2d');
   oc.scale(2, 2);
@@ -1197,7 +1303,7 @@ function downloadPNG() {
   oc.fillStyle = '#07070f';
   oc.fillRect(0, 0, ow, oh);
 
-  // ── Header accent bar ──
+  // ── Top accent bar ──
   const grad = oc.createLinearGradient(0, 0, ow, 0);
   COLOR_STOPS.forEach(s => {
     const [r, g, b] = lerpColor(s.t);
@@ -1209,12 +1315,12 @@ function downloadPNG() {
   // ── Station + title ──
   oc.fillStyle = '#e6e6f0';
   oc.font = 'bold 20px "Barlow Condensed", Arial, sans-serif';
-  oc.fillText(`${st.label}  ·  Thunderstorm Heatmap  ·  ${period}`, PAD, 28);
+  oc.fillText(`${st.label}  \u00b7  Thunderstorm Heatmap  \u00b7  ${period}`, PAD_TOP, 28);
 
   // ── Subtitle ──
   oc.fillStyle = '#7878a0';
   oc.font = '14px "Barlow Condensed", Arial, sans-serif';
-  oc.fillText(subtitle, PAD, 48);
+  oc.fillText(subtitle, PAD_TOP, 48);
 
   // ── Stats row (climatology only) ──
   if (mode === 'climatology' && tsCount) {
@@ -1223,36 +1329,139 @@ function downloadPNG() {
     const avg  = document.getElementById('sv-annual').textContent;
     oc.fillStyle = '#a78bfa';
     oc.font = 'bold 13px "Barlow Condensed", Arial, sans-serif';
-    oc.fillText(`Peak month: ${peak}   Peak hour: ${hr}   Avg TS hrs/yr: ${avg}`, PAD, 68);
+    oc.fillText(`Peak month: ${peak}   Peak hour: ${hr}   Avg TS hrs/yr: ${avg}`, PAD_TOP, 68);
   }
 
   // ── ContextClimate branding (top right) ──
   oc.fillStyle = '#555575';
   oc.font = '13px "Barlow Condensed", Arial, sans-serif';
   oc.textAlign = 'right';
-  oc.fillText('contextclimate.io', ow - PAD, 28);
+  oc.fillText('contextclimate.io', ow - RIGHT_PAD, 28);
   oc.textAlign = 'left';
 
-  // ── Heatmap canvas ──
-  // Month labels strip
-  oc.fillStyle = '#5a5a7a';
-  oc.font = '12px "Barlow Condensed", Arial, sans-serif';
+  // ── Y-axis title (rotated) ──
+  const heatTop  = HDR + MONTH_H;
+  const heatLeft = LEFT;
+  const cellH    = ch / 24;
+  const cellW    = cw / 366;
+
+  oc.save();
+  oc.fillStyle = '#7878a0';
+  oc.font = 'bold 12px "Barlow Condensed", Arial, sans-serif';
   oc.textAlign = 'center';
-  const cellW = cw / 366;
+  oc.translate(YTITLE_W / 2, heatTop + ch / 2);
+  oc.rotate(-Math.PI / 2);
+  oc.fillText(`${st.tzLabel.toUpperCase()} LOCAL TIME`, 0, 4);
+  oc.restore();
+  oc.textAlign = 'left';
+
+  // ── Hour axis labels (every 3 hours) ──
+  const HOUR_TICKS = [0, 3, 6, 9, 12, 15, 18, 21];
+  oc.font = 'bold 13px "Barlow Condensed", Arial, sans-serif';
+  oc.textAlign = 'right';
+  for (const h of HOUR_TICKS) {
+    const label = h === 0 ? 'Midnight' : h === 12 ? 'Noon'
+                : h < 12  ? `${h} AM`  : `${h - 12} PM`;
+    const ty = heatTop + h * cellH + cellH / 2;
+    oc.fillStyle = '#b0b0cc';
+    oc.fillText(label, heatLeft - 8, ty + 4);
+    // Tick mark
+    oc.strokeStyle = 'rgba(176,176,204,0.45)';
+    oc.lineWidth = 1;
+    oc.beginPath(); oc.moveTo(heatLeft - 5, ty); oc.lineTo(heatLeft, ty); oc.stroke();
+  }
+  oc.textAlign = 'left';
+
+  // ── Month label strip ──
+  oc.font = 'bold 14px "Barlow Condensed", Arial, sans-serif';
+  oc.textAlign = 'center';
   for (let m = 0; m < 12; m++) {
     const s   = MONTH_START_DOY[m];
     const e   = m < 11 ? MONTH_START_DOY[m + 1] : 366;
     const mid = (s + e - 1) / 2;
-    oc.fillText(MONTHS_SHORT[m], PAD + mid * cellW, HDR + MONTH_H - 6);
+    oc.fillStyle = '#b0b0cc';
+    oc.fillText(MONTHS_SHORT[m], heatLeft + mid * cellW, HDR + MONTH_H - 7);
+    // Tick mark below month label
+    const tx = heatLeft + MONTH_START_DOY[m] * cellW;
+    if (m > 0) {
+      oc.strokeStyle = 'rgba(176,176,204,0.35)';
+      oc.lineWidth = 1;
+      oc.beginPath(); oc.moveTo(tx, HDR + MONTH_H); oc.lineTo(tx, HDR + MONTH_H - 5); oc.stroke();
+    }
   }
   oc.textAlign = 'left';
 
-  oc.drawImage(canvas, PAD, HDR + MONTH_H, cw, ch);
+  // ── Heatmap image ──
+  oc.drawImage(canvas, heatLeft, heatTop, cw, ch);
 
-  // ── Footer ──
+  // ── Heatmap border ──
+  oc.strokeStyle = 'rgba(255,255,255,0.09)';
+  oc.lineWidth = 1;
+  oc.strokeRect(heatLeft, heatTop, cw, ch);
+
+  // ── Month dividers over heatmap ──
+  oc.strokeStyle = 'rgba(255,255,255,0.13)';
+  oc.lineWidth = 1;
+  for (let m = 1; m < 12; m++) {
+    const mx = heatLeft + MONTH_START_DOY[m] * cellW;
+    oc.beginPath(); oc.moveTo(mx, heatTop); oc.lineTo(mx, heatTop + ch); oc.stroke();
+  }
+
+  // ── X-axis label ──
+  oc.fillStyle = '#7878a0';
+  oc.font = 'bold 12px "Barlow Condensed", Arial, sans-serif';
+  oc.textAlign = 'center';
+  oc.fillText('MONTH OF YEAR', heatLeft + cw / 2, heatTop + ch + 20);
+  oc.textAlign = 'left';
+
+  // ── Now marker on export (climatology only) ──
+  if (nowMarkerActive && mode === 'climatology') {
+    const { year, month, day, hour } = getNowInStationTZ();
+    const doy = getDOY0(year, month, day);
+    if (doy >= 0 && doy <= 365) {
+      const nx = heatLeft + (doy  + 0.5) * cellW;
+      const ny = heatTop  + (hour + 0.5) * cellH;
+
+      oc.save();
+      oc.strokeStyle = 'rgba(255,255,255,0.70)';
+      oc.lineWidth   = 1.5;
+      oc.setLineDash([5, 3]);
+      oc.beginPath(); oc.moveTo(nx, heatTop);  oc.lineTo(nx, heatTop + ch);  oc.stroke();
+      oc.beginPath(); oc.moveTo(heatLeft, ny); oc.lineTo(heatLeft + cw, ny); oc.stroke();
+      oc.setLineDash([]);
+
+      oc.fillStyle   = '#ffffff';
+      oc.strokeStyle = 'rgba(0,0,0,0.55)';
+      oc.lineWidth   = 1;
+      oc.beginPath(); oc.arc(nx, ny, 5, 0, Math.PI * 2); oc.fill(); oc.stroke();
+
+      const nowLabel = `${MONTHS_SHORT[month - 1]} ${day}  \u00b7  ${fmtHour(hour)}`;
+      oc.font = 'bold 13px "Barlow Condensed", Arial, sans-serif';
+      const tw = oc.measureText(nowLabel).width;
+      const BP = 7, BH = 23, BW = tw + BP * 2;
+      let bx = nx + 10, by = ny - BH - 7;
+      if (bx + BW > heatLeft + cw - 4) bx = nx - BW - 10;
+      if (by < heatTop + 4)            by = ny + 8;
+
+      oc.fillStyle   = 'rgba(8,8,24,0.93)';
+      oc.strokeStyle = 'rgba(167,139,250,0.85)';
+      oc.lineWidth   = 1;
+      roundRect(oc, bx, by, BW, BH, 4); oc.fill(); oc.stroke();
+
+      oc.fillStyle = '#e6e6f0';
+      oc.textAlign = 'left';
+      oc.fillText(nowLabel, bx + BP, by + BH - 6);
+      oc.restore();
+    }
+  }
+
+  // ── Footer / source line ──
   oc.fillStyle = '#3e3e58';
   oc.font = '12px "Barlow Condensed", Arial, sans-serif';
-  oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS  ·  contextclimate.io`, PAD, HDR + MONTH_H + ch + 18);
+  oc.fillText(
+    `${st.tzLabel} Local Time  \u00b7  Data: IEM ASOS  \u00b7  contextclimate.io`,
+    PAD_TOP, heatTop + ch + 38
+  );
 
   // ── Bottom accent line ──
   oc.fillStyle = grad;
