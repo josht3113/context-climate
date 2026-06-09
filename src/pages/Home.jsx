@@ -291,6 +291,21 @@ const SECTIONS = [
       },
     ],
   },
+  {
+    id:    'earth-space',
+    label: 'Earth & Space Science',
+    cards: [
+      {
+        tags:       ['ENSO DYNAMICS', 'OCEAN–ATMOSPHERE', 'NYS CURRICULUM'],
+        title:      'Kelvin Wave & ENSO Cycle Explainer',
+        description:'Interactive simulation of the ocean–atmosphere mechanism behind El Niño and La Niña — from westerly wind burst to Kelvin wave propagation, thermocline response, and Walker Circulation shift. Includes the full ENSO cycle through La Niña.',
+        footerTags: ['Kelvin Wave', 'Walker Circulation', 'El Niño', 'La Niña', 'ENSO Mechanism'],
+        to:         '/earthandspace/kelvin-wave-explainer',
+        accentVar:  '--accent-earth',
+        thumb:      '/kelvin_wave_explainer_thumbnail.png',
+      },
+    ],
+  },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
