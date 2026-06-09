@@ -135,6 +135,15 @@ const SECTIONS = [
         thumb:       '/kelvin_wave_explainer_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['ENSO', 'Ocean', 'Climate Data'],
+        title:       'Pacific SST Anomaly Map',
+        description: 'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record — track El Niño and La Niña events through Niño region indices and 850 hPa wind anomaly overlays.',
+        footerTags:  ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
+        to:          '/earthandspace/pacific-sst-map',
+        thumb:       '/PacificSstMap_thumbnail.png',
+        status:      'live',
+      },
        {
         tags: ['Clouds', 'Atmosphere'],
         title: 'Cloud Formation Lab',
