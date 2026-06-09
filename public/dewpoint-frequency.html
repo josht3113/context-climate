@@ -1101,28 +1101,45 @@ async function fetchCurrentObs() {
   label.textContent = 'Fetching\u2026';
 
   try {
-    const sid = currentStation.sid;
-    const res = await fetch(
-      `https://api.weather.gov/stations/${sid}/observations?limit=20`,
-      { headers: { Accept: 'application/geo+json' } }
-    );
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const json     = await res.json();
-    // Routine METARs only — skip SPECI (special / sub-hourly observations)
-    // Also require a non-null dewpoint in the same pass, so a single null
-    // reading doesn't abort the search prematurely.
-    const routine  = (json.features || []).find(f => {
-      const raw  = (f.properties?.rawMessage || '').trim();
-      if (!raw.length || raw.startsWith('SPECI')) return false;
-      const dwpC = f.properties?.dewpoint?.value;
-      return dwpC !== null && dwpC !== undefined;
-    });
-    if (!routine) throw new Error('No routine METAR with dewpoint available');
-    const props = routine.properties;
-    const dwpC  = props.dewpoint.value;
+    // NWS often returns null for dewpoint.value even when temperature is valid —
+    // a known data quality issue. Use IEM (same source as historical data) instead.
+    const iemSid = currentStation.iemSid || currentStation.sid;
+    const now  = new Date();
+    const past = new Date(now.getTime() - 2 * 3600 * 1000);
+    const url  =
+      `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py` +
+      `?station=${encodeURIComponent(iemSid)}` +
+      `&data=dwpf&tz=Etc%2FUTC&format=onlycomma&latlon=no&elev=no` +
+      `&missing=M&trace=T&direct=no&report_type=3` +
+      `&year1=${past.getUTCFullYear()}&month1=${past.getUTCMonth()+1}&day1=${past.getUTCDate()}` +
+      `&hour1=${past.getUTCHours()}&minute1=${past.getUTCMinutes()}` +
+      `&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}` +
+      `&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}`;
 
-    currentObsDwpf = dwpC * 9 / 5 + 32;
-    obsTimestamp   = props.timestamp;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text  = await res.text();
+    const lines = text.trim().split('\n');
+
+    // IEM CSV is chronological — walk backwards to get most recent valid reading
+    let dwpf = null, obsTime = null;
+    for (let i = lines.length - 1; i >= 1; i--) {
+      const parts = lines[i].split(',');
+      if (parts.length < 3) continue;
+      const raw = parts[2].trim();
+      if (!raw || raw === 'M') continue;
+      const val = parseFloat(raw);
+      if (isNaN(val)) continue;
+      dwpf    = val;
+      obsTime = parts[1].trim(); // 'YYYY-MM-DD HH:MM' UTC
+      break;
+    }
+    if (dwpf === null) throw new Error('No valid dewpoint in recent IEM data');
+
+    currentObsDwpf = dwpf;
+    obsTimestamp   = obsTime
+      ? new Date(obsTime.replace(' ', 'T') + 'Z').toISOString()
+      : null;
 
     btn.disabled = false;
     btn.classList.add('active');
@@ -1134,6 +1151,7 @@ async function fetchCurrentObs() {
           hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
         })
       : '';
+    const dwpC = (dwpf - 32) * 5 / 9;
     document.getElementById('obs-readout-label').textContent =
       `Current Dewpoint: ${Math.round(currentObsDwpf)}\u00b0F  (${dwpC.toFixed(1)}\u00b0C)`;
     document.getElementById('obs-readout-time').textContent =
