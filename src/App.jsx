@@ -50,6 +50,7 @@ import PrecipHeatmapMonthly        from './pages/PrecipHeatmapMonthly'
 import PrecipHeatmapAnnual         from './pages/PrecipHeatmapAnnual'
 import EnsoHeatmap                 from './pages/EnsoHeatmap'
 import EnsoSpaghetti               from './pages/EnsoSpaghetti'
+import KelvinWaveExplainer         from './pages/KelvinWaveExplainer'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -116,6 +117,7 @@ export default function App() {
           <Route path="/precip-heatmap-annual"               element={<PrecipHeatmapAnnual />}     />
           <Route path="/enso-heatmap"                        element={<EnsoHeatmap />}             />
           <Route path="/enso-spaghetti"                      element={<EnsoSpaghetti />}           />
+          <Route path="/earthandspace/kelvin-wave-explainer" element={<KelvinWaveExplainer />}     />
         </Routes>
       </main>
       <footer style={{
