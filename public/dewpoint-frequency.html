@@ -1103,20 +1103,23 @@ async function fetchCurrentObs() {
   try {
     const sid = currentStation.sid;
     const res = await fetch(
-      `https://api.weather.gov/stations/${sid}/observations?limit=10`,
+      `https://api.weather.gov/stations/${sid}/observations?limit=20`,
       { headers: { Accept: 'application/geo+json' } }
     );
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const json     = await res.json();
     // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    // Also require a non-null dewpoint in the same pass, so a single null
+    // reading doesn't abort the search prematurely.
     const routine  = (json.features || []).find(f => {
-      const raw = (f.properties?.rawMessage || '').trim();
-      return raw.length > 0 && !raw.startsWith('SPECI');
+      const raw  = (f.properties?.rawMessage || '').trim();
+      if (!raw.length || raw.startsWith('SPECI')) return false;
+      const dwpC = f.properties?.dewpoint?.value;
+      return dwpC !== null && dwpC !== undefined;
     });
-    if (!routine) throw new Error('No routine METAR available');
+    if (!routine) throw new Error('No routine METAR with dewpoint available');
     const props = routine.properties;
-    const dwpC  = props?.dewpoint?.value;
-    if (dwpC === null || dwpC === undefined) throw new Error('No dewpoint in observation');
+    const dwpC  = props.dewpoint.value;
 
     currentObsDwpf = dwpC * 9 / 5 + 32;
     obsTimestamp   = props.timestamp;
