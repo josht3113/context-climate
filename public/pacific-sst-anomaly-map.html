@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pacific SST Anomaly Map</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<style>
+/* ── Design tokens ───────────────────────────────────────────────────────── */
+:root {
+  --bg:       #07070f;
+  --surface:  #0f1622;
+  --surface2: #151f30;
+  --border:   rgba(255,255,255,0.08);
+  --text:     #e0e8f2;
+  --dim:      #6a7d95;
+  --accent:   #3AAFA9;
+  --warm:     #d95f3b;
+  --warm2:    #f4a35a;
+  --cool:     #3a7bd5;
+  --cool2:    #74b3e8;
+  --fn-body:  'Plus Jakarta Sans', system-ui, sans-serif;
+  --fn-ui:    'Barlow Condensed', system-ui, sans-serif;
+  --fn-mono:  'JetBrains Mono', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--text); font-family: var(--fn-body); }
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+#hdr { padding: 14px 0 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.hdr-inner { max-width: 1280px; margin: 0 auto; padding: 0 16px 0 29px; }
+#hdr h1 { font: 700 23px/1 var(--fn-ui); letter-spacing: .5px; color: var(--accent); }
+#hdr p  { font-size: 16px; color: var(--dim); margin-top: 3px; }
+
+/* ── Layout ──────────────────────────────────────────────────────────────── */
+.wrap { padding: 14px 16px; max-width: 1280px; margin: 0 auto; }
+
+/* ── Map card ────────────────────────────────────────────────────────────── */
+.map-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+#map-canvas { display: block; width: 100%; }
+
+/* Loading / error overlay */
+.map-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(7,7,15,0.72);
+  font: 600 15px/1 var(--fn-ui);
+  letter-spacing: 1.2px;
+  color: var(--accent);
+  pointer-events: none;
+  transition: opacity .2s;
+}
+.map-overlay.hidden { opacity: 0; pointer-events: none; }
+.map-overlay.error  { color: var(--warm2); }
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+.leg-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 18px 12px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.leg-end { font: 400 16px/1 var(--fn-mono); color: var(--dim); white-space: nowrap; }
+.leg-end.warm { color: var(--warm2); }
+.leg-end.cool { color: var(--cool2); }
+.leg-inner { flex: 1; }
+.leg-bar {
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #1650d2, #74b3e8, rgba(15,22,50,0.3), #f4a35a, #dc5016);
+  margin-bottom: 5px;
+}
+.leg-ticks {
+  display: flex;
+  justify-content: space-between;
+  font: 400 14px/1 var(--fn-ui);
+  color: var(--dim);
+  letter-spacing: .3px;
+}
+
+/* Wind arrow legend (shown only when wind data is loaded) */
+.wind-note {
+  display: none;
+  font: 400 14px/1 var(--fn-ui);
+  color: var(--dim);
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+.wind-note.show { display: block; }
+.wind-swatch {
+  display: inline-block;
+  width: 26px;
+  height: 3px;
+  border-radius: 2px;
+  vertical-align: middle;
+  margin: 0 4px 0 8px;
+}
+
+/* ── Scrubber card ───────────────────────────────────────────────────────── */
+.scrub-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px 16px;
+  margin-bottom: 10px;
+}
+.scrub-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 13px;
+}
+.scrub-lbl { font: 700 14px/1 var(--fn-ui); letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+#scrub-date { font: 400 20px/1 var(--fn-mono); color: var(--accent); }
+
+/* Year row */
+.yr-row { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
+.nav-btn {
+  font: 600 17px/1 var(--fn-ui);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  padding: 8px 11px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color .15s, border-color .15s;
+  line-height: 1;
+}
+.nav-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+.nav-btn:disabled { opacity: .3; cursor: default; }
+.yr-slider-wrap { flex: 1; }
+input[type="range"].yr-sl {
+  width: 100%;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  display: block;
+}
+input[type="range"].yr-sl::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px; height: 16px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type="range"].yr-sl::-moz-range-thumb {
+  width: 16px; height: 16px;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--bg);
+}
+.yr-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font: 400 13px/1 var(--fn-ui);
+  color: rgba(106,125,149,0.6);
+  padding: 0 1px;
+}
+
+/* Month buttons */
+.mo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 12px;
+}
+.mo-btn {
+  font: 600 16px/1 var(--fn-ui);
+  letter-spacing: .4px;
+  padding: 8px 0;
+  flex: 1;
+  min-width: 44px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--dim);
+  cursor: pointer;
+  text-align: center;
+  transition: all .15s;
+}
+.mo-btn:hover:not(:disabled):not(.on) {
+  border-color: rgba(255,255,255,0.2);
+  color: var(--text);
+}
+.mo-btn.on {
+  background: rgba(58,175,169,.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mo-btn:disabled {
+  opacity: .25;
+  cursor: default;
+}
+
+/* ── Niño chips ──────────────────────────────────────────────────────────── */
+.nino-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.nino-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px 15px 14px;
+}
+.chip-lbl {
+  font: 700 15px/1 var(--fn-ui);
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 3px;
+}
+.chip-sub {
+  font: 400 13px/1 var(--fn-ui);
+  color: var(--dim);
+  opacity: .6;
+  margin-bottom: 9px;
+}
+.chip-val {
+  font: 400 30px/1 var(--fn-mono);
+  color: var(--dim);
+}
+.chip-val.warm { color: var(--warm2); }
+.chip-val.cool { color: var(--cool2); }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.footer-note {
+  font-size: 14px;
+  color: var(--dim);
+  opacity: .55;
+  padding-bottom: 20px;
+  line-height: 1.6;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .nino-row { grid-template-columns: repeat(2, 1fr); }
+  .mo-btn { min-width: 36px; font-size: 14px; padding: 7px 0; }
+  .chip-val { font-size: 26px; }
+}
+
+/* ── iframe ──────────────────────────────────────────────────────────────── */
+.in-iframe #hdr { display: none; }
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <div class="hdr-inner">
+    <h1>Pacific SST Anomaly Map</h1>
+    <p>Monthly sea surface temperature anomalies · equatorial Pacific · 1980–present</p>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- Map -->
+  <div class="map-card">
+    <canvas id="map-canvas"></canvas>
+    <div class="map-overlay" id="overlay">LOADING DATA…</div>
+  </div>
+
+  <!-- Legend -->
+  <div class="leg-card">
+    <span class="leg-end cool">−3°C</span>
+    <div class="leg-inner">
+      <div class="leg-bar"></div>
+      <div class="leg-ticks">
+        <span>Cool anomaly</span>
+        <span>Neutral</span>
+        <span>Warm anomaly</span>
+      </div>
+      <div class="wind-note" id="wind-note">
+        850 hPa wind anomaly —
+        <span class="wind-swatch" style="background:var(--warm2)"></span>Westerly
+        <span class="wind-swatch" style="background:var(--cool2)"></span>Easterly
+      </div>
+    </div>
+    <span class="leg-end warm">+3°C</span>
+  </div>
+
+  <!-- Scrubber -->
+  <div class="scrub-card">
+    <div class="scrub-top">
+      <span class="scrub-lbl">Date</span>
+      <span id="scrub-date">— —</span>
+    </div>
+    <div class="yr-row">
+      <button class="nav-btn" id="btn-prev-yr" title="Previous year">◀</button>
+      <div class="yr-slider-wrap">
+        <input type="range" class="yr-sl" id="yr-slider" min="1980" step="1">
+        <div class="yr-ticks" id="yr-ticks"></div>
+      </div>
+      <button class="nav-btn" id="btn-next-yr" title="Next year">▶</button>
+    </div>
+    <div class="mo-row" id="mo-row"></div>
+  </div>
+
+  <!-- Niño region chips -->
+  <div class="nino-row">
+    <div class="nino-chip">
+      <div class="chip-lbl">Niño 4</div>
+      <div class="chip-sub">5°S–5°N · 160°E–150°W</div>
+      <div class="chip-val" id="n4-val">—</div>
+    </div>
+    <div class="nino-chip">
+      <div class="chip-lbl">Niño 3.4</div>
+      <div class="chip-sub">5°S–5°N · 170°W–120°W</div>
+      <div class="chip-val" id="n34-val">—</div>
+    </div>
+    <div class="nino-chip">
+      <div class="chip-lbl">Niño 3</div>
+      <div class="chip-sub">5°S–5°N · 150°W–90°W</div>
+      <div class="chip-val" id="n3-val">—</div>
+    </div>
+    <div class="nino-chip">
+      <div class="chip-lbl">Niño 1+2</div>
+      <div class="chip-sub">0°–10°S · 90°W–80°W</div>
+      <div class="chip-val" id="n12-val">—</div>
+    </div>
+  </div>
+
+  <p class="footer-note">
+    SST anomaly: NOAA ERSSTv5 via ERDDAP · anomalies relative to 1971–2000 climatology ·
+    data typically available with a 1–2 month lag ·
+    850 hPa wind anomalies: NCEP/NCAR Reanalysis (when data file is present)
+  </p>
+
+</div>
+
+<script>
+// ── iframe detection ─────────────────────────────────────────────────────────
+if (window.self !== window.top) document.body.classList.add('in-iframe');
+
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+// Map geographic bounds (0–360 longitude notation)
+const LON_MIN = 110, LON_MAX = 285;
+const LAT_MIN = -25, LAT_MAX = 25;
+
+// Canvas margins (px): left leaves room for lat labels; bottom for lon labels
+const ML = 52, MR = 18, MT = 10, MB = 30;
+
+// ERDDAP endpoint for ERSSTv5 SST anomalies (NOAA CoastWatch)
+// Dataset: nceiErsstv5 · Variable: ssta (anomaly vs 1971–2000 climatology)
+// Verify at: https://coastwatch.pfeg.noaa.gov/erddap/griddap/nceiErsstv5.html
+const ERDDAP = 'https://coastwatch.pfeg.noaa.gov/erddap/griddap/nceiErsstv5.csv';
+
+// Niño region definitions [latMin, latMax, lonMin, lonMax] in 0-360 longitude
+const NINO = {
+  n4:  { latMin: -5, latMax:  5, lonMin: 160, lonMax: 210 },
+  n34: { latMin: -5, latMax:  5, lonMin: 190, lonMax: 240 },
+  n3:  { latMin: -5, latMax:  5, lonMin: 210, lonMax: 270 },
+  n12: { latMin:-10, latMax:  0, lonMin: 270, lonMax: 280 },
+};
+
+const MONTH_NAMES = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun',
+                     'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Ocean and anomaly colors (RGB triplets)
+const CLR_OCEAN = [15, 28, 60];
+const CLR_WARM  = [220, 75, 22];
+const CLR_COOL  = [22, 80, 210];
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let curYear, curMonth;
+let LATEST_YEAR, LATEST_MONTH;
+let PW, PH;              // plot width / height (inside margins)
+let topoLand  = null;    // GeoJSON Feature (land)
+let windData  = null;    // { lats, lons, months:[{y,m,u:[],v:[]}] } or null
+
+// Cache: "YYYY-MM" → Map<"lat,lon" → anomaly (°C)>
+const sstCache = new Map();
+
+// Stale-render guard: each loadAndRender increments this; only the latest renders
+let renderGen = 0;
+
+// ── CANVAS ────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('map-canvas');
+const ctx    = canvas.getContext('2d');
+
+function resize() {
+  const w = canvas.parentElement.clientWidth || window.innerWidth - 32;
+  canvas.width = w;
+  PW = w - ML - MR;
+  // Aspect ratio: lat range / lon range
+  PH = Math.round(PW * (LAT_MAX - LAT_MIN) / (LON_MAX - LON_MIN));
+  const h = PH + MT + MB;
+  canvas.height = h;
+}
+
+// ── COORDINATE HELPERS ────────────────────────────────────────────────────────
+function xOf(lon)  { return ML + (lon - LON_MIN) / (LON_MAX - LON_MIN) * PW; }
+function yOf(lat)  { return MT + (LAT_MAX - lat) / (LAT_MAX - LAT_MIN) * PH; }
+
+// Convert GeoJSON (-180/+180) lon to canvas x; returns null if out of view
+function xOfGeo(lon180) {
+  const lon = lon180 < 0 ? lon180 + 360 : lon180;
+  if (lon < LON_MIN - 1 || lon > LON_MAX + 1) return null;
+  return xOf(lon);
+}
+
+// ── COLORS ────────────────────────────────────────────────────────────────────
+// Returns [r,g,b] for SST anomaly in °C (range clamped ±3°C)
+function anomColor(a) {
+  const f = Math.max(-1, Math.min(1, a / 3));
+  const t = Math.abs(f);
+  const tgt = f >= 0 ? CLR_WARM : CLR_COOL;
+  return CLR_OCEAN.map((c, i) => Math.round(c * (1 - t) + tgt[i] * t));
+}
+
+// ── DATA FETCHING ─────────────────────────────────────────────────────────────
+async function fetchSST(year, month) {
+  const key = `${year}-${String(month).padStart(2,'0')}`;
+  if (sstCache.has(key)) return sstCache.get(key);
+
+  // ERSSTv5 monthly time steps are stored at the 15th of each month
+  const dateStr = `${year}-${String(month).padStart(2,'0')}-15T00:00:00Z`;
+  const url = `${ERDDAP}?ssta[(${dateStr}):1:(${dateStr})]` +
+    `[(${LAT_MIN}.0):1:(${LAT_MAX}.0)][(${LON_MIN}.0):1:(${LON_MAX}.0)]`;
+
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`ERDDAP responded ${resp.status} — check dataset ID`);
+
+  const text = await resp.text();
+  // ERDDAP CSV format: row 0 = column names, row 1 = units, rows 2+ = data
+  const lines = text.trim().split('\n');
+  if (lines.length < 3) throw new Error('No data returned for this date');
+
+  const grid = new Map();
+  for (let i = 2; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    if (parts.length < 4) continue;
+    const lat  = parseFloat(parts[1]);
+    const lon  = parseFloat(parts[2]);
+    const ssta = parseFloat(parts[3]);
+    if (!isNaN(ssta)) {
+      grid.set(`${lat.toFixed(1)},${lon.toFixed(1)}`, ssta);
+    }
+  }
+
+  sstCache.set(key, grid);
+  return grid;
+}
+
+// Wind data: self-hosted JSON file (pacific-850-wind-anomalies.json in public/)
+// Format: { lats: [...], lons: [...], months: [{y, m, u: [...], v: [...]}] }
+// Grid is row-major: index = latIdx * lons.length + lonIdx
+// u = zonal anomaly (m/s, positive = westerly), v = meridional anomaly (m/s)
+// Source: NCEP/NCAR Reanalysis 1, 850 hPa, anomaly vs 1981–2010 climatology
+async function loadWindData() {
+  try {
+    const resp = await fetch('./pacific-850-wind-anomalies.json');
+    if (!resp.ok) return;
+    windData = await resp.json();
+    document.getElementById('wind-note').classList.add('show');
+  } catch (_) {
+    // Wind data not available — SST-only mode (graceful degradation)
+  }
+}
+
+// ── COASTLINES ────────────────────────────────────────────────────────────────
+async function loadCoastlines() {
+  const resp = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+  const topo  = await resp.json();
+  // topojson.feature returns a Feature (not FeatureCollection) for the merged land object
+  topoLand = topojson.feature(topo, topo.objects.land);
+}
+
+function drawLand() {
+  if (!topoLand) return;
+  ctx.save();
+  ctx.fillStyle   = '#19253e';
+  ctx.strokeStyle = 'rgba(140,165,210,0.22)';
+  ctx.lineWidth   = 1;
+  drawGeoGeometry(topoLand.geometry);
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGeoGeometry(geom) {
+  if (!geom) return;
+  ctx.beginPath();
+  if (geom.type === 'Polygon') {
+    geom.coordinates.forEach(ring => traceRing(ring));
+  } else if (geom.type === 'MultiPolygon') {
+    geom.coordinates.forEach(poly => poly.forEach(ring => traceRing(ring)));
+  }
+}
+
+function traceRing(ring) {
+  let started = false, prevX = null;
+  for (const [lon180, lat] of ring) {
+    if (lat < LAT_MIN - 2 || lat > LAT_MAX + 2) { started = false; prevX = null; continue; }
+    const x = xOfGeo(lon180);
+    if (x === null) { started = false; prevX = null; continue; }
+    // Detect antimeridian jumps and break the path
+    if (started && prevX !== null && Math.abs(x - prevX) > PW * 0.45) {
+      started = false;
+    }
+    const y = yOf(lat);
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else          { ctx.lineTo(x, y); }
+    prevX = x;
+  }
+}
+
+// ── DRAWING: SST HEATMAP ──────────────────────────────────────────────────────
+function drawOcean() {
+  ctx.fillStyle = `rgb(${CLR_OCEAN.join(',')})`;
+  ctx.fillRect(ML, MT, PW, PH);
+}
+
+function drawSSTGrid(grid) {
+  if (!grid || grid.size === 0) return;
+  // ERSSTv5 cells are 2°×2° — compute pixel dimensions for a 2° cell
+  const cellW = xOf(LON_MIN + 2) - xOf(LON_MIN);
+  const cellH = yOf(LAT_MAX - 2) - yOf(LAT_MAX);
+
+  for (const [key, anom] of grid) {
+    const [latStr, lonStr] = key.split(',');
+    const lat = parseFloat(latStr);
+    const lon = parseFloat(lonStr);
+    const x = xOf(lon - 1);
+    const y = yOf(lat + 1);
+    const [r, g, b] = anomColor(anom);
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    // Add 1px overlap to prevent hairline gaps between cells
+    ctx.fillRect(x, y, cellW + 1, cellH + 1);
+  }
+}
+
+// ── DRAWING: GRID LINES ───────────────────────────────────────────────────────
+function drawGridLines() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+
+  // Longitude lines every 30°
+  [140, 170, 200, 230, 260].forEach(lon => {
+    const x = xOf(lon);
+    ctx.beginPath(); ctx.moveTo(x, MT); ctx.lineTo(x, MT + PH); ctx.stroke();
+  });
+
+  // Latitude lines at equator and ±10°, ±20°
+  [-20, -10, 0, 10, 20].forEach(lat => {
+    const y = yOf(lat);
+    ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+    // Equator slightly brighter
+    if (lat === 0) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath(); ctx.moveTo(ML, y); ctx.lineTo(ML + PW, y); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    }
+  });
+  ctx.restore();
+}
+
+// ── DRAWING: NIÑO REGION BOXES ────────────────────────────────────────────────
+const NINO_BOXES = [
+  { key: 'n4',  label: 'NIÑO 4' },
+  { key: 'n34', label: 'NIÑO 3.4' },
+  { key: 'n3',  label: 'NIÑO 3' },
+  { key: 'n12', label: 'NIÑO 1+2' },
+];
+
+function drawNinoBoxes() {
+  ctx.save();
+  ctx.font = '600 14px "Barlow Condensed", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.setLineDash([5, 4]);
+  ctx.lineWidth = 1.5;
+
+  NINO_BOXES.forEach(({ key, label }) => {
+    const r = NINO[key];
+    const x1 = Math.max(ML, xOf(r.lonMin));
+    const x2 = Math.min(ML + PW, xOf(r.lonMax));
+    const y1 = yOf(r.latMax);
+    const y2 = yOf(r.latMin);
+    if (x2 <= x1 + 4) return;
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+    // Label inside top of box
+    const cx = (x1 + x2) / 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.50)';
+    ctx.fillText(label, cx, y1 + 15);
+  });
+  ctx.restore();
+}
+
+// ── DRAWING: WIND ARROWS ──────────────────────────────────────────────────────
+function arw(x1, y1, x2, y2, col, alp) {
+  if (alp < 0.06) return;
+  const dx = x2 - x1, dy = y2 - y1;
+  if (Math.hypot(dx, dy) < 5) return;
+  const ang = Math.atan2(dy, dx);
+  const hw  = 7;
+  ctx.save();
+  ctx.globalAlpha = alp;
+  ctx.strokeStyle = col; ctx.fillStyle = col;
+  ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - hw * Math.cos(ang - 0.44), y2 - hw * Math.sin(ang - 0.44));
+  ctx.lineTo(x2 - hw * Math.cos(ang + 0.44), y2 - hw * Math.sin(ang + 0.44));
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawWindArrows(year, month) {
+  if (!windData) return;
+  const rec = windData.months.find(d => d.y === year && d.m === month);
+  if (!rec) return;
+
+  const { lats, lons } = windData;
+  const nlon  = lons.length;
+  const scale = 4.0; // pixels per m/s
+
+  // Draw every other grid point (reduces visual clutter)
+  const step = 2;
+  for (let j = 0; j < lats.length; j += step) {
+    for (let i = 0; i < nlon; i += step) {
+      const lat = lats[j], lon = lons[i];
+      if (lon < LON_MIN || lon > LON_MAX || lat < LAT_MIN || lat > LAT_MAX) continue;
+
+      const idx = j * nlon + i;
+      const u   = rec.u[idx];
+      const v   = rec.v[idx];
+      const spd = Math.sqrt(u * u + v * v);
+      if (spd < 0.4) continue;
+
+      const cx  = xOf(lon);
+      const cy  = yOf(lat);
+      const dx  = u * scale;
+      const dy  = -v * scale; // v is northward; canvas y increases downward
+      const alp = Math.min(0.82, 0.28 + spd * 0.11);
+      // Westerly anomaly → warm orange; easterly → cool blue
+      const col = u >= 0
+        ? 'rgba(244,163,90,0.95)'
+        : 'rgba(116,179,232,0.95)';
+
+      arw(cx - dx / 2, cy + dy / 2, cx + dx / 2, cy - dy / 2, col, alp);
+    }
+  }
+}
+
+// ── DRAWING: AXIS LABELS ──────────────────────────────────────────────────────
+function drawAxes() {
+  ctx.save();
+  ctx.fillStyle  = 'rgba(255,255,255,0.40)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth  = 1;
+  ctx.font = '16px "Barlow Condensed", sans-serif';
+
+  // X-axis (longitude) — bottom
+  const xLabels = [
+    { lon: 110, l: '110°E' },
+    { lon: 140, l: '140°E' },
+    { lon: 180, l: '180°'  },
+    { lon: 220, l: '140°W' },
+    { lon: 250, l: '110°W' },
+    { lon: 285, l: '75°W'  },
+  ];
+  ctx.textAlign = 'center';
+  xLabels.forEach(({ lon, l }) => {
+    const x = xOf(lon);
+    ctx.fillText(l, x, canvas.height - 6);
+    ctx.beginPath(); ctx.moveTo(x, MT + PH); ctx.lineTo(x, MT + PH + 5); ctx.stroke();
+  });
+
+  // Y-axis (latitude) — left
+  ctx.textAlign = 'right';
+  [
+    { lat:  20, l: '20°N' },
+    { lat:  10, l: '10°N' },
+    { lat:   0, l: 'EQ'   },
+    { lat: -10, l: '10°S' },
+    { lat: -20, l: '20°S' },
+  ].forEach(({ lat, l }) => {
+    const y = yOf(lat);
+    ctx.fillText(l, ML - 6, y + 5);
+    ctx.beginPath(); ctx.moveTo(ML - 3, y); ctx.lineTo(ML, y); ctx.stroke();
+  });
+
+  ctx.restore();
+}
+
+// ── MAIN RENDER ───────────────────────────────────────────────────────────────
+function render(grid, year, month) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Clip all map content to the plot area
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(ML, MT, PW, PH);
+  ctx.clip();
+
+  drawOcean();
+  drawSSTGrid(grid);
+  drawGridLines();
+  drawLand();
+  drawWindArrows(year, month);
+  drawNinoBoxes();
+
+  ctx.restore();
+
+  // Axis labels outside the clip mask
+  drawAxes();
+}
+
+// ── NIÑO REGION AVERAGES ──────────────────────────────────────────────────────
+function ninoAvg(grid, r) {
+  if (!grid) return null;
+  let sum = 0, count = 0;
+  // Iterate directly over grid entries to avoid grid-alignment assumptions
+  for (const [key, val] of grid) {
+    const [latStr, lonStr] = key.split(',');
+    const lat = parseFloat(latStr), lon = parseFloat(lonStr);
+    if (lat >= r.latMin && lat <= r.latMax && lon >= r.lonMin && lon <= r.lonMax) {
+      sum += val; count++;
+    }
+  }
+  return count > 0 ? sum / count : null;
+}
+
+function updateChips(grid) {
+  [['n4','n4-val'], ['n34','n34-val'], ['n3','n3-val'], ['n12','n12-val']].forEach(([key, id]) => {
+    const el  = document.getElementById(id);
+    const val = ninoAvg(grid, NINO[key]);
+    if (val === null) {
+      el.textContent  = '—';
+      el.className = 'chip-val';
+    } else {
+      el.textContent  = (val >= 0 ? '+' : '') + val.toFixed(2) + '°C';
+      el.className = 'chip-val ' + (val >= 0.4 ? 'warm' : val <= -0.4 ? 'cool' : '');
+    }
+  });
+}
+
+// ── OVERLAY ───────────────────────────────────────────────────────────────────
+let overlayTimer = null;
+
+function setOverlay(visible, msg = 'LOADING DATA…', isError = false) {
+  clearTimeout(overlayTimer);
+  const el = document.getElementById('overlay');
+  el.textContent = msg;
+  el.classList.toggle('hidden', !visible);
+  el.classList.toggle('error', isError);
+  if (isError && visible) {
+    overlayTimer = setTimeout(() => setOverlay(false), 4000);
+  }
+}
+
+// ── SCRUBBER SETUP ────────────────────────────────────────────────────────────
+function latestAvailable() {
+  const now = new Date();
+  let y = now.getFullYear(), m = now.getMonth() + 1;
+  m -= 2; // ~2-month data lag
+  if (m <= 0) { m += 12; y--; }
+  return [y, m];
+}
+
+function buildScrubber() {
+  [LATEST_YEAR, LATEST_MONTH] = latestAvailable();
+  curYear  = LATEST_YEAR;
+  curMonth = LATEST_MONTH;
+
+  // Year slider
+  const slider = document.getElementById('yr-slider');
+  slider.max   = LATEST_YEAR;
+  slider.value = LATEST_YEAR;
+
+  // Year tick marks at 5-year intervals
+  const ticksEl = document.getElementById('yr-ticks');
+  const totalYrs = LATEST_YEAR - 1980;
+  const years = [];
+  for (let y = 1980; y <= LATEST_YEAR; y += 5) years.push(y);
+  years.forEach(y => {
+    const pct = ((y - 1980) / totalYrs * 100).toFixed(1) + '%';
+    const span = document.createElement('span');
+    span.textContent = y;
+    span.style.cssText = `position:absolute;left:${pct};transform:translateX(-50%)`;
+    ticksEl.appendChild(span);
+  });
+  ticksEl.style.cssText = 'position:relative;height:18px;margin-top:5px;';
+
+  // Month buttons
+  buildMonthButtons();
+}
+
+function buildMonthButtons() {
+  const row = document.getElementById('mo-row');
+  row.innerHTML = '';
+  MONTH_SHORT.forEach((name, i) => {
+    const m = i + 1;
+    const btn = document.createElement('button');
+    btn.className   = 'mo-btn' + (m === curMonth ? ' on' : '');
+    btn.textContent = name;
+    btn.dataset.m   = m;
+    btn.disabled    = (curYear === LATEST_YEAR && m > LATEST_MONTH);
+    btn.addEventListener('click', () => {
+      curMonth = m;
+      updateMonthButtons();
+      updateDateLabel();
+      loadAndRender(curYear, curMonth);
+    });
+    row.appendChild(btn);
+  });
+}
+
+function updateMonthButtons() {
+  document.querySelectorAll('.mo-btn').forEach(btn => {
+    const m = +btn.dataset.m;
+    btn.classList.toggle('on', m === curMonth);
+    btn.disabled = (curYear === LATEST_YEAR && m > LATEST_MONTH);
+  });
+}
+
+function updateDateLabel() {
+  document.getElementById('scrub-date').textContent =
+    `${MONTH_NAMES[curMonth - 1]} ${curYear}`;
+}
+
+// ── LOAD AND RENDER ───────────────────────────────────────────────────────────
+async function loadAndRender(year, month) {
+  const gen = ++renderGen;
+  setOverlay(true);
+  updateDateLabel();
+
+  try {
+    const grid = await fetchSST(year, month);
+    if (gen !== renderGen) return; // superseded by newer request
+    setOverlay(false);
+    render(grid, year, month);
+    updateChips(grid);
+    prefetch(year, month);
+  } catch (e) {
+    if (gen !== renderGen) return;
+    setOverlay(true, `⚠ ${e.message}`, true);
+    render(null, year, month);
+    updateChips(null);
+    console.error('SST fetch error:', e);
+  }
+}
+
+// Pre-fetch neighboring months while idle
+function prefetch(year, month) {
+  const candidates = [
+    [year, month - 1], [year, month + 1],
+    [year - 1, month], [year + 1, month],
+  ].map(([y, m]) => {
+    if (m < 1)  { m += 12; y--; }
+    if (m > 12) { m -= 12; y++; }
+    return [y, m];
+  }).filter(([y, m]) =>
+    y >= 1980 && (y < LATEST_YEAR || (y === LATEST_YEAR && m <= LATEST_MONTH))
+  );
+
+  candidates.forEach(([y, m]) => {
+    const key = `${y}-${String(m).padStart(2,'0')}`;
+    if (!sstCache.has(key)) fetchSST(y, m).catch(() => {});
+  });
+}
+
+// ── EVENT LISTENERS ───────────────────────────────────────────────────────────
+document.getElementById('yr-slider').addEventListener('input', e => {
+  const newYear = +e.target.value;
+  if (newYear === curYear) return;
+  curYear = newYear;
+  // Clamp month if necessary (latest year only has data through LATEST_MONTH)
+  if (curYear === LATEST_YEAR && curMonth > LATEST_MONTH) curMonth = LATEST_MONTH;
+  updateMonthButtons();
+  loadAndRender(curYear, curMonth);
+});
+
+document.getElementById('btn-prev-yr').addEventListener('click', () => {
+  if (curYear <= 1980) return;
+  curYear--;
+  document.getElementById('yr-slider').value = curYear;
+  updateMonthButtons();
+  loadAndRender(curYear, curMonth);
+});
+
+document.getElementById('btn-next-yr').addEventListener('click', () => {
+  if (curYear >= LATEST_YEAR) return;
+  curYear++;
+  document.getElementById('yr-slider').value = curYear;
+  updateMonthButtons();
+  loadAndRender(curYear, curMonth);
+});
+
+window.addEventListener('resize', () => {
+  resize();
+  // Re-render from cache if data is available
+  const key = `${curYear}-${String(curMonth).padStart(2,'0')}`;
+  render(sstCache.get(key) || null, curYear, curMonth);
+});
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  resize();
+  buildScrubber();
+
+  // Load coastlines and wind data in parallel (non-blocking)
+  Promise.all([loadCoastlines(), loadWindData()]).then(() => {
+    // Re-render once assets are ready if SST is already cached
+    const key = `${curYear}-${String(curMonth).padStart(2,'0')}`;
+    if (sstCache.has(key)) render(sstCache.get(key), curYear, curMonth);
+  });
+
+  // Initial SST data load
+  await loadAndRender(curYear, curMonth);
+});
+</script>
+</body>
+</html>
