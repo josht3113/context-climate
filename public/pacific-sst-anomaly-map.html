@@ -547,43 +547,57 @@ function drawSSTGrid(grid) {
   if (!grid || !sstData) return;
 
   const { lats, lons } = sstData;
-  const HW = lons.length;   // 88 columns (110°E → 284°E at 2°)
-  const HH = lats.length;   // 25 rows   (−24° → 24° at 2°)
+  const HW = lons.length;
+  const HH = lats.length;
 
-  // Build a tiny offscreen canvas at native data resolution (88×25 px).
-  // The browser's drawImage bilinear interpolation then scales it up
-  // smoothly, eliminating the blocky 2°×2° tile appearance.
+  // Two separate offscreen canvases drawn with different smoothing settings:
+  //  hc = SST ocean heatmap (smooth bilinear) — land cells are ocean-coloured
+  //       so the interpolation never bleeds beige into adjacent ocean pixels
+  //  lc = land mask (NO smoothing) — each 2° land cell becomes a hard-edged
+  //       ~14×14 px beige square with zero interpolation blur
   const hc = document.createElement('canvas');
-  hc.width = HW; hc.height = HH;
-  const hx = hc.getContext('2d');
+  const lc = document.createElement('canvas');
+  hc.width = lc.width  = HW;
+  hc.height = lc.height = HH;
+  const hx  = hc.getContext('2d');
+  const lx  = lc.getContext('2d');
   const hid = hx.createImageData(HW, HH);
-  const d = hid.data;
+  const lid = lx.createImageData(HW, HH);
+  const d   = hid.data;
+  const ld  = lid.data;
 
   for (let j = 0; j < HH; j++) {
-    // lats[] is south→north; canvas rows run north→south (top=north)
     const lat = lats[HH - 1 - j];
     for (let i = 0; i < HW; i++) {
       const key = `${lat.toFixed(1)},${lons[i].toFixed(1)}`;
       const px  = (j * HW + i) * 4;
       const anom = grid.get(key);
       if (anom === undefined) {
-        // No SST data = land cell — paint beige directly in the heatmap
-        d[px] = CLR_LAND[0]; d[px+1] = CLR_LAND[1]; d[px+2] = CLR_LAND[2];
+        // Land cell — ocean colour in SST canvas (no bleed), beige in land canvas
+        d[px]  = CLR_OCEAN[0]; d[px+1] = CLR_OCEAN[1]; d[px+2] = CLR_OCEAN[2]; d[px+3] = 255;
+        ld[px] = CLR_LAND[0];  ld[px+1] = CLR_LAND[1];  ld[px+2] = CLR_LAND[2];  ld[px+3] = 255;
       } else {
         const [r, g, b] = anomColor(anom);
-        d[px] = r; d[px+1] = g; d[px+2] = b;
+        d[px]  = r; d[px+1] = g; d[px+2] = b; d[px+3] = 255;
+        ld[px+3] = 0;   // transparent — SST heatmap shows through
       }
-      d[px+3] = 255;
     }
   }
 
   hx.putImageData(hid, 0, 0);
+  lx.putImageData(lid, 0, 0);
 
-  // Scale the 88x25 image up to fill the full plot area with smooth interpolation
+  // Pass 1: smooth SST heatmap (ocean only)
   ctx.save();
-  ctx.imageSmoothingEnabled  = true;
-  ctx.imageSmoothingQuality  = 'high';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(hc, ML, MT, PW, PH);
+  ctx.restore();
+
+  // Pass 2: crisp land mask — nearest-neighbour scaling, no smoothing
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(lc, ML, MT, PW, PH);
   ctx.restore();
 }
 
