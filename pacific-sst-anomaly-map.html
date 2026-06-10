@@ -547,54 +547,46 @@ function drawSSTGrid(grid) {
   if (!grid || !sstData) return;
 
   const { lats, lons } = sstData;
-  const HW = lons.length;   // 88 columns (110°E → 284°E at 2°)
-  const HH = lats.length;   // 25 rows   (−24° → 24° at 2°)
+  const HW = lons.length;
+  const HH = lats.length;
 
-  // Build a tiny offscreen canvas at native data resolution (88×25 px).
-  // Land cells are painted ocean-color here so bilinear interpolation
-  // never bleeds beige into adjacent ocean pixels (avoids blurry halos).
+  // Super-sample each 2° data cell into a SCALE×SCALE block before scaling up.
+  // This tightens the bilinear blending zone at land/ocean boundaries from
+  // ~14 display pixels (SCALE=1) down to ~3 display pixels (SCALE=4),
+  // eliminating the blurry beige halos around coastlines.
+  const SCALE = 4;
+  const hw = HW * SCALE, hh = HH * SCALE;
+
   const hc = document.createElement('canvas');
-  hc.width = HW; hc.height = HH;
+  hc.width = hw; hc.height = hh;
   const hx = hc.getContext('2d');
-  const hid = hx.createImageData(HW, HH);
+  const hid = hx.createImageData(hw, hh);
   const d = hid.data;
-  const landCells = [];   // [i, j] grid coords of every land cell
 
   for (let j = 0; j < HH; j++) {
     // lats[] is south→north; canvas rows run north→south (top=north)
     const lat = lats[HH - 1 - j];
     for (let i = 0; i < HW; i++) {
       const key = `${lat.toFixed(1)},${lons[i].toFixed(1)}`;
-      const px  = (j * HW + i) * 4;
       const anom = grid.get(key);
-      if (anom === undefined) {
-        // Land cell — use ocean color in heatmap to keep gradients clean
-        d[px] = CLR_OCEAN[0]; d[px+1] = CLR_OCEAN[1]; d[px+2] = CLR_OCEAN[2];
-        landCells.push([i, j]);
-      } else {
-        const [r, g, b] = anomColor(anom);
-        d[px] = r; d[px+1] = g; d[px+2] = b;
+      const [r, g, b] = anom === undefined ? CLR_LAND : anomColor(anom);
+      // Fill the SCALE×SCALE block for this cell
+      for (let sy = 0; sy < SCALE; sy++) {
+        for (let sx = 0; sx < SCALE; sx++) {
+          const px = ((j * SCALE + sy) * hw + (i * SCALE + sx)) * 4;
+          d[px] = r; d[px+1] = g; d[px+2] = b; d[px+3] = 255;
+        }
       }
-      d[px+3] = 255;
     }
   }
 
   hx.putImageData(hid, 0, 0);
 
-  // Pass 1: smooth SST heatmap (clean ocean gradients, no land bleed)
   ctx.save();
-  ctx.imageSmoothingEnabled  = true;
-  ctx.imageSmoothingQuality  = 'high';
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(hc, ML, MT, PW, PH);
   ctx.restore();
-
-  // Pass 2: crisp beige rectangles for each land cell, aligned to the
-  // same pixel grid as the scaled heatmap — no interpolation blur
-  const cw = PW / HW, ch = PH / HH;
-  ctx.fillStyle = `rgb(${CLR_LAND.join(',')})`;
-  landCells.forEach(([i, j]) => {
-    ctx.fillRect(ML + i * cw, MT + j * ch, Math.ceil(cw) + 1, Math.ceil(ch) + 1);
-  });
 }
 
 // ── DRAWING: GRID LINES ───────────────────────────────────────────────────────
