@@ -538,22 +538,47 @@ function drawOcean() {
 }
 
 function drawSSTGrid(grid) {
-  if (!grid || grid.size === 0) return;
-  // ERSSTv5 cells are 2°×2° — compute pixel dimensions for a 2° cell
-  const cellW = xOf(LON_MIN + 2) - xOf(LON_MIN);
-  const cellH = yOf(LAT_MAX - 2) - yOf(LAT_MAX);
+  if (!grid || !sstData) return;
 
-  for (const [key, anom] of grid) {
-    const [latStr, lonStr] = key.split(',');
-    const lat = parseFloat(latStr);
-    const lon = parseFloat(lonStr);
-    const x = xOf(lon - 1);
-    const y = yOf(lat + 1);
-    const [r, g, b] = anomColor(anom);
-    ctx.fillStyle = `rgb(${r},${g},${b})`;
-    // Add 1px overlap to prevent hairline gaps between cells
-    ctx.fillRect(x, y, cellW + 1, cellH + 1);
+  const { lats, lons } = sstData;
+  const HW = lons.length;   // 88 columns (110°E → 284°E at 2°)
+  const HH = lats.length;   // 25 rows   (−24° → 24° at 2°)
+
+  // Build a tiny offscreen canvas at native data resolution (88×25 px).
+  // The browser's drawImage bilinear interpolation then scales it up
+  // smoothly, eliminating the blocky 2°×2° tile appearance.
+  const hc = document.createElement('canvas');
+  hc.width = HW; hc.height = HH;
+  const hx = hc.getContext('2d');
+  const hid = hx.createImageData(HW, HH);
+  const d = hid.data;
+
+  for (let j = 0; j < HH; j++) {
+    // lats[] is south→north; canvas rows run north→south (top=north)
+    const lat = lats[HH - 1 - j];
+    for (let i = 0; i < HW; i++) {
+      const key = `${lat.toFixed(1)},${lons[i].toFixed(1)}`;
+      const px  = (j * HW + i) * 4;
+      const anom = grid.get(key);
+      if (anom === undefined) {
+        // No data (land or missing) -- paint ocean background color
+        d[px] = CLR_OCEAN[0]; d[px+1] = CLR_OCEAN[1]; d[px+2] = CLR_OCEAN[2];
+      } else {
+        const [r, g, b] = anomColor(anom);
+        d[px] = r; d[px+1] = g; d[px+2] = b;
+      }
+      d[px+3] = 255;
+    }
   }
+
+  hx.putImageData(hid, 0, 0);
+
+  // Scale the 88x25 image up to fill the full plot area with smooth interpolation
+  ctx.save();
+  ctx.imageSmoothingEnabled  = true;
+  ctx.imageSmoothingQuality  = 'high';
+  ctx.drawImage(hc, ML, MT, PW, PH);
+  ctx.restore();
 }
 
 // ── DRAWING: GRID LINES ───────────────────────────────────────────────────────
