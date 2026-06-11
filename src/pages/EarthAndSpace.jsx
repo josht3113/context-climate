@@ -136,15 +136,6 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['ENSO', 'Ocean', 'Climate Data'],
-        title:       'Pacific SST Anomaly Map',
-        description: 'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record — track El Niño and La Niña events through Niño region indices and 850 hPa wind anomaly overlays.',
-        footerTags:  ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
-        to:          '/earthandspace/pacific-sst-map',
-        thumb:       '/PacificSstMap_thumbnail.png',
-        status:      'live',
-      },
-       {
         tags: ['Clouds', 'Atmosphere'],
         title: 'Cloud Formation Lab',
         description: 'Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
@@ -173,12 +164,21 @@ const SECTIONS = [
     accent: ACCENT.astro,
     cards: [
       {
-        tags:        ['Earth Science', 'Astronomy', 'Game'],
+        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
         title:       'Flapstronaut',
         description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive in space?',
         footerTags:  ['Gravity', 'Space Physics', 'Astronomy'],
         to:          '/earthandspace/flapstronaut',
         thumb:       '/flapstronaut_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        title:       'Sidereal vs Synodic Month',
+        description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation — with a ghost moon, sidereal reference star, and phase tracker.',
+        footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month', 'Astronomy'],
+        to:          '/earthandspace/sidereal-synodic-month',
+        thumb:       '/SiderealSynodicMonth_thumbnail.png',
         status:      'live',
       },
     ],
@@ -221,11 +221,11 @@ export default function EarthAndSpace() {
             }} />
             <h2 style={{
               margin:     0,
-              fontSize:   '0.8rem',
+              fontSize:   '1.0rem',
               fontWeight: 700,
-              letterSpacing: '0.12em',
+              letterSpacing: '0.10em',
               textTransform: 'uppercase',
-              color:      'var(--color-text-muted)',
+              color:      'var(--color-text)',
             }}>
               {section.label}
             </h2>
