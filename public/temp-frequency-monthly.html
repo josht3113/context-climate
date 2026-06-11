@@ -936,26 +936,45 @@ async function fetchCurrentObs() {
   label.textContent = 'Fetching\u2026';
 
   try {
-    // Use iemSid for non-ICAO stations (e.g. Central Park)
-    const nwsSid = currentStation.iemSid || currentStation.sid;
-    const res = await fetch(
-      `https://api.weather.gov/stations/${nwsSid}/observations?limit=10`,
-      { headers: { Accept: 'application/geo+json' } }
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const json     = await res.json();
-    // Routine METARs only — skip SPECI (special / sub-hourly observations)
-    const routine  = (json.features || []).find(f => {
-      const raw = (f.properties?.rawMessage || '').trim();
-      return raw.length > 0 && !raw.startsWith('SPECI');
-    });
-    if (!routine) throw new Error('No routine METAR available');
-    const props = routine.properties;
-    const tempC = props?.temperature?.value;
-    if (tempC === null || tempC === undefined) throw new Error('No temperature in observation');
+    // Use IEM (same source as historical data) — more reliable than NWS API
+    // which can silently return null for sensor values.
+    const iemSid = currentStation.iemSid || currentStation.sid;
+    const now  = new Date();
+    const past = new Date(now.getTime() - 2 * 3600 * 1000);
+    const url  =
+      `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py` +
+      `?station=${encodeURIComponent(iemSid)}` +
+      `&data=tmpf&tz=Etc%2FUTC&format=onlycomma&latlon=no&elev=no` +
+      `&missing=M&trace=T&direct=no&report_type=3` +
+      `&year1=${past.getUTCFullYear()}&month1=${past.getUTCMonth()+1}&day1=${past.getUTCDate()}` +
+      `&hour1=${past.getUTCHours()}&minute1=${past.getUTCMinutes()}` +
+      `&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}` +
+      `&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}`;
 
-    currentObsTemp = tempC * 9 / 5 + 32;
-    obsTimestamp   = props.timestamp;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text  = await res.text();
+    const lines = text.trim().split('\n');
+
+    // IEM CSV is chronological — walk backwards to get most recent valid reading
+    let tmpf = null, obsTime = null;
+    for (let i = lines.length - 1; i >= 1; i--) {
+      const parts = lines[i].split(',');
+      if (parts.length < 3) continue;
+      const raw = parts[2].trim();
+      if (!raw || raw === 'M') continue;
+      const val = parseFloat(raw);
+      if (isNaN(val)) continue;
+      tmpf    = val;
+      obsTime = parts[1].trim(); // 'YYYY-MM-DD HH:MM' UTC
+      break;
+    }
+    if (tmpf === null) throw new Error('No valid temperature in recent IEM data');
+
+    currentObsTemp = tmpf;
+    obsTimestamp   = obsTime
+      ? new Date(obsTime.replace(' ', 'T') + 'Z').toISOString()
+      : null;
 
     btn.disabled = false;
     btn.classList.add('active');
@@ -967,6 +986,7 @@ async function fetchCurrentObs() {
           hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
         })
       : '';
+    const tempC = (tmpf - 32) * 5 / 9;
     document.getElementById('obs-readout-label').textContent =
       `Current Temp: ${Math.round(currentObsTemp)}\u00b0F  (${tempC.toFixed(1)}\u00b0C)`;
     document.getElementById('obs-readout-time').textContent =
