@@ -52,6 +52,7 @@ import EnsoHeatmap                 from './pages/EnsoHeatmap'
 import EnsoSpaghetti               from './pages/EnsoSpaghetti'
 import KelvinWaveExplainer         from './pages/KelvinWaveExplainer'
 import PacificSstMap               from './pages/PacificSstMap'
+import SiderealSynodicMonth        from './pages/SiderealSynodicMonth'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -119,7 +120,8 @@ export default function App() {
           <Route path="/enso-heatmap"                        element={<EnsoHeatmap />}             />
           <Route path="/enso-spaghetti"                      element={<EnsoSpaghetti />}           />
           <Route path="/earthandspace/kelvin-wave-explainer" element={<KelvinWaveExplainer />}     />
-          <Route path="/earthandspace/pacific-sst-map"       element={<PacificSstMap />}           />
+          <Route path="/pacific-sst-map"                         element={<PacificSstMap />}           />
+          <Route path="/earthandspace/sidereal-synodic-month" element={<SiderealSynodicMonth />}   />
         </Routes>
       </main>
       <footer style={{
