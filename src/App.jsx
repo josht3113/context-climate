@@ -57,6 +57,9 @@ import ObliquityExplorer           from './pages/ObliquityExplorer'
 import PrecessionExplorer          from './pages/PrecessionExplorer'
 import EccentricityExplorer        from './pages/EccentricityExplorer'
 import StackedSignal               from './pages/StackedSignal'
+import KeplerLaw1                  from './pages/KeplerLaw1'
+import KeplerLaw2                  from './pages/KeplerLaw2'
+import KeplerLaw3                  from './pages/KeplerLaw3'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -130,6 +133,9 @@ export default function App() {
           <Route path="/earthandspace/precession-explorer"    element={<PrecessionExplorer />}      />
           <Route path="/earthandspace/eccentricity-explorer"  element={<EccentricityExplorer />}    />
           <Route path="/earthandspace/stacked-signal"         element={<StackedSignal />}           />
+          <Route path="/earthandspace/kepler-law1-ellipses"   element={<KeplerLaw1 />}              />
+          <Route path="/earthandspace/kepler-law2-areas"      element={<KeplerLaw2 />}              />
+          <Route path="/earthandspace/kepler-law3-periods"    element={<KeplerLaw3 />}              />
         </Routes>
       </main>
       <footer style={{
