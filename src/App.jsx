@@ -55,6 +55,8 @@ import PacificSstMap               from './pages/PacificSstMap'
 import SiderealSynodicMonth        from './pages/SiderealSynodicMonth'
 import ObliquityExplorer           from './pages/ObliquityExplorer'
 import PrecessionExplorer          from './pages/PrecessionExplorer'
+import EccentricityExplorer        from './pages/EccentricityExplorer'
+import StackedSignal               from './pages/StackedSignal'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -126,6 +128,8 @@ export default function App() {
           <Route path="/earthandspace/sidereal-synodic-month" element={<SiderealSynodicMonth />}   />
           <Route path="/earthandspace/obliquity-explorer"     element={<ObliquityExplorer />}       />
           <Route path="/earthandspace/precession-explorer"    element={<PrecessionExplorer />}      />
+          <Route path="/earthandspace/eccentricity-explorer"  element={<EccentricityExplorer />}    />
+          <Route path="/earthandspace/stacked-signal"         element={<StackedSignal />}           />
         </Routes>
       </main>
       <footer style={{
