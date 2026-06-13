@@ -53,6 +53,8 @@ import EnsoSpaghetti               from './pages/EnsoSpaghetti'
 import KelvinWaveExplainer         from './pages/KelvinWaveExplainer'
 import PacificSstMap               from './pages/PacificSstMap'
 import SiderealSynodicMonth        from './pages/SiderealSynodicMonth'
+import ObliquityExplorer           from './pages/ObliquityExplorer'
+import PrecessionExplorer          from './pages/PrecessionExplorer'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -122,6 +124,8 @@ export default function App() {
           <Route path="/earthandspace/kelvin-wave-explainer" element={<KelvinWaveExplainer />}     />
           <Route path="/pacific-sst-map"                         element={<PacificSstMap />}           />
           <Route path="/earthandspace/sidereal-synodic-month" element={<SiderealSynodicMonth />}   />
+          <Route path="/earthandspace/obliquity-explorer"     element={<ObliquityExplorer />}       />
+          <Route path="/earthandspace/precession-explorer"    element={<PrecessionExplorer />}      />
         </Routes>
       </main>
       <footer style={{
