@@ -45,7 +45,7 @@ const SECTIONS = [
     accent: ACCENT.astro,
     cards: [
       {
-        tags:        ['Kepler's Laws', 'Interactive', '1 of 3'],
+        tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
         title:       "Kepler's First Law — Orbit Shape Explorer",
         description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Drag to change eccentricity, reveal geometry overlays for semi-major axis, foci, perihelion and aphelion, and animate the planet with realistic speed variation.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Eccentricity', 'Astronomy'],
@@ -54,7 +54,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Kepler's Laws', 'Interactive', '2 of 3'],
+        tags:        ["Kepler's Laws", 'Interactive', '2 of 3'],
         title:       "Kepler's Second Law — Equal Areas Explorer",
         description: "Discover why planets move faster near their star and slower far away. Click to sweep equal areas in equal times, compare wedges at different orbital positions, and watch the speed arrow change in real time.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Equal Areas', 'Astronomy'],
@@ -63,7 +63,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Kepler's Laws', 'Interactive', '3 of 3'],
+        tags:        ["Kepler's Laws", 'Interactive', '3 of 3'],
         title:       "Kepler's Third Law — Harmony of the Spheres",
         description: "Race all planets simultaneously to see how orbital period scales with distance from the Sun, then prove T² = a³ on an interactive log-log plot. Adjust star mass to explore the law's universality across stellar systems.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Orbital Periods', 'Astronomy'],
