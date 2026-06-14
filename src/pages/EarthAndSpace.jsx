@@ -117,7 +117,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Gravity Game', 'Astronomy', 'Interactive'],
         title:       'Flapstronaut',
         description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive in space?',
         footerTags:  ['Gravity', 'Space Physics', 'Astronomy'],
