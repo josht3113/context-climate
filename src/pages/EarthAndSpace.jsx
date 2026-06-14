@@ -63,7 +63,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        [['Kepler's Laws', 'Interactive', '3 of 3']],
+        tags:        ['Kepler's Laws', 'Interactive', '3 of 3'],
         title:       "Kepler's Third Law — Harmony of the Spheres",
         description: "Race all planets simultaneously to see how orbital period scales with distance from the Sun, then prove T² = a³ on an interactive log-log plot. Adjust star mass to explore the law's universality across stellar systems.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Orbital Periods', 'Astronomy'],
