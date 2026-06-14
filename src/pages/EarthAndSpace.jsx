@@ -45,6 +45,15 @@ const SECTIONS = [
     accent: ACCENT.astro,
     cards: [
       {
+        tags:        ['Physics', 'Astronomy', 'Interactive'],
+        title:       'The Inverse Square Law',
+        description: 'One geometry. Three forces of nature. See how gravity, solar irradiance, and starlight all weaken with the square of distance — and why the same spreading geometry governs all three.',
+        footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight', 'Astronomy'],
+        to:          '/earthandspace/inverse-square-law',
+        thumb:       '/InverseSquareLaw_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
         title:       "Kepler's First Law — Orbit Shape Explorer",
         description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Drag to change eccentricity, reveal geometry overlays for semi-major axis, foci, perihelion and aphelion, and animate the planet with realistic speed variation.",
