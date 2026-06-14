@@ -2,44 +2,8 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
-function BracketMark() {
-  return (
-    <svg width="22" height="26" viewBox="0 0 28 32" fill="none" aria-hidden="true">
-      <path d="M10,3 L4,3 L4,29 L10,29" stroke="#378ADD" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M18,3 L24,3 L24,29 L18,29" stroke="#378ADD" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <line x1="10" y1="16" x2="18" y2="16" stroke="#378ADD" strokeWidth="1.5" strokeOpacity="0.35"/>
-    </svg>
-  )
-}
-
-function EarthSpaceLogo() {
-  // textLength forces the label to fill exactly 96px → equal 6px gaps on both sides of the brackets
-  return (
-    <svg
-      width="150"
-      height="36"
-      viewBox="0 0 150 36"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-label="Earth & Space"
-    >
-      <text x="4" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">[</text>
-      <text
-        x="27"
-        y="25"
-        fontSize="15"
-        fontWeight="500"
-        fill="#ffffff"
-        fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-        textLength="96"
-        lengthAdjust="spacing"
-      >
-        Earth &amp; Space
-      </text>
-      <text x="129" y="26" fontSize="28" fontWeight="400" fill="#378ADD" fontFamily="monospace">]</text>
-    </svg>
-  )
-}
+const CC_LOGO = `${import.meta.env.BASE_URL}contextclimate_bracket_logo.png`
+const ES_LOGO = `${import.meta.env.BASE_URL}earth_space_bracket_logo.png`
 
 export default function Header() {
   const [open, setOpen] = useState(false)
@@ -53,8 +17,11 @@ export default function Header() {
           {/* ── Left: ContextClimate logo ── */}
           <div className={styles.innerLeft}>
             <NavLink to="/" className={styles.logo} onClick={handleNavClick}>
-              <BracketMark />
-              <span className={styles.logoText}>ContextClimate</span>
+              <img
+                src={CC_LOGO}
+                alt="ContextClimate"
+                className={styles.logoImg}
+              />
             </NavLink>
           </div>
 
@@ -81,7 +48,11 @@ export default function Header() {
               aria-label="Earth & Space"
               onClick={handleNavClick}
             >
-              <EarthSpaceLogo />
+              <img
+                src={ES_LOGO}
+                alt="Earth & Space"
+                className={styles.earthSpaceImg}
+              />
             </NavLink>
 
             <button
@@ -109,7 +80,11 @@ export default function Header() {
           onClick={handleNavClick}
           aria-label="Earth & Space"
         >
-          <EarthSpaceLogo />
+          <img
+            src={ES_LOGO}
+            alt="Earth & Space"
+            className={styles.earthSpaceImg}
+          />
         </NavLink>
 
         {[
