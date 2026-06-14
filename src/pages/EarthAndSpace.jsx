@@ -45,7 +45,7 @@ const SECTIONS = [
     accent: ACCENT.astro,
     cards: [
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Kepler's Laws', 'Interactive', '1 of 3'],
         title:       "Kepler's First Law — Orbit Shape Explorer",
         description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Drag to change eccentricity, reveal geometry overlays for semi-major axis, foci, perihelion and aphelion, and animate the planet with realistic speed variation.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Eccentricity', 'Astronomy'],
@@ -54,7 +54,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Kepler's Laws', 'Interactive', '2 of 3'],
         title:       "Kepler's Second Law — Equal Areas Explorer",
         description: "Discover why planets move faster near their star and slower far away. Click to sweep equal areas in equal times, compare wedges at different orbital positions, and watch the speed arrow change in real time.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Equal Areas', 'Astronomy'],
@@ -63,7 +63,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        [['Kepler's Laws', 'Interactive', '3 of 3']],
         title:       "Kepler's Third Law — Harmony of the Spheres",
         description: "Race all planets simultaneously to see how orbital period scales with distance from the Sun, then prove T² = a³ on an interactive log-log plot. Adjust star mass to explore the law's universality across stellar systems.",
         footerTags:  ['Orbital Mechanics', "Kepler's Laws", 'Orbital Periods', 'Astronomy'],
@@ -72,25 +72,25 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Moon Phases', 'Interactive'],
         title:       'Sidereal vs Synodic Month',
         description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation — with a ghost moon, sidereal reference star, and phase tracker.',
-        footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month', 'Astronomy'],
+        footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month'],
         to:          '/earthandspace/sidereal-synodic-month',
         thumb:       '/SiderealSynodicMonth_thumbnail.png',
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Milankovitch Cycles', 'Interactive', '1 of 4'],
         title:       'Obliquity Explorer',
         description: 'Animate Earth\'s axial tilt as it cycles between ~22° and 24.5° over roughly 41,000 years — and see how changing obliquity drives long-term shifts in seasonal contrast and Milankovitch-driven climate cycles.',
-        footerTags:  ['Axial Tilt', 'Milankovitch Cycles', 'Climate', 'Astronomy'],
+        footerTags:  ['Axial Tilt', 'Milankovitch Cycles', 'Climate'],
         to:          '/earthandspace/obliquity-explorer',
         thumb:       '/ObliquityExplorer_thumbnail.png',
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
         title:       'Precession Explorer',
         description: 'Follow Earth\'s slow axial wobble — a ~26,000-year cycle that shifts which star sits at the celestial north pole and alters when perihelion falls relative to the seasons.',
         footerTags:  ['Axial Precession', 'Milankovitch Cycles', 'Polaris', 'Astronomy'],
@@ -99,7 +99,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
         title:       'Eccentricity Explorer',
         description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
         footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles', 'Insolation', 'Astronomy'],
@@ -108,7 +108,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Earth Science', 'Astronomy', 'Interactive'],
+        tags:        ['Milankovitch Cycles', 'Interactive', '4 of 4'],
         title:       'The Stacked Signal',
         description: 'Layer all three Milankovitch cycles — eccentricity, obliquity, and precession — to compute 65°N summer insolation and compare it directly to the EPICA Dome C ice core record. Toggle each component on and off, then witness the pacemaker of the ice ages.',
         footerTags:  ['Milankovitch Cycles', 'Ice Ages', 'EPICA Ice Core', 'Astronomy'],
