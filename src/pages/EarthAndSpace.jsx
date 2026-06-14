@@ -268,9 +268,9 @@ export default function EarthAndSpace() {
       <section className="page-hero">
 
           <p className="page-eyebrow">Earth &amp; Space Science</p>
-        <h1 className="page-title">Earth &amp; Space Science Playground</h1>
+        <h1 className="page-title">Earth &amp; Space Science Simulations and Animations</h1>
         <p className="page-subtitle">
-          Learning tools created and maintained by Josh Timlin
+          Interactive learning tools created and maintained by Josh Timlin
         </p>
       </section>
 
