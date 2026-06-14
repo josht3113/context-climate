@@ -60,6 +60,7 @@ import StackedSignal               from './pages/StackedSignal'
 import KeplerLaw1                  from './pages/KeplerLaw1'
 import KeplerLaw2                  from './pages/KeplerLaw2'
 import KeplerLaw3                  from './pages/KeplerLaw3'
+import InverseSquareLaw            from './pages/InverseSquareLaw'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -136,6 +137,7 @@ export default function App() {
           <Route path="/earthandspace/kepler-law1-ellipses"   element={<KeplerLaw1 />}              />
           <Route path="/earthandspace/kepler-law2-areas"      element={<KeplerLaw2 />}              />
           <Route path="/earthandspace/kepler-law3-periods"    element={<KeplerLaw3 />}              />
+          <Route path="/earthandspace/inverse-square-law"     element={<InverseSquareLaw />}        />
         </Routes>
       </main>
       <footer style={{
