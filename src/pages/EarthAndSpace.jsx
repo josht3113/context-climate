@@ -153,10 +153,10 @@ const SECTIONS = [
     accent: ACCENT.meteor,
     cards: [
       {
-        tags:        ['Tropical Meteorology', 'Hurricanes', 'Interactive'],
+        tags:        ['Bermuda High', 'Hurricanes', 'Interactive'],
         title:       'Hurricane Steering Currents',
-        description: 'Explore how upper-level atmospheric flow guides hurricane tracks — visualize how ridges, troughs, and the jet stream steer tropical systems across the Atlantic basin.',
-        footerTags:  ['Hurricanes', 'Steering Currents', 'Tropical Meteorology', 'Atmospheric Dynamics'],
+        description: 'Explore how upper-level atmospheric flow guides hurricane tracks — visualize how Bermuda High placement and strength can influence the path of tropical systems across the Atlantic basin.',
+        footerTags:  ['Hurricanes', 'Steering Currents', 'Meteorology'],
         to:          '/earthandspace/hurricane-steering',
         thumb:       '/HurricaneSteering_thumbnail.png',
         status:      'live',
