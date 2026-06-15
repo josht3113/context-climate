@@ -134,6 +134,15 @@ const SECTIONS = [
         thumb:       '/flapstronaut_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Orbital Mechanics', 'Astronomy', 'Interactive'],
+        title:       'Planetary Retrograde Motion',
+        description: 'Watch apparent retrograde motion emerge from the geometry of orbits — see how an outer planet appears to reverse direction against the stars as Earth overtakes it, and trace the looping path it draws across the sky.',
+        footerTags:  ['Retrograde Motion', 'Orbital Mechanics', 'Astronomy'],
+        to:          '/earthandspace/planetary-retrograde',
+        thumb:       '/PlanetaryRetrograde_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
@@ -143,6 +152,15 @@ const SECTIONS = [
     label:  'Meteorology & Climate',
     accent: ACCENT.meteor,
     cards: [
+      {
+        tags:        ['Tropical Meteorology', 'Hurricanes', 'Interactive'],
+        title:       'Hurricane Steering Currents',
+        description: 'Explore how upper-level atmospheric flow guides hurricane tracks — visualize how ridges, troughs, and the jet stream steer tropical systems across the Atlantic basin.',
+        footerTags:  ['Hurricanes', 'Steering Currents', 'Tropical Meteorology', 'Atmospheric Dynamics'],
+        to:          '/earthandspace/hurricane-steering',
+        thumb:       '/HurricaneSteering_thumbnail.png',
+        status:      'live',
+      },
       {
         tags:        ['ENSO Dynamics', 'Ocean–Atmosphere', 'Interactive'],
         title:       'Kelvin Wave & ENSO Cycle Explainer',
