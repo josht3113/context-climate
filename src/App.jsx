@@ -62,6 +62,8 @@ import KeplerLaw2                  from './pages/KeplerLaw2'
 import KeplerLaw3                  from './pages/KeplerLaw3'
 import InverseSquareLaw            from './pages/InverseSquareLaw'
 import HurricaneSteering           from './pages/HurricaneSteering'
+import SurfaceMap                     from './pages/SurfaceMap'
+import SeafloorSpreading               from './pages/SeafloorSpreading'
 import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
 
 // ── App shell ─────────────────────────────────────────
@@ -141,7 +143,9 @@ export default function App() {
           <Route path="/earthandspace/kepler-law3-periods"    element={<KeplerLaw3 />}              />
           <Route path="/earthandspace/inverse-square-law"     element={<InverseSquareLaw />}        />
           <Route path="/earthandspace/hurricane-steering"     element={<HurricaneSteering />}       />
-          <Route path="/earthandspace/planetary-retrograde"   element={<PlanetaryRetrograde />}     />
+          <Route path="/earthandspace/planetary-retrograde"         element={<PlanetaryRetrograde />}       />
+          <Route path="/surface-map"                              element={<SurfaceMap />}               />
+          <Route path="/earthandspace/seafloor-spreading"         element={<SeafloorSpreading />}        />
         </Routes>
       </main>
       <footer style={{
