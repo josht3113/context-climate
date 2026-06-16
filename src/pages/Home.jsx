@@ -71,6 +71,7 @@ const SECTIONS = [
         footerTags: ['Station Model', 'Wind Barbs', 'Sky Cover', 'Live Obs'],
         to:         '/surface-map',
         accentVar:  '--accent-live',
+        thumb:      '/SurfaceMap_thumbnail.png',
       },
     ],
   },
