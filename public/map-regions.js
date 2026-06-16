@@ -19,7 +19,7 @@ window.MAP_REGIONS = {
   // Long Island sits in the visual center.
   tristate: {
     bounds: { west: -75.8, east: -69.8, north: 42.8, south: 39.0 },
-    geo:    'northeast-coast.geojson',
+    geo:    '/northeast-coast.geojson',
     label:  'Tri-State Wide',
   },
 
