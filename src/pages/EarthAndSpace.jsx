@@ -271,6 +271,15 @@ const SECTIONS = [
         thumb:       '/SubductionExplorer_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Earth Science', 'Plate Tectonics', 'Interactive'],
+        title:       'Seafloor Spreading Simulator',
+        description: 'Watch new oceanic crust form at mid-ocean ridges as magma upwells, cools, and spreads outward — visualizing the mechanism behind continental drift and magnetic stripe patterns.',
+        footerTags:  ['Plate Tectonics', 'Mid-Ocean Ridge', 'Magnetic Stripes', 'Geology'],
+        to:          '/earthandspace/seafloor-spreading',
+        thumb:       '/SeafloorSpreading_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 

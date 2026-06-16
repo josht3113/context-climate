@@ -64,6 +64,14 @@ const SECTIONS = [
         accentVar:  '--accent-live',
         thumb:      '/Seasons_thumbnail.png',
       },
+      {
+        tags:       ['TRI-STATE', 'ASOS / AWOS', 'LIVE CONDITIONS'],
+        title:      'Surface Map',
+        description:'Live hourly ASOS and AWOS station observations plotted on a Northeast US map. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
+        footerTags: ['Station Model', 'Wind Barbs', 'Sky Cover', 'Live Obs'],
+        to:         '/surface-map',
+        accentVar:  '--accent-live',
+      },
     ],
   },
   {
