@@ -343,7 +343,7 @@ export default function Home() {
                 margin:       '0.25rem 0 1rem',
               }}
             >
-              Note: data fetches for these tools may take up to a minute to load.
+              Note: data fetches for these tools may take ~30 seconds to load.
             </p>
           )}
           <div className={styles.grid}>
