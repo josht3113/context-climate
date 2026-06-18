@@ -335,6 +335,17 @@ export default function Home() {
           }}
         >
           <p className={styles.sectionLabel}>{section.label}</p>
+          {section.id === 'heatmaps' && (
+            <p
+              style={{
+                fontSize:     '0.75rem',
+                color:        'var(--color-text-muted)',
+                margin:       '0.25rem 0 1rem',
+              }}
+            >
+              Note: data fetches for these tools may take up to a minute to load.
+            </p>
+          )}
           <div className={styles.grid}>
             {section.cards.map((card) => (
               <ToolCard key={card.title} {...card} />
