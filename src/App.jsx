@@ -65,6 +65,8 @@ import HurricaneSteering           from './pages/HurricaneSteering'
 import SurfaceMap                     from './pages/SurfaceMap'
 import SeafloorSpreading               from './pages/SeafloorSpreading'
 import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
+import HrDiagram                   from './pages/HrDiagram'
+import StellarLifeCycles           from './pages/StellarLifeCycles'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -146,6 +148,8 @@ export default function App() {
           <Route path="/earthandspace/planetary-retrograde"         element={<PlanetaryRetrograde />}       />
           <Route path="/surface-map"                              element={<SurfaceMap />}               />
           <Route path="/earthandspace/seafloor-spreading"         element={<SeafloorSpreading />}        />
+          <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
+          <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
         </Routes>
       </main>
       <footer style={{
