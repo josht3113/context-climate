@@ -67,6 +67,7 @@ import SeafloorSpreading               from './pages/SeafloorSpreading'
 import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
 import HrDiagram                   from './pages/HrDiagram'
 import StellarLifeCycles           from './pages/StellarLifeCycles'
+import TidalRhythm                 from './pages/TidalRhythm'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -150,6 +151,7 @@ export default function App() {
           <Route path="/earthandspace/seafloor-spreading"         element={<SeafloorSpreading />}        />
           <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
           <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
+          <Route path="/earthandspace/tidal-rhythm"                element={<TidalRhythm />}               />
         </Routes>
       </main>
       <footer style={{
