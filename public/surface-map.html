@@ -61,6 +61,40 @@ header .sub {
 
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
+.view-toggle {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px 22px 0;
+  flex-wrap: wrap;
+}
+
+.vt-btn {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 999px;
+  padding: 7px 18px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.vt-btn:hover {
+  border-color: rgba(29,158,117,0.5);
+  color: rgba(255,255,255,0.85);
+}
+
+.vt-btn.active {
+  background: rgba(29,158,117,0.16);
+  border-color: #1D9E75;
+  color: #1D9E75;
+}
+
 .map-wrap {
   position: relative;
   display: flex;
@@ -170,6 +204,19 @@ canvas {
 
 .lg { display: flex; align-items: center; gap: 6px; }
 .lg-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
+.lg-scale { gap: 9px; }
+.lg-gradient {
+  width: 160px;
+  height: 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+.lg-scale-lbl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+}
 </style>
 </head>
 <body>
@@ -182,6 +229,12 @@ canvas {
 <div class="status">
   <div class="dot"></div>
   <span id="stext">Initializing&hellip;</span>
+</div>
+
+<div class="view-toggle" id="view-toggle">
+  <button class="vt-btn active" data-mode="station">Station Model</button>
+  <button class="vt-btn" data-mode="temp">Temperature</button>
+  <button class="vt-btn" data-mode="dew">Dewpoint</button>
 </div>
 
 <div class="map-wrap">
@@ -202,7 +255,7 @@ canvas {
 
 <div id="tip"></div>
 
-<div class="legend">
+<div class="legend" id="legend">
   <div class="lg"><div class="lg-dot" style="background:#e05252"></div>Temperature &deg;F</div>
   <div class="lg"><div class="lg-dot" style="background:#6aabee"></div>Dewpoint &deg;F</div>
   <div class="lg"><div class="lg-dot" style="background:#9aa3b2"></div>Pressure (coded mb)</div>
@@ -283,6 +336,34 @@ const project = MAP.makeProjection(B, dims);
 const cToF    = c => c != null ? Math.round(c * 9/5 + 32) : null;
 const kmhToKt = k => k != null ? k / 1.852 : null;
 const paToMb  = p => p != null ? p / 100 : null;
+
+// ═══════════════════════════════════════════════════
+// COLOR SCALES — ported 1:1 from temp-heatmap-monthly.html
+// so a given temp/dewpoint always maps to the same color
+// across every ContextClimate tool.
+// ═══════════════════════════════════════════════════
+const SCALES = {
+  temp: { vals: [-5, 25, 50, 75, 102],          cols: ['#FFB3C6','#A8D4F0','#5DBF6A','#FFE033','#D41A1A'] },
+  dew:  { vals: [-25, 5, 18, 30, 55, 68, 80],   cols: ['#4A3410','#B89870','#D4C060','#FFEE00','#3DB84A','#2A8C30','#2A72C8'] },
+};
+
+function h2r(h) { return [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]; }
+function lrp(a, b, t) { return Math.round(a + (b - a) * t); }
+
+function getColor(val, sc) {
+  if (val == null) return '#888';
+  const { vals: vs, cols: cs } = sc;
+  if (val <= vs[0]) return cs[0];
+  if (val >= vs[vs.length - 1]) return cs[cs.length - 1];
+  for (let i = 0; i < vs.length - 1; i++) {
+    if (val >= vs[i] && val <= vs[i + 1]) {
+      const t = (val - vs[i]) / (vs[i + 1] - vs[i]);
+      const a = h2r(cs[i]), b = h2r(cs[i + 1]);
+      return `rgb(${lrp(a[0],b[0],t)},${lrp(a[1],b[1],t)},${lrp(a[2],b[2],t)})`;
+    }
+  }
+  return cs[cs.length - 1];
+}
 
 function fmtPres(mb) {
   if (mb == null) return '';
@@ -445,6 +526,41 @@ function drawStation(stn) {
   ctx.fillText(stn.id.slice(1), x + off, y + off);
 }
 
+// Value-only marker: one large colored number, no other station glyphs.
+// `field` is 'temp' or 'dew' — matches the SCALES key.
+function drawValueOnly(stn, field) {
+  const [x, y] = project(stn.lon, stn.lat);
+  if (x < -30 || x > CW+30 || y < -30 || y > CH+30) return;
+
+  const raw = field === 'temp' ? cToF(stn.temp) : cToF(stn.dew);
+  if (raw == null) return;
+
+  const color = getColor(raw, SCALES[field]);
+  const label = `${raw}\u00B0`;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Dark halo so the colored number stays legible over the light basemap
+  // regardless of land/ocean/state-line color underneath it.
+  ctx.font = '700 26px "JetBrains Mono", monospace';
+  ctx.lineWidth = 4;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(8,12,20,0.82)';
+  ctx.strokeText(label, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(label, x, y);
+
+  // Station ID below, for reference
+  const idLabel = stn.id.slice(1);
+  ctx.font = '600 13px "Barlow Condensed"';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.strokeText(idLabel, x, y + 20);
+  ctx.fillStyle = MAP.COLORS.textSecondary;
+  ctx.fillText(idLabel, x, y + 20);
+}
+
 // ═══════════════════════════════════════════════════
 // LOAD BASE GEOJSON
 // ═══════════════════════════════════════════════════
@@ -518,10 +634,59 @@ function render() {
   ctx.rect(0, 0, CW, CH);
   ctx.clip();
   MAP.renderBase(ctx, statesGeo, project, dims);
-  for (const stn of obs) drawStation(stn);
+  if (mode === 'station') {
+    for (const stn of obs) drawStation(stn);
+  } else {
+    for (const stn of obs) drawValueOnly(stn, mode);
+  }
   MAP.drawStamp(ctx, getValidTime(), dims);
   ctx.restore();
 }
+
+// ═══════════════════════════════════════════════════
+// VIEW MODE — station model / temp-only / dewpoint-only
+// ═══════════════════════════════════════════════════
+let mode = 'station';
+
+function legendGradient(sc) {
+  const vMin = sc.vals[0], vMax = sc.vals[sc.vals.length - 1];
+  const span = vMax - vMin;
+  const stops = sc.vals.map((v, i) => `${sc.cols[i]} ${((v - vMin) / span * 100).toFixed(1)}%`);
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+function updateLegend() {
+  const legend = document.getElementById('legend');
+  if (mode === 'station') {
+    legend.innerHTML = `
+      <div class="lg"><div class="lg-dot" style="background:#e05252"></div>Temperature &deg;F</div>
+      <div class="lg"><div class="lg-dot" style="background:#6aabee"></div>Dewpoint &deg;F</div>
+      <div class="lg"><div class="lg-dot" style="background:#9aa3b2"></div>Pressure (coded mb)</div>
+      <div class="lg"><div class="lg-dot" style="border:1px solid rgba(255,255,255,0.5);background:transparent"></div>Wind barb &middot; Sky cover</div>
+    `;
+  } else {
+    const sc    = SCALES[mode];
+    const label = mode === 'temp' ? 'Temperature' : 'Dewpoint';
+    legend.innerHTML = `
+      <div class="lg lg-scale">
+        <span class="lg-scale-lbl">${sc.vals[0]}&deg;</span>
+        <div class="lg-gradient" style="background:${legendGradient(sc)}"></div>
+        <span class="lg-scale-lbl">${sc.vals[sc.vals.length - 1]}&deg;</span>
+      </div>
+      <div class="lg">${label} &middot; colored by value</div>
+    `;
+  }
+}
+
+document.querySelectorAll('.vt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.mode === mode) return;
+    mode = btn.dataset.mode;
+    document.querySelectorAll('.vt-btn').forEach(b => b.classList.toggle('active', b === btn));
+    updateLegend();
+    render();
+  });
+});
 
 // ═══════════════════════════════════════════════════
 // TOOLTIP
