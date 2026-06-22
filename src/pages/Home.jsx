@@ -323,6 +323,9 @@ export default function Home() {
         <p className="page-subtitle">
           Created and maintained by Josh Timlin  
         </p>
+        <Link to="/earthandspace" className="jump-link">
+          Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
+        </Link>
       </section>
 
       {/* Sections */}
@@ -334,7 +337,13 @@ export default function Home() {
             borderTop: i > 0 ? '0.5px solid var(--color-border)' : 'none',
           }}
         >
-          <p className={styles.sectionLabel}>{section.label}</p>
+          <p
+            className={styles.sectionLabel}
+            style={{ '--section-accent': `var(${section.cards[0]?.accentVar || '--color-text-primary'})` }}
+          >
+            <span className={styles.sectionLabelBar} />
+            {section.label}
+          </p>
           {section.id === 'heatmaps' && (
             <p
               style={{
