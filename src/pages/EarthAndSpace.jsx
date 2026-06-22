@@ -3,10 +3,10 @@ import styles from './Home.module.css'
 
 // ── Accent colors per section ─────────────────────────────────────────────────
 const ACCENT = {
-  essrt:    '#C8923A',          // warm amber — reference/document feel
-  geology:  'var(--accent-earth)', // existing teal-green
-  meteor:   '#3AA8CC',          // sky blue
-  astro:    '#8B6BC9',          // deep indigo-purple
+  essrt:    '#9C7A2E',          // brass/ledger gold — reference/document feel
+  geology:  'var(--accent-earth)', // deep teal-cyan
+  meteor:   '#3D86A0',          // deep sky-cyan
+  astro:    '#5A4D8F',          // deep indigo-purple
 }
 
 // ── Section data ──────────────────────────────────────────────────────────────
@@ -326,6 +326,9 @@ export default function EarthAndSpace() {
         <p className="page-subtitle">
           Interactive learning tools created and maintained by Josh Timlin
         </p>
+        <Link to="/" className="jump-link">
+          Jump to ContextClimate <span className="jump-link-arrow">→</span>
+        </Link>
       </section>
 
       {/* Sections */}
