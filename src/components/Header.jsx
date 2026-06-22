@@ -1,12 +1,6 @@
 import { useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
-
-// Category links — currently all point Home. See note below: the actual
-// Home.jsx sections (Live, Climatology Heatmaps, Climatology Charts, Solar)
-// don't map 1:1 onto these five labels yet, so these are placeholders until
-// that mapping is confirmed.
-const CATEGORY_LINKS = ['Hourly', 'Climate', 'ENSO', 'Seasons', 'Live']
 
 export default function Header() {
   const [open, setOpen] = useState(false)
@@ -25,7 +19,7 @@ export default function Header() {
             </NavLink>
           </div>
 
-          {/* ── Center: nav links (desktop only) ── */}
+          {/* ── Center: Home nav link (desktop only) ── */}
           <nav className={styles.nav}>
             <NavLink
               to="/"
@@ -36,11 +30,6 @@ export default function Header() {
             >
               Home
             </NavLink>
-            {CATEGORY_LINKS.map((label) => (
-              <Link key={label} to="/" className={styles.navItem}>
-                {label}
-              </Link>
-            ))}
           </nav>
 
           {/* ── Right: Earth & Space wordmark + hamburger ── */}
@@ -98,16 +87,6 @@ export default function Header() {
         >
           Home
         </NavLink>
-        {CATEGORY_LINKS.map((label) => (
-          <Link
-            key={label}
-            to="/"
-            className={styles.drawerItem}
-            onClick={handleNavClick}
-          >
-            {label}
-          </Link>
-        ))}
         <NavLink
           to="/earthandspace"
           className={({ isActive }) =>
