@@ -1,9 +1,12 @@
 import { useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
-const CC_LOGO = `${import.meta.env.BASE_URL}contextclimate_bracket_logo.png`
-const ES_LOGO = `${import.meta.env.BASE_URL}earth_space_bracket_logo.png`
+// Category links — currently all point Home. See note below: the actual
+// Home.jsx sections (Live, Climatology Heatmaps, Climatology Charts, Solar)
+// don't map 1:1 onto these five labels yet, so these are placeholders until
+// that mapping is confirmed.
+const CATEGORY_LINKS = ['Hourly', 'Climate', 'ENSO', 'Seasons', 'Live']
 
 export default function Header() {
   const [open, setOpen] = useState(false)
@@ -14,18 +17,15 @@ export default function Header() {
       <header className={styles.header}>
         <div className={styles.inner}>
 
-          {/* ── Left: ContextClimate logo ── */}
+          {/* ── Left: ContextClimate wordmark (text) ── */}
           <div className={styles.innerLeft}>
             <NavLink to="/" className={styles.logo} onClick={handleNavClick}>
-              <img
-                src={CC_LOGO}
-                alt="ContextClimate"
-                className={styles.logoImg}
-              />
+              <span className={styles.bracketCc}>[ ]</span>
+              <span className={styles.wordmark}>ContextClimate</span>
             </NavLink>
           </div>
 
-          {/* ── Center: Home nav link (desktop only) ── */}
+          {/* ── Center: nav links (desktop only) ── */}
           <nav className={styles.nav}>
             <NavLink
               to="/"
@@ -36,9 +36,14 @@ export default function Header() {
             >
               Home
             </NavLink>
+            {CATEGORY_LINKS.map((label) => (
+              <Link key={label} to="/" className={styles.navItem}>
+                {label}
+              </Link>
+            ))}
           </nav>
 
-          {/* ── Right: Earth & Space logo + hamburger ── */}
+          {/* ── Right: Earth & Space wordmark + hamburger ── */}
           <div className={styles.innerRight}>
             <NavLink
               to="/earthandspace"
@@ -48,11 +53,9 @@ export default function Header() {
               aria-label="Earth & Space"
               onClick={handleNavClick}
             >
-              <img
-                src={ES_LOGO}
-                alt="Earth & Space"
-                className={styles.earthSpaceImg}
-              />
+              <span className={styles.bracketEs}>[</span>
+              <span className={styles.wordmarkEs}>Earth 🌍 Space</span>
+              <span className={styles.bracketEs}>]</span>
             </NavLink>
 
             <button
@@ -80,29 +83,40 @@ export default function Header() {
           onClick={handleNavClick}
           aria-label="Earth & Space"
         >
-          <img
-            src={ES_LOGO}
-            alt="Earth & Space"
-            className={styles.earthSpaceImg}
-          />
+          <span className={styles.bracketEs}>[</span>
+          <span className={styles.wordmarkEs}>Earth 🌍 Space</span>
+          <span className={styles.bracketEs}>]</span>
         </NavLink>
 
-        {[
-          { label: 'Home', to: '/' },
-          { label: 'Earth & Space', to: '/earthandspace' },
-        ].map(({ label, to }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              `${styles.drawerItem} ${isActive ? styles.drawerItemActive : ''}`
-            }
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            `${styles.drawerItem} ${isActive ? styles.drawerItemActive : ''}`
+          }
+          onClick={handleNavClick}
+        >
+          Home
+        </NavLink>
+        {CATEGORY_LINKS.map((label) => (
+          <Link
+            key={label}
+            to="/"
+            className={styles.drawerItem}
             onClick={handleNavClick}
           >
             {label}
-          </NavLink>
+          </Link>
         ))}
+        <NavLink
+          to="/earthandspace"
+          className={({ isActive }) =>
+            `${styles.drawerItem} ${isActive ? styles.drawerItemActive : ''}`
+          }
+          onClick={handleNavClick}
+        >
+          Earth & Space
+        </NavLink>
       </nav>
     </>
   )
