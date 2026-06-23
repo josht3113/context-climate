@@ -274,6 +274,14 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/US_seasonal_snowfall_thumbnail.png',
       },
+      {
+        tags:       ['ARCTIC', 'ANTARCTIC', 'DAILY'],
+        title:      'Sea Ice Extent Explorer',
+        description:'Daily Arctic and Antarctic sea ice extent since 1979 — isolate any year, compare it against decade averages, and see how today stacks up against the full historical record.',
+        footerTags: ['NSIDC G02135', '1979–Present', 'Arctic ⇄ Antarctic'],
+        to:         '/seaice-extent-explorer',
+        accentVar:  '--accent-climate',
+      },
     ],
   },
   {
