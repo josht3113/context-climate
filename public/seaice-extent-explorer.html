@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea Ice Extent Explorer</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=Source+Sans+3:wght@400;500&family=Courier+Prime&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #07070f;
+    --surface: #0d1120;
+    --surface-raised: #12172a;
+    --accent: #BA7517;
+    --accent-soft: rgba(186,117,23,0.14);
+    --current: #F5D742;
+    --text: #f2f0e8;
+    --text-secondary: #a8a8a0;
+    --text-tertiary: #6e6e68;
+    --border: #2a2d39;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 22px 20px 30px; }
+  .logo-mark {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  h1 {
+    font-family: 'Archivo', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 6px;
+    color: var(--text);
+  }
+  .freshness {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-bottom: 18px;
+  }
+  .hemi-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .hemi-toggle button {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 18px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+  }
+  .hemi-toggle button.active { background: var(--accent); color: #1a1206; }
+  .controls-row, .compare-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
+  .pill {
+    font-family: 'Courier Prime', monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+  }
+  .toggle-btn {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+  }
+  select#compareSelect {
+    background: var(--surface);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    padding: 5px 9px;
+    border-radius: 5px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-bottom: 16px;
+  }
+  .chart-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 18px;
+    position: relative;
+    height: 440px;
+    margin-bottom: 18px;
+  }
+  .chart-status {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    font-size: 13px;
+  }
+  .stat-card {
+    display: inline-block;
+    background: var(--surface-raised);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 14px;
+  }
+  .stat-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .stat-value {
+    font-family: 'Archivo', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--current);
+  }
+  .stat-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+  .footnote {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-style: italic;
+    line-height: 1.5;
+    max-width: 760px;
+  }
+  .citation {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo-mark">[ Climate ]</div>
+  <h1>Sea ice extent explorer</h1>
+  <div class="freshness" id="freshness">Loading data&hellip;</div>
+
+  <div class="hemi-toggle" id="hemiToggle">
+    <button data-hemi="N" class="active">Arctic</button>
+    <button data-hemi="S">Antarctic</button>
+  </div>
+
+  <div class="controls-row">
+    <span class="toggle-btn" id="contextToggle">All years: on</span>
+    <span class="sep"></span>
+    <span class="pill" id="currentPill" style="border-color: var(--current);"></span>
+    <span class="sep"></span>
+    <div id="decadeLegend" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+  </div>
+
+  <div class="compare-row">
+    <select id="compareSelect"><option value="">+ compare a year</option></select>
+    <div id="compareChips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+  </div>
+  <div class="hint">click a decade or the current-year pill to toggle &middot; double-click to isolate</div>
+
+  <div class="chart-card">
+    <div class="chart-status" id="chartStatus">Loading&hellip;</div>
+    <canvas id="seaiceChart" role="img" aria-label="Sea ice extent by year, day of year on the x-axis, million square kilometers on the y-axis" style="display:none;"></canvas>
+  </div>
+
+  <div class="stat-card" id="statCard" style="display:none;">
+    <div class="stat-label">Current standing</div>
+    <div class="stat-value" id="statValue"></div>
+    <div class="stat-sub" id="statSub"></div>
+  </div>
+
+  <div class="footnote" id="footnote"></div>
+  <div class="citation" id="citation"></div>
+
+</div>
+
+<script>
+(function(){
+
+  var STATE = {
+    hemisphere: 'N',
+    contextVisible: true,
+    data: null,
+    chart: null,
+    decades: [],
+    currentYear: null,
+    compareCount: 0,
+    compareColors: ['#4FBFA0', '#D4537E', '#7AB8E0']
+  };
+
+  function buildSlotLabels(){
+    var labels = [];
+    var d = new Date(2000, 0, 1); // 2000 is a leap year, gives exactly 366 days
+    for (var i = 0; i < 366; i++){
+      labels.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      d.setDate(d.getDate() + 1);
+    }
+    return labels;
+  }
+  var SLOT_LABELS = buildSlotLabels();
+  var MONTH_START_INDEX = {0:'Jan',31:'Feb',60:'Mar',91:'Apr',121:'May',152:'Jun',182:'Jul',213:'Aug',244:'Sep',274:'Oct',305:'Nov',335:'Dec'};
+
+  function cleanVals(arr){
+    return arr.filter(function(v){ return v !== null && v !== undefined; });
+  }
+
+  function formatDate(iso){
+    if (!iso) return 'unknown';
+    var parts = iso.split('-');
+    var d = new Date(Number(parts[0]), Number(parts[1])-1, Number(parts[2]));
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  fetch('seaice-extent.json').then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(json){
+    STATE.data = json;
+    document.getElementById('freshness').textContent =
+      'Data current through ' + formatDate(json.updated_through) + ' \u00b7 ' + json.source;
+    document.getElementById('footnote').textContent =
+      (json.sensor_transition && json.sensor_transition.note) || '';
+    document.getElementById('citation').textContent = json.citation || '';
+    initChart();
+    rebuild();
+  }).catch(function(err){
+    document.getElementById('chartStatus').textContent = 'Could not load sea ice data right now. Please try again shortly.';
+    console.error('seaice-extent.json load failed:', err);
+  });
+
+  function initChart(){
+    var ctx = document.getElementById('seaiceChart');
+    STATE.chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: SLOT_LABELS, datasets: [] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 150 },
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function(items){ return SLOT_LABELS[items[0].dataIndex]; }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#8a8a82',
+              font: { size: 12 },
+              autoSkip: false,
+              callback: function(val, index){ return MONTH_START_INDEX.hasOwnProperty(index) ? MONTH_START_INDEX[index] : ''; }
+            },
+            grid: { color: 'rgba(255,255,255,0.04)' }
+          },
+          y: {
+            ticks: { color: '#8a8a82', font: { size: 12 } },
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            title: { display: true, text: 'million km\u00b2', color: '#8a8a82', font: { size: 12 } }
+          }
+        }
+      }
+    });
+  }
+
+  document.getElementById('hemiToggle').addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-hemi]');
+    if (!btn) return;
+    var hemi = btn.getAttribute('data-hemi');
+    if (hemi === STATE.hemisphere) return;
+    STATE.hemisphere = hemi;
+    this.querySelectorAll('button').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-hemi') === hemi); });
+    STATE.compareCount = 0;
+    rebuild();
+  });
+
+  function rebuild(){
+    var hemiData = STATE.data.hemispheres[STATE.hemisphere];
+    if (!hemiData){
+      document.getElementById('chartStatus').style.display = 'flex';
+      document.getElementById('chartStatus').textContent = 'No data available for this hemisphere yet.';
+      document.getElementById('seaiceChart').style.display = 'none';
+      return;
+    }
+    document.getElementById('chartStatus').style.display = 'none';
+    document.getElementById('seaiceChart').style.display = 'block';
+
+    var yearsObj = hemiData.years;
+    var yearKeys = Object.keys(yearsObj).map(Number).sort(function(a,b){ return a-b; });
+    var minYear = yearKeys[0], maxYear = yearKeys[yearKeys.length-1];
+    STATE.currentYear = maxYear;
+    STATE.yearsObj = yearsObj;
+    STATE.yearKeys = yearKeys;
+
+    var firstDecadeStart = Math.ceil(minYear/10)*10;
+    var decades = [];
+    for (var ds = firstDecadeStart; ds <= maxYear; ds += 10){
+      var de = ds + 9;
+      var yrsIn = yearKeys.filter(function(y){ return y >= ds && y <= de; });
+      if (yrsIn.length === 0) continue;
+      decades.push({ label: ds + 's', start: ds, end: de, years: yrsIn });
+    }
+    decades.forEach(function(dec, i){
+      var t = decades.length > 1 ? i/(decades.length-1) : 0;
+      var hue = 220 - 195*t, sat = 55 + 13*t, light = 42 + 10*t;
+      dec.color = 'hsl(' + hue.toFixed(0) + ',' + sat.toFixed(0) + '%,' + light.toFixed(0) + '%)';
+      dec.data = [];
+      for (var slot = 0; slot < 366; slot++){
+        var vals = cleanVals(dec.years.map(function(y){ return yearsObj[String(y)][slot]; }));
+        dec.data.push(vals.length ? Math.round((vals.reduce(function(a,b){ return a+b; },0)/vals.length)*1000)/1000 : null);
+      }
+    });
+    STATE.decades = decades;
+
+    var datasets = [];
+    yearKeys.forEach(function(y){
+      datasets.push({ label: String(y), data: yearsObj[String(y)], borderColor: '#3a3a36', borderWidth: 1, pointRadius: 0, tension: 0.25, hidden: !STATE.contextVisible, _kind: 'context' });
+    });
+    decades.forEach(function(dec){
+      datasets.push({ label: dec.label, data: dec.data, borderColor: dec.color, borderWidth: 2, borderDash: [6,4], pointRadius: 0, tension: 0.25, hidden: false, _kind: 'decade' });
+    });
+    datasets.push({ label: String(maxYear), data: yearsObj[String(maxYear)], borderColor: '#F5D742', borderWidth: 2.5, pointRadius: 0, tension: 0.25, hidden: false, _kind: 'current' });
+
+    STATE.chart.data.datasets = datasets;
+    STATE.chart.update();
+
+    renderDecadeLegend();
+    renderCurrentPill();
+    populateCompareSelect();
+    renderCompareChips();
+    updateStat();
+  }
+
+  document.getElementById('contextToggle').onclick = function(){
+    STATE.contextVisible = !STATE.contextVisible;
+    STATE.chart.data.datasets.forEach(function(ds){ if (ds._kind === 'context') ds.hidden = !STATE.contextVisible; });
+    this.textContent = 'All years: ' + (STATE.contextVisible ? 'on' : 'off');
+    STATE.chart.update();
+  };
+
+  function isolateDataset(targetIdx){
+    STATE.chart.data.datasets.forEach(function(ds, i){ ds.hidden = (i !== targetIdx); });
+    STATE.contextVisible = (STATE.chart.data.datasets[targetIdx]._kind === 'context');
+    document.getElementById('contextToggle').textContent = 'All years: ' + (STATE.contextVisible ? 'on' : 'off');
+    STATE.chart.update();
+    renderDecadeLegend();
+    renderCurrentPill();
+  }
+
+  function renderCurrentPill(){
+    var idx = STATE.chart.data.datasets.findIndex(function(d){ return d._kind === 'current'; });
+    var ds = STATE.chart.data.datasets[idx];
+    var el = document.getElementById('currentPill');
+    el.textContent = STATE.currentYear;
+    el.style.background = ds.hidden ? 'var(--surface)' : 'var(--current)';
+    el.style.color = ds.hidden ? 'var(--text-tertiary)' : '#1a1206';
+    el.onclick = function(){ ds.hidden = !ds.hidden; STATE.chart.update(); renderCurrentPill(); };
+    el.ondblclick = function(){ isolateDataset(idx); };
+  }
+
+  function renderDecadeLegend(){
+    var el = document.getElementById('decadeLegend');
+    el.innerHTML = '';
+    STATE.decades.forEach(function(dec){
+      var idx = STATE.chart.data.datasets.findIndex(function(d){ return d._kind === 'decade' && d.label === dec.label; });
+      var ds = STATE.chart.data.datasets[idx];
+      var pill = document.createElement('span');
+      pill.textContent = dec.label;
+      pill.className = 'pill';
+      pill.style.borderStyle = 'dashed';
+      pill.style.borderColor = dec.color;
+      pill.style.background = ds.hidden ? 'var(--surface)' : 'rgba(255,255,255,0.05)';
+      pill.style.color = ds.hidden ? 'var(--text-tertiary)' : dec.color;
+      pill.onclick = function(){ ds.hidden = !ds.hidden; STATE.chart.update(); renderDecadeLegend(); };
+      pill.ondblclick = function(){ isolateDataset(idx); };
+      el.appendChild(pill);
+    });
+  }
+
+  function populateCompareSelect(){
+    var select = document.getElementById('compareSelect');
+    select.innerHTML = '<option value="">+ compare a year</option>';
+    STATE.yearKeys.slice().sort(function(a,b){ return b-a; }).forEach(function(y){
+      var opt = document.createElement('option');
+      opt.value = y; opt.textContent = y;
+      select.appendChild(opt);
+    });
+  }
+
+  document.getElementById('compareSelect').onchange = function(){
+    var y = this.value;
+    if (!y) return;
+    var already = STATE.chart.data.datasets.some(function(d){ return d._kind === 'compare' && d.label === y; });
+    if (!already){
+      STATE.chart.data.datasets.push({
+        label: y,
+        data: STATE.yearsObj[String(y)],
+        borderColor: STATE.compareColors[STATE.compareCount % STATE.compareColors.length],
+        borderWidth: 2, pointRadius: 0, tension: 0.25, hidden: false, _kind: 'compare'
+      });
+      STATE.compareCount++;
+      STATE.chart.update();
+      renderCompareChips();
+    }
+    this.value = '';
+  };
+
+  function renderCompareChips(){
+    var container = document.getElementById('compareChips');
+    container.innerHTML = '';
+    STATE.chart.data.datasets.filter(function(d){ return d._kind === 'compare'; }).forEach(function(ds){
+      var chip = document.createElement('span');
+      chip.className = 'pill';
+      chip.style.borderColor = ds.borderColor;
+      chip.style.color = ds.borderColor;
+      chip.innerHTML = ds.label + ' <span style="cursor:pointer; opacity:0.7;">&times;</span>';
+      chip.querySelector('span').onclick = function(){
+        var i = STATE.chart.data.datasets.indexOf(ds);
+        STATE.chart.data.datasets.splice(i, 1);
+        STATE.chart.update();
+        renderCompareChips();
+      };
+      container.appendChild(chip);
+    });
+  }
+
+  function updateStat(){
+    var curData = STATE.yearsObj[String(STATE.currentYear)];
+    var lastIdx = -1;
+    for (var i = curData.length-1; i >= 0; i--){ if (curData[i] !== null && curData[i] !== undefined){ lastIdx = i; break; } }
+    if (lastIdx === -1){
+      document.getElementById('statCard').style.display = 'none';
+      return;
+    }
+    var otherVals = STATE.yearKeys.filter(function(y){ return y !== STATE.currentYear; })
+      .map(function(y){ return STATE.yearsObj[String(y)][lastIdx]; });
+    var allVals = cleanVals(otherVals.concat([curData[lastIdx]]));
+    var sorted = allVals.slice().sort(function(a,b){ return a-b; });
+    var rank = sorted.indexOf(curData[lastIdx]) + 1;
+    var ordinal = (rank===1?'1st':rank===2?'2nd':rank===3?'3rd':rank+'th');
+
+    document.getElementById('statCard').style.display = 'inline-block';
+    document.getElementById('statValue').textContent = ordinal + ' lowest';
+    document.getElementById('statSub').textContent =
+      'of ' + allVals.length + ' years on record for ' + SLOT_LABELS[lastIdx] + ' \u00b7 computed live from the data shown';
+  }
+
+})();
+</script>
+</body>
+</html>
