@@ -223,12 +223,17 @@ canvas {
 
 <header>
   <h1>Surface Map</h1>
-  <span class="sub">Tri-State &middot; ASOS / AWOS Hourly Observations</span>
+  <span class="sub" id="page-sub">Tri-State &middot; ASOS / AWOS Hourly Observations</span>
 </header>
 
 <div class="status">
   <div class="dot"></div>
   <span id="stext">Initializing&hellip;</span>
+</div>
+
+<div class="view-toggle" id="region-toggle">
+  <button class="vt-btn active" data-region="tristate">Tri-State</button>
+  <button class="vt-btn" data-region="conus">National</button>
 </div>
 
 <div class="view-toggle" id="view-toggle">
@@ -270,18 +275,19 @@ canvas {
 // ═══════════════════════════════════════════════════
 // REGION + CANVAS SETUP
 // ═══════════════════════════════════════════════════
-const REGION = MAP_REGIONS.tristate;
-const B      = REGION.bounds;
+let REGION_KEY = 'tristate';
+let REGION     = MAP_REGIONS[REGION_KEY];
+let B          = REGION.bounds;
 
 const CW   = 950;
-const dims = MAP.computeDims(B, CW);
-const CH   = dims.CH;
+let dims = MAP.computeDims(B, CW);
+let CH   = dims.CH;
 const REFRESH_MS = 60 * 60 * 1000; // hourly
 
 // ═══════════════════════════════════════════════════
-// STATIONS — Tri-State region
+// STATIONS — by region
 // ═══════════════════════════════════════════════════
-const STATIONS = [
+const STATIONS_TRISTATE = [
   // Long Island & NYC
   'KISP','KFOK','KMTP','KFRG','KJFK','KNYC',
   // Northern NJ
@@ -298,7 +304,7 @@ const STATIONS = [
   'KBLM','KMJX','KPHL','KILG','KACY','KMIV','KTTN','KABE','KAVP',
 ];
 
-const NAMES = {
+const NAMES_TRISTATE = {
   KISP:'Islip', KFOK:'Westhampton', KMTP:'Montauk', KFRG:'Farmingdale',
   KJFK:'Kennedy', KNYC:'Central Park',
   KMMU:'Morristown NJ',
@@ -316,19 +322,144 @@ const NAMES = {
   KAVP:'Wilkes-Barre/Scranton',
 };
 
+// National (lean) network — curated from well-established major-airport
+// ASOS/AWOS identifiers, same approach as the Tri-State list above.
+const STATIONS_CONUS = [
+  // New England
+  'KPWM','KCAR','KMHT','KBTV','KBOS','KPVD',
+  // NY / NJ / CT (national-scale anchors — Tri-State covers this region in depth separately)
+  'KJFK','KBUF','KSYR','KEWR','KBDL',
+  // Mid-Atlantic (PA / DE / MD / DC)
+  'KPHL','KPIT','KMDT','KERI','KILG','KBWI','KDCA',
+  // Virginia / West Virginia
+  'KRIC','KORF','KROA','KCRW','KHTS',
+  // Carolinas / Georgia
+  'KCLT','KRDU','KILM','KAVL','KCAE','KCHS','KATL','KSAV',
+  // Florida
+  'KJAX','KTLH','KPNS','KTPA','KMCO','KMIA','KFLL','KPBI','KRSW','KEYW',
+  // Deep South (AL / MS)
+  'KBHM','KHSV','KMGM','KMOB','KJAN','KGPT',
+  // Tennessee / Kentucky
+  'KBNA','KMEM','KTYS','KLEX','KSDF',
+  // Ohio / Indiana / Illinois
+  'KCMH','KCLE','KCVG','KTOL','KIND','KFWA','KSBN','KORD','KSPI','KPIA',
+  // Michigan / Wisconsin / Minnesota
+  'KDTW','KGRR','KLAN','KMKE','KMSN','KGRB','KMSP','KDLH',
+  // Iowa / Missouri
+  'KDSM','KCID','KMCI','KSTL','KSGF',
+  // Dakotas / Nebraska / Kansas
+  'KFAR','KBIS','KRAP','KFSD','KOMA','KLNK','KICT','KTOP',
+  // Oklahoma / Arkansas / Louisiana
+  'KOKC','KTUL','KLIT','KMSY','KSHV','KBTR',
+  // Texas
+  'KDFW','KIAH','KSAT','KAUS','KELP','KLBB','KAMA','KCRP','KBRO','KMAF',
+  // Colorado / Wyoming / Montana
+  'KDEN','KCOS','KCYS','KCPR','KBIL','KGTF','KHLN',
+  // Idaho / Utah / Nevada
+  'KBOI','KIDA','KSLC','KSGU','KLAS','KRNO',
+  // Arizona / New Mexico
+  'KPHX','KTUS','KFLG','KABQ','KROW',
+  // Washington / Oregon
+  'KSEA','KGEG','KPDX','KEUG',
+  // California
+  'KSFO','KLAX','KSAN','KSMF','KFAT','KBFL','KSBA','KRDD','KACV','KPSP',
+];
+
+const NAMES_CONUS = {
+  // New England
+  KPWM:'Portland ME', KCAR:'Caribou ME', KMHT:'Manchester NH', KBTV:'Burlington VT',
+  KBOS:'Boston', KPVD:'Providence',
+  // NY / NJ / CT
+  KJFK:'New York City', KBUF:'Buffalo', KSYR:'Syracuse', KEWR:'Newark', KBDL:'Hartford',
+  // Mid-Atlantic
+  KPHL:'Philadelphia', KPIT:'Pittsburgh', KMDT:'Harrisburg', KERI:'Erie PA',
+  KILG:'Wilmington DE', KBWI:'Baltimore', KDCA:'Washington DC',
+  // Virginia / West Virginia
+  KRIC:'Richmond', KORF:'Norfolk', KROA:'Roanoke', KCRW:'Charleston WV', KHTS:'Huntington WV',
+  // Carolinas / Georgia
+  KCLT:'Charlotte', KRDU:'Raleigh-Durham', KILM:'Wilmington NC', KAVL:'Asheville',
+  KCAE:'Columbia SC', KCHS:'Charleston SC', KATL:'Atlanta', KSAV:'Savannah',
+  // Florida
+  KJAX:'Jacksonville', KTLH:'Tallahassee', KPNS:'Pensacola', KTPA:'Tampa',
+  KMCO:'Orlando', KMIA:'Miami', KFLL:'Fort Lauderdale', KPBI:'West Palm Beach',
+  KRSW:'Fort Myers', KEYW:'Key West',
+  // Deep South
+  KBHM:'Birmingham', KHSV:'Huntsville', KMGM:'Montgomery', KMOB:'Mobile',
+  KJAN:'Jackson MS', KGPT:'Gulfport-Biloxi',
+  // Tennessee / Kentucky
+  KBNA:'Nashville', KMEM:'Memphis', KTYS:'Knoxville', KLEX:'Lexington', KSDF:'Louisville',
+  // Ohio / Indiana / Illinois
+  KCMH:'Columbus', KCLE:'Cleveland', KCVG:'Cincinnati', KTOL:'Toledo',
+  KIND:'Indianapolis', KFWA:'Fort Wayne', KSBN:'South Bend',
+  KORD:'Chicago', KSPI:'Springfield IL', KPIA:'Peoria',
+  // Michigan / Wisconsin / Minnesota
+  KDTW:'Detroit', KGRR:'Grand Rapids', KLAN:'Lansing',
+  KMKE:'Milwaukee', KMSN:'Madison', KGRB:'Green Bay',
+  KMSP:'Minneapolis', KDLH:'Duluth',
+  // Iowa / Missouri
+  KDSM:'Des Moines', KCID:'Cedar Rapids', KMCI:'Kansas City', KSTL:'St. Louis', KSGF:'Springfield MO',
+  // Dakotas / Nebraska / Kansas
+  KFAR:'Fargo', KBIS:'Bismarck', KRAP:'Rapid City', KFSD:'Sioux Falls',
+  KOMA:'Omaha', KLNK:'Lincoln', KICT:'Wichita', KTOP:'Topeka',
+  // Oklahoma / Arkansas / Louisiana
+  KOKC:'Oklahoma City', KTUL:'Tulsa', KLIT:'Little Rock',
+  KMSY:'New Orleans', KSHV:'Shreveport', KBTR:'Baton Rouge',
+  // Texas
+  KDFW:'Dallas-Fort Worth', KIAH:'Houston', KSAT:'San Antonio', KAUS:'Austin',
+  KELP:'El Paso', KLBB:'Lubbock', KAMA:'Amarillo', KCRP:'Corpus Christi',
+  KBRO:'Brownsville', KMAF:'Midland',
+  // Colorado / Wyoming / Montana
+  KDEN:'Denver', KCOS:'Colorado Springs', KCYS:'Cheyenne', KCPR:'Casper',
+  KBIL:'Billings', KGTF:'Great Falls', KHLN:'Helena',
+  // Idaho / Utah / Nevada
+  KBOI:'Boise', KIDA:'Idaho Falls', KSLC:'Salt Lake City', KSGU:'St. George',
+  KLAS:'Las Vegas', KRNO:'Reno',
+  // Arizona / New Mexico
+  KPHX:'Phoenix', KTUS:'Tucson', KFLG:'Flagstaff', KABQ:'Albuquerque', KROW:'Roswell',
+  // Washington / Oregon
+  KSEA:'Seattle', KGEG:'Spokane', KPDX:'Portland OR', KEUG:'Eugene',
+  // California
+  KSFO:'San Francisco', KLAX:'Los Angeles', KSAN:'San Diego', KSMF:'Sacramento',
+  KFAT:'Fresno', KBFL:'Bakersfield', KSBA:'Santa Barbara', KRDD:'Redding',
+  KACV:'Eureka/Arcata', KPSP:'Palm Springs',
+};
+
+const REGION_DATA = {
+  tristate: {
+    stations: STATIONS_TRISTATE, names: NAMES_TRISTATE,
+    sub: 'Tri-State · ASOS / AWOS Hourly Observations',
+    docTitle: 'Surface Weather Map — Tri-State',
+  },
+  conus: {
+    stations: STATIONS_CONUS, names: NAMES_CONUS,
+    sub: 'National · ASOS / AWOS Hourly Observations (lean network)',
+    docTitle: 'Surface Weather Map — National',
+  },
+};
+
+let STATIONS = REGION_DATA[REGION_KEY].stations;
+let NAMES    = REGION_DATA[REGION_KEY].names;
+
 // ═══════════════════════════════════════════════════
 // CANVAS + PROJECTION
 // ═══════════════════════════════════════════════════
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const dpr = window.devicePixelRatio || 1;
-cv.width  = CW * dpr;
-cv.height = CH * dpr;
-cv.style.width  = CW + 'px';
-cv.style.height = CH + 'px';
-ctx.scale(dpr, dpr);
+let project;
 
-const project = MAP.makeProjection(B, dims);
+// Re-run whenever the region (and therefore CW/CH/bounds) changes.
+// Resizing a canvas's width/height resets its transform, so re-applying
+// dpr scale here each time is correct rather than compounding.
+function applyCanvasSize() {
+  cv.width  = CW * dpr;
+  cv.height = CH * dpr;
+  cv.style.width  = CW + 'px';
+  cv.style.height = CH + 'px';
+  ctx.scale(dpr, dpr);
+  project = MAP.makeProjection(B, dims);
+}
+applyCanvasSize();
 
 // ═══════════════════════════════════════════════════
 // UNIT HELPERS
@@ -692,6 +823,7 @@ document.querySelectorAll('.vt-btn').forEach(btn => {
 // TOOLTIP
 // ═══════════════════════════════════════════════════
 const tip = document.getElementById('tip');
+const ov  = document.getElementById('ov');
 
 cv.addEventListener('mousemove', e => {
   const rect = cv.getBoundingClientRect();
@@ -781,18 +913,34 @@ function flash(msg) {
 const setStatus = msg => { document.getElementById('stext').textContent = msg; };
 
 // ═══════════════════════════════════════════════════
-// INIT + REFRESH
+// REGION LOADING + SWITCHING
 // ═══════════════════════════════════════════════════
-async function init() {
+let switching = false;
+
+// Shared by first load and every later region switch: recompute bounds/
+// canvas size/projection for the region, then reload boundary + obs data.
+async function loadRegion(key, { isInitial = false } = {}) {
+  REGION_KEY = key;
+  REGION     = MAP_REGIONS[key];
+  B          = REGION.bounds;
+  dims       = MAP.computeDims(B, CW);
+  CH         = dims.CH;
+  STATIONS   = REGION_DATA[key].stations;
+  NAMES      = REGION_DATA[key].names;
+
+  document.getElementById('page-sub').textContent = REGION_DATA[key].sub;
+  document.title = REGION_DATA[key].docTitle;
+  applyCanvasSize();
+
+  ov.style.display = 'flex';
+  ov.textContent = 'Loading map boundaries…';
   setStatus('Loading map boundaries…');
   await loadGeo();
-  await document.fonts.ready;
+  if (isInitial) await document.fonts.ready;
   MAP.renderBase(ctx, statesGeo, project, dims);
 
-  const ov = document.getElementById('ov');
   ov.textContent = 'Fetching observations…';
   setStatus('Fetching station observations…');
-
   await loadObs();
   render();
   ov.style.display = 'none';
@@ -800,6 +948,25 @@ async function init() {
   const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
   setStatus(`${obs.length} of ${STATIONS.length} stations loaded · ${t}`);
 }
+
+async function init() {
+  await loadRegion(REGION_KEY, { isInitial: true });
+}
+
+async function switchRegion(key) {
+  if (key === REGION_KEY || switching) return;
+  switching = true;
+  await loadRegion(key);
+  switching = false;
+}
+
+document.querySelectorAll('#region-toggle .vt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.region === REGION_KEY || switching) return;
+    document.querySelectorAll('#region-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
+    switchRegion(btn.dataset.region);
+  });
+});
 
 async function refresh() {
   await loadObs();
