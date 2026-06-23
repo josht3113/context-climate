@@ -281,6 +281,7 @@ const SECTIONS = [
         footerTags: ['NSIDC G02135', '1979–Present', 'Arctic ⇄ Antarctic'],
         to:         '/seaice-extent-explorer',
         accentVar:  '--accent-climate',
+        thumb:      '/SealceExtent_thumbnail.png',
       },
     ],
   },
