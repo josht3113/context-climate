@@ -23,7 +23,7 @@ export default function SeaIceExtentExplorer() {
         <iframe
           src={import.meta.env.BASE_URL + 'seaice-extent-explorer.html'}
           title="Sea Ice Extent Explorer"
-          style={{ width: '100%', height: '1000px', border: 'none', display: 'block' }}
+          style={{ width: '100%', height: '1300px', border: 'none', display: 'block' }}
           loading="lazy"
         />
       </div>
