@@ -19,13 +19,21 @@ window.MAP_REGIONS = {
   // Long Island sits in the visual center.
   tristate: {
     bounds: { west: -75.8, east: -69.8, north: 42.8, south: 39.0 },
-    geo:    '/northeast-coast.geojson',
+    geo:    'northeast-coast.geojson',
     label:  'Tri-State Wide',
+  },
+
+  // Continental US, with a little padding beyond the true extremes
+  // (West Quoddy Head ME ~-66.95, Cape Alava WA ~-124.7,
+  //  Northwest Angle MN ~49.4N, Key West FL ~24.55N).
+  conus: {
+    bounds: { west: -125.5, east: -66.5, north: 49.8, south: 24.0 },
+    geo:    'states-500k.geojson',
+    label:  'Continental US',
   },
 
   // — future regions go here —
   // southeast:    { bounds: {...}, geo: 'southeast-coast.geojson', label: 'Southeast Coast' },
   // gulf-coast:   { bounds: {...}, geo: 'gulf-coast.geojson',      label: 'Gulf Coast'      },
-  // conus:        { bounds: {...}, geo: 'conus.geojson',           label: 'Continental US' },
 
 };

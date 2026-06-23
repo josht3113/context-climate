@@ -64,12 +64,27 @@ window.MAP = (function () {
 
   function makeProjection(bounds, dims) {
     const { CW, CH } = dims;
-    const lonR = bounds.east - bounds.west;
-    const latR = bounds.north - bounds.south;
-    return (lon, lat) => [
-      (lon - bounds.west)  / lonR * CW,
-      (bounds.north - lat) / latR * CH,
-    ];
+    const lonR      = bounds.east - bounds.west;
+    const latR      = bounds.north - bounds.south;
+    const lonCenter = (bounds.west + bounds.east) / 2;
+    const midLat    = Math.PI * (bounds.north + bounds.south) / 2 / 180;
+    const cosMid    = Math.cos(midLat);
+
+    // x is corrected by cos(lat)/cos(midLat) at each point so longitude
+    // lines converge realistically away from the box's mid-latitude —
+    // without this, wide-latitude regions (e.g. CONUS) render northern
+    // states too wide and southern states too narrow, since a degree of
+    // longitude covers less true ground distance the farther you are
+    // from the equator. At lat === midLat this reduces algebraically to
+    // the original flat (lon - west) / lonR * CW formula, so narrow
+    // regions like Tri-State render identically to before.
+    return (lon, lat) => {
+      const xScale = Math.cos(lat * Math.PI / 180) / cosMid;
+      return [
+        CW / 2 + (lon - lonCenter) * xScale / lonR * CW,
+        (bounds.north - lat) / latR * CH,
+      ];
+    };
   }
 
   // ── Base render (ocean → land → outlines) ──────────
