@@ -242,6 +242,12 @@ canvas {
   <button class="vt-btn" data-mode="dew">Dewpoint</button>
 </div>
 
+<div class="view-toggle" id="density-toggle" style="display:none;">
+  <button class="vt-btn" data-density="1">Sparse</button>
+  <button class="vt-btn" data-density="2">Medium</button>
+  <button class="vt-btn active" data-density="3">Dense (All)</button>
+</div>
+
 <div class="map-wrap">
   <canvas id="cv"></canvas>
 
@@ -279,7 +285,7 @@ let REGION_KEY = 'tristate';
 let REGION     = MAP_REGIONS[REGION_KEY];
 let B          = REGION.bounds;
 
-const CW   = 950;
+const CW   = 1200;
 let dims = MAP.computeDims(B, CW);
 let CH   = dims.CH;
 const REFRESH_MS = 60 * 60 * 1000; // hourly
@@ -422,6 +428,33 @@ const NAMES_CONUS = {
   KSFO:'San Francisco', KLAX:'Los Angeles', KSAN:'San Diego', KSMF:'Sacramento',
   KFAT:'Fresno', KBFL:'Bakersfield', KSBA:'Santa Barbara', KRDD:'Redding',
   KACV:'Eureka/Arcata', KPSP:'Palm Springs',
+};
+
+// Density tiers for the national network only. Tier 1 = one flagship
+// station per state (TX and CA get two each, given their size) so the
+// sparsest setting still shows every state, not just the busiest hubs.
+// Tier 2 adds the next-largest metro per state. Tier 3 is everything —
+// the full network as it loads today.
+const TIERS_CONUS = {
+  KPWM:1, KCAR:3, KMHT:1, KBTV:1, KBOS:1, KPVD:1,
+  KJFK:1, KBUF:2, KSYR:3, KEWR:1, KBDL:1,
+  KPHL:1, KPIT:2, KMDT:3, KERI:3, KILG:1, KBWI:1, KDCA:1,
+  KRIC:1, KORF:2, KROA:3, KCRW:1, KHTS:2,
+  KCLT:1, KRDU:2, KILM:3, KAVL:3, KCAE:2, KCHS:1, KATL:1, KSAV:2,
+  KJAX:3, KTLH:3, KPNS:3, KTPA:2, KMCO:2, KMIA:1, KFLL:2, KPBI:3, KRSW:3, KEYW:3,
+  KBHM:1, KHSV:2, KMGM:3, KMOB:3, KJAN:1, KGPT:2,
+  KBNA:1, KMEM:2, KTYS:3, KLEX:2, KSDF:1,
+  KCMH:1, KCLE:2, KCVG:2, KTOL:3, KIND:1, KFWA:2, KSBN:3, KORD:1, KSPI:2, KPIA:3,
+  KDTW:1, KGRR:2, KLAN:3, KMKE:1, KMSN:2, KGRB:3, KMSP:1, KDLH:2,
+  KDSM:1, KCID:2, KMCI:2, KSTL:1, KSGF:3,
+  KFAR:1, KBIS:2, KRAP:2, KFSD:1, KOMA:1, KLNK:2, KICT:1, KTOP:2,
+  KOKC:1, KTUL:2, KLIT:1, KMSY:1, KSHV:2, KBTR:3,
+  KDFW:1, KIAH:1, KSAT:2, KAUS:2, KELP:2, KLBB:3, KAMA:3, KCRP:3, KBRO:3, KMAF:3,
+  KDEN:1, KCOS:2, KCYS:1, KCPR:2, KBIL:1, KGTF:2, KHLN:3,
+  KBOI:1, KIDA:2, KSLC:1, KSGU:3, KLAS:1, KRNO:2,
+  KPHX:1, KTUS:2, KFLG:3, KABQ:1, KROW:2,
+  KSEA:1, KGEG:2, KPDX:1, KEUG:2,
+  KSFO:1, KLAX:1, KSAN:2, KSMF:2, KFAT:3, KBFL:3, KSBA:3, KRDD:3, KACV:3, KPSP:3,
 };
 
 const REGION_DATA = {
@@ -760,16 +793,26 @@ function getValidTime() {
 // ═══════════════════════════════════════════════════
 // RENDER
 // ═══════════════════════════════════════════════════
+let densityTier = 3; // 1=sparse, 2=medium, 3=dense/all — National only
+
+// Render-time filter, not a re-fetch: obs already holds everyone, this
+// just decides who gets drawn, so flipping density is instant.
+function shownStations() {
+  if (REGION_KEY !== 'conus') return obs;
+  return obs.filter(s => (TIERS_CONUS[s.id] || 3) <= densityTier);
+}
+
 function render() {
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, CW, CH);
   ctx.clip();
   MAP.renderBase(ctx, statesGeo, project, dims);
+  const visible = shownStations();
   if (mode === 'station') {
-    for (const stn of obs) drawStation(stn);
+    for (const stn of visible) drawStation(stn);
   } else {
-    for (const stn of obs) drawValueOnly(stn, mode);
+    for (const stn of visible) drawValueOnly(stn, mode);
   }
   MAP.drawStamp(ctx, getValidTime(), dims);
   ctx.restore();
@@ -832,7 +875,7 @@ cv.addEventListener('mousemove', e => {
   const my = (e.clientY - rect.top)  * (CH / rect.height);
 
   let best = null, bestD = 24;
-  for (const s of obs) {
+  for (const s of shownStations()) {
     const [sx, sy] = project(s.lon, s.lat);
     const d = Math.hypot(mx - sx, my - sy);
     if (d < bestD) { bestD = d; best = s; }
@@ -937,6 +980,7 @@ async function loadRegion(key, { isInitial = false } = {}) {
   NAMES      = REGION_DATA[key].names;
 
   document.getElementById('page-sub').textContent = REGION_DATA[key].sub;
+  document.getElementById('density-toggle').style.display = (key === 'conus') ? '' : 'none';
   document.title = REGION_DATA[key].docTitle;
   applyCanvasSize();
 
@@ -983,6 +1027,16 @@ document.querySelectorAll('#region-toggle .vt-btn').forEach(btn => {
     if (btn.dataset.region === REGION_KEY) return;
     document.querySelectorAll('#region-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
     switchRegion(btn.dataset.region);
+  });
+});
+
+document.querySelectorAll('#density-toggle .vt-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tier = Number(btn.dataset.density);
+    if (tier === densityTier) return;
+    densityTier = tier;
+    document.querySelectorAll('#density-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
+    render();
   });
 });
 
