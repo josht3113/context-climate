@@ -176,9 +176,12 @@
   <h1>Sea ice extent explorer</h1>
   <div class="freshness" id="freshness">Loading data&hellip;</div>
 
-  <div class="hemi-toggle" id="hemiToggle">
-    <button data-hemi="N" class="active">Arctic</button>
-    <button data-hemi="S">Antarctic</button>
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:14px; margin-bottom:22px;">
+    <div class="hemi-toggle" id="hemiToggle" style="margin-bottom:0;">
+      <button data-hemi="N" class="active">Arctic</button>
+      <button data-hemi="S">Antarctic</button>
+    </div>
+    <button id="downloadBtn" style="font-family:'Source Sans 3',sans-serif; font-size:14px; font-weight:500; padding:9px 16px; border-radius:7px; cursor:pointer; border:1px solid var(--accent); background:transparent; color:var(--accent);">&#8681;&nbsp; Download PNG</button>
   </div>
 
   <div class="controls-row">
@@ -304,6 +307,155 @@
       }
     });
   }
+
+  function wrapText(ctx, text, maxWidth){
+    var words = text.split(' ');
+    var lines = [];
+    var current = '';
+    words.forEach(function(word){
+      var test = current ? current + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && current){
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    });
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  function downloadChartPNG(){
+    var scale = 2;
+    var logicalWidth = 1400;
+    var pad = 44;
+    var contentWidth = logicalWidth - pad*2;
+
+    var measureCanvas = document.createElement('canvas');
+    var mctx = measureCanvas.getContext('2d');
+
+    mctx.font = 'italic 17px "Source Sans 3"';
+    var footnoteText = (document.getElementById('footnote').textContent || '').trim();
+    var footnoteLines = footnoteText ? wrapText(mctx, footnoteText, contentWidth) : [];
+
+    var citationText = (document.getElementById('citation').textContent || '').trim();
+
+    var img = new Image();
+    img.onload = function(){
+      var chartAspect = img.width / img.height;
+      var chartDrawWidth = contentWidth;
+      var chartDrawHeight = chartDrawWidth / chartAspect;
+
+      var headerHeight = 96;
+      var chartGap = 32;
+      var statGap = 30;
+      var footerLineHeight = 26;
+      var footnoteBlockHeight = footnoteLines.length ? (footnoteLines.length * footerLineHeight + 16) : 0;
+      var citationBlockHeight = citationText ? 26 : 0;
+      var creditHeight = 30;
+      var dividerGap = 26;
+
+      var totalHeight = pad + headerHeight + chartGap + chartDrawHeight + statGap + 96 + statGap
+        + dividerGap + footnoteBlockHeight + citationBlockHeight + creditHeight + pad;
+
+      var canvas = document.createElement('canvas');
+      canvas.width = logicalWidth * scale;
+      canvas.height = totalHeight * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.scale(scale, scale);
+      ctx.textBaseline = 'top';
+
+      ctx.fillStyle = '#07070f';
+      ctx.fillRect(0, 0, logicalWidth, totalHeight);
+
+      var y = pad;
+
+      ctx.fillStyle = '#BA7517';
+      ctx.font = '600 17px "Source Sans 3"';
+      ctx.fillText('[ CLIMATE ]', pad, y);
+      y += 32;
+
+      ctx.fillStyle = '#f2f0e8';
+      ctx.font = '600 46px "Archivo"';
+      ctx.fillText('Sea Ice Extent Explorer', pad, y);
+      y += 56;
+
+      var hemiLabel = STATE.hemisphere === 'N' ? 'Arctic' : 'Antarctic';
+      var freshness = document.getElementById('freshness').textContent || '';
+      ctx.fillStyle = '#a8a8a0';
+      ctx.font = '21px "Source Sans 3"';
+      ctx.fillText(hemiLabel + '  \u00b7  ' + freshness, pad, y);
+      y += headerHeight - 56 - 32 + chartGap;
+
+      ctx.drawImage(img, pad, y, chartDrawWidth, chartDrawHeight);
+      y += chartDrawHeight + statGap;
+
+      ctx.fillStyle = '#6e6e68';
+      ctx.font = '600 15px "Source Sans 3"';
+      ctx.fillText('CURRENT STANDING', pad, y);
+      y += 30;
+
+      ctx.fillStyle = '#F5D742';
+      ctx.font = '600 42px "Archivo"';
+      var statValue = document.getElementById('statValue').textContent || '';
+      ctx.fillText(statValue, pad, y);
+      y += 50;
+
+      ctx.fillStyle = '#a8a8a0';
+      ctx.font = '21px "Source Sans 3"';
+      var statSub = document.getElementById('statSub').textContent || '';
+      ctx.fillText(statSub, pad, y);
+      y += statGap + dividerGap - 10;
+
+      ctx.strokeStyle = '#2a2d39';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(pad, y);
+      ctx.lineTo(logicalWidth - pad, y);
+      ctx.stroke();
+      y += 26;
+
+      if (footnoteLines.length){
+        ctx.fillStyle = '#8a8a82';
+        ctx.font = 'italic 17px "Source Sans 3"';
+        footnoteLines.forEach(function(line){
+          ctx.fillText(line, pad, y);
+          y += footerLineHeight;
+        });
+        y += 12;
+      }
+
+      if (citationText){
+        ctx.fillStyle = '#6e6e68';
+        ctx.font = '15px "Source Sans 3"';
+        ctx.fillText(citationText, pad, y);
+        y += citationBlockHeight;
+      }
+
+      ctx.fillStyle = '#BA7517';
+      ctx.font = '600 17px "Source Sans 3"';
+      ctx.fillText('contextclimate.io  \u00b7  Sea Ice Extent Explorer', pad, y);
+
+      var dateStr = (STATE.data && STATE.data.updated_through) || new Date().toISOString().slice(0,10);
+      var link = document.createElement('a');
+      link.download = 'seaice-extent-' + (STATE.hemisphere === 'N' ? 'arctic' : 'antarctic') + '-' + dateStr + '.png';
+      link.href = canvas.toDataURL('image/png');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+    img.src = STATE.chart.toBase64Image('image/png', 1);
+  }
+
+  document.getElementById('downloadBtn').onclick = function(){
+    var btn = this;
+    var original = btn.textContent;
+    btn.textContent = 'Preparing\u2026';
+    document.fonts.ready.then(function(){
+      downloadChartPNG();
+      btn.textContent = original;
+    });
+  };
 
   document.getElementById('hemiToggle').addEventListener('click', function(e){
     var btn = e.target.closest('button[data-hemi]');
