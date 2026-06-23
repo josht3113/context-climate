@@ -68,6 +68,8 @@ import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
 import HrDiagram                   from './pages/HrDiagram'
 import StellarLifeCycles           from './pages/StellarLifeCycles'
 import TidalRhythm                 from './pages/TidalRhythm'
+import SunsPath                    from './pages/SunsPath'
+import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
 
 // ── App shell ─────────────────────────────────────────
@@ -153,6 +155,8 @@ export default function App() {
           <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
           <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
           <Route path="/earthandspace/tidal-rhythm"                element={<TidalRhythm />}               />
+          <Route path="/earthandspace/suns-path"                   element={<SunsPath />}                  />
+          <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
         </Routes>
       </main>
