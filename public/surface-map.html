@@ -697,8 +697,9 @@ function drawValueOnly(stn, field) {
 // ═══════════════════════════════════════════════════
 let statesGeo = null;
 
-async function loadGeo() {
-  const r = await fetch(REGION.geo);
+async function loadGeo(signal) {
+  const r = await fetch(REGION.geo, { signal });
+  if (!r.ok) throw new Error(`Failed to fetch ${REGION.geo}: HTTP ${r.status}`);
   statesGeo = await r.json();
 }
 
@@ -707,11 +708,11 @@ async function loadGeo() {
 // ═══════════════════════════════════════════════════
 let obs = [];
 
-async function fetchStn(id) {
+async function fetchStn(id, signal) {
   try {
     const r = await fetch(
       `https://api.weather.gov/stations/${id}/observations?limit=6`,
-      { headers: { 'User-Agent': 'contextclimate.io' } }
+      { headers: { 'User-Agent': 'contextclimate.io' }, signal }
     );
     if (!r.ok) return null;
     const j = await r.json();
@@ -744,8 +745,8 @@ async function fetchStn(id) {
   } catch { return null; }
 }
 
-async function loadObs() {
-  const results = await Promise.all(STATIONS.map(fetchStn));
+async function loadObs(signal) {
+  const results = await Promise.all(STATIONS.map(id => fetchStn(id, signal)));
   obs = results.filter(r => r?.lat != null && r?.lon != null);
 }
 
@@ -915,11 +916,18 @@ const setStatus = msg => { document.getElementById('stext').textContent = msg; }
 // ═══════════════════════════════════════════════════
 // REGION LOADING + SWITCHING
 // ═══════════════════════════════════════════════════
-let switching = false;
+// init() and switchRegion() both funnel through here. Each call gets its
+// own AbortController; starting a new one cancels whatever the previous
+// call still had in flight, so an init() still mid-fetch when the user
+// clicks a toggle can't resolve later and clobber the newer region's
+// state with stale data (the bug that caused the stuck/mismatched map).
+let currentAbort = null;
 
-// Shared by first load and every later region switch: recompute bounds/
-// canvas size/projection for the region, then reload boundary + obs data.
 async function loadRegion(key, { isInitial = false } = {}) {
+  if (currentAbort) currentAbort.abort();
+  const abort = new AbortController();
+  currentAbort = abort;
+
   REGION_KEY = key;
   REGION     = MAP_REGIONS[key];
   B          = REGION.bounds;
@@ -935,18 +943,30 @@ async function loadRegion(key, { isInitial = false } = {}) {
   ov.style.display = 'flex';
   ov.textContent = 'Loading map boundaries…';
   setStatus('Loading map boundaries…');
-  await loadGeo();
-  if (isInitial) await document.fonts.ready;
-  MAP.renderBase(ctx, statesGeo, project, dims);
 
-  ov.textContent = 'Fetching observations…';
-  setStatus('Fetching station observations…');
-  await loadObs();
-  render();
-  ov.style.display = 'none';
+  try {
+    await loadGeo(abort.signal);
+    if (abort.signal.aborted) return;  // superseded by a newer region switch
 
-  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-  setStatus(`${obs.length} of ${STATIONS.length} stations loaded · ${t}`);
+    if (isInitial) await document.fonts.ready;
+    MAP.renderBase(ctx, statesGeo, project, dims);
+
+    ov.textContent = 'Fetching observations…';
+    setStatus('Fetching station observations…');
+    await loadObs(abort.signal);
+    if (abort.signal.aborted) return;  // superseded again — don't paint stale obs
+
+    render();
+    ov.style.display = 'none';
+
+    const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    setStatus(`${obs.length} of ${STATIONS.length} stations loaded · ${t}`);
+  } catch (err) {
+    if (abort.signal.aborted) return;  // expected cancellation, not a real failure
+    console.error('Failed to load region', key, err);
+    ov.textContent = 'Could not load map data — check your connection and try again.';
+    setStatus('Load failed — see browser console for details');
+  }
 }
 
 async function init() {
@@ -954,15 +974,13 @@ async function init() {
 }
 
 async function switchRegion(key) {
-  if (key === REGION_KEY || switching) return;
-  switching = true;
+  if (key === REGION_KEY) return;
   await loadRegion(key);
-  switching = false;
 }
 
 document.querySelectorAll('#region-toggle .vt-btn').forEach(btn => {
   btn.addEventListener('click', () => {
-    if (btn.dataset.region === REGION_KEY || switching) return;
+    if (btn.dataset.region === REGION_KEY) return;
     document.querySelectorAll('#region-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
     switchRegion(btn.dataset.region);
   });
