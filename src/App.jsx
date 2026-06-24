@@ -71,6 +71,7 @@ import TidalRhythm                 from './pages/TidalRhythm'
 import SunsPath                    from './pages/SunsPath'
 import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
+import JetStream                   from './pages/JetStream'
 
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
@@ -158,6 +159,7 @@ export default function App() {
           <Route path="/earthandspace/suns-path"                   element={<SunsPath />}                  />
           <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
+          <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
         </Routes>
       </main>
       <footer style={{
