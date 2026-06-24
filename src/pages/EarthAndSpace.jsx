@@ -198,6 +198,15 @@ const SECTIONS = [
     accent: ACCENT.meteor,
     cards: [
       {
+        tags:        ['Polar Jet Stream', 'Atmospheric Circulation', 'Interactive'],
+        title:       'The Jet Stream',
+        description: 'Watch the polar jet stream snake across North America on a real geographic map — adjust its amplitude, wavelength, and trough/ridge position to see how a wavy upper-level flow pattern forms, then toggle winter and summer to compare flow speed and temperature contrast along the ribbon.',
+        footerTags:  ['Polar Jet Stream', 'Upper-Level Winds', 'Meteorology'],
+        to:          '/earthandspace/jet-stream',
+        thumb:       '/JetStream_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Bermuda High', 'Hurricanes', 'Interactive'],
         title:       'Hurricane Steering Currents',
         description: 'Explore how upper-level atmospheric flow guides hurricane tracks — visualize how Bermuda High placement and strength can influence the path of tropical systems across the Atlantic basin.',
