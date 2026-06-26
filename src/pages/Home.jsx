@@ -283,6 +283,15 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/SeaIceExtent_thumbnail.png',
       },
+      {
+        tags:       ['ARCTIC', 'ANTARCTIC', 'YEAR × MONTH'],
+        title:      'Sea Ice Extent Heatmap',
+        description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic decline at a glance.',
+        footerTags: ['NSIDC G02135', '1991–2020 Baseline', 'Arctic ⇄ Antarctic'],
+        to:         '/seaice-heatmap',
+        accentVar:  '--accent-climate',
+        thumb:      '/SeaiceHeatmap_thumbnail.png',
+      },
     ],
   },
   {
