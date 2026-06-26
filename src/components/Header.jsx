@@ -43,7 +43,7 @@ export default function Header() {
               onClick={handleNavClick}
             >
               <span className={styles.bracketEs}>[</span>
-              <span className={styles.wordmarkEs}>Earth 🌍 Space</span>
+              <span className={styles.wordmarkEs}>Earth and Space</span>
               <span className={styles.bracketEs}>]</span>
             </NavLink>
 
@@ -73,7 +73,7 @@ export default function Header() {
           aria-label="Earth & Space"
         >
           <span className={styles.bracketEs}>[</span>
-          <span className={styles.wordmarkEs}>Earth 🌍 Space</span>
+          <span className={styles.wordmarkEs}>Earth and Space</span>
           <span className={styles.bracketEs}>]</span>
         </NavLink>
 
