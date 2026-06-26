@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea Ice Extent Heatmap</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=Source+Sans+3:wght@400;500;600&family=Courier+Prime&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07070f;
+    --surface: #0d1120;
+    --surface-raised: #12172a;
+    --accent: #BA7517;
+    --accent-soft: rgba(186,117,23,0.14);
+    --current: #F5D742;
+    --previous: #E8E6DC;
+    --text: #f2f0e8;
+    --text-secondary: #a8a8a0;
+    --text-tertiary: #6e6e68;
+    --border: #2a2d39;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 17px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 26px 24px 36px; }
+  .logo-mark {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-family: 'Archivo', sans-serif;
+    font-size: 36px;
+    font-weight: 600;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+  .freshness {
+    font-size: 15px;
+    color: var(--text-tertiary);
+    margin-bottom: 22px;
+  }
+  .seg-toggle {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg-toggle button {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 16px;
+    font-weight: 500;
+    padding: 9px 22px;
+    background: var(--surface);
+    color: var(--text-secondary);
+    border: none;
+    cursor: pointer;
+  }
+  .seg-toggle button.active { background: var(--accent); color: #1a1206; }
+  .top-row {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 14px; margin-bottom: 22px;
+  }
+  .controls-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 9px;
+    margin-bottom: 18px;
+  }
+  .sep { width: 1px; height: 22px; background: var(--border); margin: 0 8px; }
+  .hint { font-size: 14px; color: var(--text-tertiary); }
+  .export-btn {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 14px; font-weight: 500;
+    padding: 9px 16px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  }
+  .chart-card {
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 24px;
+    margin-bottom: 22px;
+    overflow-x: auto;
+  }
+  .chart-status {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-tertiary); font-size: 15px; height: 300px;
+  }
+  .month-labels-bar { display: flex; }
+  .month-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.03em;
+    color: var(--text-tertiary); text-align: center; flex-shrink: 0;
+    padding-bottom: 6px;
+  }
+  #heatmapCanvas { display: block; cursor: crosshair; }
+  .legend-block { margin-top: 18px; }
+  .legend-title {
+    font-size: 13px; font-weight: 500; letter-spacing: 0.05em;
+    color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 7px;
+  }
+  #legendCanvas { display: block; border-radius: 3px; }
+  .legend-ticks { display: flex; justify-content: space-between; margin-top: 5px; }
+  .legend-tick { font-family: 'Courier Prime', monospace; font-size: 13px; color: var(--text-secondary); }
+  .legend-bands { display: flex; justify-content: space-between; margin-top: 3px; }
+  .legend-band { font-size: 13px; color: var(--text-tertiary); }
+  .stat-card {
+    display: inline-block;
+    background: var(--surface-raised);
+    border-radius: 8px;
+    padding: 18px 24px;
+    margin-bottom: 18px;
+  }
+  .stat-label {
+    font-size: 13px; font-weight: 500; letter-spacing: 0.05em;
+    color: var(--text-tertiary); text-transform: uppercase; margin-bottom: 5px;
+  }
+  .stat-value {
+    font-family: 'Archivo', sans-serif;
+    font-size: 40px; font-weight: 600; color: var(--current);
+  }
+  .stat-sub { font-size: 15px; color: var(--text-secondary); margin-top: 3px; }
+  .footnote {
+    font-size: 13px; color: var(--text-tertiary); font-style: italic;
+    line-height: 1.5; max-width: 900px;
+  }
+  .citation { font-size: 12px; color: var(--text-tertiary); margin-top: 8px; }
+
+  .tooltip {
+    position: fixed;
+    background: rgba(18,23,42,0.97);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 15px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .08s;
+    z-index: 1000;
+    min-width: 190px;
+    box-shadow: 0 6px 28px rgba(0,0,0,0.6);
+  }
+  .tooltip.visible { opacity: 1; }
+  .tt-period { font-size: 15px; font-weight: 600; margin-bottom: 7px; color: var(--text); }
+  .tt-value {
+    font-family: 'Archivo', sans-serif;
+    font-size: 26px; font-weight: 600; line-height: 1; margin-bottom: 5px;
+  }
+  .tt-sub { font-size: 14px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo-mark">[ Climate ]</div>
+  <h1>Sea ice extent heatmap</h1>
+  <div class="freshness" id="freshness">Loading data&hellip;</div>
+
+  <div class="top-row">
+    <div class="seg-toggle" id="hemiToggle">
+      <button data-hemi="N" class="active">Arctic</button>
+      <button data-hemi="S">Antarctic</button>
+    </div>
+    <button id="downloadBtn" class="export-btn">&#8681;&nbsp; Download PNG</button>
+  </div>
+
+  <div class="controls-row">
+    <div class="seg-toggle" id="modeToggle">
+      <button data-mode="anomaly" class="active">Anomaly</button>
+      <button data-mode="raw">Raw extent</button>
+    </div>
+    <span class="sep"></span>
+    <span class="hint">hover a cell for exact values</span>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-status" id="chartStatus">Loading&hellip;</div>
+    <div id="chartInner" style="display:none;">
+      <div class="month-labels-bar" id="monthBar"></div>
+      <canvas id="heatmapCanvas" role="img" aria-label="Sea ice extent by year and month, colored by anomaly or raw value"></canvas>
+      <div class="legend-block">
+        <div class="legend-title" id="legendTitle"></div>
+        <canvas id="legendCanvas"></canvas>
+        <div class="legend-ticks" id="legendTicks"></div>
+        <div class="legend-bands" id="legendBands"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stat-card" id="statCard" style="display:none;">
+    <div class="stat-label">Current standing</div>
+    <div class="stat-value" id="statValue"></div>
+    <div class="stat-sub" id="statSub"></div>
+  </div>
+
+  <div class="footnote" id="footnote"></div>
+  <div class="citation" id="citation"></div>
+
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tt-period"></div>
+  <div class="tt-value"></div>
+  <div class="tt-sub"></div>
+</div>
+
+<script>
+(function(){
+
+  // ════════════════════════════════════════════════════════════
+  // CONFIG
+  // ════════════════════════════════════════════════════════════
+
+  var MONTH_STARTS = [0,31,60,91,121,152,182,213,244,274,305,335,366];
+  var MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MON_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  var CELL_W  = 56;   // px per month column
+  var CELL_H  = 22;   // px per year row
+  var LABEL_W = 60;   // px for year label column
+  var FIRST_FULL_YEAR = 1979; // satellite record starts Oct 1978; 1979 is the first complete year
+
+  // Diverging anomaly scale (million km^2), capped at +/-3
+  // (both scales share the same neutral anchor at 0 so a zero anomaly
+  // reads identically regardless of which side you approach from)
+  var MORE_ICE_STOPS = [   // cool/blue side -- positive anomaly (more ice than normal)
+    [0.0, [42, 46, 64]],
+    [0.5, [150, 195, 245]],
+    [1.0, [80, 150, 225]],
+    [1.5, [40, 105, 190]],
+    [2.0, [20, 70, 150]],
+    [3.0, [10, 42, 95]]
+  ];
+  var LESS_ICE_STOPS = [   // warm/red side -- negative anomaly (less ice than normal)
+    [0.0, [42, 46, 64]],
+    [0.5, [240, 195, 120]],
+    [1.0, [225, 140, 55]],
+    [1.5, [205, 85, 40]],
+    [2.0, [175, 45, 32]],
+    [3.0, [115, 20, 22]]
+  ];
+  // Sequential raw-extent scale (million km^2), 0-20 -- dark open ocean to bright ice
+  var RAW_STOPS = [
+    [0,  [12, 28, 58]],
+    [5,  [28, 72, 122]],
+    [10, [68, 138, 190]],
+    [15, [150, 200, 232]],
+    [20, [232, 244, 250]]
+  ];
+  var NO_DATA_RGB = [16, 18, 28];
+  var ANOMALY_TICKS = [-3,-2,-1.5,-1,-0.5,0,0.5,1,1.5,2,3];
+  var RAW_TICKS = [0,5,10,15,20];
+
+  // ════════════════════════════════════════════════════════════
+  // STATE
+  // ════════════════════════════════════════════════════════════
+
+  var STATE = {
+    hemisphere: 'N',
+    mode: 'anomaly',
+    data: null,
+    baselineStart: 1991,
+    baselineEnd: 2020,
+    monthly: {},          // year -> [12 means]
+    baselineMonthMean: [],// [12 means]
+    yearsArr: [],         // most-recent first
+    minYear: null,
+    maxYear: null,
+    currentCalYear: new Date().getFullYear()
+  };
+
+  // ════════════════════════════════════════════════════════════
+  // HELPERS
+  // ════════════════════════════════════════════════════════════
+
+  function $(id){ return document.getElementById(id); }
+  function cleanVals(arr){ return arr.filter(function(v){ return v !== null && v !== undefined; }); }
+
+  function formatDate(iso){
+    if (!iso) return 'unknown';
+    var parts = iso.split('-');
+    var d = new Date(Number(parts[0]), Number(parts[1])-1, Number(parts[2]));
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  function lerp(a,b,t){ return a + (b-a)*t; }
+
+  function interpStops(val, stops){
+    var v = Math.max(0, val);
+    var capped = Math.min(v, stops[stops.length-1][0]);
+    for (var i = 0; i < stops.length - 1; i++){
+      var t0 = stops[i][0], c0 = stops[i][1];
+      var t1 = stops[i+1][0], c1 = stops[i+1][1];
+      if (capped <= t1){
+        var t = (capped - t0) / (t1 - t0);
+        return [
+          Math.round(lerp(c0[0], c1[0], t)),
+          Math.round(lerp(c0[1], c1[1], t)),
+          Math.round(lerp(c0[2], c1[2], t))
+        ];
+      }
+    }
+    return stops[stops.length-1][1].slice();
+  }
+
+  function cellColor(v, mode){
+    if (v === null || v === undefined) return NO_DATA_RGB.slice();
+    if (mode === 'raw') return interpStops(v, RAW_STOPS);
+    var abs = Math.abs(v);
+    return v >= 0 ? interpStops(abs, MORE_ICE_STOPS) : interpStops(abs, LESS_ICE_STOPS);
+  }
+
+  function rgbStr(rgb){ return 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')'; }
+  function rgbHex(rgb){ return '#' + rgb.map(function(v){ return v.toString(16).padStart(2,'0'); }).join(''); }
+
+  function monthlyMeans(dailyArr){
+    var out = [];
+    for (var m = 0; m < 12; m++){
+      var s = MONTH_STARTS[m], e = MONTH_STARTS[m+1];
+      var vals = cleanVals(dailyArr.slice(s, e));
+      out.push(vals.length ? Math.round((vals.reduce(function(a,b){ return a+b; },0)/vals.length)*1000)/1000 : null);
+    }
+    return out;
+  }
+
+  function wrapText(ctx, text, maxWidth){
+    var words = text.split(' ');
+    var lines = [];
+    var current = '';
+    words.forEach(function(word){
+      var test = current ? current + ' ' + word : word;
+      if (ctx.measureText(test).width > maxWidth && current){
+        lines.push(current);
+        current = word;
+      } else {
+        current = test;
+      }
+    });
+    if (current) lines.push(current);
+    return lines;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // LOAD DATA
+  // ════════════════════════════════════════════════════════════
+
+  fetch('seaice-extent.json').then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(json){
+    STATE.data = json;
+
+    var bp = (json.baseline_period || '1991-2020').match(/(\d{4}).*?(\d{4})/);
+    if (bp){ STATE.baselineStart = Number(bp[1]); STATE.baselineEnd = Number(bp[2]); }
+
+    document.getElementById('freshness').textContent =
+      'Data current through ' + formatDate(json.updated_through) + ' \u00b7 ' + json.source +
+      ' \u00b7 anomalies vs. ' + STATE.baselineStart + '\u2013' + STATE.baselineEnd + ' average';
+    document.getElementById('footnote').textContent =
+      ((json.sensor_transition && json.sensor_transition.note) || '') +
+      ' Heatmap begins in ' + FIRST_FULL_YEAR + ', the first complete year of the satellite record (which starts October ' + (FIRST_FULL_YEAR-1) + ').';
+    document.getElementById('citation').textContent = json.citation || '';
+
+    rebuildForHemisphere(STATE.hemisphere);
+    buildMonthLabels();
+    showChart();
+    renderAll();
+  }).catch(function(err){
+    document.getElementById('chartStatus').textContent = 'Could not load sea ice data right now. Please try again shortly.';
+    console.error('seaice-extent.json load failed:', err);
+  });
+
+  function showChart(){
+    document.getElementById('chartStatus').style.display = 'none';
+    document.getElementById('chartInner').style.display = '';
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // BUILD PER-HEMISPHERE MONTHLY DATA
+  // ════════════════════════════════════════════════════════════
+
+  function rebuildForHemisphere(hemi){
+    var hemiData = STATE.data.hemispheres[hemi];
+    var yearsObj = hemiData.years;
+    var yearKeysAll = Object.keys(yearsObj).map(Number).sort(function(a,b){ return a-b; });
+    var maxYear = yearKeysAll[yearKeysAll.length-1];
+    var topYear = Math.max(maxYear, STATE.currentCalYear);
+
+    var monthly = {};
+    yearKeysAll.forEach(function(y){
+      monthly[y] = monthlyMeans(yearsObj[String(y)]);
+    });
+
+    var yearsArr = [];
+    for (var y = topYear; y >= FIRST_FULL_YEAR; y--) yearsArr.push(y);
+
+    var baselineMonthMean = [];
+    for (var m = 0; m < 12; m++){
+      var vals = [];
+      for (var by = STATE.baselineStart; by <= STATE.baselineEnd; by++){
+        if (monthly[by] && monthly[by][m] !== null) vals.push(monthly[by][m]);
+      }
+      baselineMonthMean.push(vals.length ? vals.reduce(function(a,b){ return a+b; },0)/vals.length : null);
+    }
+
+    STATE.monthly = monthly;
+    STATE.yearsArr = yearsArr;
+    STATE.minYear = FIRST_FULL_YEAR;
+    STATE.maxYear = maxYear;
+    STATE.baselineMonthMean = baselineMonthMean;
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // MONTH LABEL BAR
+  // ════════════════════════════════════════════════════════════
+
+  function buildMonthLabels(){
+    var bar = $('monthBar');
+    bar.innerHTML = '';
+    bar.style.marginLeft = LABEL_W + 'px';
+    MON_SHORT.forEach(function(mon){
+      var d = document.createElement('div');
+      d.className = 'month-label';
+      d.style.width = CELL_W + 'px';
+      d.textContent = mon;
+      bar.appendChild(d);
+    });
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // GRID RENDER (shared by on-screen canvas + PNG export)
+  // ════════════════════════════════════════════════════════════
+
+  function drawGrid(ctx, originX, originY){
+    var mode = STATE.mode;
+    ctx.textBaseline = 'middle';
+
+    STATE.yearsArr.forEach(function(year, ri){
+      var rowY = originY + ri * CELL_H;
+      var row = STATE.monthly[year] || new Array(12).fill(null);
+      var isCurrent = (year === STATE.currentCalYear);
+      var isDecade  = (year % 10 === 0);
+
+      ctx.textAlign = 'right';
+      if (isCurrent){
+        ctx.fillStyle = '#F5D742';
+        ctx.font = "600 14px 'Courier Prime', monospace";
+      } else if (isDecade){
+        ctx.fillStyle = '#a8a8a0';
+        ctx.font = "500 13px 'Courier Prime', monospace";
+      } else {
+        ctx.fillStyle = '#6e6e68';
+        ctx.font = "400 12px 'Courier Prime', monospace";
+      }
+      ctx.fillText(String(year), originX + LABEL_W - 8, rowY + CELL_H/2);
+
+      if (isCurrent){
+        ctx.fillStyle = '#F5D742';
+        ctx.fillRect(originX, rowY, 3, CELL_H);
+      }
+      if (isDecade && ri > 0){
+        ctx.fillStyle = 'rgba(255,255,255,0.05)';
+        ctx.fillRect(originX + LABEL_W, rowY, CELL_W * 12, 1);
+      }
+
+      for (var m = 0; m < 12; m++){
+        var v = row[m];
+        var rgb = cellColor(v, mode);
+        var x = originX + LABEL_W + m * CELL_W;
+        ctx.fillStyle = rgbStr(rgb);
+        ctx.fillRect(x + 1, rowY + 1, CELL_W - 2, CELL_H - 2);
+      }
+    });
+  }
+
+  function renderHeatmap(){
+    var canvas = $('heatmapCanvas');
+    var ctx = canvas.getContext('2d');
+    var W = LABEL_W + CELL_W * 12;
+    var H = CELL_H * STATE.yearsArr.length;
+    canvas.width = W;
+    canvas.height = H;
+    ctx.fillStyle = '#07070f';
+    ctx.fillRect(0, 0, W, H);
+    drawGrid(ctx, 0, 0);
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // LEGEND
+  // ════════════════════════════════════════════════════════════
+
+  function renderLegend(){
+    var mode = STATE.mode;
+    var canvas = $('legendCanvas');
+    var ctx = canvas.getContext('2d');
+    var W = CELL_W * 12, H = 18;
+    canvas.width = W; canvas.height = H;
+    canvas.style.cssText = 'width:' + W + 'px;height:' + H + 'px;margin-left:' + LABEL_W + 'px';
+
+    var grad = ctx.createLinearGradient(0, 0, W, 0);
+    var ticks = (mode === 'raw') ? RAW_TICKS : ANOMALY_TICKS;
+    if (mode === 'raw'){
+      ticks.forEach(function(v){
+        grad.addColorStop(v / 20, rgbStr(cellColor(v, 'raw')));
+      });
+    } else {
+      ticks.forEach(function(v){
+        grad.addColorStop((v + 3) / 6, rgbStr(cellColor(v, 'anomaly')));
+      });
+    }
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    var ticksDiv = $('legendTicks');
+    ticksDiv.style.cssText = 'margin-left:' + LABEL_W + 'px;max-width:' + W + 'px';
+    ticksDiv.innerHTML = '';
+    ticks.forEach(function(v){
+      var sp = document.createElement('span');
+      sp.className = 'legend-tick';
+      sp.textContent = (v > 0 ? '+' : '') + v;
+      ticksDiv.appendChild(sp);
+    });
+
+    var bandsDiv = $('legendBands');
+    bandsDiv.style.cssText = 'margin-left:' + LABEL_W + 'px;max-width:' + W + 'px';
+    if (mode === 'raw'){
+      bandsDiv.innerHTML = '';
+    } else {
+      bandsDiv.style.display = 'flex';
+      bandsDiv.innerHTML =
+        '<span class="legend-band">Less ice \u2190</span>' +
+        '<span class="legend-band">Near normal</span>' +
+        '<span class="legend-band">\u2192 More ice</span>';
+    }
+
+    $('legendTitle').textContent = (mode === 'raw')
+      ? 'Monthly mean extent (million km\u00b2)'
+      : 'Extent anomaly (million km\u00b2) vs. ' + STATE.baselineStart + '\u2013' + STATE.baselineEnd + ' average';
+  }
+
+  function renderAll(){
+    renderHeatmap();
+    renderLegend();
+    updateStat();
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // STAT CARD
+  // ════════════════════════════════════════════════════════════
+
+  function updateStat(){
+    var curRow = STATE.monthly[STATE.currentCalYear];
+    if (!curRow){
+      $('statCard').style.display = 'none';
+      return;
+    }
+    var lastIdx = -1;
+    for (var i = 11; i >= 0; i--){
+      if (curRow[i] !== null && curRow[i] !== undefined){ lastIdx = i; break; }
+    }
+    if (lastIdx === -1){
+      $('statCard').style.display = 'none';
+      return;
+    }
+    var years = Object.keys(STATE.monthly).map(Number).filter(function(y){ return y !== STATE.currentCalYear; });
+    var otherVals = years.map(function(y){ return STATE.monthly[y][lastIdx]; });
+    var allVals = cleanVals(otherVals.concat([curRow[lastIdx]]));
+    var sorted = allVals.slice().sort(function(a,b){ return a-b; });
+    var rank = sorted.indexOf(curRow[lastIdx]) + 1;
+    var ordinal = (rank===1?'1st':rank===2?'2nd':rank===3?'3rd':rank+'th');
+
+    $('statCard').style.display = 'inline-block';
+    $('statValue').textContent = ordinal + ' lowest';
+    $('statSub').textContent =
+      'of ' + allVals.length + ' years on record for ' + MON_FULL[lastIdx] +
+      ' \u00b7 computed live from the data shown';
+  }
+
+  // ════════════════════════════════════════════════════════════
+  // TOOLTIP
+  // ════════════════════════════════════════════════════════════
+
+  function setupTooltip(){
+    var canvas = $('heatmapCanvas');
+    var tooltip = $('tooltip');
+
+    canvas.addEventListener('mousemove', function(e){
+      var rect = canvas.getBoundingClientRect();
+      var scaleX = canvas.width / rect.width;
+      var scaleY = canvas.height / rect.height;
+      var cx = (e.clientX - rect.left) * scaleX;
+      var cy = (e.clientY - rect.top) * scaleY;
+
+      var col = Math.floor((cx - LABEL_W) / CELL_W);
+      var row = Math.floor(cy / CELL_H);
+
+      if (col < 0 || col >= 12 || row < 0 || row >= STATE.yearsArr.length){
+        tooltip.classList.remove('visible');
+        return;
+      }
+
+      var year = STATE.yearsArr[row];
+      var m = col;
+      var rd = STATE.monthly[year] || new Array(12).fill(null);
+      var v = rd[m];
+      var base = STATE.baselineMonthMean[m];
+      var anomaly = (v !== null && base !== null && base !== undefined) ? (v - base) : null;
+
+      tooltip.querySelector('.tt-period').textContent = MON_FULL[m] + ' ' + year;
+      var ttv = tooltip.querySelector('.tt-value');
+      var tts = tooltip.querySelector('.tt-sub');
+      if (v === null){
+        ttv.textContent = 'No data';
+        ttv.style.color = 'var(--text-secondary)';
+        tts.textContent = '';
+      } else {
+        ttv.textContent = v.toFixed(2) + ' million km\u00b2';
+        ttv.style.color = rgbHex(cellColor(STATE.mode === 'raw' ? v : anomaly, STATE.mode));
+        tts.textContent = (anomaly !== null)
+          ? ((anomaly > 0 ? '+' : '') + anomaly.toFixed(2) + ' vs. ' + STATE.baselineStart + '\u2013' + STATE.baselineEnd + ' average')
+          : '';
+      }
+
+      tooltip.classList.add('visible');
+
+      var tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+      var tx = e.clientX + 14, ty = e.clientY - 10;
+      tooltip.style.left = (tx + tw > window.innerWidth ? e.clientX - tw - 14 : tx) + 'px';
+      tooltip.style.top  = (ty + th > window.innerHeight ? e.clientY - th - 10 : ty) + 'px';
+    });
+
+    canvas.addEventListener('mouseleave', function(){ tooltip.classList.remove('visible'); });
+  }
+  setupTooltip();
+
+  // ════════════════════════════════════════════════════════════
+  // TOGGLE HANDLERS
+  // ════════════════════════════════════════════════════════════
+
+  $('hemiToggle').addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-hemi]');
+    if (!btn) return;
+    var hemi = btn.getAttribute('data-hemi');
+    if (hemi === STATE.hemisphere) return;
+    STATE.hemisphere = hemi;
+    this.querySelectorAll('button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-hemi') === hemi);
+    });
+    rebuildForHemisphere(hemi);
+    renderAll();
+  });
+
+  $('modeToggle').addEventListener('click', function(e){
+    var btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    var mode = btn.getAttribute('data-mode');
+    if (mode === STATE.mode) return;
+    STATE.mode = mode;
+    this.querySelectorAll('button').forEach(function(b){
+      b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+    });
+    renderHeatmap();
+    renderLegend();
+  });
+
+  // ════════════════════════════════════════════════════════════
+  // PNG EXPORT
+  // ════════════════════════════════════════════════════════════
+
+  function downloadHeatmapPNG(){
+    var scale = 2;
+    var pad = 40;
+    var gridW = LABEL_W + CELL_W * 12;
+    var headerH = 92;
+    var monthH = 26;
+    var gridH = CELL_H * STATE.yearsArr.length;
+    var legGap = 24;
+    var legH = 18 + 22 + (STATE.mode === 'raw' ? 0 : 20);
+    var statGap = 30;
+
+    var measureCanvas = document.createElement('canvas');
+    var mctx = measureCanvas.getContext('2d');
+    mctx.font = 'italic 16px "Source Sans 3"';
+    var footnoteText = (document.getElementById('footnote').textContent || '').trim();
+    var footnoteLines = footnoteText ? wrapText(mctx, footnoteText, gridW) : [];
+    var citationText = (document.getElementById('citation').textContent || '').trim();
+
+    var footerLineHeight = 24;
+    var footnoteBlockHeight = footnoteLines.length ? (footnoteLines.length * footerLineHeight + 14) : 0;
+    var citationBlockHeight = citationText ? 24 : 0;
+    var creditHeight = 28;
+    var dividerGap = 24;
+    var statBlockHeight = 96;
+
+    var totalW = pad * 2 + gridW;
+    var totalH = pad + headerH + monthH + gridH + legGap + legH + statGap + statBlockHeight
+      + dividerGap + footnoteBlockHeight + citationBlockHeight + creditHeight + pad;
+
+    var canvas = document.createElement('canvas');
+    canvas.width = totalW * scale;
+    canvas.height = totalH * scale;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.textBaseline = 'top';
+
+    ctx.fillStyle = '#07070f';
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    var x = pad, y = pad;
+
+    ctx.fillStyle = '#BA7517';
+    ctx.font = '600 17px "Source Sans 3"';
+    ctx.fillText('[ CLIMATE ]', x, y);
+    y += 32;
+
+    ctx.fillStyle = '#f2f0e8';
+    ctx.font = '600 40px "Archivo"';
+    ctx.fillText('Sea Ice Extent Heatmap', x, y);
+    y += 48;
+
+    var hemiLabel = STATE.hemisphere === 'N' ? 'Arctic' : 'Antarctic';
+    var modeLabel = STATE.mode === 'raw' ? 'Raw monthly extent' : 'Anomaly vs. ' + STATE.baselineStart + '\u2013' + STATE.baselineEnd;
+    ctx.fillStyle = '#a8a8a0';
+    ctx.font = '19px "Source Sans 3"';
+    ctx.fillText(hemiLabel + '  \u00b7  ' + modeLabel, x, y);
+    y = pad + headerH;
+
+    // Month labels
+    ctx.textAlign = 'center';
+    ctx.font = "600 14px 'Source Sans 3'";
+    ctx.fillStyle = '#8a8a82';
+    MON_SHORT.forEach(function(mon, m){
+      ctx.fillText(mon, x + LABEL_W + m * CELL_W + CELL_W/2, y + 6);
+    });
+    ctx.textAlign = 'left';
+    y += monthH;
+
+    drawGrid(ctx, x, y);
+    y += gridH + legGap;
+
+    // Legend
+    var legX = x + LABEL_W, legW = CELL_W * 12;
+    var grad = ctx.createLinearGradient(legX, 0, legX + legW, 0);
+    var ticks = (STATE.mode === 'raw') ? RAW_TICKS : ANOMALY_TICKS;
+    ticks.forEach(function(v){
+      var t = (STATE.mode === 'raw') ? v/20 : (v+3)/6;
+      grad.addColorStop(t, rgbStr(cellColor(v, STATE.mode)));
+    });
+    ctx.fillStyle = grad;
+    ctx.fillRect(legX, y, legW, 18);
+
+    ctx.fillStyle = '#a8a8a0';
+    ctx.font = "400 13px 'Courier Prime'";
+    ctx.textAlign = 'center';
+    ticks.forEach(function(v){
+      var t = (STATE.mode === 'raw') ? v/20 : (v+3)/6;
+      ctx.fillText((v > 0 ? '+' : '') + v, legX + t*legW, y + 24);
+    });
+    ctx.textAlign = 'left';
+    y += legH + statGap - 16;
+
+    // Stat card
+    ctx.fillStyle = '#6e6e68';
+    ctx.font = "600 15px 'Source Sans 3'";
+    ctx.fillText('CURRENT STANDING', x, y);
+    y += 30;
+    ctx.fillStyle = '#F5D742';
+    ctx.font = "600 40px 'Archivo'";
+    ctx.fillText(document.getElementById('statValue').textContent || '', x, y);
+    y += 48;
+    ctx.fillStyle = '#a8a8a0';
+    ctx.font = "19px 'Source Sans 3'";
+    ctx.fillText(document.getElementById('statSub').textContent || '', x, y);
+    y += statGap + dividerGap - 10;
+
+    ctx.strokeStyle = '#2a2d39';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(totalW - pad, y);
+    ctx.stroke();
+    y += 24;
+
+    if (footnoteLines.length){
+      ctx.fillStyle = '#8a8a82';
+      ctx.font = 'italic 16px "Source Sans 3"';
+      footnoteLines.forEach(function(line){
+        ctx.fillText(line, x, y);
+        y += footerLineHeight;
+      });
+      y += 10;
+    }
+    if (citationText){
+      ctx.fillStyle = '#6e6e68';
+      ctx.font = '14px "Source Sans 3"';
+      ctx.fillText(citationText, x, y);
+      y += citationBlockHeight;
+    }
+    ctx.fillStyle = '#BA7517';
+    ctx.font = '600 17px "Source Sans 3"';
+    ctx.fillText('contextclimate.io  \u00b7  Sea Ice Extent Heatmap', x, y);
+
+    var dateStr = (STATE.data && STATE.data.updated_through) || new Date().toISOString().slice(0,10);
+    var link = document.createElement('a');
+    link.download = 'seaice-heatmap-' + (STATE.hemisphere === 'N' ? 'arctic' : 'antarctic') + '-' + STATE.mode + '-' + dateStr + '.png';
+    link.href = canvas.toDataURL('image/png');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  $('downloadBtn').onclick = function(){
+    var btn = this;
+    var original = btn.textContent;
+    btn.textContent = 'Preparing\u2026';
+    document.fonts.ready.then(function(){
+      downloadHeatmapPNG();
+      btn.textContent = original;
+    });
+  };
+
+})();
+</script>
+</body>
+</html>
