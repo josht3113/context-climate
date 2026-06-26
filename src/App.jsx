@@ -71,6 +71,7 @@ import TidalRhythm                 from './pages/TidalRhythm'
 import SunsPath                    from './pages/SunsPath'
 import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
+import SeaIceHeatmap               from './pages/SeaIceHeatmap'
 import JetStream                   from './pages/JetStream'
 
 // ── App shell ─────────────────────────────────────────
@@ -159,6 +160,7 @@ export default function App() {
           <Route path="/earthandspace/suns-path"                   element={<SunsPath />}                  />
           <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
+          <Route path="/seaice-heatmap"                            element={<SeaIceHeatmap />}             />
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
         </Routes>
       </main>
