@@ -63,6 +63,7 @@ import KeplerLaw3                  from './pages/KeplerLaw3'
 import InverseSquareLaw            from './pages/InverseSquareLaw'
 import HurricaneSteering           from './pages/HurricaneSteering'
 import SurfaceMap                     from './pages/SurfaceMap'
+import SurfaceAnalysis               from './pages/SurfaceAnalysis'
 import SeafloorSpreading               from './pages/SeafloorSpreading'
 import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
 import HrDiagram                   from './pages/HrDiagram'
@@ -153,6 +154,7 @@ export default function App() {
           <Route path="/earthandspace/hurricane-steering"     element={<HurricaneSteering />}       />
           <Route path="/earthandspace/planetary-retrograde"         element={<PlanetaryRetrograde />}       />
           <Route path="/surface-map"                              element={<SurfaceMap />}               />
+          <Route path="/surface-analysis"                         element={<SurfaceAnalysis />}          />
           <Route path="/earthandspace/seafloor-spreading"         element={<SeafloorSpreading />}        />
           <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
           <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
