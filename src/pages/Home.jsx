@@ -73,6 +73,15 @@ const SECTIONS = [
         accentVar:  '--accent-live',
         thumb:      '/SurfaceMap_thumbnail.png',
       },
+      {
+        tags:       ['CONUS', 'ASOS / AWOS', 'UPDATES HOURLY'],
+        title:      'Surface Analysis Builder',
+        description:'Draw your own surface analysis on a live CONUS station map. Plot cold fronts, warm fronts, troughs, and pressure centers over real-time observations, with isobars, isotherms, radar, satellite, and zoom.',
+        footerTags: ['Fronts', 'Isobars', 'Isotherms', 'Radar', 'Satellite', 'Zoom'],
+        to:         '/surface-analysis',
+        accentVar:  '--accent-live',
+        thumb:      '/SurfaceAnalysis_thumbnail.png',
+      },
     ],
   },
   {
