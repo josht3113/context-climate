@@ -2664,28 +2664,27 @@ async function ensureHiResBasemap() {
 // states-500k drops). Only covers 13 Northeast states (its own `postal`
 // property, not STUSPS).
 //
-// KNOWN DATA BUG, worked around below rather than fixed at the source:
-// 7 of the 13 states in this file are bounding-box-clipped, apparently
-// cropped at generation time to roughly west>-77.3/north<44.3 with no
-// regard for state shape. Confirmed by comparing each feature's own
-// bbox against its real extent — PA/NY/VA/MD all cut off at exactly
-// west=-77.3, and NY/VT/NH/ME all cut off at exactly north=44.3.
-// Net effect: western PA, western/northern NY, ~all of Virginia west
-// of DC, western MD, and northern VT/NH/ME (interior Maine especially)
-// are simply absent from this file's version of those states. DC, DE,
-// NJ, CT, RI, MA all check out fine against their real bboxes — this
-// is specifically a PA/NY/VT/NH/ME/VA/MD problem.
-// geoNorthAmerica() used to treat this file as a full per-state
-// replacement (drop the base state, substitute this one), which is
-// exactly wrong given the above — it turned the clipped-off two-thirds
-// of Virginia and western PA into unpainted holes showing bare ocean
-// underneath, and since hiResNortheastGeo stays loaded for the rest of
-// the session, the holes persisted even after navigating back to full
-// CONUS. Fixed by layering this file's features on top of the
-// always-complete base set instead of excluding anything — worst case
-// a clipped feature just repaints already-correct land with the same
-// color; it can no longer leave a gap. Real fix is regenerating this
-// file without the accidental crop, whenever that's worth doing.
+// DISABLED — KNOWN DATA BUG, not worth working around further. 7 of the
+// 13 states in this file are bounding-box-clipped, apparently cropped at
+// generation time to roughly west>-77.3/north<44.3 with no regard for
+// state shape. Confirmed by comparing each feature's own bbox against its
+// real extent — PA/NY/VA/MD all cut off at exactly west=-77.3, and
+// NY/VT/NH/ME all cut off at exactly north=44.3. DC/DE/NJ/CT/RI/MA check
+// out fine, but that's only 6 of 13.
+// First attempt merged this file's features on top of the always-complete
+// base set (fill-only, so a clipped feature could repaint but never hide
+// land) — that fixed the original bug (Virginia/PA holes reading as bare
+// ocean) but every feature in `geo.features` gets both filled AND
+// stroked in renderBase(), so the clipped states' artificial crop-box
+// edges (that dead-straight north-south line through PA/NY/VA at
+// west=-77.3) got drawn as stray borders on top of the real coastline.
+// Suppressing just the stroke for this one source would mean threading a
+// fill-only/stroke-only distinction through renderBase() for a marginal
+// coastline-detail gain (LI Sound fork). Simpler and safer to just not
+// use it until it's regenerated without the crop — geoNorthAmerica()
+// below now only ever uses the base geometry. Fetch/merge code kept
+// intact and easy to re-enable (see ensureNortheastCoastGeo() below)
+// once a clean version of the file exists.
 const NORTHEAST_COAST_URLS = [
   'northeast-coast.geojson',
   'https://raw.githubusercontent.com/josht3113/context-climate/main/public/northeast-coast.geojson',
@@ -2694,6 +2693,12 @@ let hiResNortheastGeo = null;
 let hiResNortheastLoading = null;
 
 async function ensureNortheastCoastGeo() {
+  // Disabled per the writeup above — return immediately instead of
+  // fetching a file whose output geoNorthAmerica() won't use anyway.
+  // Delete this line (and it starts working again) once
+  // northeast-coast.geojson is regenerated without the west/north crop.
+  return;
+  // eslint-disable-next-line no-unreachable
   if (hiResNortheastGeo || hiResNortheastLoading) return hiResNortheastLoading;
   hiResNortheastLoading = (async () => {
     let raw = null, lastErr = null;
@@ -2720,11 +2725,11 @@ async function ensureNortheastCoastGeo() {
 let zoomSettleTimer = null;
 
 function geoNorthAmerica() {
+  // hiResNortheastGeo is permanently null while ensureNortheastCoastGeo()
+  // is disabled above, so this is just the base geometry — kept as a
+  // variable (rather than inlined) so re-enabling the fetch above is the
+  // only change needed to bring the overlay back.
   const base = hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features;
-  // Overlay, not replace — see the northeast-coast.geojson writeup above.
-  // Concatenating on top of the full base set means a clipped feature in
-  // hiResNortheastGeo can only ever repaint land that's already correctly
-  // there; it can never remove or hide any of the base geometry.
   const usFeatures = hiResNortheastGeo ? base.concat(hiResNortheastGeo.features) : base;
   return {
     type: 'FeatureCollection',
