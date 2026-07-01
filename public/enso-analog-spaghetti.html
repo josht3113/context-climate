@@ -436,32 +436,91 @@ function detect(raw, oni, years) {
     const maxV = Math.max(...core);
     const minV = Math.min(...core);
 
+    // Full-window extremes — an event's true peak can land in either
+    // calendar year (e.g. a 2015-start event peaking in Nov/Dec of the
+    // second year), so severity/tier must reflect the whole 24-month
+    // trajectory, not just the Jul-Jun "core" slice used to classify type.
+    const fullVals = oS.filter(v => v !== null);
+    const maxFull  = fullVals.length ? Math.max(...fullVals) : maxV;
+    const minFull  = fullVals.length ? Math.min(...fullVals) : minV;
+
     // Previous December ONI — determines whether this is a new event vs continuation
     const prevDecONI = oni[y0 - 1]?.[11] ?? 0;
 
     if (maxV >= 0.5 && maxV > Math.abs(minV) && prevDecONI < 0.5) {
       // El Niño
       const peakIdx = findPeakIdx(oS, 'elnino');
+      const labelYr = (HEADLINES[y1] && !HEADLINES[y0]) ? y1 : y0;
       events.push({
-        year: y0, type: 'elnino', peak: +maxV.toFixed(2), peakIdx,
-        tier: getTier(maxV, 'elnino'),
+        year: y0, type: 'elnino', peak: +maxFull.toFixed(2), peakIdx,
+        tier: getTier(maxFull, 'elnino'),
         oniSeries: oS, rawSeries: rS,
-        label: `${y0}–${String(y1).slice(2)} El Niño`,
-        isHeadline: !!HEADLINES[y0],
+        label: `${labelYr}–${String(labelYr + 1).slice(2)} El Niño`,
+        isHeadline: !!(HEADLINES[y0] || HEADLINES[y1]),
       });
     } else if (Math.abs(minV) >= 0.5 && Math.abs(minV) > maxV && prevDecONI > -0.5) {
       // La Niña
-      const pk = +Math.abs(minV).toFixed(2);
+      const pk = +Math.max(Math.abs(minFull), Math.abs(minV)).toFixed(2);
       const peakIdx = findPeakIdx(oS, 'lanina');
+      const labelYr = (HEADLINES[y1] && !HEADLINES[y0]) ? y1 : y0;
       events.push({
         year: y0, type: 'lanina', peak: pk, peakIdx,
         tier: getTier(pk, 'lanina'),
         oniSeries: oS, rawSeries: rS,
-        label: `${y0}–${String(y1).slice(2)} La Niña`,
-        isHeadline: !!HEADLINES[y0],
+        label: `${labelYr}–${String(labelYr + 1).slice(2)} La Niña`,
+        isHeadline: !!(HEADLINES[y0] || HEADLINES[y1]),
       });
     }
   }
+
+  // ── Supplementary pass ──────────────────────────────────────────────────
+  // Persistent multi-year episodes (e.g. the 1973-76 or 1998-2001 triple-dip
+  // La Niñas) only produce ONE window at the true onset year, because every
+  // later year still fails the "new event" check (the prior December never
+  // relaxed back past the ±0.5 significance bar). That silently drops any
+  // curated HEADLINES year that falls in the "extra" year(s) — it never
+  // becomes a y0 or y1 of anything. For any such headline year whose own
+  // Jul-Jun window independently clears the significance bar on its own
+  // merits, add it as its own standalone line even though it overlaps the
+  // primary event — that overlap is accurate: it really was a second
+  // distinct notable winter within one prolonged episode.
+  const coveredYears = new Set();
+  for (const e of events) { coveredYears.add(e.year); coveredYears.add(e.year + 1); }
+
+  for (const y0Str of Object.keys(HEADLINES)) {
+    const y0 = +y0Str;
+    const y1 = y0 + 1;
+    if (coveredYears.has(y0) || y0 > 2024 || !ys.includes(y0) || !ys.includes(y1)) continue;
+
+    const oS = [...(oni[y0] || Array(12).fill(null)), ...(oni[y1] || Array(12).fill(null))];
+    const rS = [...(raw[y0] || Array(12).fill(null)), ...(raw[y1] || Array(12).fill(null))];
+    const core = oS.slice(6, 18).filter(v => v !== null);
+    if (core.length < 4) continue;
+
+    const maxV = Math.max(...core);
+    const minV = Math.min(...core);
+    const fullVals = oS.filter(v => v !== null);
+    const maxFull  = fullVals.length ? Math.max(...fullVals) : maxV;
+    const minFull  = fullVals.length ? Math.min(...fullVals) : minV;
+
+    if (maxV >= 0.5 && maxV > Math.abs(minV)) {
+      events.push({
+        year: y0, type: 'elnino', peak: +maxFull.toFixed(2), peakIdx: findPeakIdx(oS, 'elnino'),
+        tier: getTier(maxFull, 'elnino'), oniSeries: oS, rawSeries: rS,
+        label: `${y0}–${String(y1).slice(2)} El Niño`, isHeadline: true,
+      });
+      coveredYears.add(y0); coveredYears.add(y1);
+    } else if (Math.abs(minV) >= 0.5 && Math.abs(minV) > maxV) {
+      const pk = +Math.max(Math.abs(minFull), Math.abs(minV)).toFixed(2);
+      events.push({
+        year: y0, type: 'lanina', peak: pk, peakIdx: findPeakIdx(oS, 'lanina'),
+        tier: getTier(pk, 'lanina'), oniSeries: oS, rawSeries: rS,
+        label: `${y0}–${String(y1).slice(2)} La Niña`, isHeadline: true,
+      });
+      coveredYears.add(y0); coveredYears.add(y1);
+    }
+  }
+
   return events;
 }
 
@@ -846,7 +905,7 @@ async function init() {
   const errEl   = document.getElementById('errMsg');
 
   const PSL_URL   = 'https://psl.noaa.gov/data/timeseries/month/Nino34/'; // new PSL location — Standard PSL Format download
-  const LOCAL_URL = './nino34.long.anom.data.txt'; // shared with ENSO heatmap
+  const LOCAL_URL = './nino34.long.anom.data'; // matches the file update-enso-data.yml commits to
   const PROXY_URL = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(PSL_URL);
 
   async function fetchData() {
