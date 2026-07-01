@@ -33,6 +33,7 @@ h1 {
   margin: 0 0 6px;
 }
 .freshness { font-size: 15px; color: #6e6e68; margin-bottom: 20px; }
+.region-status { font-size: 12px; color: #6e6e68; font-style: italic; }
 
 .tb-section { margin-bottom: 12px; }
 .tb-label {
@@ -350,6 +351,17 @@ h1 {
     </div>
   </div>
 
+  <!-- ── VIEW (regional zoom presets) ───────────────────── -->
+  <div class="tb-section">
+    <div class="tb-label">Jump to</div>
+    <div class="tb-row">
+      <button class="tool-btn" id="jumpFullBtn">Full CONUS</button>
+      <button class="tool-btn" id="jumpNortheastBtn">Northeast</button>
+      <button class="tool-btn" id="jumpTristateBtn">Tri-State</button>
+      <span class="region-status" id="regionStatus"></span>
+    </div>
+  </div>
+
   <div class="hint-row">
     <span class="hint" id="hintText"></span>
     <button id="finishBtn" style="display:none;">Finish front</button>
@@ -595,6 +607,23 @@ const STATIONS_CONUS = [
   'KPHX','KTUS','KFLG','KABQ','KROW',
   'KSEA','KGEG','KPDX','KEUG','KRDM',
   'KSFO','KLAX','KSAN','KSMF','KFAT','KBFL','KSBA','KRDD','KACV','KPSP',
+  // Moderate roster increase — interior mountain west, the thin spots that
+  // keep producing the ambiguous small loops hasRegionalSupport() has to
+  // adjudicate (KGGW/KGJT/KGPI territory). Not added to TIERS_CONUS below,
+  // so they default to tier 3 via shownStations()'s `?? 3` fallback —
+  // Dense-mode only, same as every other unlisted station. That keeps the
+  // default Sparse-mode glyph count exactly as it was; these only feed the
+  // interpolated layers unless someone switches to Dense.
+  // Unverified against the live api.weather.gov feed as of writing — spot
+  // check on deploy the way the Canada roster already gets tested live.
+  'KMSO','KBZN','KLWT','KMLS','KHVR','KSDY',           // Montana
+  'KJAC','KRIW','KLAR','KSHR','KGCC','KRKS',           // Wyoming
+  'KPIH','KTWF','KLWS','KCOE',                          // Idaho
+  'KELY','KWMC',                                        // Nevada
+  'KCDC','KVEL','KOGD',                                 // Utah
+  'KPUB','KALS','KEGE','KGUC','KAKO',                   // Colorado
+  'KSAF','KFMN','KHOB',                                 // New Mexico
+  'KPRC','KGCN',                                        // Arizona
 ];
 const TIERS_CONUS = {
   KPWM:1, KCAR:1, KBTV:1, KBOS:1, KLEB:1,
@@ -751,6 +780,50 @@ const TIERS_CANADA = {
 // built this way instead of listing every tier explicitly so the roster
 // above stays the single source of truth for which stations exist.
 for (const s of STATIONS_CANADA) { if (!(s.id in TIERS_CANADA)) TIERS_CANADA[s.id] = 3; }
+
+/* ═══════════════════════════════════════════════════
+   REGIONAL PRESETS — density-aware zoom jump points.
+   Each preset is a bounding box plus a supplemental
+   station roster (IDs not already in STATIONS_CONUS)
+   that gets fetched and merged into `obs` the first
+   time the view lands inside that box — either via the
+   preset button or by free-scrolling/panning in past
+   REGION_ZOOM_THRESHOLD on your own. Tri-State's box
+   sits inside Northeast's, so landing in Tri-State loads
+   both rosters (see jumpToRegion / regionContainingView).
+   Same live-verification caveat as the roster above —
+   these are unverified against api.weather.gov as written.
+   ═══════════════════════════════════════════════════ */
+const REGIONS = {
+  // Tri-State listed first: regionContainingView() checks in this order,
+  // so a view centered inside the (smaller) Tri-State box is classified
+  // as Tri-State rather than falling through to the broader Northeast box
+  // it also happens to sit inside.
+  tristate: {
+    label: 'Tri-State',
+    bounds: { west: -76.0, east: -71.6, south: 40.1, north: 43.0 },
+    stations: [
+      'KFRG','KISP','KHPN','KPOU','KSWF','KTEB','KCDW','KMMU','KLDJ','KVAY','KOXC',
+    ],
+  },
+  northeast: {
+    label: 'Northeast',
+    bounds: { west: -80.5, east: -66.5, south: 38.3, north: 47.6 },
+    stations: [
+      'KPVD','KHVN','KBGR','KAUG','KMHT','KCON','KRUT','KMSS','KART','KELM',
+      'KAVP','KRDG','KABE','KLNS','KACY','KTTN','KGON','KBDR',
+    ],
+  },
+};
+// Zoom level (B_FULL span / viewBbox span) past which free-scroll/pan will
+// auto-load a region's supplemental roster. Both boxes above are well
+// under 1/1.8 of B_FULL's span already, so the preset buttons always clear
+// this on their own — it only matters for the free-zoom auto-trigger path.
+const REGION_ZOOM_THRESHOLD = 1.8;
+// Fetch state per region key: undefined (not started), a pending Promise
+// (in flight — reused so rapidly panning/zooming back into the same
+// region doesn't fire duplicate fetches), or true (done).
+const regionLoadState = {};
 
 
 /* ═══════════════════════════════════════════════════
@@ -2288,6 +2361,67 @@ function updateViewFull(newBbox) {
   if (showWind) startWind();
 }
 
+// Does the current viewBbox's center sit inside a region's box, at or past
+// the zoom threshold? Center-point containment rather than full-rectangle
+// containment — simpler, and good enough for a "should we bother fetching
+// denser data" trigger than for anything more precise.
+function regionContainingView() {
+  const level = (B_FULL.east - B_FULL.west) / (viewBbox.east - viewBbox.west);
+  if (level < REGION_ZOOM_THRESHOLD) return null;
+  const cx = (viewBbox.west + viewBbox.east) / 2;
+  const cy = (viewBbox.south + viewBbox.north) / 2;
+  for (const key in REGIONS) {
+    const b = REGIONS[key].bounds;
+    if (cx >= b.west && cx <= b.east && cy >= b.south && cy <= b.north) return key;
+  }
+  return null;
+}
+
+// Fetches a region's supplemental roster (once — cached in regionLoadState)
+// and merges any newly-seen stations into `obs`. Recomputes contours/wind
+// once the merge lands, so the field visibly sharpens a beat after the
+// view settles rather than blocking the zoom/pan itself on a network call.
+async function ensureRegionLoaded(key) {
+  if (!key || regionLoadState[key]) return;
+  const region = REGIONS[key];
+  const existingIds = new Set(obs.map(s => s.id));
+  const toFetch = region.stations.filter(id => !existingIds.has(id));
+  if (!toFetch.length) { regionLoadState[key] = true; return; }
+
+  const statusEl = document.getElementById('regionStatus');
+  if (statusEl) statusEl.textContent = `Loading ${region.label} stations…`;
+
+  const promise = (async () => {
+    const results = await withTimeout(Promise.all(toFetch.map(id => fetchStn(id))), 9000).catch(() => []);
+    const good = results.filter(r => r?.lat != null && r?.lon != null);
+    if (good.length) {
+      obs = obs.concat(good);
+      if (showWind) stopWind();
+      computeContours();
+      renderBaseLayer();
+      if (showWind) startWind();
+    }
+    console.log(`[Region] ${region.label}: ${good.length}/${toFetch.length} supplemental stations loaded.`);
+    if (statusEl) statusEl.textContent = good.length ? `${region.label}: +${good.length} stations` : '';
+  })();
+  regionLoadState[key] = promise;
+  await promise;
+  regionLoadState[key] = true;
+}
+
+// Jump straight to a named preset — snaps the view immediately with
+// whatever data is already on hand (same as the zoom-badge reset), then
+// kicks off the supplemental fetch in the background. Tri-State also
+// ensures Northeast's roster is loaded, since its box sits inside
+// Northeast's and the two rosters aren't mutually exclusive.
+function jumpToRegion(key) {
+  const region = REGIONS[key];
+  if (!region) return;
+  updateViewFull({ ...region.bounds });
+  ensureRegionLoaded(key);
+  if (key === 'tristate') ensureRegionLoaded('northeast');
+}
+
 // Debounce handle for scroll-zoom contour recompute
 let zoomSettleTimer = null;
 
@@ -2855,6 +2989,7 @@ window.addEventListener('pointerup', () => {
     computeContours();
     renderBaseLayer();
     if (showWind) startWind();
+    ensureRegionLoaded(regionContainingView());
   } else {
     saveDrawing();
   }
@@ -2907,6 +3042,10 @@ mapWrap.addEventListener('wheel', e => {
     computeContours();
     renderBaseLayer();
     if (showWind) startWind();
+    // Density-aware zoom: free-scrolling past the threshold into a known
+    // region auto-loads its supplemental roster, same mechanism the
+    // preset buttons trigger explicitly.
+    ensureRegionLoaded(regionContainingView());
   }, 300);
 }, { passive: false });
 
@@ -2920,6 +3059,20 @@ function updatePanCursor() {
 document.getElementById('zoomBadge').addEventListener('click', () => {
   clearTimeout(zoomSettleTimer);
   updateViewFull({ ...B_FULL });
+});
+
+// Regional preset jump buttons
+document.getElementById('jumpFullBtn').addEventListener('click', () => {
+  clearTimeout(zoomSettleTimer);
+  updateViewFull({ ...B_FULL });
+});
+document.getElementById('jumpNortheastBtn').addEventListener('click', () => {
+  clearTimeout(zoomSettleTimer);
+  jumpToRegion('northeast');
+});
+document.getElementById('jumpTristateBtn').addEventListener('click', () => {
+  clearTimeout(zoomSettleTimer);
+  jumpToRegion('tristate');
 });
 
 function finishFront() {
