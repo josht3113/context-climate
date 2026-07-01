@@ -367,6 +367,7 @@ h1 {
       <button class="tool-btn" id="jumpPacificnwBtn">Pacific NW</button>
       <button class="tool-btn" id="jumpCaliforniaBtn">California</button>
       <span class="region-status" id="regionStatus"></span>
+      <span class="region-status" id="basemapStatus"></span>
     </div>
   </div>
 
@@ -2487,6 +2488,7 @@ function jumpToRegion(key) {
   ensureRegionLoaded(key);
   if (key === 'tristate') ensureRegionLoaded('northeast');
   ensureHiResBasemap(); // every preset box is well past REGION_ZOOM_THRESHOLD by construction
+  setDensityTier(3); // surface the full roster — Sparse hides most of what a preset is for
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2505,7 +2507,20 @@ function jumpToRegion(key) {
    Canada/Mexico stay on the coarse embedded geometry —
    no equivalent hi-res source for those is on hand.
    ═══════════════════════════════════════════════════ */
-const STATES_500K_URL = 'states-500k.geojson'; // sibling file in public/ once deployed
+// Two sources, tried in order. The relative path is correct once this is
+// actually deployed to public/ alongside the file it names. The GitHub raw
+// URL is the fallback — it also happens to be what makes this visible when
+// testing the file standalone (double-clicked, previewed, whatever) rather
+// than through the deployed site: raw.githubusercontent.com serves
+// permissive CORS (verified — it answers a null-Origin request, which is
+// what file:// / sandboxed-preview contexts send) where a bare relative
+// fetch from a non-http origin has nothing to resolve against and just
+// fails. If the borders still look faceted after this, check the console —
+// `[Basemap]` logs will say which source (if either) actually loaded.
+const STATES_500K_URLS = [
+  'states-500k.geojson',
+  'https://raw.githubusercontent.com/josht3113/context-climate/main/public/states-500k.geojson',
+];
 // AK/HI/territories excluded — the projection is CONUS-centered, so their
 // real coordinates would just draw far off-canvas (harmless but wasted
 // work) and they're not part of GEO_CONUS's coverage today either.
@@ -2515,23 +2530,30 @@ let hiResStatesLoading = null; // in-flight promise, so overlapping triggers don
 
 async function ensureHiResBasemap() {
   if (hiResStatesGeo || hiResStatesLoading) return hiResStatesLoading;
+  const statusEl = document.getElementById('basemapStatus');
+  if (statusEl) statusEl.textContent = 'Loading detailed map…';
   hiResStatesLoading = (async () => {
-    try {
-      const r = await fetch(STATES_500K_URL);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const raw = await r.json();
-      hiResStatesGeo = {
-        type: 'FeatureCollection',
-        features: raw.features.filter(f => !EXCLUDED_STUSPS.has(f.properties?.STUSPS)),
-      };
-      console.log(`[Basemap] hi-res loaded — ${hiResStatesGeo.features.length} states.`);
-      renderBaseLayer(); // redraw immediately now that finer geometry exists
-    } catch (e) {
-      console.warn('[Basemap] hi-res fetch failed — staying on the embedded coarse geometry.', e.message || e);
-      // Testing this file directly (rather than via the deployed site) will
-      // 404 here the same way the Canada fetch needs a real origin — see
-      // the file:// CORS note near loadObsWithFallback.
+    let raw = null, lastErr = null;
+    for (const url of STATES_500K_URLS) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        raw = await r.json();
+        console.log(`[Basemap] hi-res loaded from ${url}`);
+        break;
+      } catch (e) { lastErr = e; console.warn(`[Basemap] ${url} failed —`, e.message || e); }
     }
+    if (!raw) {
+      console.warn('[Basemap] all sources failed — staying on the embedded coarse geometry.', lastErr?.message || lastErr);
+      if (statusEl) statusEl.textContent = 'Detailed map unavailable — using default resolution';
+      return;
+    }
+    hiResStatesGeo = {
+      type: 'FeatureCollection',
+      features: raw.features.filter(f => !EXCLUDED_STUSPS.has(f.properties?.STUSPS)),
+    };
+    if (statusEl) statusEl.textContent = '';
+    renderBaseLayer(); // redraw immediately now that finer geometry exists
   })();
   return hiResStatesLoading;
 }
@@ -3241,14 +3263,23 @@ document.getElementById('clearBtn').addEventListener('click', () => {
   saveDrawing(); renderDraw(); updateHint(); updateSelCtrls();
 });
 
+// Shared by the manual Sparse/Dense toggle and jumpToRegion(), which bumps
+// to Dense automatically — a preset's whole point is a closer look, and
+// most of the roster (every supplemental/interior-west station added this
+// round, tier 2 entries throughout the base list) is invisible at the
+// default Sparse tier. Only the explicit preset-button path auto-bumps;
+// the passive free-zoom/pan density-aware trigger deliberately leaves your
+// manual Sparse/Dense choice alone rather than overriding it as a side
+// effect of just scrolling somewhere.
+function setDensityTier(tier) {
+  if (tier === densityTier) return;
+  densityTier = tier;
+  document.querySelectorAll('#densityToggle button').forEach(b => b.classList.toggle('active', Number(b.dataset.density) === tier));
+  renderBaseLayer();
+}
+
 document.querySelectorAll('#densityToggle button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tier = Number(btn.dataset.density);
-    if (tier === densityTier) return;
-    densityTier = tier;
-    document.querySelectorAll('#densityToggle button').forEach(b => b.classList.toggle('active', b === btn));
-    renderBaseLayer();
-  });
+  btn.addEventListener('click', () => setDensityTier(Number(btn.dataset.density)));
 });
 
 document.getElementById('ghostBtn').addEventListener('click', e => {
