@@ -2662,9 +2662,30 @@ async function ensureHiResBasemap() {
 // one place that was actually checked (eastern Long Island — 136 points in
 // the fork area here vs. 91 in states-500k, plus a few small extra islands
 // states-500k drops). Only covers 13 Northeast states (its own `postal`
-// property, not STUSPS), so it's layered in per-state rather than treated
-// as a full replacement — geoNorthAmerica() below prefers it for the
-// states it has and falls back to states-500k/embedded for the rest.
+// property, not STUSPS).
+//
+// KNOWN DATA BUG, worked around below rather than fixed at the source:
+// 7 of the 13 states in this file are bounding-box-clipped, apparently
+// cropped at generation time to roughly west>-77.3/north<44.3 with no
+// regard for state shape. Confirmed by comparing each feature's own
+// bbox against its real extent — PA/NY/VA/MD all cut off at exactly
+// west=-77.3, and NY/VT/NH/ME all cut off at exactly north=44.3.
+// Net effect: western PA, western/northern NY, ~all of Virginia west
+// of DC, western MD, and northern VT/NH/ME (interior Maine especially)
+// are simply absent from this file's version of those states. DC, DE,
+// NJ, CT, RI, MA all check out fine against their real bboxes — this
+// is specifically a PA/NY/VT/NH/ME/VA/MD problem.
+// geoNorthAmerica() used to treat this file as a full per-state
+// replacement (drop the base state, substitute this one), which is
+// exactly wrong given the above — it turned the clipped-off two-thirds
+// of Virginia and western PA into unpainted holes showing bare ocean
+// underneath, and since hiResNortheastGeo stays loaded for the rest of
+// the session, the holes persisted even after navigating back to full
+// CONUS. Fixed by layering this file's features on top of the
+// always-complete base set instead of excluding anything — worst case
+// a clipped feature just repaints already-correct land with the same
+// color; it can no longer leave a gap. Real fix is regenerating this
+// file without the accidental crop, whenever that's worth doing.
 const NORTHEAST_COAST_URLS = [
   'northeast-coast.geojson',
   'https://raw.githubusercontent.com/josht3113/context-climate/main/public/northeast-coast.geojson',
@@ -2699,18 +2720,12 @@ async function ensureNortheastCoastGeo() {
 let zoomSettleTimer = null;
 
 function geoNorthAmerica() {
-  let usFeatures;
-  if (hiResNortheastGeo) {
-    // Drop whichever states the Northeast file covers from the other
-    // source (states-500k once loaded, embedded coarse otherwise), then
-    // append the finer Northeast versions in their place.
-    const neCovered = new Set(hiResNortheastGeo.features.map(f => f.properties?.postal));
-    const base = (hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features)
-      .filter(f => !neCovered.has(f.properties?.STUSPS));
-    usFeatures = base.concat(hiResNortheastGeo.features);
-  } else {
-    usFeatures = hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features;
-  }
+  const base = hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features;
+  // Overlay, not replace — see the northeast-coast.geojson writeup above.
+  // Concatenating on top of the full base set means a clipped feature in
+  // hiResNortheastGeo can only ever repaint land that's already correctly
+  // there; it can never remove or hide any of the base geometry.
+  const usFeatures = hiResNortheastGeo ? base.concat(hiResNortheastGeo.features) : base;
   return {
     type: 'FeatureCollection',
     // Combined fresh each call — cheap relative to the render itself — so
