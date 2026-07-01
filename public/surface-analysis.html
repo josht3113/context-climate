@@ -163,6 +163,31 @@ h1 {
 }
 #zoomBadge:hover { background: rgba(29,158,117,0.18); }
 
+.zoom-controls {
+  position: absolute; top: 9px; right: 9px; z-index: 7;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.zoom-controls button {
+  width: 30px; height: 30px;
+  background: rgba(7,7,15,0.72); color: #1D9E75;
+  border: 1px solid rgba(29,158,117,0.4); border-radius: 5px;
+  font: 600 18px 'Source Sans 3', sans-serif;
+  cursor: pointer; line-height: 1; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.zoom-controls button:hover { background: rgba(29,158,117,0.18); }
+
+.zoom-hint {
+  position: absolute; top: 9px; left: 50%; transform: translateX(-50%);
+  z-index: 7;
+  background: rgba(7,7,15,0.82); color: #f2f0e8;
+  font: 600 12px 'Source Sans 3', sans-serif;
+  padding: 6px 12px; border-radius: 5px;
+  pointer-events: none; opacity: 0; transition: opacity 0.25s;
+  white-space: nowrap;
+}
+.zoom-hint.show { opacity: 1; }
+
 .ov {
   position: absolute; inset: 0; z-index: 6;
   display: flex; align-items: center; justify-content: center;
@@ -387,6 +412,11 @@ h1 {
     <canvas id="cvDraw"></canvas>
     <div class="ov" id="ov">Loading map&hellip;</div>
     <div id="zoomBadge" title="Click to reset zoom"></div>
+    <div class="zoom-controls">
+      <button id="zoomInBtn" title="Zoom in">+</button>
+      <button id="zoomOutBtn" title="Zoom out">&minus;</button>
+    </div>
+    <div class="zoom-hint" id="zoomHint">Hold Ctrl / &#8984; and scroll to zoom &mdash; or use the +/&minus; buttons</div>
     <div class="sel-ctrls" id="selCtrls">
       <button id="flipBtn">Flip side</button>
       <button id="delBtn">Delete</button>
@@ -452,7 +482,7 @@ h1 {
       <strong style="color:#7888a0">Draw</strong> — pick a front type, click map to place points, Enter or Finish to commit &nbsp;·&nbsp;
       <strong style="color:#7888a0">H / L</strong> — click to drop, double-click to add a pressure label &nbsp;·&nbsp;
       <strong style="color:#7888a0">Select</strong> — drag fronts &amp; labels, Flip side to reverse front symbol<br>
-      <strong style="color:#7888a0">Zoom</strong> — scroll wheel &nbsp;·&nbsp;
+      <strong style="color:#7888a0">Zoom</strong> — Ctrl/&#8984;+scroll, pinch, or the +/&minus; buttons &nbsp;·&nbsp;
       <strong style="color:#7888a0">Pan</strong> — drag in Select mode when zoomed in &nbsp;·&nbsp;
       <strong style="color:#7888a0">Reset</strong> — click the zoom badge
     </div>
@@ -813,6 +843,7 @@ const REGIONS = {
     bounds: { west: -76.0, east: -71.6, south: 40.1, north: 43.0 },
     stations: [
       'KFRG','KISP','KHPN','KPOU','KSWF','KTEB','KCDW','KMMU','KLDJ','KVAY','KOXC',
+      'KDXR','KMGJ','KFOK','KMSV','KMTP', // KMTP — Montauk Point
     ],
   },
   northeast: {
@@ -821,56 +852,55 @@ const REGIONS = {
     stations: [
       'KPVD','KHVN','KBGR','KAUG','KMHT','KCON','KRUT','KMSS','KART','KELM',
       'KAVP','KRDG','KABE','KLNS','KACY','KTTN','KGON','KBDR',
+      'KHFD','KBID','KIJD',
     ],
   },
-  // Everything below is new this pass — rough regional buckets covering the
-  // rest of CONUS. Mountain West and Southwest get no supplemental roster:
-  // the interior-west additions from the last build already densified both
-  // footprints, so there's nothing thin left to fill in. Boxes are
-  // approximate and some edges overlap by a degree or two (e.g. Southern
-  // Plains/Mountain West near the NM/OK/KS corner) — regionContainingView()
-  // just takes the first match in iteration order, which is fine for a
-  // "which regional roster should be active" bucket and isn't trying to be
-  // a precise tiling.
+  // Everything below got a real density pass this round too, same as
+  // Tri-State/Northeast — same caveat as always: unverified against the
+  // live feed, worth a deploy-and-check pass. Boxes are approximate and
+  // some edges overlap by a degree or two (e.g. Southern Plains/Mountain
+  // West near the NM/OK/KS corner) — regionContainingView() just takes the
+  // first match in iteration order, which is fine for a "which regional
+  // roster should be active" bucket and isn't trying to be a precise tiling.
   southeast: {
     label: 'Southeast',
     bounds: { west: -91, east: -75, south: 24.3, north: 37.6 },
-    stations: ['KAHN','KCSG','KFAY','KGSO','KHKY'],
+    stations: ['KAHN','KCSG','KFAY','KGSO','KHKY','KGSP','KMCN','KVLD','KGNV','KOCF','KDHN'],
   },
   midwest: {
     label: 'Midwest',
     bounds: { west: -97.5, east: -80.5, south: 38, north: 49.4 },
-    stations: ['KFNT','KAZO','KMBS','KRST','KEAU'],
+    stations: ['KFNT','KAZO','KMBS','KRST','KEAU','KEVV','KDEC','KMKG','KAPX','KRHI'],
   },
   southernplains: {
     label: 'S. Plains',
     bounds: { west: -106.8, east: -93, south: 25.5, north: 37.2 },
-    stations: ['KABI','KSJT','KMFE','KLRD','KGGG','KACT'],
+    stations: ['KABI','KSJT','KMFE','KLRD','KGGG','KACT','KTYR','KVCT','KDRT','KSPS','KLAW'],
   },
   northernplains: {
     label: 'N. Plains',
     bounds: { west: -104.5, east: -94, south: 41, north: 49.3 },
-    stations: ['KABR','KMOT','KDIK','KVTN'],
+    stations: ['KABR','KMOT','KDIK','KVTN','KATY','KGFK','KJMS','KHON'],
   },
   mountainwest: {
     label: 'Mountain West',
     bounds: { west: -114, east: -102, south: 36.5, north: 49.3 },
-    stations: [],
+    stations: ['KDRO','KASE','KTEX','KWYS'],
   },
   southwest: {
     label: 'Southwest',
     bounds: { west: -117, east: -103, south: 31, north: 39 },
-    stations: [],
+    stations: ['KIFP','KSOW','KDMN','KLVS'],
   },
   pacificnw: {
     label: 'Pacific NW',
     bounds: { west: -125, east: -116.5, south: 42, north: 49.3 },
-    stations: ['KBLI','KOLM','KYKM','KPSC','KHQM','KMFR','KLKV'],
+    stations: ['KBLI','KOLM','KYKM','KPSC','KHQM','KMFR','KLKV','KAST','KPUW','KONP'],
   },
   california: {
     label: 'California',
     bounds: { west: -125, east: -114, south: 32.3, north: 42.1 },
-    stations: ['KSJC','KOAK','KSTS','KMOD','KVIS','KMRY'],
+    stations: ['KSJC','KOAK','KSTS','KMOD','KVIS','KMRY','KCRQ','KSMX','KBIH','KMHV'],
   },
 };
 // Zoom level (B_FULL span / viewBbox span) past which free-scroll/pan will
@@ -2444,6 +2474,19 @@ function regionContainingView() {
   return null;
 }
 
+// Shared by every *passive* view-change path — wheel-zoom settle, pan-end,
+// and the +/- zoom buttons — so the density-aware behavior stays identical
+// across all three instead of drifting. Deliberately does NOT touch
+// densityTier (that's a jumpToRegion-only behavior, see the comment there)
+// so scrolling/panning/button-zooming into a region tops up the underlying
+// data without silently overriding a manual Sparse/Dense choice.
+function onViewSettled() {
+  const matched = regionContainingView();
+  ensureRegionLoaded(matched);
+  if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
+  if (matched === 'northeast' || matched === 'tristate') ensureNortheastCoastGeo();
+}
+
 // Fetches a region's supplemental roster (once — cached in regionLoadState)
 // and merges any newly-seen stations into `obs`. Recomputes contours/wind
 // once the merge lands, so the field visibly sharpens a beat after the
@@ -2488,6 +2531,7 @@ function jumpToRegion(key) {
   ensureRegionLoaded(key);
   if (key === 'tristate') ensureRegionLoaded('northeast');
   ensureHiResBasemap(); // every preset box is well past REGION_ZOOM_THRESHOLD by construction
+  if (key === 'northeast' || key === 'tristate') ensureNortheastCoastGeo(); // the finer of the two sources, where it applies
   setDensityTier(3); // surface the full roster — Sparse hides most of what a preset is for
 }
 
@@ -2558,17 +2602,65 @@ async function ensureHiResBasemap() {
   return hiResStatesLoading;
 }
 
+// Second, region-specific source: measurably finer than states-500k in the
+// one place that was actually checked (eastern Long Island — 136 points in
+// the fork area here vs. 91 in states-500k, plus a few small extra islands
+// states-500k drops). Only covers 13 Northeast states (its own `postal`
+// property, not STUSPS), so it's layered in per-state rather than treated
+// as a full replacement — geoNorthAmerica() below prefers it for the
+// states it has and falls back to states-500k/embedded for the rest.
+const NORTHEAST_COAST_URLS = [
+  'northeast-coast.geojson',
+  'https://raw.githubusercontent.com/josht3113/context-climate/main/public/northeast-coast.geojson',
+];
+let hiResNortheastGeo = null;
+let hiResNortheastLoading = null;
+
+async function ensureNortheastCoastGeo() {
+  if (hiResNortheastGeo || hiResNortheastLoading) return hiResNortheastLoading;
+  hiResNortheastLoading = (async () => {
+    let raw = null, lastErr = null;
+    for (const url of NORTHEAST_COAST_URLS) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        raw = await r.json();
+        console.log(`[Basemap] northeast-coast hi-res loaded from ${url} — ${raw.features.length} states.`);
+        break;
+      } catch (e) { lastErr = e; console.warn(`[Basemap] ${url} failed —`, e.message || e); }
+    }
+    if (!raw) {
+      console.warn('[Basemap] northeast-coast fetch failed from all sources — falling back to states-500k/embedded for those states.', lastErr?.message || lastErr);
+      return;
+    }
+    hiResNortheastGeo = raw;
+    renderBaseLayer();
+  })();
+  return hiResNortheastLoading;
+}
+
 // Debounce handle for scroll-zoom contour recompute
 let zoomSettleTimer = null;
 
 function geoNorthAmerica() {
+  let usFeatures;
+  if (hiResNortheastGeo) {
+    // Drop whichever states the Northeast file covers from the other
+    // source (states-500k once loaded, embedded coarse otherwise), then
+    // append the finer Northeast versions in their place.
+    const neCovered = new Set(hiResNortheastGeo.features.map(f => f.properties?.postal));
+    const base = (hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features)
+      .filter(f => !neCovered.has(f.properties?.STUSPS));
+    usFeatures = base.concat(hiResNortheastGeo.features);
+  } else {
+    usFeatures = hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features;
+  }
   return {
     type: 'FeatureCollection',
     // Combined fresh each call — cheap relative to the render itself — so
     // this picks up hi-res US geometry the moment it lands without needing
     // every call site to know or care whether it's loaded yet.
-    features: (hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features)
-      .concat(GEO_CANADA.features, GEO_MEXICO.features),
+    features: usFeatures.concat(GEO_CANADA.features, GEO_MEXICO.features),
   };
 }
 
@@ -3127,8 +3219,7 @@ window.addEventListener('pointerup', () => {
     computeContours();
     renderBaseLayer();
     if (showWind) startWind();
-    ensureRegionLoaded(regionContainingView());
-    if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
+    onViewSettled();
   } else {
     saveDrawing();
   }
@@ -3144,7 +3235,26 @@ cvDraw.addEventListener('dblclick', e => {
 // Zooms centered on the cursor position. During rapid scrolling, only the
 // fast projection/render runs on each event; contour recompute is deferred
 // until 300ms after the last scroll event.
+// Debounce handle for the scroll-hint toast fade-out
+let zoomHintTimer = null;
+
 mapWrap.addEventListener('wheel', e => {
+  // Plain scroll/trackpad motion passes through untouched so the map
+  // doesn't trap page scrolling — this was the actual bug behind
+  // "I keep accidentally zooming while trying to scroll the page":
+  // preventDefault() used to fire unconditionally on every wheel event
+  // over the map. Ctrl/Cmd+scroll still zooms, and — for free — so does a
+  // trackpad pinch gesture, since browsers report those as wheel events
+  // with ctrlKey set to true.
+  if (!(e.ctrlKey || e.metaKey)) {
+    const hint = document.getElementById('zoomHint');
+    if (hint) {
+      hint.classList.add('show');
+      clearTimeout(zoomHintTimer);
+      zoomHintTimer = setTimeout(() => hint.classList.remove('show'), 1800);
+    }
+    return;
+  }
   e.preventDefault();
   const rect = mapWrap.getBoundingClientRect();
   // Fractional position of cursor within the map [0,1]
@@ -3181,15 +3291,33 @@ mapWrap.addEventListener('wheel', e => {
     computeContours();
     renderBaseLayer();
     if (showWind) startWind();
-    // Density-aware zoom: free-scrolling past the threshold into a known
-    // region auto-loads its supplemental roster, same mechanism the
-    // preset buttons trigger explicitly. Hi-res basemap is keyed off zoom
-    // level alone, not region membership — detail matters anywhere you're
-    // zoomed in, not just inside a named preset box.
-    ensureRegionLoaded(regionContainingView());
-    if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
+    onViewSettled();
   }, 300);
 }, { passive: false });
+
+// +/- zoom buttons — same step factor as the wheel, anchored on the current
+// viewport center rather than a cursor position (a button click has no
+// meaningful cursor position to anchor on). Also the only zoom path
+// available on touch devices, which otherwise have no zoom mechanism at
+// all — there's no pinch handling outside the wheel event above.
+function stepZoom(factor) {
+  const cx = (viewBbox.west + viewBbox.east) / 2;
+  const cy = (viewBbox.south + viewBbox.north) / 2;
+  const newLonSpan = (viewBbox.east - viewBbox.west) * factor;
+  const newLatSpan = (viewBbox.north - viewBbox.south) * factor;
+  if (newLonSpan >= (B_FULL.east - B_FULL.west) * 1.01) {
+    if ((viewBbox.east - viewBbox.west) < (B_FULL.east - B_FULL.west) * 0.99) updateViewFull({ ...B_FULL });
+    return;
+  }
+  updateViewFull({
+    west: cx - newLonSpan / 2, east: cx + newLonSpan / 2,
+    south: cy - newLatSpan / 2, north: cy + newLatSpan / 2,
+  });
+  onViewSettled();
+}
+document.getElementById('zoomInBtn').addEventListener('click', () => stepZoom(0.72));
+document.getElementById('zoomOutBtn').addEventListener('click', () => stepZoom(1 / 0.72));
+
 
 // Update cursor when select tool is active and map is zoomed in
 function updatePanCursor() {
