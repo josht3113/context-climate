@@ -2540,6 +2540,10 @@ function onViewSettled() {
   const matched = regionContainingView();
   ensureRegionLoaded(matched);
   if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
+  // Fetch on either match — safe to do for 'northeast' too even though its
+  // box crosses the crop lines, since geoNorthAmerica() won't actually use
+  // the overlay until the view is inside the safe zone (see
+  // northeastCoastSafeForView()).
   if (matched === 'northeast' || matched === 'tristate') ensureNortheastCoastGeo();
 }
 
@@ -2587,7 +2591,7 @@ function jumpToRegion(key) {
   ensureRegionLoaded(key);
   if (key === 'tristate') ensureRegionLoaded('northeast');
   ensureHiResBasemap(); // every preset box is well past REGION_ZOOM_THRESHOLD by construction
-  if (key === 'northeast' || key === 'tristate') ensureNortheastCoastGeo(); // the finer of the two sources, where it applies
+  if (key === 'northeast' || key === 'tristate') ensureNortheastCoastGeo(); // finer source; geoNorthAmerica() only uses it once the view is past the crop lines' safe zone
   setDensityTier(3); // surface the full roster — Sparse hides most of what a preset is for
 }
 
@@ -2664,41 +2668,52 @@ async function ensureHiResBasemap() {
 // states-500k drops). Only covers 13 Northeast states (its own `postal`
 // property, not STUSPS).
 //
-// DISABLED — KNOWN DATA BUG, not worth working around further. 7 of the
-// 13 states in this file are bounding-box-clipped, apparently cropped at
-// generation time to roughly west>-77.3/north<44.3 with no regard for
-// state shape. Confirmed by comparing each feature's own bbox against its
-// real extent — PA/NY/VA/MD all cut off at exactly west=-77.3, and
-// NY/VT/NH/ME all cut off at exactly north=44.3. DC/DE/NJ/CT/RI/MA check
-// out fine, but that's only 6 of 13.
-// First attempt merged this file's features on top of the always-complete
-// base set (fill-only, so a clipped feature could repaint but never hide
-// land) — that fixed the original bug (Virginia/PA holes reading as bare
-// ocean) but every feature in `geo.features` gets both filled AND
-// stroked in renderBase(), so the clipped states' artificial crop-box
-// edges (that dead-straight north-south line through PA/NY/VA at
-// west=-77.3) got drawn as stray borders on top of the real coastline.
-// Suppressing just the stroke for this one source would mean threading a
-// fill-only/stroke-only distinction through renderBase() for a marginal
-// coastline-detail gain (LI Sound fork). Simpler and safer to just not
-// use it until it's regenerated without the crop — geoNorthAmerica()
-// below now only ever uses the base geometry. Fetch/merge code kept
-// intact and easy to re-enable (see ensureNortheastCoastGeo() below)
-// once a clean version of the file exists.
+// KNOWN DATA BUG, worked around geographically rather than fixed at the
+// source (yet). 7 of the 13 states in this file are bounding-box-clipped,
+// apparently cropped at generation time to roughly west>-77.3/north<44.3
+// with no regard for state shape. Confirmed by comparing each feature's
+// own bbox against its real extent — PA/NY/VA/MD all cut off at exactly
+// west=-77.3, and NY/VT/NH/ME all cut off at exactly north=44.3.
+// DC/DE/NJ/CT/RI/MA check out fine, but that's only 6 of 13.
+//
+// The crop only becomes visible as a stray straight-line border when the
+// crop edge itself is inside the current viewport — i.e. when the view
+// reaches west of -77.3 or north of 44.3. Tri-State's preset box (west
+// -76.0) and most free-pan exploration around Long Island/southern New
+// England never get there, so this is now gated at render time instead
+// of disabled outright: geoNorthAmerica() below only merges this layer
+// in when the *current* viewBbox stays entirely on the safe side of both
+// lines (see northeastCoastSafeForView()). Pan or zoom out past either
+// line — into upstate NY, VT/NH/ME, or the full Northeast/CONUS view —
+// and it silently drops back to states-500k for those areas, no crop
+// artifact ever drawn. Fully regenerating the source file without the
+// crop would let the Northeast preset's wider box benefit too; until
+// then this covers the Tri-State case the crop bug was blocking.
 const NORTHEAST_COAST_URLS = [
   'northeast-coast.geojson',
   'https://raw.githubusercontent.com/josht3113/context-climate/main/public/northeast-coast.geojson',
 ];
+// The bounding-box-clip lines described above. Kept as named constants
+// (rather than inlined in northeastCoastSafeForView()) so a future fix to
+// the source file's generation step has one obvious place to update —
+// or delete this whole safe-zone gate — once the crop is gone for good.
+const NORTHEAST_COAST_CROP_WEST = -77.3;
+const NORTHEAST_COAST_CROP_NORTH = 44.3;
 let hiResNortheastGeo = null;
 let hiResNortheastLoading = null;
 
+// True when the current viewBbox never reaches either crop line, i.e. the
+// stray crop-edge border (see writeup above) can't possibly be on screen.
+// Deliberately conservative: views that sit entirely on the *other* side
+// of a line (e.g. Ohio, well west of -77.3) also return false here even
+// though the crop line is equally invisible from there — those views
+// don't contain any of this file's 13 states anyway, so there's nothing
+// lost by skipping the overlay for them.
+function northeastCoastSafeForView() {
+  return viewBbox.west > NORTHEAST_COAST_CROP_WEST && viewBbox.north < NORTHEAST_COAST_CROP_NORTH;
+}
+
 async function ensureNortheastCoastGeo() {
-  // Disabled per the writeup above — return immediately instead of
-  // fetching a file whose output geoNorthAmerica() won't use anyway.
-  // Delete this line (and it starts working again) once
-  // northeast-coast.geojson is regenerated without the west/north crop.
-  return;
-  // eslint-disable-next-line no-unreachable
   if (hiResNortheastGeo || hiResNortheastLoading) return hiResNortheastLoading;
   hiResNortheastLoading = (async () => {
     let raw = null, lastErr = null;
@@ -2725,12 +2740,15 @@ async function ensureNortheastCoastGeo() {
 let zoomSettleTimer = null;
 
 function geoNorthAmerica() {
-  // hiResNortheastGeo is permanently null while ensureNortheastCoastGeo()
-  // is disabled above, so this is just the base geometry — kept as a
-  // variable (rather than inlined) so re-enabling the fetch above is the
-  // only change needed to bring the overlay back.
   const base = hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features;
-  const usFeatures = hiResNortheastGeo ? base.concat(hiResNortheastGeo.features) : base;
+  // Only layer the finer Northeast geometry on top when it's loaded AND
+  // the current view can't possibly show its crop-box artifact (see the
+  // writeup above ensureNortheastCoastGeo()). Re-evaluated on every call,
+  // same as the rest of this function, so the overlay silently engages
+  // and disengages as the user pans/zooms rather than sticking on once
+  // fetched.
+  const useNortheastOverlay = hiResNortheastGeo && northeastCoastSafeForView();
+  const usFeatures = useNortheastOverlay ? base.concat(hiResNortheastGeo.features) : base;
   return {
     type: 'FeatureCollection',
     // Combined fresh each call — cheap relative to the render itself — so
