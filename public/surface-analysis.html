@@ -358,6 +358,14 @@ h1 {
       <button class="tool-btn" id="jumpFullBtn">Full CONUS</button>
       <button class="tool-btn" id="jumpNortheastBtn">Northeast</button>
       <button class="tool-btn" id="jumpTristateBtn">Tri-State</button>
+      <button class="tool-btn" id="jumpSoutheastBtn">Southeast</button>
+      <button class="tool-btn" id="jumpMidwestBtn">Midwest</button>
+      <button class="tool-btn" id="jumpSouthernplainsBtn">S. Plains</button>
+      <button class="tool-btn" id="jumpNorthernplainsBtn">N. Plains</button>
+      <button class="tool-btn" id="jumpMountainwestBtn">Mountain West</button>
+      <button class="tool-btn" id="jumpSouthwestBtn">Southwest</button>
+      <button class="tool-btn" id="jumpPacificnwBtn">Pacific NW</button>
+      <button class="tool-btn" id="jumpCaliforniaBtn">California</button>
       <span class="region-status" id="regionStatus"></span>
     </div>
   </div>
@@ -813,6 +821,55 @@ const REGIONS = {
       'KPVD','KHVN','KBGR','KAUG','KMHT','KCON','KRUT','KMSS','KART','KELM',
       'KAVP','KRDG','KABE','KLNS','KACY','KTTN','KGON','KBDR',
     ],
+  },
+  // Everything below is new this pass — rough regional buckets covering the
+  // rest of CONUS. Mountain West and Southwest get no supplemental roster:
+  // the interior-west additions from the last build already densified both
+  // footprints, so there's nothing thin left to fill in. Boxes are
+  // approximate and some edges overlap by a degree or two (e.g. Southern
+  // Plains/Mountain West near the NM/OK/KS corner) — regionContainingView()
+  // just takes the first match in iteration order, which is fine for a
+  // "which regional roster should be active" bucket and isn't trying to be
+  // a precise tiling.
+  southeast: {
+    label: 'Southeast',
+    bounds: { west: -91, east: -75, south: 24.3, north: 37.6 },
+    stations: ['KAHN','KCSG','KFAY','KGSO','KHKY'],
+  },
+  midwest: {
+    label: 'Midwest',
+    bounds: { west: -97.5, east: -80.5, south: 38, north: 49.4 },
+    stations: ['KFNT','KAZO','KMBS','KRST','KEAU'],
+  },
+  southernplains: {
+    label: 'S. Plains',
+    bounds: { west: -106.8, east: -93, south: 25.5, north: 37.2 },
+    stations: ['KABI','KSJT','KMFE','KLRD','KGGG','KACT'],
+  },
+  northernplains: {
+    label: 'N. Plains',
+    bounds: { west: -104.5, east: -94, south: 41, north: 49.3 },
+    stations: ['KABR','KMOT','KDIK','KVTN'],
+  },
+  mountainwest: {
+    label: 'Mountain West',
+    bounds: { west: -114, east: -102, south: 36.5, north: 49.3 },
+    stations: [],
+  },
+  southwest: {
+    label: 'Southwest',
+    bounds: { west: -117, east: -103, south: 31, north: 39 },
+    stations: [],
+  },
+  pacificnw: {
+    label: 'Pacific NW',
+    bounds: { west: -125, east: -116.5, south: 42, north: 49.3 },
+    stations: ['KBLI','KOLM','KYKM','KPSC','KHQM','KMFR','KLKV'],
+  },
+  california: {
+    label: 'California',
+    bounds: { west: -125, east: -114, south: 32.3, north: 42.1 },
+    stations: ['KSJC','KOAK','KSTS','KMOD','KVIS','KMRY'],
   },
 };
 // Zoom level (B_FULL span / viewBbox span) past which free-scroll/pan will
@@ -2335,7 +2392,7 @@ function updateProjection(newBbox) {
 
   // Fast re-render: basemap + stations only (contours drawn last by caller)
   bctx.save();
-  MAP.renderBase(bctx, GEO_NORTH_AMERICA, project, dims);
+  MAP.renderBase(bctx, geoNorthAmerica(), project, dims);
   bctx.restore();
   actx.clearRect(0, 0, CW, CH);
   actx.save();
@@ -2365,9 +2422,18 @@ function updateViewFull(newBbox) {
 // the zoom threshold? Center-point containment rather than full-rectangle
 // containment — simpler, and good enough for a "should we bother fetching
 // denser data" trigger than for anything more precise.
+// Zoom level as a multiple of the full-CONUS view (1 = fully zoomed out).
+// Same formula updateZoomBadge() uses for the on-screen "N.N×" badge.
+function zoomLevel() {
+  return (B_FULL.east - B_FULL.west) / (viewBbox.east - viewBbox.west);
+}
+
+// Does the current viewBbox's center sit inside a region's box, at or past
+// the zoom threshold? Center-point containment rather than full-rectangle
+// containment — simpler, and good enough for a "should we bother fetching
+// denser data" trigger than for anything more precise.
 function regionContainingView() {
-  const level = (B_FULL.east - B_FULL.west) / (viewBbox.east - viewBbox.west);
-  if (level < REGION_ZOOM_THRESHOLD) return null;
+  if (zoomLevel() < REGION_ZOOM_THRESHOLD) return null;
   const cx = (viewBbox.west + viewBbox.east) / 2;
   const cy = (viewBbox.south + viewBbox.north) / 2;
   for (const key in REGIONS) {
@@ -2420,19 +2486,69 @@ function jumpToRegion(key) {
   updateViewFull({ ...region.bounds });
   ensureRegionLoaded(key);
   if (key === 'tristate') ensureRegionLoaded('northeast');
+  ensureHiResBasemap(); // every preset box is well past REGION_ZOOM_THRESHOLD by construction
+}
+
+/* ═══════════════════════════════════════════════════
+   HI-RES BASEMAP — the embedded GEO_CONUS above is
+   decimated for file size and looks visibly faceted once
+   you're zoomed in past a regional scale (exactly the
+   Long Island/CT-coast blockiness from the screenshot).
+   `public/states-500k.geojson` — the same Census 500k
+   cartographic-boundary source GEO_CONUS was thinned
+   FROM — already ships on the deployed site, so instead
+   of hand-building a bespoke high-detail file per region,
+   this fetches that one file once, lazily, the first time
+   anyone zooms in past REGION_ZOOM_THRESHOLD anywhere
+   (not just inside a named preset), and swaps it in for
+   the US-states portion of the basemap from then on.
+   Canada/Mexico stay on the coarse embedded geometry —
+   no equivalent hi-res source for those is on hand.
+   ═══════════════════════════════════════════════════ */
+const STATES_500K_URL = 'states-500k.geojson'; // sibling file in public/ once deployed
+// AK/HI/territories excluded — the projection is CONUS-centered, so their
+// real coordinates would just draw far off-canvas (harmless but wasted
+// work) and they're not part of GEO_CONUS's coverage today either.
+const EXCLUDED_STUSPS = new Set(['AK', 'HI', 'PR', 'GU', 'VI', 'AS', 'MP']);
+let hiResStatesGeo = null;     // null until loaded; a FeatureCollection after
+let hiResStatesLoading = null; // in-flight promise, so overlapping triggers don't double-fetch
+
+async function ensureHiResBasemap() {
+  if (hiResStatesGeo || hiResStatesLoading) return hiResStatesLoading;
+  hiResStatesLoading = (async () => {
+    try {
+      const r = await fetch(STATES_500K_URL);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const raw = await r.json();
+      hiResStatesGeo = {
+        type: 'FeatureCollection',
+        features: raw.features.filter(f => !EXCLUDED_STUSPS.has(f.properties?.STUSPS)),
+      };
+      console.log(`[Basemap] hi-res loaded — ${hiResStatesGeo.features.length} states.`);
+      renderBaseLayer(); // redraw immediately now that finer geometry exists
+    } catch (e) {
+      console.warn('[Basemap] hi-res fetch failed — staying on the embedded coarse geometry.', e.message || e);
+      // Testing this file directly (rather than via the deployed site) will
+      // 404 here the same way the Canada fetch needs a real origin — see
+      // the file:// CORS note near loadObsWithFallback.
+    }
+  })();
+  return hiResStatesLoading;
 }
 
 // Debounce handle for scroll-zoom contour recompute
 let zoomSettleTimer = null;
 
-const GEO_NORTH_AMERICA = {
-  type: 'FeatureCollection',
-  // Combined once at load — renderBase() clears to ocean color and draws
-  // land in a single pass, so all three country layers have to go in
-  // together rather than as three separate renderBase() calls (a second
-  // call would just re-clear the canvas and erase the first layer).
-  features: GEO_CONUS.features.concat(GEO_CANADA.features, GEO_MEXICO.features),
-};
+function geoNorthAmerica() {
+  return {
+    type: 'FeatureCollection',
+    // Combined fresh each call — cheap relative to the render itself — so
+    // this picks up hi-res US geometry the moment it lands without needing
+    // every call site to know or care whether it's loaded yet.
+    features: (hiResStatesGeo ? hiResStatesGeo.features : GEO_CONUS.features)
+      .concat(GEO_CANADA.features, GEO_MEXICO.features),
+  };
+}
 
 // Split across two canvases, both still driven by this single function so
 // every existing call site (toggle handlers, init, the hourly refresh)
@@ -2445,7 +2561,7 @@ const GEO_NORTH_AMERICA = {
 // surface analysis — the thing the tool is built around — on top of it.
 function renderBaseLayer() {
   bctx.save();
-  MAP.renderBase(bctx, GEO_NORTH_AMERICA, project, dims);
+  MAP.renderBase(bctx, geoNorthAmerica(), project, dims);
   bctx.restore();
 
   actx.clearRect(0, 0, CW, CH);
@@ -2990,6 +3106,7 @@ window.addEventListener('pointerup', () => {
     renderBaseLayer();
     if (showWind) startWind();
     ensureRegionLoaded(regionContainingView());
+    if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
   } else {
     saveDrawing();
   }
@@ -3044,8 +3161,11 @@ mapWrap.addEventListener('wheel', e => {
     if (showWind) startWind();
     // Density-aware zoom: free-scrolling past the threshold into a known
     // region auto-loads its supplemental roster, same mechanism the
-    // preset buttons trigger explicitly.
+    // preset buttons trigger explicitly. Hi-res basemap is keyed off zoom
+    // level alone, not region membership — detail matters anywhere you're
+    // zoomed in, not just inside a named preset box.
     ensureRegionLoaded(regionContainingView());
+    if (zoomLevel() >= REGION_ZOOM_THRESHOLD) ensureHiResBasemap();
   }, 300);
 }, { passive: false });
 
@@ -3066,14 +3186,18 @@ document.getElementById('jumpFullBtn').addEventListener('click', () => {
   clearTimeout(zoomSettleTimer);
   updateViewFull({ ...B_FULL });
 });
-document.getElementById('jumpNortheastBtn').addEventListener('click', () => {
-  clearTimeout(zoomSettleTimer);
-  jumpToRegion('northeast');
-});
-document.getElementById('jumpTristateBtn').addEventListener('click', () => {
-  clearTimeout(zoomSettleTimer);
-  jumpToRegion('tristate');
-});
+// Button id convention: 'jump' + Capitalized(regionKey) + 'Btn', matching
+// the markup above (jumpNortheastBtn, jumpSouthernplainsBtn, etc.) — one
+// loop instead of one near-identical listener per region.
+for (const key in REGIONS) {
+  const id = 'jump' + key[0].toUpperCase() + key.slice(1) + 'Btn';
+  const btn = document.getElementById(id);
+  if (!btn) { console.warn(`[Region] no button found for #${id} — check the id matches the REGIONS key.`); continue; }
+  btn.addEventListener('click', () => {
+    clearTimeout(zoomSettleTimer);
+    jumpToRegion(key);
+  });
+}
 
 function finishFront() {
   if (!drawingFront || drawingFront.pts.length < 2) return;
