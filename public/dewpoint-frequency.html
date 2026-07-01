@@ -381,8 +381,10 @@ const STATION_REGIONS = [
   { region: 'Northeast', stations: [
     { label: 'Portland, ME',      sid: 'KPWM', network: 'ME_ASOS' },
     { label: 'Burlington, VT',    sid: 'KBTV', network: 'VT_ASOS' },
+    { label: 'Concord, NH',       sid: 'KCON', network: 'NH_ASOS' },
     { label: 'Albany, NY',        sid: 'KALB', network: 'NY_ASOS' },
     { label: 'Buffalo, NY',       sid: 'KBUF', network: 'NY_ASOS' },
+    { label: 'Poughkeepsie, NY',  sid: 'KPOU', network: 'NY_ASOS' },
     { label: 'Boston, MA',        sid: 'KBOS', network: 'MA_ASOS' },
     { label: 'Providence, RI',    sid: 'KPVD', network: 'RI_ASOS' },
     { label: 'Hartford, CT',      sid: 'KBDL', network: 'CT_ASOS' },
@@ -396,9 +398,11 @@ const STATION_REGIONS = [
     { label: 'Newark, NJ',        sid: 'KEWR', network: 'NJ_ASOS' },
     { label: 'Trenton, NJ',       sid: 'KTTN', network: 'NJ_ASOS' },
     { label: 'Philadelphia, PA',  sid: 'KPHL', network: 'PA_ASOS' },
+    { label: 'Harrisburg, PA',    sid: 'KMDT', network: 'PA_ASOS' },
     { label: 'Pittsburgh, PA',    sid: 'KPIT', network: 'PA_ASOS' },
     { label: 'Baltimore, MD',     sid: 'KBWI', network: 'MD_ASOS' },
     { label: 'Washington DC',     sid: 'KDCA', network: 'DC_ASOS' },
+    { label: 'Washington Dulles', sid: 'KIAD', network: 'VA_ASOS' },
     { label: 'Norfolk, VA',       sid: 'KORF', network: 'VA_ASOS' },
     { label: 'Richmond, VA',      sid: 'KRIC', network: 'VA_ASOS' },
   ]},
@@ -414,6 +418,7 @@ const STATION_REGIONS = [
   { region: 'Midwest', stations: [
     { label: 'Cleveland, OH',     sid: 'KCLE', network: 'OH_ASOS' },
     { label: 'Columbus, OH',      sid: 'KCMH', network: 'OH_ASOS' },
+    { label: 'Cincinnati, OH',    sid: 'KCVG', network: 'KY_ASOS' },
     { label: 'Detroit, MI',       sid: 'KDTW', network: 'MI_ASOS' },
     { label: 'Chicago, IL',       sid: 'KORD', network: 'IL_ASOS' },
     { label: 'Indianapolis, IN',  sid: 'KIND',  network: 'IN_ASOS' },
@@ -1101,45 +1106,25 @@ async function fetchCurrentObs() {
   label.textContent = 'Fetching\u2026';
 
   try {
-    // NWS often returns null for dewpoint.value even when temperature is valid —
-    // a known data quality issue. Use IEM (same source as historical data) instead.
-    const iemSid = currentStation.iemSid || currentStation.sid;
-    const now  = new Date();
-    const past = new Date(now.getTime() - 2 * 3600 * 1000);
-    const url  =
-      `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py` +
-      `?station=${encodeURIComponent(iemSid)}` +
-      `&data=dwpf&tz=Etc%2FUTC&format=onlycomma&latlon=no&elev=no` +
-      `&missing=M&trace=T&direct=no&report_type=3` +
-      `&year1=${past.getUTCFullYear()}&month1=${past.getUTCMonth()+1}&day1=${past.getUTCDate()}` +
-      `&hour1=${past.getUTCHours()}&minute1=${past.getUTCMinutes()}` +
-      `&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}` +
-      `&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}`;
-
-    const res  = await fetch(url);
+    const sid = currentStation.sid;
+    const res = await fetch(
+      `https://api.weather.gov/stations/${sid}/observations?limit=10`,
+      { headers: { Accept: 'application/geo+json' } }
+    );
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const text  = await res.text();
-    const lines = text.trim().split('\n');
+    const json     = await res.json();
+    // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    const routine  = (json.features || []).find(f => {
+      const raw = (f.properties?.rawMessage || '').trim();
+      return raw.length > 0 && !raw.startsWith('SPECI');
+    });
+    if (!routine) throw new Error('No routine METAR available');
+    const props = routine.properties;
+    const dwpC  = props?.dewpoint?.value;
+    if (dwpC === null || dwpC === undefined) throw new Error('No dewpoint in observation');
 
-    // IEM CSV is chronological — walk backwards to get most recent valid reading
-    let dwpf = null, obsTime = null;
-    for (let i = lines.length - 1; i >= 1; i--) {
-      const parts = lines[i].split(',');
-      if (parts.length < 3) continue;
-      const raw = parts[2].trim();
-      if (!raw || raw === 'M') continue;
-      const val = parseFloat(raw);
-      if (isNaN(val)) continue;
-      dwpf    = val;
-      obsTime = parts[1].trim(); // 'YYYY-MM-DD HH:MM' UTC
-      break;
-    }
-    if (dwpf === null) throw new Error('No valid dewpoint in recent IEM data');
-
-    currentObsDwpf = dwpf;
-    obsTimestamp   = obsTime
-      ? new Date(obsTime.replace(' ', 'T') + 'Z').toISOString()
-      : null;
+    currentObsDwpf = dwpC * 9 / 5 + 32;
+    obsTimestamp   = props.timestamp;
 
     btn.disabled = false;
     btn.classList.add('active');
@@ -1151,7 +1136,6 @@ async function fetchCurrentObs() {
           hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
         })
       : '';
-    const dwpC = (dwpf - 32) * 5 / 9;
     document.getElementById('obs-readout-label').textContent =
       `Current Dewpoint: ${Math.round(currentObsDwpf)}\u00b0F  (${dwpC.toFixed(1)}\u00b0C)`;
     document.getElementById('obs-readout-time').textContent =

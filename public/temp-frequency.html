@@ -386,8 +386,10 @@ const STATION_REGIONS = [
   { region: 'Northeast', stations: [
     { label: 'Portland, ME',      sid: 'KPWM' },
     { label: 'Burlington, VT',    sid: 'KBTV' },
+    { label: 'Concord, NH',       sid: 'KCON' },
     { label: 'Albany, NY',        sid: 'KALB' },
     { label: 'Buffalo, NY',       sid: 'KBUF' },
+    { label: 'Poughkeepsie, NY',  sid: 'KPOU' },
     { label: 'Boston, MA',        sid: 'KBOS' },
     { label: 'Providence, RI',    sid: 'KPVD' },
     { label: 'Hartford, CT',      sid: 'KBDL' },
@@ -395,15 +397,17 @@ const STATION_REGIONS = [
     { label: 'Islip (KISP), NY',  sid: 'KISP' },
     { label: 'New York (JFK)',     sid: 'KJFK' },
     { label: 'New York (LGA)',     sid: 'KLGA' },
-    { label: 'Central Park, NY',  sid: '94728 6', iemSid: 'KNYC', sidFallbacks: ['305801 3', 'KNYC'] },
+    { label: 'Central Park, NY',  sid: '305801 3', iemSid: 'KNYC', sidFallbacks: ['94728 6', 'KNYC'] },
   ]},
   { region: 'Mid-Atlantic', stations: [
     { label: 'Newark, NJ',        sid: 'KEWR' },
     { label: 'Trenton, NJ',       sid: 'KTTN' },
     { label: 'Philadelphia, PA',  sid: 'KPHL' },
+    { label: 'Harrisburg, PA',    sid: 'KMDT' },
     { label: 'Pittsburgh, PA',    sid: 'KPIT' },
     { label: 'Baltimore, MD',     sid: 'KBWI' },
     { label: 'Washington DC',     sid: 'KDCA' },
+    { label: 'Washington Dulles', sid: 'KIAD' },
     { label: 'Norfolk, VA',       sid: 'KORF' },
     { label: 'Richmond, VA',      sid: 'KRIC' },
   ]},
@@ -419,6 +423,7 @@ const STATION_REGIONS = [
   { region: 'Midwest', stations: [
     { label: 'Cleveland, OH',     sid: 'KCLE' },
     { label: 'Columbus, OH',      sid: 'KCMH' },
+    { label: 'Cincinnati, OH',    sid: 'KCVG' },
     { label: 'Detroit, MI',       sid: 'KDTW' },
     { label: 'Chicago, IL',       sid: 'KORD' },
     { label: 'Indianapolis, IN',  sid: 'KIND'  },
@@ -1081,45 +1086,25 @@ async function fetchCurrentObs() {
   label.textContent = 'Fetching\u2026';
 
   try {
-    // Use IEM (same source as historical data) — more reliable than NWS API
-    // which can silently return null for sensor values.
-    const iemSid = currentStation.iemSid || currentStation.sid;
-    const now  = new Date();
-    const past = new Date(now.getTime() - 2 * 3600 * 1000);
-    const url  =
-      `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py` +
-      `?station=${encodeURIComponent(iemSid)}` +
-      `&data=tmpf&tz=Etc%2FUTC&format=onlycomma&latlon=no&elev=no` +
-      `&missing=M&trace=T&direct=no&report_type=3` +
-      `&year1=${past.getUTCFullYear()}&month1=${past.getUTCMonth()+1}&day1=${past.getUTCDate()}` +
-      `&hour1=${past.getUTCHours()}&minute1=${past.getUTCMinutes()}` +
-      `&year2=${now.getUTCFullYear()}&month2=${now.getUTCMonth()+1}&day2=${now.getUTCDate()}` +
-      `&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}`;
-
-    const res  = await fetch(url);
+    const nwsSid = currentStation.iemSid || currentStation.sid;
+    const res = await fetch(
+      `https://api.weather.gov/stations/${nwsSid}/observations?limit=10`,
+      { headers: { Accept: 'application/geo+json' } }
+    );
     if (!res.ok) throw new Error('HTTP ' + res.status);
-    const text  = await res.text();
-    const lines = text.trim().split('\n');
+    const json     = await res.json();
+    // Routine METARs only — skip SPECI (special / sub-hourly observations)
+    const routine  = (json.features || []).find(f => {
+      const raw = (f.properties?.rawMessage || '').trim();
+      return raw.length > 0 && !raw.startsWith('SPECI');
+    });
+    if (!routine) throw new Error('No routine METAR available');
+    const props = routine.properties;
+    const tempC = props?.temperature?.value;
+    if (tempC === null || tempC === undefined) throw new Error('No temperature in observation');
 
-    // IEM CSV is chronological — walk backwards to get most recent valid reading
-    let tmpf = null, obsTime = null;
-    for (let i = lines.length - 1; i >= 1; i--) {
-      const parts = lines[i].split(',');
-      if (parts.length < 3) continue;
-      const raw = parts[2].trim();
-      if (!raw || raw === 'M') continue;
-      const val = parseFloat(raw);
-      if (isNaN(val)) continue;
-      tmpf    = val;
-      obsTime = parts[1].trim(); // 'YYYY-MM-DD HH:MM' UTC
-      break;
-    }
-    if (tmpf === null) throw new Error('No valid temperature in recent IEM data');
-
-    currentObsTemp = tmpf;
-    obsTimestamp   = obsTime
-      ? new Date(obsTime.replace(' ', 'T') + 'Z').toISOString()
-      : null;
+    currentObsTemp = tempC * 9 / 5 + 32;
+    obsTimestamp   = props.timestamp;
 
     btn.disabled = false;
     btn.classList.add('active');
@@ -1131,7 +1116,6 @@ async function fetchCurrentObs() {
           hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
         })
       : '';
-    const tempC = (tmpf - 32) * 5 / 9;
     document.getElementById('obs-readout-label').textContent =
       `Current Temp: ${Math.round(currentObsTemp)}\u00b0F  (${tempC.toFixed(1)}\u00b0C)`;
     document.getElementById('obs-readout-time').textContent =
@@ -1218,17 +1202,27 @@ async function fetchACIS(station, elem) {
   const key  = station.sid + '__' + elem;
   if (cache[key]) return cache[key];
   const sids = [station.sid, ...(station.sidFallbacks || [])];
-  let lastErr;
+  // Try all SIDs in parallel and keep whichever returns the earliest valid_daterange —
+  // this ensures that when a long-record COOP or WBAN SID is available it wins over
+  // a shorter ICAO/ThreadEx record rather than just being a failover.
+  let bestResult = null;
+  let bestFirst  = null;
   for (const sid of sids) {
     try {
-      const json = await fetchACISOne(sid, elem);
-      cache[key] = json; return json;
+      const json  = await fetchACISOne(sid, elem);
+      const dr    = json.meta?.valid_daterange?.[0] || [];
+      const first = dr[0] || null;
+      if (bestResult === null || (first && (!bestFirst || first < bestFirst))) {
+        bestFirst  = first;
+        bestResult = json;
+      }
     } catch (err) {
-      lastErr = err;
-      console.warn('Fallback from "' + sid + '":', err.message);
+      console.warn('ACIS SID "' + sid + '" failed for ' + elem + ':', err.message);
     }
   }
-  throw lastErr || new Error('All sids failed');
+  if (!bestResult) throw new Error('All SIDs failed for ' + station.sid);
+  cache[key] = bestResult;
+  return bestResult;
 }
 
 // ═══════════════════════════════════════════════
