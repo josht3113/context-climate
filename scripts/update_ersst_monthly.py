@@ -2,10 +2,14 @@
 """
 update_ersst_monthly.py
 =======================
-Called by the monthly GitHub Actions workflow. Appends any new ERSSTv5 months
+Called daily by the GitHub Actions workflow. Appends any new ERSSTv5 months
 (up to the latest available with the standard ~2-month lag) to
 public/pacific-sst-anomalies.json and exits. If already up to date, exits
-cleanly without modifying the file (so the commit step produces no diff).
+cleanly without modifying the file (so the commit step produces no diff) —
+safe to run daily since it's a no-op on every day except when a new month's
+data has actually become available. If a fetch fails partway through, no
+placeholder is written, so the same month is retried automatically on the
+next run rather than being permanently skipped.
 
 Requires: netCDF4 numpy  (installed by the workflow)
 """
@@ -121,8 +125,8 @@ def main():
             data['months'].append(flat)
             added += 1
         except Exception as exc:
-            print(f'WARNING: {y}-{m:02d} failed — {exc}', file=sys.stderr)
-            data['months'].append(None)
+            print(f'WARNING: {y}-{m:02d} failed — {exc}. Will retry on next run.', file=sys.stderr)
+            break
 
         m += 1
         if m > 12:
