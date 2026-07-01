@@ -834,10 +834,14 @@ for (const s of STATIONS_CANADA) { if (!(s.id in TIERS_CANADA)) TIERS_CANADA[s.i
    these are unverified against api.weather.gov as written.
    ═══════════════════════════════════════════════════ */
 const REGIONS = {
-  // Tri-State listed first: regionContainingView() checks in this order,
-  // so a view centered inside the (smaller) Tri-State box is classified
-  // as Tri-State rather than falling through to the broader Northeast box
-  // it also happens to sit inside.
+  // Tri-State listed first: regionContainingView() prefers the smallest
+  // region whose bounds fully contain the current view, so a view that's
+  // actually Tri-State-sized (and therefore also fits inside the larger
+  // Northeast box it sits within) still resolves to Tri-State rather than
+  // the broader region. A Northeast-sized view no longer matches
+  // Tri-State at all — its bounds don't fit inside Tri-State's — so
+  // definition order here doesn't do the real work anymore, but Tri-State
+  // stays first for readability (smallest/most-specific region first).
   tristate: {
     label: 'Tri-State',
     bounds: { west: -76.0, east: -71.6, south: 40.1, north: 43.0 },
@@ -872,6 +876,22 @@ const REGIONS = {
       'KPSF', // Pittsfield Municipal — Berkshires, western MA
       'KBAF', // Westfield-Barnes — Springfield/Westfield, western MA
       'KCEF', // Westover ARB/Metro, Chicopee — western MA
+      // Second gap-fill pass — central PA (nothing between KIPT/KAVP and
+      // KMDT/KLNS across the Alleghenies) and Midcoast Maine (blank
+      // between KAUG/KBGR and the coast). Same general-knowledge basis as
+      // the rest of this roster — unverified against the live feed.
+      'KUNV', // University Park, State College PA — central PA/Alleghenies
+      'KRKD', // Knox County Regional, Rockland ME — Midcoast Maine coast
+      // Third gap-fill: the Hudson Valley (POU/SWF) was only ever in
+      // Tri-State's roster, not Northeast's own — so viewing Northeast
+      // directly had a real hole there (see the CT-valley-cluster/
+      // Hudson-valley-gap screenshot), and it only ever got filled in as
+      // a side effect of Tri-State's roster leaking into scope, which is
+      // its own bug (see regionContainingView() / shownStations()).
+      // Adding it here directly makes Northeast's own roster correct on
+      // its own, independent of that fix.
+      'KPOU', // Poughkeepsie/Dutchess County, NY — Hudson Valley
+      'KSWF', // Stewart Intl, Newburgh NY — Hudson Valley
     ],
   },
   // Everything below got a real density pass this round too, same as
@@ -905,6 +925,15 @@ const REGIONS = {
       'KMQT', // Marquette, MI — Upper Peninsula, otherwise a total void
       'KLSE', // La Crosse, WI — WI/MN/IA tri-border
       'KHUF', // Terre Haute, IN — SW Indiana
+      // Second gap-fill pass, prompted by a live screenshot showing three
+      // large blank stretches: the Lake Superior south shore between
+      // KDLH and KRHI/KCWA, southern Iowa/northern Missouri between the
+      // KDSM/KCID cluster and KMCI/KSTL, and south-central Indiana below
+      // KIND/KHUF. Same general-knowledge basis as the rest of this
+      // roster — unverified against the live feed.
+      'KASX', // Ashland, WI — Chequamegon Bay/south shore, between KDLH and KRHI
+      'KOTM', // Ottumwa, IA — southern Iowa gap toward KMCI/KSTL
+      'KBMG', // Bloomington, IN — south-central Indiana, below KIND/KHUF
     ],
   },
   southernplains: {
@@ -1923,7 +1952,14 @@ async function loadCanadaObs() {
 
 async function loadObsWithFallback() {
   try {
-    const results = await withTimeout(Promise.all(STATIONS_CONUS.map(id => fetchStn(id))), 9000);
+    // Per-station timeout, not one shared deadline for the whole batch —
+    // with STATIONS_CONUS this large, a shared 9s clock meant that if
+    // *any* request got stuck behind the browser's per-host connection
+    // limit long enough, the whole race lost and every station's result
+    // was thrown away via the catch below, even the ones that had
+    // already come back. Timing out each fetchStn() call individually
+    // means a slow straggler only costs that one station.
+    const results = await Promise.all(STATIONS_CONUS.map(id => withTimeout(fetchStn(id), 9000).catch(() => null)));
     const good = results.filter(r => r?.lat != null && r?.lon != null);
     if (good.length >= 15) { obs = good; obsSource = 'live'; }
     else throw new Error('too few US stations reporting');
@@ -1963,9 +1999,88 @@ function formatValidTime(d) {
   return `${hh}${mm}Z ${String(d.getUTCDate()).padStart(2,'0')} ${mo} ${d.getUTCFullYear()}`;
 }
 
+// Screen-space minimum spacing (px) below which two station glyphs count
+// as "crowded" and the lower-priority one gets dropped. Sized off
+// drawStation()'s actual layout — MAP.STATION.R (9) + OFFSET_PAD (8) puts
+// the four text fields' anchors 17px out from center in each direction,
+// and the fields themselves extend further from there. 'full' mode draws
+// all four (temp/dew/pressure/id) and needs room for that; 'windOnly'
+// only draws the circle + barb, so it can pack much tighter.
+const DECLUTTER_SPACING_PX = { full: 48, windOnly: 26 };
+
+// Greedy screen-space decluttering: projects every tier-eligible station
+// to its current on-screen position, sorts by tier (1 = highest priority),
+// and keeps a station only if it isn't within DECLUTTER_SPACING_PX of an
+// already-accepted one. This is what actually keeps dense clusters (NYC
+// metro, southern New England, etc.) readable at any zoom — the manual
+// tier alone can only pick a fixed subset ahead of time with no idea how
+// close together those stations will land on screen once projected, which
+// is exactly what let Tri-State/Northeast overplot. Tiers now set
+// *priority* for this pass (who wins when space is tight) rather than a
+// hard show/hide cutoff on their own. Off-canvas stations don't compete
+// for spacing (and don't block anything else) — drawStation() already
+// no-ops for them, same 30px margin reused here for consistency.
+// Recomputed on every call — cheap at this station count — so it
+// re-adapts live as the user pans/zooms instead of baking in one zoom
+// level's worth of spacing.
+function declutterByScreenSpace(candidates) {
+  const spacing = DECLUTTER_SPACING_PX[stationMode] ?? DECLUTTER_SPACING_PX.full;
+  const minDistSq = spacing * spacing;
+  const priority = s => TIERS_CONUS[s.id] ?? TIERS_CANADA[s.id] ?? 3;
+  const sorted = [...candidates].sort((a, b) => priority(a) - priority(b) || a.id.localeCompare(b.id));
+  const accepted = []; // {x,y} of stations already kept, for the spacing check
+  const kept = [];
+  for (const s of sorted) {
+    const [x, y] = project(s.lon, s.lat);
+    if (x < -30 || x > CW + 30 || y < -30 || y > CH + 30) { kept.push(s); continue; }
+    const tooClose = accepted.some(p => {
+      const dx = p.x - x, dy = p.y - y;
+      return dx * dx + dy * dy < minDistSq;
+    });
+    if (!tooClose) { accepted.push({ x, y }); kept.push(s); }
+  }
+  return kept;
+}
+
+// The station IDs that are always in scope regardless of which region(s)
+// have been visited — the roster loadObsWithFallback() fetches at page
+// load, independent of any region preset. Built once from the same
+// arrays that function fetches from, so this can't drift out of sync
+// with what "base" actually means.
+const BASE_STATION_IDS = new Set([...STATIONS_CONUS, ...STATIONS_CANADA.map(s => s.id)]);
+
+// Which region(s)' supplemental rosters are relevant to the *current*
+// view, independent of navigation history. Reuses regionContainingView()
+// — Tri-State also pulls in Northeast's roster since Tri-State's box
+// sits entirely inside Northeast's (so those stations are genuinely
+// visible in that viewport), but not the reverse: Northeast's own
+// roster is already the right density for that zoom, and Tri-State's
+// much tighter list of small GA fields — built for a close-up view —
+// has no business bleeding into the wider Northeast view just because
+// Tri-State happened to be visited first.
+function inScopeRegionKeys() {
+  const matched = regionContainingView();
+  if (!matched) return [];
+  return matched === 'tristate' ? ['tristate', 'northeast'] : [matched];
+}
+
 function shownStations() {
   if (obsSource === 'sample') return obs;
-  return obs.filter(s => (TIERS_CONUS[s.id] ?? TIERS_CANADA[s.id] ?? 3) <= densityTier);
+  // obs accumulates across every region ever visited this session (see
+  // ensureRegionLoaded()) and is never pruned — intentional, so flipping
+  // back to a previously-visited region doesn't re-fetch. But that means
+  // obs alone can't answer "what belongs on screen right now": a station
+  // fetched for one region's roster shouldn't render just because it's
+  // sitting in obs from an earlier visit. Scoping here, at display time,
+  // is what makes the map deterministic on the current view instead of
+  // on navigation history — same viewport, same result, regardless of
+  // which preset was clicked first.
+  const scopedIds = new Set(inScopeRegionKeys().flatMap(k => REGIONS[k].stations));
+  const eligible = obs.filter(s => {
+    if ((TIERS_CONUS[s.id] ?? TIERS_CANADA[s.id] ?? 3) > densityTier) return false;
+    return BASE_STATION_IDS.has(s.id) || scopedIds.has(s.id);
+  });
+  return declutterByScreenSpace(eligible);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -2505,29 +2620,38 @@ function updateViewFull(newBbox) {
   if (showWind) startWind();
 }
 
-// Does the current viewBbox's center sit inside a region's box, at or past
-// the zoom threshold? Center-point containment rather than full-rectangle
-// containment — simpler, and good enough for a "should we bother fetching
-// denser data" trigger than for anything more precise.
 // Zoom level as a multiple of the full-CONUS view (1 = fully zoomed out).
 // Same formula updateZoomBadge() uses for the on-screen "N.N×" badge.
 function zoomLevel() {
   return (B_FULL.east - B_FULL.west) / (viewBbox.east - viewBbox.west);
 }
 
-// Does the current viewBbox's center sit inside a region's box, at or past
-// the zoom threshold? Center-point containment rather than full-rectangle
-// containment — simpler, and good enough for a "should we bother fetching
-// denser data" trigger than for anything more precise.
+// Does the current viewBbox fit entirely inside a region's box, at or
+// past the zoom threshold? Full-rectangle containment, not just a
+// center-point check — Tri-State's box sits entirely inside Northeast's,
+// so a center-point check matches Tri-State for *any* view centered in
+// the southern/central part of the Northeast box, including Northeast's
+// own preset center. That silently loaded (and, before shownStations()
+// was scoped to match, displayed) Tri-State's roster while genuinely
+// looking at the wider Northeast view — the actual cause of "Northeast
+// looks different depending which preset was clicked first." Requiring
+// the whole current viewBbox to fit inside a region avoids that:
+// Northeast's bounds extend well west/north of Tri-State's, so a
+// Northeast-sized view no longer fits inside Tri-State's box at all.
+// When a view fits inside more than one region (a genuinely
+// Tri-State-sized view fits inside both, by construction), the smallest
+// matching region wins — the most specific applicable roster.
 function regionContainingView() {
   if (zoomLevel() < REGION_ZOOM_THRESHOLD) return null;
-  const cx = (viewBbox.west + viewBbox.east) / 2;
-  const cy = (viewBbox.south + viewBbox.north) / 2;
+  let bestKey = null, bestArea = Infinity;
   for (const key in REGIONS) {
     const b = REGIONS[key].bounds;
-    if (cx >= b.west && cx <= b.east && cy >= b.south && cy <= b.north) return key;
+    if (viewBbox.west < b.west || viewBbox.east > b.east
+        || viewBbox.south < b.south || viewBbox.north > b.north) continue;
+    const area = (b.east - b.west) * (b.north - b.south);
+    if (area < bestArea) { bestArea = area; bestKey = key; }
   }
-  return null;
+  return bestKey;
 }
 
 // Shared by every *passive* view-change path — wheel-zoom settle, pan-end,
@@ -2562,7 +2686,14 @@ async function ensureRegionLoaded(key) {
   if (statusEl) statusEl.textContent = `Loading ${region.label} stations…`;
 
   const promise = (async () => {
-    const results = await withTimeout(Promise.all(toFetch.map(id => fetchStn(id))), 9000).catch(() => []);
+    // Same per-station-timeout fix as loadObsWithFallback() above, and
+    // more likely to matter here: jumpToRegion('tristate') fires this
+    // same function for both 'tristate' and 'northeast' back to back, so
+    // their two batches compete for the same connection pool at once.
+    // A shared whole-batch deadline meant that congestion could silently
+    // drop an entire region's worth of stations even though most of them
+    // would have come back fine given a few more seconds.
+    const results = await Promise.all(toFetch.map(id => withTimeout(fetchStn(id), 9000).catch(() => null)));
     const good = results.filter(r => r?.lat != null && r?.lon != null);
     if (good.length) {
       obs = obs.concat(good);
