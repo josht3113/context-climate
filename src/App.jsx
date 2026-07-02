@@ -75,6 +75,16 @@ import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
 import SeaIceHeatmap               from './pages/SeaIceHeatmap'
 import JetStream                   from './pages/JetStream'
 
+// Email kept out of the markup/bundle as plaintext (base64, decoded only on
+// click) so basic scrapers can't harvest it straight from the source.
+const CONTACT_EMAIL_B64 = 'am9zaHQzMTEzQHlhaG9vLmNvbQ=='
+const X_PROFILE_URL = 'https://x.com/joshtimlin'
+
+function handleContactClick(e) {
+  e.preventDefault()
+  window.location.href = `mailto:${atob(CONTACT_EMAIL_B64)}`
+}
+
 // ── App shell ─────────────────────────────────────────
 // HashRouter is used so that GitHub Pages works correctly
 // with client-side routing (no server config needed).
@@ -170,32 +180,76 @@ export default function App() {
         borderTop: '0.5px solid var(--color-border)',
         padding: '1.25rem 2rem',
         display: 'flex',
+        flexWrap: 'wrap',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: '1rem',
+        gap: '0.75rem 1.5rem',
       }}>
-        <span style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '11px',
-          color: 'var(--color-text-muted)',
-          letterSpacing: '0.05em',
-        }}>
-          © {new Date().getFullYear()} ContextClimate · ISP · Long Island · NYC
-        </span>
-        <a
-          href="/context-climate/privacy.html"
-          style={{
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <span style={{
             fontFamily: 'var(--font-mono)',
             fontSize: '11px',
             color: 'var(--color-text-muted)',
             letterSpacing: '0.05em',
-            textDecoration: 'none',
-          }}
-          onMouseOver={e => e.target.style.color = 'var(--color-text-secondary)'}
-          onMouseOut={e => e.target.style.color = 'var(--color-text-muted)'}
-        >
-          Privacy Policy
-        </a>
+          }}>
+            © {new Date().getFullYear()} ContextClimate · ISP · Long Island · NYC
+          </span>
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '10px',
+            color: 'var(--color-text-muted)',
+            letterSpacing: '0.05em',
+            opacity: 0.75,
+          }}>
+            Data: NWS · IEM ASOS · NOAA
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
+          <a
+            href="/context-climate/privacy.html"
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              color: 'var(--color-text-muted)',
+              letterSpacing: '0.05em',
+              textDecoration: 'none',
+              transition: 'color 0.15s',
+            }}
+            onMouseOver={e => e.target.style.color = 'var(--color-text-secondary)'}
+            onMouseOut={e => e.target.style.color = 'var(--color-text-muted)'}
+          >
+            Privacy Policy
+          </a>
+
+          <a
+            href="#"
+            onClick={handleContactClick}
+            aria-label="Contact"
+            style={{ display: 'flex', color: 'var(--color-text-muted)', transition: 'color 0.15s' }}
+            onMouseOver={e => e.currentTarget.style.color = 'var(--accent-live)'}
+            onMouseOut={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="M3 7l9 6 9-6" />
+            </svg>
+          </a>
+
+          <a
+            href={X_PROFILE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="X (Twitter)"
+            style={{ display: 'flex', color: 'var(--color-text-muted)', transition: 'color 0.15s' }}
+            onMouseOver={e => e.currentTarget.style.color = 'var(--accent-live)'}
+            onMouseOut={e => e.currentTarget.style.color = 'var(--color-text-muted)'}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+          </a>
+        </div>
       </footer>
     </HashRouter>
   )
