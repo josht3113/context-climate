@@ -3,10 +3,10 @@ import styles from './Home.module.css'
 
 // ── Accent colors per section ─────────────────────────────────────────────────
 const ACCENT = {
-  essrt:    '#9C7A2E',          // brass/ledger gold — reference/document feel
+  essrt:    '#B78F36',          // brass/ledger gold — reference/document feel
   geology:  'var(--accent-earth)', // deep teal-cyan
-  meteor:   '#3D86A0',          // deep sky-cyan
-  astro:    '#5A4D8F',          // deep indigo-purple
+  meteor:   '#4F9FBB',          // deep sky-cyan
+  astro:    '#998FC2',          // deep indigo-purple
 }
 
 // ── Section data ──────────────────────────────────────────────────────────────
@@ -383,7 +383,7 @@ export default function EarthAndSpace() {
               fontWeight: 700,
               letterSpacing: '0.10em',
               textTransform: 'uppercase',
-              color:      'var(--color-text)',
+              color:      'var(--color-text-primary)',
             }}>
               {section.label}
             </h2>
