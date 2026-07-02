@@ -11,7 +11,7 @@ const SECTIONS = [
     label: 'Live  ·  Updates Continuously',
     cards: [
       {
-        tags:       ['US Cities', 'LIVE CONDITIONS', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Current Conditions',
         description:'Live ASOS station observations with time-series charts, climate normals, daily records, and solar data. Temperature, wind, pressure, precipitation, and more — updated continuously.',
         footerTags: ['Live Obs', 'Climate Normals', 'Daily Records', 'Solar & Moon', 'Wind Charts'],
@@ -20,7 +20,7 @@ const SECTIONS = [
         thumb:      '/current-conditions_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Monthly Temperature Heatmap',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies', 'Live'],
@@ -29,7 +29,7 @@ const SECTIONS = [
         thumb:      '/OG_Monthly_Heatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'TEMPERATURE', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Annual Temperature Heatmap',
         description:'Full-year hourly temperature and weather patterns at a glance — 366 days × 24 hours in a single view. Grows in real time through the current year.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Live'],
@@ -38,7 +38,7 @@ const SECTIONS = [
         thumb:      '/OG_Annual_Heatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Monthly Precipitation Heatmap',
         description:'Hourly liquid-equivalent precipitation for any month and station. Streams live data for the current month.',
         footerTags: ['Hourly Precip', 'Daily Totals', 'Live'],
@@ -47,7 +47,7 @@ const SECTIONS = [
         thumb:      '/precip_heatmap_monthly_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'PRECIPITATION', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Annual Precipitation Heatmap',
         description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day revealing seasonal wet and dry patterns. Live through the current year.',
         footerTags: ['Hourly Precip', 'Daily Totals', 'Annual Total', 'Live'],
@@ -56,7 +56,7 @@ const SECTIONS = [
         thumb:      '/precip_heatmap_annual_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'SEASONS', 'UPDATES DAILY'],
+        tags:       ['US CITIES', 'UPDATES DAILY'],
         title:      'Meteorological Seasons',
         description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],
@@ -65,7 +65,7 @@ const SECTIONS = [
         thumb:      '/Seasons_thumbnail.png',
       },
       {
-        tags:       ['TRI-STATE', 'ASOS / AWOS', 'UPDATES HOURLY'],
+        tags:       ['Surface Obs', 'UPDATES HOURLY'],
         title:      'Surface Map',
         description:'Live hourly ASOS and AWOS station observations plotted on a Northeast US map. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
         footerTags: ['Station Model', 'Local', 'Live Obs'],
@@ -74,7 +74,7 @@ const SECTIONS = [
         thumb:      '/SurfaceMap_thumbnail.png',
       },
       {
-        tags:       ['CONUS', 'ASOS / AWOS', 'UPDATES HOURLY'],
+        tags:       ['Surface Maps', 'UPDATES HOURLY'],
         title:      'Surface Analysis Builder',
         description:'Draw your own surface analysis on a live CONUS station map. Plot cold fronts, warm fronts, troughs, and pressure centers over real-time observations, with isobars, isotherms, radar, satellite, and zoom.',
         footerTags: ['Fronts', 'Isobars', 'Isotherms', 'Radar', 'Satellite', 'Zoom'],
@@ -89,7 +89,7 @@ const SECTIONS = [
     label: 'Climatology Heatmaps',
     cards: [
       {
-        tags:       ['US Cities', 'WIND', 'HOUR OF DAY'],
+        tags:       ['US Cities', 'WIND SPEED'],
         title:      'Wind by Hour Heatmap',
         description:'Heatmap of wind speed by hour of day across the full climatological record for various US cities.',
         footerTags: ['Wind Speed', 'Seasonal Pattern', 'Diurnal Pattern'],
@@ -98,7 +98,7 @@ const SECTIONS = [
         thumb:      '/WindHourHeatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'WIND', 'THRESHOLDS'],
+        tags:       ['US Cities', 'WIND'],
         title:      'Wind Threshold Heatmap',
         description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year — from breezy to gale force.',
         footerTags: ['Wind', 'Climatology'],
@@ -107,7 +107,7 @@ const SECTIONS = [
         thumb:      '/WindThresholdHeatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'HUMIDITY', 'Dewpoint'],
+        tags:       ['US Cities', 'DEWPOINT'],
         title:      'Dewpoint Threshold Heatmap',
         description:'Monthly frequency of days meeting or exceeding key dewpoint thresholds at various US cities.',
         footerTags: ['Dewpoint', 'Climatology'],
@@ -116,7 +116,7 @@ const SECTIONS = [
         thumb:      '/DewptThresholdHeatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'Temp Threshold Frequencies'],
+        tags:       ['US Cities', 'Temp Frequencies'],
         title:      'Temperature Threshold Heatmap',
         description:'Probability of hourly temperatures meeting or exceeding key hot and cold thresholds at various US cities.',
         footerTags: ['Temperature', 'Climatology'],
@@ -143,7 +143,7 @@ const SECTIONS = [
         thumb:      '/ThunderstormHeatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'WINTER', 'CLIMO'],
+        tags:       ['US Cities', 'WINTER CLIMO'],
         title:      'Winter Precipitation Heatmap',
         description:'Heatmap of winter precipitation types and totals at various US cities.',
         footerTags: ['Snow', 'Sleet', 'Freezing Rain', 'Climatology'],
@@ -152,7 +152,7 @@ const SECTIONS = [
         thumb:      '/WinterPrecipHeatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities','Barometric PRESSURE'],
+        tags:       ['US Cities','PRESSURE'],
         title:      'Sea Level Pressure Heatmap',
         description:'Climatological mean sea level pressure by hour and day of year. Individual years are much more interesting with this one.',
         footerTags: ['SLP', 'Seasonal Cycle', 'Diurnal Signal'],
@@ -179,7 +179,7 @@ const SECTIONS = [
         thumb:      '/enso-analog-spaghetti_thumbnail.png',
       },
       {
-        tags:       ['ENSO', 'PACIFIC OCEAN', 'CLIMATE DATA'],
+        tags:       ['ENSO', 'CLIMATE DATA'],
         title:      'Pacific SST Anomaly Map',
         description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record — track El Niño and La Niña events through Niño region indices and 850 hPa wind anomaly overlays.',
         footerTags: ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
@@ -188,7 +188,7 @@ const SECTIONS = [
         thumb:      '/PacificSstMap_thumbnail.png',
       },
       {
-        tags:       ['ARCTIC', 'ANTARCTIC', 'YEAR × MONTH'],
+        tags:       ['Sea Ice Area', 'ARCTIC / ANTARCTIC'],
         title:      'Sea Ice Extent Heatmap',
         description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic decline at a glance.',
         footerTags: ['NSIDC G02135', '1991–2020 Baseline', 'Arctic ⇄ Antarctic'],
