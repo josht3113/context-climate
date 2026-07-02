@@ -2,6 +2,16 @@ import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import styles from './Header.module.css'
 
+// Email kept out of the markup/bundle as plaintext (base64, decoded only on
+// click) so basic scrapers can't harvest it straight from the source.
+const CONTACT_EMAIL_B64 = 'am9zaHQzMTEzQHlhaG9vLmNvbQ=='
+const X_PROFILE_URL = 'https://x.com/joshtimlin'
+
+function handleContactClick(e) {
+  e.preventDefault()
+  window.location.href = `mailto:${atob(CONTACT_EMAIL_B64)}`
+}
+
 export default function Header() {
   const [open, setOpen] = useState(false)
   const handleNavClick = () => setOpen(false)
@@ -46,6 +56,32 @@ export default function Header() {
               <span className={styles.wordmarkEs}>Earth and Space</span>
               <span className={styles.bracketEs}>]</span>
             </NavLink>
+
+            {/* ── Contact / X (desktop only) ── */}
+            <div className={styles.utilityLinks}>
+              <a
+                href="#"
+                onClick={handleContactClick}
+                className={styles.iconLink}
+                aria-label="Contact"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="M3 7l9 6 9-6" />
+                </svg>
+              </a>
+              <a
+                href={X_PROFILE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.iconLink}
+                aria-label="X (Twitter)"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                </svg>
+              </a>
+            </div>
 
             <button
               className={styles.hamburger}
@@ -96,6 +132,28 @@ export default function Header() {
         >
           Earth & Space
         </NavLink>
+
+        {/* ── Contact / X (mobile drawer) ── */}
+        <div className={styles.drawerUtility}>
+          <a href="#" onClick={handleContactClick} className={styles.drawerIconLink}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="M3 7l9 6 9-6" />
+            </svg>
+            <span>Contact</span>
+          </a>
+          <a
+            href={X_PROFILE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={styles.drawerIconLink}
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            <span>@joshtimlin</span>
+          </a>
+        </div>
       </nav>
     </>
   )
