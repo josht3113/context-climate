@@ -167,7 +167,7 @@ export default function App() {
         </Routes>
       </main>
       <footer style={{
-        borderTop: '0.5px solid rgba(255,255,255,0.08)',
+        borderTop: '0.5px solid var(--color-border)',
         padding: '1.25rem 2rem',
         display: 'flex',
         alignItems: 'center',
