@@ -370,6 +370,9 @@ export default function Home() {
           >
             <span className={styles.sectionLabelBar} />
             {section.label}
+            {section.id === 'live-heatmaps' && (
+              <span className={styles.livePulse} aria-hidden="true" />
+            )}
           </p>
           {section.id === 'heatmaps' && (
             <p
@@ -399,7 +402,10 @@ function ToolCard({ tags, title, description, footerTags, to, accentVar, thumb, 
   const isSoon = status === 'soon'
 
   const inner = (
-    <article className={`${styles.card} ${isSoon ? styles.cardSoon : ''}`}>
+    <article
+      className={`${styles.card} ${isSoon ? styles.cardSoon : ''}`}
+      style={{ '--card-accent': isSoon ? 'var(--color-border)' : `var(${accentVar})` }}
+    >
 
       {/* Accent stripe */}
       <div

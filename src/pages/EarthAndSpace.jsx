@@ -421,7 +421,10 @@ function ToolCard({ tags, title, description, footerTags, to, thumb, status, acc
   const accentBorder = `color-mix(in srgb, ${accentColor} 30%, transparent)`
 
   const inner = (
-    <article className={`${styles.card} ${isSoon ? styles.cardSoon : ''}`}>
+    <article
+      className={`${styles.card} ${isSoon ? styles.cardSoon : ''}`}
+      style={{ '--card-accent': isSoon ? 'var(--color-border)' : accentColor }}
+    >
 
       {/* Accent stripe */}
       <div
