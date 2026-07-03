@@ -119,7 +119,7 @@ export default function App() {
           <Route path="/bowens"                              element={<Bowens />}                  />
           <Route path="/metamorphic"                         element={<Metamorphic />}             />
           <Route path="/stream-transport"                    element={<StreamTransport />}         />
-          <Route path="/bowensgoldich"                       element={<BowensGoldich />}           />
+          <Route path="/bowens_goldich"                      element={<BowensGoldich />}           />
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
           <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />}        />
