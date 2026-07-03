@@ -49,7 +49,7 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Annual Precipitation Heatmap',
-        description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day revealing seasonal wet and dry patterns. Live through the current year.',
+        description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day. Live through the current year.',
         footerTags: ['Hourly Precip', 'Daily Totals', 'Annual Total', 'Live'],
         to:         '/precip-heatmap-annual',
         accentVar:  '--accent-live',
@@ -67,7 +67,7 @@ const SECTIONS = [
       {
         tags:       ['Surface Obs', 'UPDATES HOURLY'],
         title:      'Surface Map',
-        description:'Live hourly ASOS and AWOS station observations plotted on a Northeast US map. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
+        description:'Live station observations. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
         footerTags: ['Station Model', 'Local', 'Live Obs'],
         to:         '/surface-map',
         accentVar:  '--accent-live',
@@ -100,7 +100,7 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'WIND'],
         title:      'Wind Threshold Heatmap',
-        description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year — from breezy to gale force.',
+        description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year.',
         footerTags: ['Wind', 'Climatology'],
         to:         '/wind-threshold-heatmap',
         accentVar:  '--accent-hourly',
@@ -163,7 +163,7 @@ const SECTIONS = [
       {
         tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
         title:      'ENSO History Heatmap',
-        description:'Monthly Niño 3.4 SST anomaly from 1870 to present — placing the developing 2026 super El Niño in 156 years of historical context.',
+        description:'Monthly Niño 3.4 SST anomaly from 1870 to present — placing the developing ENSO conditions in historical context.',
         footerTags: ['Niño 3.4', 'HadISST 1.1', 'Model Forecast', '1870–Present'],
         to:         '/enso-heatmap',
         accentVar:  '--accent-hourly',
@@ -172,7 +172,7 @@ const SECTIONS = [
       {
         tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
         title:      'ENSO Analog Spaghetti',
-        description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window — colored by strength tier, with the current event bold on top. Compare 1997–98 to today at a glance.',
+        description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window with the current event bold on top. Compare past years to today at a glance.',
         footerTags: ['Niño 3.4', 'ONI', 'Analogs', '1870–Present'],
         to:         '/enso-spaghetti',
         accentVar:  '--accent-hourly',
@@ -181,7 +181,7 @@ const SECTIONS = [
       {
         tags:       ['ENSO', 'CLIMATE DATA'],
         title:      'Pacific SST Anomaly Map',
-        description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record — track El Niño and La Niña events through Niño region indices and 850 hPa wind anomaly overlays.',
+        description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record.',
         footerTags: ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
         to:         '/pacific-sst-map',
         accentVar:  '--accent-hourly',
@@ -190,7 +190,7 @@ const SECTIONS = [
       {
         tags:       ['Sea Ice Area', 'ARCTIC / ANTARCTIC'],
         title:      'Sea Ice Extent Heatmap',
-        description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic decline at a glance.',
+        description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic changes at a glance.',
         footerTags: ['NSIDC G02135', '1991–2020 Baseline', 'Arctic ⇄ Antarctic'],
         to:         '/seaice-heatmap',
         accentVar:  '--accent-hourly',
