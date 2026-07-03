@@ -221,7 +221,7 @@ const SECTIONS = [
         thumb:      '/ENSOhurricanesThumbnail.png',
       },
       {
-        tags:       ['US Cities', 'FREQUENCY DISTRIBUTION'],
+        tags:       ['US Cities', 'ANNUAL FREQUENCY'],
         title:      'Dewpoint Frequency',
         description:'Distribution of dewpoint temperatures at various US cities across months and seasons.',
         footerTags: ['Dewpoint', 'Frequency', 'ISP Climatology'],
@@ -230,16 +230,16 @@ const SECTIONS = [
         thumb:      '/DewpointFrequency_thumbnail.png',
       },
       {
-        tags:       ['US CIties', 'FREQUENCY DISTRIBUTION'],
+        tags:       ['US CIties', 'ANNUAL FREQUENCY'],
         title:      'Temperature Frequency',
-        description:'Distribution of observed temperatures at Islip across months and seasons — how often each temperature range occurs throughout the year.',
+        description:'Distribution of observed temperatures across months and seasons — how often each temperature range occurs throughout the year.',
         footerTags: ['Temperature', 'Frequency', 'ISP Climatology'],
         to:         '/temp-frequency',
         accentVar:  '--accent-climate',
         thumb:      '/TempFrequency_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'FREQUENCY DISTRIBUTION', 'BY MONTH'],
+        tags:       ['US Cities', 'MONTHLY FREQUENCY'],
         title:      'Monthly Dewpoint Frequency',
         description:'Hourly dewpoint observations broken down by month — select any month and period to see the full frequency distribution, with normal curve fit and current observation overlay.',
         footerTags: ['Dewpoint', 'Hourly Counts', 'Normal Fit', 'Current Obs'],
@@ -248,7 +248,7 @@ const SECTIONS = [
         thumb:      '/DewpointFrequencyMonthly_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'FREQUENCY DISTRIBUTION', 'BY MONTH'],
+        tags:       ['US Cities', 'MONTHLY FREQUENCY'],
         title:      'Monthly Temperature Frequency',
         description:'Daily high, daily low, or hourly temperature observations broken down by month — explore the distribution for any month and period, with normal curve fit and current observation overlay.',
         footerTags: ['Temperature', 'Daily High', 'Daily Low', 'Hourly Counts'],
@@ -275,7 +275,7 @@ const SECTIONS = [
         thumb:      '/snowfall_frequency_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'PRECIPITATION', 'ANNUAL'],
+        tags:       ['US CITIES', 'ANNUAL PRECIPITATION'],
         title:      'U.S. Annual Precipitation',
         description:'Year-by-year total precipitation for select U.S. cities — visualizing wet and dry years against long-term averages and percentile ranges.',
         footerTags: ['Annual Totals', 'Percentiles', 'Multi-City'],
@@ -284,7 +284,7 @@ const SECTIONS = [
         thumb:      '/US_annual_precipitation_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'SNOWFALL', 'SEASONAL'],
+        tags:       ['US CITIES', 'SEASONAL SNOWFALL'],
         title:      'U.S. Seasonal Snowfall',
         description:'Season-by-season snowfall totals for select U.S. cities — comparing individual winters against climatological averages and long-term trends.',
         footerTags: ['Seasonal Totals', 'Multi-City', 'Trends'],
