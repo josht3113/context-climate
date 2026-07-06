@@ -1,0 +1,49 @@
+name: Cache Sunspot Data
+
+on:
+  schedule:
+    - cron: '0 8 3 * *'   # 3rd of every month at 8 AM UTC — SILSO usually
+                          # publishes its monthly update in the first days
+                          # of the month, and this runs a couple days after
+                          # the 1st-of-month ENSO job to stagger the two.
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download monthly + 13-month-smoothed sunspot number from SILSO
+        run: |
+          curl -L \
+            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+            -H "Accept: text/plain, text/csv, */*" \
+            -o /tmp/SN_m_tot_V2.0.csv \
+            "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv"
+          curl -L \
+            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+            -H "Accept: text/plain, text/csv, */*" \
+            -o /tmp/SN_ms_tot_V2.0.csv \
+            "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
+          echo "monthly file: $(wc -l < /tmp/SN_m_tot_V2.0.csv) lines, $(wc -c < /tmp/SN_m_tot_V2.0.csv) bytes"
+          echo "smoothed file: $(wc -l < /tmp/SN_ms_tot_V2.0.csv) lines, $(wc -c < /tmp/SN_ms_tot_V2.0.csv) bytes"
+
+      - name: Merge into public/sunspot-monthly.csv
+        run: python3 scripts/update_sunspot_data.py
+
+      - name: Commit if data changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/sunspot-monthly.csv
+          git diff --staged --quiet \
+            && echo "Data unchanged — no commit needed" \
+            || (git commit -m "chore: update sunspot data [automated]" && git push)
