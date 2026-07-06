@@ -343,6 +343,15 @@ const SECTIONS = [
         accentVar:  '--accent-enso',
         thumb:      '/SunspotHeatMap_thumbnail.png',
       },
+      {
+        tags:       ['Solar Cycle', 'Astronomy', 'Interactive'],
+        title:      'Solar Cycle Progression',
+        description:'The traditional sunspot-number time series, plus a cycle-comparison view that restacks any set of solar cycles on a shared "years since minimum" axis so you can see exactly how Cycle 25 stacks up against its predecessors.',
+        footerTags: ['Solar Cycle', 'Cycle Comparison', 'SILSO Data'],
+        to:         '/solar-cycle-progression',
+        accentVar:  '--accent-enso',
+        thumb:      '/SolarCycleProgression_thumbnail.png',
+      },
     ],
   },
 ]
