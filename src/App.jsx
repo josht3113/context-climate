@@ -13,6 +13,7 @@ import Hurricanes                  from './pages/Hurricanes'
 import Solar                       from './pages/Solar'
 import SolarCalendar               from './pages/SolarCalendar'
 import SunriseSunsetCalendar        from './pages/SunriseSunsetCalendar'
+import SunspotHeatmap               from './pages/SunspotHeatmap'
 import Igneous                     from './pages/Igneous'
 import ScrollToTop                 from './components/ScrollToTop'
 import EarthAndSpace               from './pages/EarthAndSpace'
@@ -114,6 +115,7 @@ export default function App() {
           <Route path="/solar"                               element={<Solar />}                   />
           <Route path="/solar-calendar"                      element={<SolarCalendar />}           />
           <Route path="/sunrise-sunset-calendar"             element={<SunriseSunsetCalendar />}   />
+          <Route path="/sunspot-heatmap"                     element={<SunspotHeatmap />}          />
           <Route path="/igneous"                             element={<Igneous />}                 />
           <Route path="/earthandspace"                       element={<EarthAndSpace />}           />
           <Route path="/bowens"                              element={<Bowens />}                  />
