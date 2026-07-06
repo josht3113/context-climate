@@ -23,18 +23,34 @@ jobs:
 
       - name: Download monthly + 13-month-smoothed sunspot number from SILSO
         run: |
-          curl -L \
-            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
-            -H "Accept: text/plain, text/csv, */*" \
-            -o /tmp/SN_m_tot_V2.0.csv \
-            "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv"
-          curl -L \
-            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
-            -H "Accept: text/plain, text/csv, */*" \
-            -o /tmp/SN_ms_tot_V2.0.csv \
-            "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv"
-          echo "monthly file: $(wc -l < /tmp/SN_m_tot_V2.0.csv) lines, $(wc -c < /tmp/SN_m_tot_V2.0.csv) bytes"
-          echo "smoothed file: $(wc -l < /tmp/SN_ms_tot_V2.0.csv) lines, $(wc -c < /tmp/SN_ms_tot_V2.0.csv) bytes"
+          CURL_OPTS=(
+            -4
+            -sS
+            -L
+            --retry 4
+            --retry-delay 8
+            --retry-connrefused
+            --connect-timeout 20
+            --max-time 60
+            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+            -H "Accept: text/plain, text/csv, */*"
+          )
+          echo "── monthly file ──"
+          curl "${CURL_OPTS[@]}" -o /tmp/SN_m_tot_V2.0.csv \
+            "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv" \
+            || { echo "Monthly fetch failed after retries — trying verbose for diagnostics"; \
+                 curl -4 -v -L --connect-timeout 20 --max-time 60 \
+                   -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+                   "https://www.sidc.be/SILSO/DATA/SN_m_tot_V2.0.csv" -o /tmp/SN_m_tot_V2.0.csv 2>&1 | tail -60; }
+          echo "── smoothed file ──"
+          curl "${CURL_OPTS[@]}" -o /tmp/SN_ms_tot_V2.0.csv \
+            "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv" \
+            || { echo "Smoothed fetch failed after retries — trying verbose for diagnostics"; \
+                 curl -4 -v -L --connect-timeout 20 --max-time 60 \
+                   -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
+                   "https://www.sidc.be/SILSO/DATA/SN_ms_tot_V2.0.csv" -o /tmp/SN_ms_tot_V2.0.csv 2>&1 | tail -60; }
+          echo "monthly file: $(wc -l < /tmp/SN_m_tot_V2.0.csv 2>/dev/null || echo 0) lines, $(wc -c < /tmp/SN_m_tot_V2.0.csv 2>/dev/null || echo 0) bytes"
+          echo "smoothed file: $(wc -l < /tmp/SN_ms_tot_V2.0.csv 2>/dev/null || echo 0) lines, $(wc -c < /tmp/SN_ms_tot_V2.0.csv 2>/dev/null || echo 0) bytes"
 
       - name: Merge into public/sunspot-monthly.csv
         run: python3 scripts/update_sunspot_data.py
