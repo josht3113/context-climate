@@ -334,6 +334,15 @@ const SECTIONS = [
         accentVar:  '--accent-enso',
         thumb:      '/SunriseSunsetCalendar_thumbnail.png',
       },
+      {
+        tags:       ['Solar Activity', 'Astronomy', 'Interactive'],
+        title:      'Solar Sunspot Numbers',
+        description:'Monthly sunspot counts since 1749 as an interactive heatmap — watch the ~11-year solar cycle rise and fall through 275 years of the longest continuous scientific record on Earth, and see exactly where Solar Cycle 25 stands today.',
+        footerTags: ['Solar Cycle', 'Sunspot Number', 'SILSO Data'],
+        to:         '/sunspot-heatmap',
+        accentVar:  '--accent-enso',
+        thumb:      '/SunspotHeatMap_thumbnail.png',
+      },
     ],
   },
 ]
