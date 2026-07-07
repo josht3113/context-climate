@@ -39,7 +39,23 @@ AREA_CORRECTION_FACTOR = 1.4  # per solarcyclescience.com: USAF/NOAA whole-spot
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
 MAX_RETRIES = 3
 RETRY_DELAY_SEC = 5
+REQUEST_DELAY_SEC = 0.4  # be polite to a small academic server across ~150 requests
 MAX_ALLOWED_FAILED_YEARS = 3  # abort the whole rebuild if more years than this fail
+
+_dumped_sample = False  # print one diagnostic sample of bad content, not 150
+
+
+def looks_like_ar_year_data(text, year):
+    """A real gYYYY.txt file's data rows start with that same 4-digit year
+    as the first whitespace token. If the last non-blank line doesn't
+    start with `year`, this isn't the real file -- it's more likely an
+    error page, rate-limit/challenge response, or redirect stub served
+    with a 200 status (so urllib wouldn't have raised on it)."""
+    lines = [l for l in text.splitlines() if l.strip()]
+    if not lines:
+        return False
+    first_token = lines[-1].split()[0] if lines[-1].split() else ""
+    return first_token == str(year)
 
 
 def parse_month_day(token, next_token=None):
@@ -96,18 +112,42 @@ def parse_line(line):
 
 
 def fetch_year(year):
+    global _dumped_sample
     url = BASE_URL.format(year=year)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     last_exc = None
+    last_bad_text = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+                text = resp.read().decode("utf-8", errors="replace")
         except (urllib.error.URLError, TimeoutError) as exc:
             last_exc = exc
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_DELAY_SEC)
-    print(f"  [warn] {year}: failed after {MAX_RETRIES} attempts ({last_exc})", file=sys.stderr)
+            continue
+
+        if looks_like_ar_year_data(text, year):
+            return text
+
+        last_bad_text = text
+        if attempt < MAX_RETRIES:
+            time.sleep(RETRY_DELAY_SEC)
+
+    if last_bad_text is not None:
+        print(
+            f"  [warn] {year}: response didn't look like real AR data after "
+            f"{MAX_RETRIES} attempts ({len(last_bad_text)} chars, "
+            f"{len(last_bad_text.splitlines())} lines)",
+            file=sys.stderr,
+        )
+        if not _dumped_sample:
+            _dumped_sample = True
+            print("  ---- sample of unexpected response content ----", file=sys.stderr)
+            print(last_bad_text[:500], file=sys.stderr)
+            print("  ------------------------------------------------", file=sys.stderr)
+    else:
+        print(f"  [warn] {year}: failed after {MAX_RETRIES} attempts ({last_exc})", file=sys.stderr)
     return None
 
 
@@ -117,6 +157,7 @@ def main():
 
     for year in range(START_YEAR, END_YEAR + 1):
         text = fetch_year(year)
+        time.sleep(REQUEST_DELAY_SEC)
         if text is None:
             failed_years.append(year)
             continue
