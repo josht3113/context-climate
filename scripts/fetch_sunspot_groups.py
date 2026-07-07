@@ -61,25 +61,26 @@ def parse_line(line):
     if len(tokens) < 12:
         return None
 
-    year = int(tokens[0])
-    fused = "." in tokens[1]
-    month, day, _ = parse_month_day(tokens[1], tokens[2] if len(tokens) > 2 else None)
-    rest = tokens[2:] if fused else tokens[3:]
-    if len(rest) < 10:
-        return None
-
     try:
+        year = int(tokens[0])
+        fused = "." in tokens[1]
+        month, day, _ = parse_month_day(tokens[1], tokens[2] if len(tokens) > 2 else None)
+        rest = tokens[2:] if fused else tokens[3:]
+        if len(rest) < 10:
+            return None
+
         group_num = int(rest[0])
         area = float(rest[5])
         corr_factor = float(rest[6])
         latitude = float(rest[9])
-    except ValueError:
-        return None  # zeroed-out missing-day placeholder row
 
-    day_int = max(1, min(31, int(day)))
-    try:
+        day_int = max(1, min(31, int(day)))
         obs_date = datetime.date(year, month, day_int)
-    except ValueError:
+    except (ValueError, IndexError):
+        # Any malformed/unexpected-layout row (older-era formatting quirks,
+        # zeroed-out missing-day placeholders, etc.) is skipped rather than
+        # aborting the whole fetch -- one odd historical row should never
+        # take down 150 years of otherwise-good data.
         return None
 
     if obs_date >= AREA_CORRECTION_CUTOFF:
@@ -120,7 +121,11 @@ def main():
             failed_years.append(year)
             continue
         count = 0
+        total_lines = 0
         for line in text.splitlines():
+            if not line.strip():
+                continue
+            total_lines += 1
             rec = parse_line(line)
             if rec is None:
                 continue
@@ -129,7 +134,10 @@ def main():
             existing = best_by_group.get(gnum)
             if existing is None or rec["corr_factor"] > existing["corr_factor"]:
                 best_by_group[gnum] = rec
-        print(f"{year}: {count} observation rows parsed", file=sys.stderr)
+
+        skip_rate = 1 - (count / total_lines) if total_lines else 0
+        flag = "  <-- HIGH SKIP RATE, check format for this year" if skip_rate > 0.15 else ""
+        print(f"{year}: {count}/{total_lines} rows parsed ({skip_rate:.0%} skipped){flag}", file=sys.stderr)
 
     if len(failed_years) > MAX_ALLOWED_FAILED_YEARS:
         print(
