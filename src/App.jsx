@@ -15,6 +15,7 @@ import SolarCalendar               from './pages/SolarCalendar'
 import SunriseSunsetCalendar        from './pages/SunriseSunsetCalendar'
 import SunspotHeatmap               from './pages/SunspotHeatmap'
 import SolarCycleProgression        from './pages/SolarCycleProgression'
+import SunspotButterflyDiagram      from './pages/SunspotButterflyDiagram'
 import Igneous                     from './pages/Igneous'
 import ScrollToTop                 from './components/ScrollToTop'
 import EarthAndSpace               from './pages/EarthAndSpace'
@@ -118,6 +119,7 @@ export default function App() {
           <Route path="/sunrise-sunset-calendar"             element={<SunriseSunsetCalendar />}   />
           <Route path="/sunspot-heatmap"                     element={<SunspotHeatmap />}          />
           <Route path="/solar-cycle-progression"             element={<SolarCycleProgression />}   />
+          <Route path="/sunspot-butterfly-diagram"           element={<SunspotButterflyDiagram />} />
           <Route path="/igneous"                             element={<Igneous />}                 />
           <Route path="/earthandspace"                       element={<EarthAndSpace />}           />
           <Route path="/bowens"                              element={<Bowens />}                  />
