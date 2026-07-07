@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sunspot Butterfly Diagram — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<style>
+  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css.
+     --tool-accent is gold, matching sunspot-heatmap.html and
+     solar-cycle-progression.html (same content-driven Sun-colored
+     precedent as the-suns-path.html). The DOTS themselves are a separate
+     content-encoded purple scale (not swapped for the accent) — same
+     rule as the heatmap ramp in sunspot-heatmap.html never becoming the
+     accent color. */
+  :root { --tool-accent: #F5A340; }
+
+  body { display: flex; flex-direction: column; align-items: center; padding: 0 20px 72px; }
+  header { text-align: center; padding: 22px 0 16px; max-width: 900px; width: 100%; }
+  header .cc-eyebrow { margin-bottom: 10px; }
+  header .cc-title { margin-bottom: 10px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 14px;
+    align-items: center; justify-content: center;
+    margin-bottom: 18px; width: 100%; max-width: 1400px;
+  }
+
+  .stage { width: 100%; max-width: 1400px; position: relative; }
+  #chart {
+    width: 100%; height: 560px; display: block;
+    touch-action: none; cursor: grab;
+  }
+  #chart.dragging { cursor: grabbing; }
+
+  #tooltip {
+    position: absolute; pointer-events: none;
+    background: var(--color-surface); border: 1px solid var(--color-border-hover);
+    border-radius: var(--radius-md); padding: 8px 12px;
+    font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary);
+    line-height: 1.55; opacity: 0; transition: opacity 0.12s ease;
+    white-space: nowrap; z-index: 10;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  }
+  #tooltip .tt-title { color: var(--tool-accent); font-weight: 700; margin-bottom: 2px; }
+
+  .hint {
+    text-align: center; font-family: var(--font-mono); font-size: 11px;
+    color: var(--color-text-muted); letter-spacing: 0.05em; margin-top: 8px;
+  }
+
+  .below-chart {
+    width: 100%; max-width: 1400px; margin-top: 22px;
+    display: flex; flex-direction: column; gap: 16px; align-items: center;
+  }
+  .cc-stat-row { justify-content: center; width: 100%; }
+
+  .legend-note {
+    display: flex; align-items: center; gap: 18px; justify-content: center;
+    flex-wrap: wrap; font-family: var(--font-mono); font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+  .legend-note .li { display: flex; align-items: center; gap: 7px; }
+  .dot-sample { display: inline-block; border-radius: 50%; background: rgba(160,140,198,0.85); flex-shrink: 0; }
+  .line-sample {
+    display: inline-block; width: 18px; height: 0;
+    border-top: 1.5px dashed rgba(245,163,64,0.7); flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="cc-eyebrow">Solar Activity · Astronomy · Interactive</p>
+  <h1 class="cc-title">Sunspot Butterfly Diagram</h1>
+  <p class="cc-subtitle">Every sunspot group's heliographic latitude, from 1874 to today —
+    the equatorward drift of each solar cycle traced group by group, known as Spörer's Law.</p>
+</header>
+
+<div class="controls">
+  <div class="cc-segmented" id="viewToggle">
+    <button class="cc-segmented-btn is-active" data-mode="dots">Classic Dots</button>
+    <button class="cc-segmented-btn" data-mode="density">Density</button>
+  </div>
+  <div class="cc-btn-row" id="rangePresets">
+    <span class="cc-btn-row-label">View</span>
+    <button class="cc-btn cc-btn-sm" data-range="full">Full History</button>
+    <button class="cc-btn cc-btn-sm" data-range="50">Last 50 Years</button>
+    <button class="cc-btn cc-btn-sm" data-range="cycle">Current Cycle</button>
+  </div>
+  <button class="cc-btn cc-btn-sm" id="pngbtn">↓ PNG</button>
+</div>
+
+<div class="stage">
+  <canvas id="chart"></canvas>
+  <div id="tooltip"></div>
+</div>
+<p class="hint">Drag to pan · scroll or pinch to zoom</p>
+
+<div class="below-chart">
+  <div class="cc-stat-row" id="statRow"></div>
+  <div class="legend-note">
+    <span class="li"><span class="dot-sample" style="width:6px;height:6px"></span> smaller / fainter = smaller sunspot group</span>
+    <span class="li"><span class="dot-sample" style="width:15px;height:15px"></span> larger / brighter = larger sunspot group</span>
+    <span class="li"><span class="line-sample"></span> solar cycle boundary</span>
+  </div>
+  <div class="cc-tag">Data: RGO/USAF/NOAA sunspot group catalog via D. Hathaway, solarcyclescience.com · ContextClimate</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var CANVAS = document.getElementById('chart');
+  var CTX = CANVAS.getContext('2d');
+  var TOOLTIP = document.getElementById('tooltip');
+  var STAGE = document.querySelector('.stage');
+  var STAT_ROW = document.getElementById('statRow');
+
+  var MARGIN = { top: 34, right: 20, bottom: 36, left: 52 };
+  var Y_MIN = -50, Y_MAX = 50;
+  var MIN_SPAN_YEARS = 0.6;
+
+  var DATA = [];      // sorted [{x: decYear, lat, area, ar, date}]
+  var CYCLES = [];    // [{cycle, startDec, ongoing}]
+  var dataMinYear = 1874, dataMaxYear = 2026;
+
+  var view = { x0: 1874, x1: 2026 };
+  var mode = 'dots';
+  var dpr = Math.max(1, window.devicePixelRatio || 1);
+  var cw = 0, ch = 0; // css pixels
+
+  // ---------- date helpers ----------
+  function decYearFromISO(iso) {
+    var year = parseInt(iso.slice(0, 4), 10);
+    var month = parseInt(iso.slice(5, 7), 10);
+    var day = parseInt(iso.slice(8, 10), 10);
+    var start = Date.UTC(year, 0, 1);
+    var next = Date.UTC(year + 1, 0, 1);
+    var t = Date.UTC(year, month - 1, day);
+    return year + (t - start) / (next - start);
+  }
+
+  function decYearFromYM(year, month) {
+    var start = Date.UTC(year, 0, 1);
+    var next = Date.UTC(year + 1, 0, 1);
+    var t = Date.UTC(year, month - 1, 1);
+    return year + (t - start) / (next - start);
+  }
+
+  // ---------- data loading ----------
+  function parseCSV(text) {
+    var lines = text.split('\n');
+    var out = [];
+    for (var i = 1; i < lines.length; i++) {
+      var line = lines[i];
+      if (!line) continue;
+      var c = line.split(',');
+      if (c.length < 4) continue;
+      var x = decYearFromISO(c[0]);
+      var lat = parseFloat(c[1]);
+      var area = parseFloat(c[2]);
+      var ar = c[3].replace(/\s/g, '');
+      if (!isFinite(x) || !isFinite(lat) || !isFinite(area)) continue;
+      out.push({ x: x, lat: lat, area: area, ar: ar, date: c[0] });
+    }
+    out.sort(function (a, b) { return a.x - b.x; });
+    return out;
+  }
+
+  function loadCycles(json) {
+    return json.cycles.map(function (c) {
+      return {
+        cycle: c.cycle,
+        startDec: decYearFromYM(c.startYear, c.startMonth),
+        ongoing: !!c.ongoing,
+      };
+    });
+  }
+
+  function cycleForYear(decYear) {
+    var found = null;
+    for (var i = 0; i < CYCLES.length; i++) {
+      if (CYCLES[i].startDec <= decYear) found = CYCLES[i]; else break;
+    }
+    return found;
+  }
+
+  // ---------- view <-> pixel transforms ----------
+  function xToPx(x) {
+    var plotW = cw - MARGIN.left - MARGIN.right;
+    return MARGIN.left + (x - view.x0) / (view.x1 - view.x0) * plotW;
+  }
+  function pxToX(px) {
+    var plotW = cw - MARGIN.left - MARGIN.right;
+    return view.x0 + (px - MARGIN.left) / plotW * (view.x1 - view.x0);
+  }
+  function yToPx(lat) {
+    var plotH = ch - MARGIN.top - MARGIN.bottom;
+    return MARGIN.top + (Y_MAX - lat) / (Y_MAX - Y_MIN) * plotH;
+  }
+
+  // ---------- resize ----------
+  function resize() {
+    var rect = STAGE.getBoundingClientRect();
+    cw = Math.max(320, Math.round(rect.width));
+    ch = 560;
+    dpr = Math.max(1, window.devicePixelRatio || 1);
+    CANVAS.style.width = cw + 'px';
+    CANVAS.style.height = ch + 'px';
+    CANVAS.width = Math.round(cw * dpr);
+    CANVAS.height = Math.round(ch * dpr);
+    CTX.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  // ---------- rendering ----------
+  function niceYearStep(span) {
+    var steps = [1, 2, 5,10, 20, 25, 50, 100];
+    for (var i = 0; i < steps.length; i++) {
+      if (span / steps[i] <= 9) return steps[i];
+    }
+    return 100;
+  }
+
+  function clearCanvas() {
+    CTX.fillStyle = '#1E2320';
+    CTX.fillRect(0, 0, cw, ch);
+  }
+
+  function drawAxes() {
+    var plotLeft = MARGIN.left, plotRight = cw - MARGIN.right;
+    var plotTop = MARGIN.top, plotBottom = ch - MARGIN.bottom;
+
+    CTX.fillStyle = '#181C19';
+    CTX.fillRect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+
+    CTX.font = '12px "Courier Prime", monospace';
+    CTX.textAlign = 'right';
+    CTX.textBaseline = 'middle';
+    for (var lat = -40; lat <= 40; lat += 20) {
+      var py = yToPx(lat);
+      CTX.strokeStyle = lat === 0 ? 'rgba(232,228,217,0.28)' : 'rgba(232,228,217,0.09)';
+      CTX.lineWidth = lat === 0 ? 1.2 : 1;
+      CTX.beginPath();
+      CTX.moveTo(plotLeft, py);
+      CTX.lineTo(plotRight, py);
+      CTX.stroke();
+      CTX.fillStyle = '#A6A499';
+      CTX.fillText(lat + '°', plotLeft - 8, py);
+    }
+
+    var span = view.x1 - view.x0;
+    var step = niceYearStep(span);
+    var first = Math.ceil(view.x0 / step) * step;
+    CTX.textAlign = 'center';
+    CTX.textBaseline = 'top';
+    for (var yr = first; yr <= view.x1; yr += step) {
+      var px = xToPx(yr);
+      if (px < plotLeft || px > plotRight) continue;
+      CTX.strokeStyle = 'rgba(232,228,217,0.07)';
+      CTX.lineWidth = 1;
+      CTX.beginPath();
+      CTX.moveTo(px, plotTop);
+      CTX.lineTo(px, plotBottom);
+      CTX.stroke();
+      CTX.fillStyle = '#A6A499';
+      CTX.fillText(String(Math.round(yr)), px, plotBottom + 8);
+    }
+
+    CTX.strokeStyle = 'rgba(232,228,217,0.26)';
+    CTX.lineWidth = 1;
+    CTX.strokeRect(plotLeft + 0.5, plotTop + 0.5, plotRight - plotLeft - 1, plotBottom - plotTop - 1);
+  }
+
+  function drawCycleBoundaries() {
+    var plotLeft = MARGIN.left, plotRight = cw - MARGIN.right;
+    var plotTop = MARGIN.top, plotBottom = ch - MARGIN.bottom;
+    CTX.font = '12px "Courier Prime", monospace';
+    CTX.textAlign = 'left';
+    CTX.textBaseline = 'alphabetic';
+    for (var i = 0; i < CYCLES.length; i++) {
+      var c = CYCLES[i];
+      if (c.startDec < view.x0 - 2 || c.startDec > view.x1) continue;
+      var px = xToPx(c.startDec);
+      if (px < plotLeft || px > plotRight) continue;
+      CTX.strokeStyle = 'rgba(245,163,64,0.35)';
+      CTX.setLineDash([3, 3]);
+      CTX.lineWidth = 1;
+      CTX.beginPath();
+      CTX.moveTo(px, plotTop);
+      CTX.lineTo(px, plotBottom);
+      CTX.stroke();
+      CTX.setLineDash([]);
+      CTX.fillStyle = '#F5A340';
+      CTX.fillText('SC' + c.cycle, px + 3, plotTop - 6);
+    }
+  }
+
+  function areaToRadius(area) {
+    return Math.min(7, Math.max(1.3, 1.3 + Math.sqrt(area) * 0.13));
+  }
+  function areaToAlpha(area) {
+    return Math.min(0.92, Math.max(0.22, 0.22 + Math.sqrt(area) / 70));
+  }
+
+  function lowerBound(x) {
+    var lo = 0, hi = DATA.length;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (DATA[mid].x < x) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  }
+
+  function visiblePoints() {
+    var pad = (view.x1 - view.x0) * 0.02;
+    var lo = lowerBound(view.x0 - pad);
+    var hi = lowerBound(view.x1 + pad);
+    return DATA.slice(lo, hi);
+  }
+
+  function drawDots(points) {
+    var plotLeft = MARGIN.left, plotRight = cw - MARGIN.right;
+    var plotTop = MARGIN.top, plotBottom = ch - MARGIN.bottom;
+    CTX.save();
+    CTX.beginPath();
+    CTX.rect(plotLeft, plotTop, plotRight - plotLeft, plotBottom - plotTop);
+    CTX.clip();
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i];
+      var px = xToPx(p.x);
+      var py = yToPx(p.lat);
+      var r = areaToRadius(p.area);
+      var a = areaToAlpha(p.area);
+      CTX.beginPath();
+      CTX.fillStyle = 'rgba(160,140,198,' + a + ')';
+      CTX.arc(px, py, r, 0, Math.PI * 2);
+      CTX.fill();
+    }
+    CTX.restore();
+  }
+
+  function drawDensity(points) {
+    var plotLeft = MARGIN.left, plotRight = cw - MARGIN.right;
+    var plotTop = MARGIN.top, plotBottom = ch - MARGIN.bottom;
+    var plotW = plotRight - plotLeft, plotH = plotBottom - plotTop;
+    var binPxW = 3;
+    var nx = Math.max(1, Math.ceil(plotW / binPxW));
+    var ny = 50;
+    var grid = new Float64Array(nx * ny);
+
+    var xSpan = view.x1 - view.x0;
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i];
+      var bx = Math.floor((p.x - view.x0) / xSpan * nx);
+      if (bx < 0 || bx >= nx) continue;
+      var by = Math.floor((Y_MAX - p.lat) / (Y_MAX - Y_MIN) * ny);
+      if (by < 0 || by >= ny) continue;
+      grid[by * nx + bx] += p.area;
+    }
+
+    var maxVal = 0;
+    for (var k = 0; k < grid.length; k++) if (grid[k] > maxVal) maxVal = grid[k];
+    if (maxVal <= 0) return;
+
+    var cellW = plotW / nx, cellH = plotH / ny;
+    for (var byy = 0; byy < ny; byy++) {
+      for (var bxx = 0; bxx < nx; bxx++) {
+        var v = grid[byy * nx + bxx];
+        if (v <= 0) continue;
+        var t = Math.pow(v / maxVal, 0.42);
+        var alpha = Math.min(0.97, 0.12 + t * 0.85);
+        var cx = plotLeft + bxx * cellW;
+        var cy = plotTop + byy * cellH;
+        CTX.fillStyle = 'rgba(160,140,198,' + alpha + ')';
+        CTX.fillRect(cx, cy, cellW + 0.6, cellH + 0.6);
+      }
+    }
+  }
+
+  function draw() {
+    if (!cw) return;
+    clearCanvas();
+    drawAxes();
+    var points = visiblePoints();
+    if (mode === 'dots') drawDots(points); else drawDensity(points);
+    drawCycleBoundaries();
+    updateStats(points);
+  }
+
+  // ---------- stats ----------
+  function fmtYear(dec) { return String(Math.floor(dec)); }
+
+  function updateStats(points) {
+    var latest = DATA.length ? DATA[DATA.length - 1] : null;
+    var currentCycle = latest ? cycleForYear(latest.x) : null;
+    var minLat = null, maxLat = null;
+    for (var i = 0; i < points.length; i++) {
+      var lat = points[i].lat;
+      if (minLat === null || lat < minLat) minLat = lat;
+      if (maxLat === null || lat > maxLat) maxLat = lat;
+    }
+    var spanYears = view.x1 - view.x0;
+    var spanLabel = spanYears >= 2
+      ? Math.round(spanYears) + ' yrs'
+      : Math.round(spanYears * 12) + ' mo';
+    var latLabel = minLat !== null
+      ? '±' + Math.round(Math.max(Math.abs(minLat), Math.abs(maxLat))) + '°'
+      : '—';
+
+    STAT_ROW.innerHTML =
+      '<div class="cc-stat-chip"><span class="cc-stat-label">Groups in view</span>' +
+      '<span class="cc-stat-value">' + points.length.toLocaleString() + '</span></div>' +
+      '<div class="cc-stat-chip"><span class="cc-stat-label">Max latitude extent</span>' +
+      '<span class="cc-stat-value">' + latLabel + '</span></div>' +
+      '<div class="cc-stat-chip"><span class="cc-stat-label">View span</span>' +
+      '<span class="cc-stat-value">' + spanLabel + '</span></div>' +
+      '<div class="cc-stat-chip"><span class="cc-stat-label">Currently in</span>' +
+      '<span class="cc-stat-value">' + (currentCycle ? 'Cycle ' + currentCycle.cycle : '—') + '</span></div>';
+  }
+
+  // ---------- interaction: pan ----------
+  var dragging = false, dragStartPxX = 0, dragStartView = null;
+
+  function clampView(x0, x1) {
+    var span = x1 - x0;
+    var minSpan = MIN_SPAN_YEARS;
+    var maxSpan = dataMaxYear - dataMinYear;
+    if (span < minSpan) {
+      var c = (x0 + x1) / 2;
+      x0 = c - minSpan / 2; x1 = c + minSpan / 2;
+      span = minSpan;
+    }
+    if (span >= maxSpan) {
+      return { x0: dataMinYear, x1: dataMaxYear };
+    }
+    if (x0 < dataMinYear) { x1 += (dataMinYear - x0); x0 = dataMinYear; }
+    if (x1 > dataMaxYear) { x0 -= (x1 - dataMaxYear); x1 = dataMaxYear; }
+    if (x0 < dataMinYear) x0 = dataMinYear;
+    return { x0: x0, x1: x1 };
+  }
+
+  function onPointerDown(e) {
+    dragging = true;
+    CANVAS.classList.add('dragging');
+    dragStartPxX = e.clientX;
+    dragStartView = { x0: view.x0, x1: view.x1 };
+    try { CANVAS.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  function onPointerMove(e) {
+    var rect = CANVAS.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var py = e.clientY - rect.top;
+
+    if (dragging) {
+      var dxPx = e.clientX - dragStartPxX;
+      var plotW = cw - MARGIN.left - MARGIN.right;
+      var dxYears = dxPx / plotW * (dragStartView.x1 - dragStartView.x0);
+      view = clampView(dragStartView.x0 - dxYears, dragStartView.x1 - dxYears);
+      hideTooltip();
+      draw();
+      return;
+    }
+    handleHover(px, py);
+  }
+  function onPointerUp(e) {
+    dragging = false;
+    CANVAS.classList.remove('dragging');
+    try { CANVAS.releasePointerCapture(e.pointerId); } catch (err) {}
+  }
+
+  function onWheel(e) {
+    e.preventDefault();
+    var rect = CANVAS.getBoundingClientRect();
+    var px = e.clientX - rect.left;
+    var anchorYear = pxToX(px);
+    var factor = Math.exp(e.deltaY * 0.0016);
+    var x0 = anchorYear - (anchorYear - view.x0) * factor;
+    var x1 = anchorYear + (view.x1 - anchorYear) * factor;
+    view = clampView(x0, x1);
+    hideTooltip();
+    draw();
+  }
+
+  // touch pinch (two-finger only; one-finger pan is handled by Pointer Events above)
+  var pinchStartDist = null, pinchStartView = null;
+  function touchDist(t) {
+    var dx = t[0].clientX - t[1].clientX;
+    var dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  function onTouchStart(e) {
+    if (e.touches.length === 2) {
+      dragging = false; // cancel any single-finger pan in progress
+      CANVAS.classList.remove('dragging');
+      pinchStartDist = touchDist(e.touches);
+      pinchStartView = { x0: view.x0, x1: view.x1 };
+    }
+  }
+  function onTouchMove(e) {
+    if (e.touches.length === 2 && pinchStartDist) {
+      e.preventDefault();
+      var rect = CANVAS.getBoundingClientRect();
+      var midX = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      var anchorYear = pxToX(midX);
+      var dist = touchDist(e.touches);
+      var factor = pinchStartDist / Math.max(1, dist);
+      var x0 = anchorYear - (anchorYear - pinchStartView.x0) * factor;
+      var x1 = anchorYear + (pinchStartView.x1 - anchorYear) * factor;
+      view = clampView(x0, x1);
+      draw();
+    }
+  }
+  function onTouchEnd(e) {
+    if (e.touches.length < 2) { pinchStartDist = null; pinchStartView = null; }
+  }
+
+  // ---------- tooltip ----------
+  function handleHover(px, py) {
+    var plotLeft = MARGIN.left, plotRight = cw - MARGIN.right;
+    var plotTop = MARGIN.top, plotBottom = ch - MARGIN.bottom;
+    if (px < plotLeft || px > plotRight || py < plotTop || py > plotBottom) {
+      hideTooltip();
+      return;
+    }
+    var points = visiblePoints();
+    var best = null, bestD2 = 100;
+    for (var i = 0; i < points.length; i++) {
+      var p = points[i];
+      var ppx = xToPx(p.x), ppy = yToPx(p.lat);
+      var d2 = (ppx - px) * (ppx - px) + (ppy - py) * (ppy - py);
+      if (d2 < bestD2) { bestD2 = d2; best = p; }
+    }
+    if (best) showTooltip(best, px, py); else hideTooltip();
+  }
+
+  function showTooltip(p, px, py) {
+    var cyc = cycleForYear(p.x);
+    var latLabel = p.lat > 0 ? (p.lat + '°N') : (Math.abs(p.lat) + '°S');
+    TOOLTIP.innerHTML =
+      '<div class="tt-title">AR' + p.ar + '</div>' +
+      '<div>' + p.date + (cyc ? ' · Cycle ' + cyc.cycle : '') + '</div>' +
+      '<div>Latitude ' + latLabel + '</div>' +
+      '<div>Area ' + Math.round(p.area) + ' msh</div>';
+    TOOLTIP.style.left = Math.min(cw - 170, px + 14) + 'px';
+    TOOLTIP.style.top = Math.max(0, py - 58) + 'px';
+    TOOLTIP.style.opacity = '1';
+  }
+  function hideTooltip() {
+    TOOLTIP.style.opacity = '0';
+  }
+
+  // ---------- controls ----------
+  document.getElementById('viewToggle').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-mode]');
+    if (!btn) return;
+    mode = btn.dataset.mode;
+    var all = document.querySelectorAll('#viewToggle [data-mode]');
+    for (var i = 0; i < all.length; i++) all[i].classList.toggle('is-active', all[i] === btn);
+    draw();
+  });
+
+  document.getElementById('rangePresets').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-range]');
+    if (!btn) return;
+    var r = btn.dataset.range;
+    if (r === 'full') {
+      view = { x0: dataMinYear, x1: dataMaxYear };
+    } else if (r === '50') {
+      view = clampView(dataMaxYear - 50, dataMaxYear);
+    } else if (r === 'cycle') {
+      var latest = DATA[DATA.length - 1];
+      var cyc = latest ? cycleForYear(latest.x) : null;
+      view = cyc ? clampView(cyc.startDec - 0.5, dataMaxYear) : { x0: dataMinYear, x1: dataMaxYear };
+    }
+    draw();
+  });
+
+  // ---------- PNG export ----------
+  function downloadPNG() {
+    var PAD = 24, HDR = 84, FTR = 40;
+    var ow = cw + PAD * 2;
+    var oh = HDR + ch + FTR;
+    var off = document.createElement('canvas');
+    off.width = ow * 2; off.height = oh * 2;
+    var oc = off.getContext('2d');
+    oc.scale(2, 2);
+
+    oc.fillStyle = '#1E2320';
+    oc.fillRect(0, 0, ow, oh);
+
+    oc.fillStyle = '#F5A340';
+    oc.fillRect(0, 0, ow, 3);
+
+    oc.fillStyle = '#E8E4D9';
+    oc.font = 'bold 24px "Zilla Slab", serif';
+    oc.fillText('Sunspot Butterfly Diagram', PAD, 36);
+
+    oc.fillStyle = '#A6A499';
+    oc.font = '15px "Public Sans", sans-serif';
+    var modeLabel = mode === 'dots' ? 'Classic dot scatter' : 'Smoothed density';
+    oc.fillText(modeLabel + ' · ' + fmtYear(view.x0) + '\u2013' + fmtYear(view.x1), PAD, 60);
+
+    oc.fillStyle = '#948F82';
+    oc.font = '12px "Courier Prime", monospace';
+    oc.textAlign = 'right';
+    oc.fillText('contextclimate.io', ow - PAD, 36);
+    oc.textAlign = 'left';
+
+    oc.drawImage(CANVAS, PAD, HDR, cw, ch);
+
+    oc.fillStyle = '#948F82';
+    oc.font = '11px "Courier Prime", monospace';
+    oc.fillText('RGO/USAF/NOAA sunspot group catalog · D. Hathaway, solarcyclescience.com · contextclimate.io', PAD, oh - 14);
+
+    oc.fillStyle = '#F5A340';
+    oc.fillRect(0, oh - 2, ow, 2);
+
+    var link = document.createElement('a');
+    link.download = 'sunspot-butterfly-' + mode + '-' + fmtYear(view.x0) + '-' + fmtYear(view.x1) + '.png';
+    link.href = off.toDataURL('image/png');
+    link.click();
+  }
+  document.getElementById('pngbtn').addEventListener('click', downloadPNG);
+
+  // ---------- init ----------
+  CANVAS.addEventListener('pointerdown', onPointerDown);
+  CANVAS.addEventListener('pointermove', onPointerMove);
+  CANVAS.addEventListener('pointerup', onPointerUp);
+  CANVAS.addEventListener('pointercancel', onPointerUp);
+  CANVAS.addEventListener('wheel', onWheel, { passive: false });
+  CANVAS.addEventListener('touchstart', onTouchStart, { passive: true });
+  CANVAS.addEventListener('touchmove', onTouchMove, { passive: false });
+  CANVAS.addEventListener('touchend', onTouchEnd, { passive: true });
+  CANVAS.addEventListener('mouseleave', hideTooltip);
+  window.addEventListener('resize', resize);
+
+  Promise.all([
+    fetch('sunspot-groups.csv').then(function (r) { return r.text(); }),
+    fetch('solar-cycle-reference.json').then(function (r) { return r.json(); }),
+  ]).then(function (results) {
+    var csvText = results[0], cycleJson = results[1];
+    DATA = parseCSV(csvText);
+    CYCLES = loadCycles(cycleJson);
+    if (DATA.length) {
+      dataMinYear = Math.floor(DATA[0].x);
+      dataMaxYear = Math.ceil(DATA[DATA.length - 1].x * 10) / 10 + 0.3;
+    }
+    view = { x0: dataMinYear, x1: dataMaxYear };
+    resize();
+  }).catch(function (err) {
+    STAT_ROW.innerHTML =
+      '<div class="cc-stat-chip"><span class="cc-stat-label">Error</span>' +
+      '<span class="cc-stat-note">Could not load sunspot group data.</span></div>';
+    console.error(err);
+  });
+
+})();
+</script>
+
+</body>
+</html>
