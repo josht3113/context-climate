@@ -344,6 +344,15 @@ const SECTIONS = [
         thumb:      '/SunspotHeatMap_thumbnail.png',
       },
       {
+        tags:       ['Solar Activity', 'Astronomy', 'Interactive'],
+        title:      'Sunspot Butterfly Diagram',
+        description:"Every sunspot group's latitude since 1874 — watch each solar cycle's bands drift from the mid-latitudes toward the equator, cycle after cycle, in the classic Maunder-style diagram.",
+        footerTags: ["Spörer's Law", 'RGO/USAF/NOAA', '1874–Present'],
+        to:         '/sunspot-butterfly-diagram',
+        accentVar:  '--accent-enso',
+        thumb:      '/SunspotButterflyDiagram_thumbnail.png',
+      },
+      {
         tags:       ['Solar Cycle', 'Astronomy', 'Interactive'],
         title:      'Solar Cycle Progression',
         description:'The traditional sunspot-number time series, plus a cycle-comparison view that restacks any set of solar cycles on a shared "years since minimum" axis so you can see exactly how Cycle 25 stacks up against its predecessors.',
