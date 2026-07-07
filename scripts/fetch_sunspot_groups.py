@@ -47,14 +47,17 @@ _dumped_sample = False  # print one diagnostic sample of bad content, not 150
 
 def looks_like_ar_year_data(text, year):
     """A real gYYYY.txt file's data rows start with that same 4-digit year
-    as the first whitespace token. If the last non-blank line doesn't
-    start with `year`, this isn't the real file -- it's more likely an
-    error page, rate-limit/challenge response, or redirect stub served
-    with a 200 status (so urllib wouldn't have raised on it)."""
+    as the first whitespace token. Checking the FIRST non-blank line
+    (rather than the last) is the robust choice here -- some yearly files
+    apparently carry a trailing line or two that rolls into the next
+    year, but the first line reliably belongs to the requested year. If
+    even the first line doesn't match, this isn't the real file -- more
+    likely an error page, rate-limit/challenge response, or redirect
+    stub served with a 200 status (so urllib wouldn't have raised on it)."""
     lines = [l for l in text.splitlines() if l.strip()]
     if not lines:
         return False
-    first_token = lines[-1].split()[0] if lines[-1].split() else ""
+    first_token = lines[0].split()[0] if lines[0].split() else ""
     return first_token == str(year)
 
 
@@ -86,6 +89,9 @@ def parse_line(line):
             return None
 
         group_num = int(rest[0])
+        if group_num == 0:
+            return None  # zero-filled "missing day" placeholder row, not a real group
+
         area = float(rest[5])
         corr_factor = float(rest[6])
         latitude = float(rest[9])
