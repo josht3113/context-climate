@@ -146,8 +146,6 @@ h1 {
 }
 .map-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #cvRadar { opacity: 0.6; pointer-events: none; }
-#cvSat { opacity: 0.75; pointer-events: none; }
-#cvMrms { opacity: 0.75; pointer-events: none; }
 #cvDraw { cursor: crosshair; touch-action: none; }
 #cvDraw.select-cursor { cursor: default; }
 #cvDraw.pan-cursor { cursor: grab; }
@@ -337,14 +335,6 @@ h1 {
     <div class="tb-label">Overlays</div>
     <div class="tb-row">
       <button class="tool-btn" id="radarBtn"><span class="sw" style="background:linear-gradient(135deg,#04E87A,#FCF434,#FC1C03)"></span>Radar</button>
-      <button class="tool-btn" id="satBtn"><span class="sw" style="background:linear-gradient(135deg,#1a1a1a,#888888,#ffffff,#ff6633)"></span>Satellite IR</button>
-      <button class="tool-btn" id="mrmsBtn"><span class="sw" style="background:linear-gradient(135deg,#9FE6A0,#3DB84A,#2A72C8,#7F77DD)"></span>Precip (MRMS)</button>
-      <div class="density-toggle" id="mrmsDurationToggle">
-        <button data-duration="1h" class="active">1h</button>
-        <button data-duration="24h">24h</button>
-        <button data-duration="48h">48h</button>
-        <button data-duration="72h">72h</button>
-      </div>
       <span class="tb-sep"></span>
       <button class="tool-btn" id="isobarBtn"><span class="sw" style="background:#2b2e36"></span>Isobars</button>
       <div class="density-toggle" id="isobarStepToggle">
@@ -404,8 +394,6 @@ h1 {
 
   <div class="map-wrap" id="mapWrap">
     <canvas id="cvBase"></canvas>
-    <canvas id="cvSat"></canvas>
-    <canvas id="cvMrms"></canvas>
     <canvas id="cvRadar"></canvas>
     <canvas id="cvWind"></canvas>
     <canvas id="cvData"></canvas>
@@ -1070,15 +1058,11 @@ let project = MAP.makeProjection(viewBbox, dims);
 
 const mapWrap = document.getElementById('mapWrap');
 const cvBase = document.getElementById('cvBase');
-const cvSat = document.getElementById('cvSat');
-const cvMrms = document.getElementById('cvMrms');
 const cvRadar = document.getElementById('cvRadar');
 const cvWind = document.getElementById('cvWind');
 const cvData = document.getElementById('cvData');
 const cvDraw = document.getElementById('cvDraw');
 const bctx = cvBase.getContext('2d');
-const sctx = cvSat.getContext('2d');
-const mctx = cvMrms.getContext('2d');
 const rctx = cvRadar.getContext('2d');
 const wctx = cvWind.getContext('2d');
 const actx = cvData.getContext('2d');
@@ -1094,13 +1078,10 @@ function applyCanvasSize() {
     cv.width = CW * dpr; cv.height = CH * dpr;
     ctx.scale(dpr, dpr);
   });
-  // Radar, satellite, and MRMS precip are translucent/opaque raster
-  // layers, not vector-drawn — full retina sharpness buys nothing here,
-  // so they stay at 1x for a much faster per-pixel remap (see
-  // renderRadarLayer / renderSatLayer / renderMrmsLayer below).
+  // Radar is a translucent/opaque raster layer, not vector-drawn — full
+  // retina sharpness buys nothing here, so it stays at 1x for a much
+  // faster per-pixel remap (see renderRadarLayer below).
   cvRadar.width = CW; cvRadar.height = CH;
-  cvSat.width = CW; cvSat.height = CH;
-  cvMrms.width = CW; cvMrms.height = CH;
   // Wind streamlines are vector-drawn, like cvData, but this is the one
   // continuously-animated layer on the map — every other toggle redraws
   // once and sits still. ~1400 particles redrawn every frame at retina
@@ -1148,15 +1129,12 @@ function currentWmsTime() {
   t.setUTCMinutes(t.getUTCMinutes() - (t.getUTCMinutes() % 5), 0, 0);
   return t.toISOString().split('.')[0] + 'Z';
 }
-// Shared by Radar and Satellite — both are plain lat/lon WMS rasters from
-// IEM that need the same per-pixel remap into this map's cos(lat)-adjusted
-// projection (exact inverse of makeProjection()). Pulled out so Satellite
-// doesn't duplicate the remap math; behavior for Radar (called without
-// offsiteColor) is unchanged from the original radar-only version. Falls
-// back to a plain stretch (mildly warped near the N/S edges) if
-// cross-origin pixel reads are blocked — that fallback can't chroma-key
-// (no pixel access by definition), so offsiteColor only takes effect on
-// the normal remap path.
+// Used by Radar — a plain lat/lon WMS raster from IEM that needs a
+// per-pixel remap into this map's cos(lat)-adjusted projection (exact
+// inverse of makeProjection()). Falls back to a plain stretch (mildly
+// warped near the N/S edges) if cross-origin pixel reads are blocked —
+// that fallback can't chroma-key (no pixel access by definition), so
+// offsiteColor only takes effect on the normal remap path.
 // offsiteColor: optional [r, g, b, tolerance] — source pixels within
 // Euclidean distance `tolerance` of [r,g,b] are written fully transparent
 // instead of copied. Confirmed against a real captured frame from this
@@ -1203,9 +1181,7 @@ function remapWmsImage(img, destCtx, offsiteColor) {
   } catch (e) {
     // Cross-origin pixel read blocked (or anything else went wrong with the
     // remap) — fall back to a plain stretch over the same bbox. Real data,
-    // just not perfectly aligned with the basemap near the N/S edges, and
-    // (for Satellite) the offsite fill color shows through solid since
-    // there's no pixel access here to chroma-key it out.
+    // just not perfectly aligned with the basemap near the N/S edges.
     destCtx.clearRect(0, 0, CW, CH);
     destCtx.drawImage(img, 0, 0, CW, CH);
   }
@@ -1222,92 +1198,6 @@ function renderRadarLayer() {
   img.onerror = () => {
     console.warn('Radar layer: failed to load image from IEM RadMap.');
     clearRadar();
-  };
-  img.src = url;
-}
-
-/* ═══════════════════════════════════════════════════
-   SATELLITE — GOES-East Channel 13 (10.3µm "Clean IR
-   Window"), pulled from IEM's WMS service — same provider
-   and same per-pixel remap as Radar above (see
-   remapWmsImage). Channel 13 is the standard day-and-night
-   satellite channel (works on the dark side of the planet,
-   unlike visible) and IEM color-enhances it by default, so
-   cold cloud tops actually stand out instead of rendering
-   as flat gray.
-   Unlike the radar endpoint, this one is documented as a
-   plain WMS (no "-t"/"Historical" qualifier IEM uses
-   elsewhere for time-travel-aware layers), so no TIME
-   parameter — omitting it here gets the latest processed
-   image rather than radar's stale-fixed-default gotcha,
-   though that's inferred from IEM's docs rather than
-   confirmed against a live response from this sandbox.
-   Other channels are the same endpoint with a different
-   LAYERS value (conus_ch02 visible, conus_ch09 water vapor)
-   if useful later — see IEM's OGC services page for the
-   full channel list.
-   This is a full-frame raster, not a mostly-transparent
-   overlay like radar — when it's on, it sits fairly opaque
-   over the basemap/stations/isolines on the canvas below it.
-   Hand-drawn fronts and labels stay visible since that
-   layer sits above this one. Own canvas, excluded from PNG
-   export the same way radar is.
-   ═══════════════════════════════════════════════════ */
-let showSat = false;
-function clearSat() { sctx.clearRect(0, 0, CW, CH); }
-function renderSatLayer() {
-  if (!showSat) { clearSat(); return; }
-  const url = `https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_east.cgi?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=conus_ch13&STYLES=&SRS=EPSG:4326&BBOX=${B.west},${B.south},${B.east},${B.north}&WIDTH=${CW}&HEIGHT=${CH}&FORMAT=image%2Fpng&TRANSPARENT=true&EXCEPTIONS=application/vnd.ogc.se_inimage&_=${Date.now()}`;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    if (!showSat) return; // toggled off again while this was loading
-    remapWmsImage(img, sctx, [102, 0, 255, 40]);
-  };
-  img.onerror = () => {
-    console.warn('Satellite layer: failed to load image from IEM GOES WMS.');
-    clearSat();
-  };
-  img.src = url;
-}
-
-/* ═══════════════════════════════════════════════════
-   MRMS PRECIPITATION ACCUMULATION — same IEM provider and
-   same per-pixel remap as Radar/Satellite above, different
-   product: NOAA's Multi-Radar Multi-Sensor (MRMS) Q3
-   precipitation estimate, radar-derived rainfall totals
-   rather than instantaneous reflectivity. IEM exposes four
-   accumulation windows as separate WMS layers on the same
-   endpoint — mrms_p1h / mrms_p24h / mrms_p48h / mrms_p72h —
-   selected here by `mrmsDuration` rather than by switching
-   URLs entirely. The "_nn" endpoint (vs. plain "mrms.cgi")
-   renders missing/zero data fully transparent instead of a
-   flat grey fill, which is what we want layered over the
-   basemap — a plain "mrms.cgi" pull would paint grey across
-   the whole bbox everywhere it isn't currently raining.
-   Like Satellite (and unlike Radar's "-t" endpoint), this is
-   documented as a plain, always-latest WMS — no TIME param,
-   no stale-fixed-default gotcha to work around.
-   Own canvas, same reasons as Radar/Satellite: excluded from
-   PNG export, sits below the vector station/isoline canvas
-   so turning this on dims the basemap without ever covering
-   the actual surface analysis.
-   ═══════════════════════════════════════════════════ */
-let showMrms = false;
-let mrmsDuration = '1h'; // '1h' | '24h' | '48h' | '72h'
-function clearMrms() { mctx.clearRect(0, 0, CW, CH); }
-function renderMrmsLayer() {
-  if (!showMrms) { clearMrms(); return; }
-  const url = `https://mesonet.agron.iastate.edu/cgi-bin/wms/us/mrms_nn.cgi?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=mrms_p${mrmsDuration}&STYLES=&SRS=EPSG:4326&BBOX=${B.west},${B.south},${B.east},${B.north}&WIDTH=${CW}&HEIGHT=${CH}&FORMAT=image%2Fpng&TRANSPARENT=true&EXCEPTIONS=application/vnd.ogc.se_inimage&_=${Date.now()}`;
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    if (!showMrms) return; // toggled off again while this was loading
-    remapWmsImage(img, mctx);
-  };
-  img.onerror = () => {
-    console.warn('MRMS precip layer: failed to load image from IEM WMS.');
-    clearMrms();
   };
   img.src = url;
 }
@@ -1330,9 +1220,9 @@ function renderMrmsLayer() {
    on tab doesn't burn CPU/battery for no visible benefit. Own
    canvas (cvWind), sized 1x — see the comment in
    applyCanvasSize() for why retina scale isn't worth it here.
-   Locally rendered (no external images), so unlike Radar/
-   Satellite/MRMS this one isn't excluded from PNG export —
-   flattenMap() below includes it as a frozen flow snapshot.
+   Locally rendered (no external images), so unlike Radar
+   this one isn't excluded from PNG export — flattenMap()
+   below includes it as a frozen flow snapshot.
    ═══════════════════════════════════════════════════ */
 let showWind = false;
 let windAnimId = null;
@@ -2604,8 +2494,6 @@ function updateProjection(newBbox) {
 
   // Clear raster overlays — they're keyed to the old geographic extent
   if (showRadar) clearRadar();
-  if (showSat) clearSat();
-  if (showMrms) clearMrms();
 
   updateZoomBadge();
 }
@@ -2894,10 +2782,10 @@ function geoNorthAmerica() {
 // needs no changes. cvBase carries only the static land/ocean fill and
 // coastline/border geometry — it's the bottom of the stack. Station
 // glyphs and the isobar/isotherm/isodrosotherm contour lines go on
-// cvData instead, which sits ABOVE the Radar/Satellite raster canvases
-// (see the DOM order in map-wrap) specifically so turning on a raster
-// layer dims the basemap underneath without ever hiding the actual
-// surface analysis — the thing the tool is built around — on top of it.
+// cvData instead, which sits ABOVE the Radar raster canvas (see the DOM
+// order in map-wrap) specifically so turning on a raster layer dims the
+// basemap underneath without ever hiding the actual surface analysis —
+// the thing the tool is built around — on top of it.
 function renderBaseLayer() {
   bctx.save();
   MAP.renderBase(bctx, geoNorthAmerica(), project, dims);
@@ -3654,25 +3542,6 @@ document.getElementById('radarBtn').addEventListener('click', e => {
   e.currentTarget.classList.toggle('active', showRadar);
   renderRadarLayer();
 });
-document.getElementById('satBtn').addEventListener('click', e => {
-  showSat = !showSat;
-  e.currentTarget.classList.toggle('active', showSat);
-  renderSatLayer();
-});
-document.getElementById('mrmsBtn').addEventListener('click', e => {
-  showMrms = !showMrms;
-  e.currentTarget.classList.toggle('active', showMrms);
-  renderMrmsLayer();
-});
-document.querySelectorAll('#mrmsDurationToggle button').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const duration = btn.dataset.duration;
-    if (duration === mrmsDuration) return;
-    mrmsDuration = duration;
-    document.querySelectorAll('#mrmsDurationToggle button').forEach(b => b.classList.toggle('active', b === btn));
-    renderMrmsLayer();
-  });
-});
 document.getElementById('isobarBtn').addEventListener('click', e => {
   showIsobar = !showIsobar;
   e.currentTarget.classList.toggle('active', showIsobar);
@@ -3717,9 +3586,9 @@ function flattenMap() {
   off.width = CW; off.height = CH;
   const octx = off.getContext('2d');
   octx.drawImage(cvBase, 0, 0, CW, CH);
-  // Locally rendered, not an external image like radar/satellite/MRMS, so
-  // no CORS-taint concern excluding it from export — included as a frozen
-  // snapshot of whatever flow state the animation happened to be in.
+  // Locally rendered, not an external image like radar, so no CORS-taint
+  // concern excluding it from export — included as a frozen snapshot of
+  // whatever flow state the animation happened to be in.
   if (showWind) octx.drawImage(cvWind, 0, 0, CW, CH);
   octx.drawImage(cvData, 0, 0, CW, CH);
   octx.drawImage(cvDraw, 0, 0, CW, CH);
@@ -3751,8 +3620,6 @@ function downloadPNG() {
   if (showIsodroso)  layerParts.push('Isodrosotherms · 5°F');
   if (showWind)      layerParts.push('Wind Streamlines');
   if (showRadar)     layerParts.push('Radar');
-  if (showSat)       layerParts.push('Satellite IR');
-  if (showMrms)      layerParts.push(`Precip (MRMS) · ${mrmsDuration}`);
   const layerStr = layerParts.length ? layerParts.join('  ·  ') : 'No analysis layers active';
 
   let y = pad;
