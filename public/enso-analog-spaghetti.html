@@ -171,7 +171,7 @@
   </div>
   <div class="cc-stat-chip">
     <span class="cc-stat-label">Record La Niña</span>
-    <span class="cc-stat-value" style="color:var(--ln-mod)" id="cLNrec">—</span>
+    <span class="cc-stat-value" style="color:var(--ln-strong)" id="cLNrec">—</span>
     <span class="chip-sub" id="cLNrecYr">—</span>
   </div>
   <div class="cc-stat-chip">
@@ -266,19 +266,33 @@ const TIERS = {
   ],
 };
 
-// Notable events that get labels in the panel
-const HEADLINES = {
+// Notable events that get labels in the panel.
+// Split by type: the labelYr/isHeadline logic in detect() must only "borrow"
+// a curated year from an ADJACENT event of the SAME type. A single merged
+// year->label lookup previously let an uncurated event steal the label of
+// the following year's curated event of the OPPOSITE type whenever the two
+// happened to be consecutive — e.g. the real 2023-24 El Niño (uncurated,
+// y0=2023) was mislabeled "2024-25 El Niño" by borrowing 2024's curated
+// La Niña entry. Splitting by type closes that hole while preserving the
+// legitimate cases this mechanism exists for (e.g. the 2015-16 Super El
+// Niño, whose true onset window computes to y0=2014, correctly relabels to
+// "2015-16" because 2015 is curated in the El Niño set specifically).
+const HEADLINES_ELNINO = {
   1877:'1877–78', 1888:'1888–89', 1899:'1899–00', 1902:'1902–03',
   1905:'1905–06', 1911:'1911–12', 1918:'1918–19', 1925:'1925–26',
   1930:'1930–31', 1957:'1957–58', 1965:'1965–66', 1972:'1972–73',
   1982:'1982–83', 1991:'1991–92', 1997:'1997–98', 2009:'2009–10',
-  2015:'2015–16',
-  // La Niña
+  2015:'2015–16', 2023:'2023–24',
+};
+const HEADLINES_LANINA = {
   1889:'1889–90', 1916:'1916–17', 1954:'1954–55', 1964:'1964–65',
   1973:'1973–74', 1975:'1975–76', 1988:'1988–89', 1998:'1998–99',
   1999:'1999–00', 2007:'2007–08', 2010:'2010–11', 2020:'2020–21',
   2024:'2024–25',
 };
+// Combined lookup — only used where type doesn't matter (enumerating every
+// curated year to check for supplementary/standalone events).
+const HEADLINES = { ...HEADLINES_ELNINO, ...HEADLINES_LANINA };
 
 const XLABELS = [...MO, ...MO];  // 24-month x-axis labels
 
@@ -432,25 +446,25 @@ function detect(raw, oni, years) {
     if (maxV >= 0.5 && maxV > Math.abs(minV) && prevDecONI < 0.5) {
       // El Niño
       const peakIdx = findPeakIdx(oS, 'elnino');
-      const labelYr = (HEADLINES[y1] && !HEADLINES[y0]) ? y1 : y0;
+      const labelYr = (HEADLINES_ELNINO[y1] && !HEADLINES_ELNINO[y0]) ? y1 : y0;
       events.push({
         year: y0, type: 'elnino', peak: +maxFull.toFixed(2), peakIdx,
         tier: getTier(maxFull, 'elnino'),
         oniSeries: oS, rawSeries: rS,
         label: `${labelYr}–${String(labelYr + 1).slice(2)} El Niño`,
-        isHeadline: !!(HEADLINES[y0] || HEADLINES[y1]),
+        isHeadline: !!(HEADLINES_ELNINO[y0] || HEADLINES_ELNINO[y1]),
       });
     } else if (Math.abs(minV) >= 0.5 && Math.abs(minV) > maxV && prevDecONI > -0.5) {
       // La Niña
       const pk = +Math.max(Math.abs(minFull), Math.abs(minV)).toFixed(2);
       const peakIdx = findPeakIdx(oS, 'lanina');
-      const labelYr = (HEADLINES[y1] && !HEADLINES[y0]) ? y1 : y0;
+      const labelYr = (HEADLINES_LANINA[y1] && !HEADLINES_LANINA[y0]) ? y1 : y0;
       events.push({
         year: y0, type: 'lanina', peak: pk, peakIdx,
         tier: getTier(pk, 'lanina'),
         oniSeries: oS, rawSeries: rS,
         label: `${labelYr}–${String(labelYr + 1).slice(2)} La Niña`,
-        isHeadline: !!(HEADLINES[y0] || HEADLINES[y1]),
+        isHeadline: !!(HEADLINES_LANINA[y0] || HEADLINES_LANINA[y1]),
       });
     }
   }
