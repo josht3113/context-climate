@@ -144,6 +144,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
+        title:       'Spectral Fingerprint Lab',
+        description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that doesn\'t depend on brightness or color. Toggle between a continuous source, a cool gas cloud, and glowing gas alone to see absorption and emission lines emerge for hydrogen, helium, carbon, nitrogen, oxygen, and silicon, matched to the ESRT\'s own emission spectra chart.',
+        footerTags:  ['Emission Spectra', 'Absorption Spectra', 'Stellar Composition', 'Astronomy'],
+        to:          '/earthandspace/spectral-fingerprint-lab',
+        thumb:       '/SpectralFingerprintLab_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
         title:       'The H-R Diagram',
         description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is the most powerful tool in stellar astronomy — locate the main sequence, giants, supergiants, and white dwarfs, and read a star\'s size, color, and fate from its position alone.',
