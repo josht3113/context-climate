@@ -77,6 +77,7 @@ import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
 import SeaIceHeatmap               from './pages/SeaIceHeatmap'
 import JetStream                   from './pages/JetStream'
+import SpectralFingerprintLab      from './pages/SpectralFingerprintLab'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -180,6 +181,7 @@ export default function App() {
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
           <Route path="/seaice-heatmap"                            element={<SeaIceHeatmap />}             />
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
+          <Route path="/earthandspace/spectral-fingerprint-lab"    element={<SpectralFingerprintLab />}    />
         </Routes>
       </main>
       <footer style={{
