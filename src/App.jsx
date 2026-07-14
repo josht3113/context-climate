@@ -80,6 +80,7 @@ import JetStream                   from './pages/JetStream'
 import SpectralFingerprintLab      from './pages/SpectralFingerprintLab'
 import DopplerShiftExplorer        from './pages/DopplerShiftExplorer'
 import HubblesLawExplorer          from './pages/HubblesLawExplorer'
+import MoonPhaseSimulator          from './pages/MoonPhaseSimulator'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -178,6 +179,7 @@ export default function App() {
           <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
           <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
           <Route path="/earthandspace/tidal-rhythm"                element={<TidalRhythm />}               />
+          <Route path="/earthandspace/moon-phase-simulator"        element={<MoonPhaseSimulator />}        />
           <Route path="/earthandspace/suns-path"                   element={<SunsPath />}                  />
           <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
