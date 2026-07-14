@@ -79,6 +79,7 @@ import SeaIceHeatmap               from './pages/SeaIceHeatmap'
 import JetStream                   from './pages/JetStream'
 import SpectralFingerprintLab      from './pages/SpectralFingerprintLab'
 import DopplerShiftExplorer        from './pages/DopplerShiftExplorer'
+import HubblesLawExplorer          from './pages/HubblesLawExplorer'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -184,6 +185,7 @@ export default function App() {
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
           <Route path="/earthandspace/spectral-fingerprint-lab"    element={<SpectralFingerprintLab />}    />
           <Route path="/earthandspace/doppler-shift-explorer"      element={<DopplerShiftExplorer />}      />
+          <Route path="/earthandspace/hubbles-law-explorer"        element={<HubblesLawExplorer />}        />
         </Routes>
       </main>
       <footer style={{
