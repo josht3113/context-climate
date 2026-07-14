@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="core-sample-tools.css">
+<title>Lunar Phase Simulator — ContextClimate</title>
+<style>
+  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css */
+  :root { --tool-accent: var(--accent-earth); } /* Earth & Space section */
+
+  body { display: flex; flex-direction: column; align-items: center; }
+
+  header { max-width: 860px; width: 100%; text-align: center; margin-bottom: 4px; }
+  .cc-eyebrow { margin-bottom: 10px; }
+  .cc-title { margin-bottom: 10px; }
+  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  .layout-grid {
+    width: 100%; max-width: 1080px; margin-top: 28px;
+    display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 16px; align-items: start;
+  }
+  @media (max-width: 900px){ .layout-grid{ grid-template-columns: 1fr; } }
+  .leftcol, .rightcol { display: flex; flex-direction: column; gap: 16px; }
+
+  .panel-label {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin: 0 0 14px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  .panel-label .hint {
+    text-transform: none; letter-spacing: 0; font-size: 13px; font-family: var(--font-body);
+  }
+
+  #orbitCanvas, #phaseCanvas, #horizonCanvas { width: 100%; height: auto; }
+  #orbitCanvas { cursor: grab; }
+  #orbitCanvas.dragging { cursor: grabbing; }
+
+  .helpToggle {
+    width: 24px; height: 24px; padding: 0; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  .phase-status {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    margin: 16px 0 14px;
+  }
+  .phase-status .cc-stat-value { font-size: 26px; }
+  .phase-status .cc-stat-note { font-size: 15px; }
+
+  .readout-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 4px;
+  }
+  .readout-chip {
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 11px 12px;
+    text-align: center;
+  }
+  .readout-chip-label {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 7px;
+  }
+  .readout-chip-value {
+    font-family: var(--font-display); font-weight: 700; font-size: 20px;
+    color: var(--color-text-primary);
+  }
+
+  .simplified-note {
+    margin: 16px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--color-text-muted);
+    font-style: italic; border-top: 1px solid var(--color-border); padding-top: 12px;
+  }
+
+  .controls-row {
+    display: flex; flex-direction: column; gap: 18px; align-items: stretch;
+  }
+  .ctrl-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .ctrl-group.stack { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .ctrl-group .plain {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--color-text-muted); white-space: nowrap;
+  }
+
+  input[type=range] { accent-color: var(--tool-accent); width: 150px; }
+
+  .speed-readout {
+    font-family: var(--font-mono); font-size: 15px; font-weight: 600;
+    color: var(--color-text-primary); min-width: 100px;
+  }
+
+  .toggle {
+    display: flex; align-items: center; gap: 8px; font-family: var(--font-body);
+    font-size: 15px; color: var(--color-text-secondary); cursor: pointer; user-select: none;
+  }
+  .toggle input { accent-color: var(--tool-accent); width: 17px; height: 17px; cursor: pointer; }
+
+  .dateBadge {
+    font-family: var(--font-mono); font-size: 15px; color: var(--color-text-primary);
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    padding: 8px 16px; border-radius: var(--radius-md);
+  }
+  .dateBadge b { color: var(--tool-accent); font-weight: 700; }
+
+  .source-note {
+    margin-top: 24px; font-size: 13.5px; color: var(--color-text-muted);
+    text-align: center; font-style: italic; max-width: 640px; line-height: 1.6;
+  }
+
+  #helpPanel {
+    display: none; position: fixed; inset: 0; background: rgba(10,12,10,0.78);
+    z-index: 50; align-items: center; justify-content: center; padding: 20px;
+  }
+  #helpPanel.open { display: flex; }
+  .helpBox {
+    max-width: 580px; background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); padding: 28px 30px; max-height: 80vh; overflow: auto;
+  }
+  .helpBox h3 {
+    margin: 0 0 14px; font-family: var(--font-display); font-weight: 700;
+    font-size: 22px; color: var(--tool-accent);
+  }
+  .helpBox p { font-size: 15px; line-height: 1.6; color: var(--color-text-secondary); }
+  .helpBox ul { font-size: 15px; line-height: 1.65; color: var(--color-text-secondary); padding-left: 20px; }
+  .helpBox li { margin-bottom: 8px; }
+
+  @media (max-width: 640px) {
+    .ctrl-group { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <p class="cc-eyebrow">Earth &amp; Space · Orbital Mechanics</p>
+    <h1 class="cc-title">🌙 Lunar Phase Simulator</h1>
+    <p class="cc-subtitle">Drag the Moon around its orbit — or spin Earth to change the time of day — and watch how position translates into phase, and into where the Moon sits in the sky.</p>
+  </header>
+
+  <div class="layout-grid">
+    <div class="leftcol">
+      <div class="cc-panel">
+        <p class="panel-label">Orbit View <span class="hint">drag Moon or Earth</span></p>
+        <canvas id="orbitCanvas" class="cc-canvas-frame" width="620" height="560"></canvas>
+        <div class="cc-legend-row" style="margin-top:14px;">
+          <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:#ffd27a"></span>Sun</span>
+          <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:#3aa0ff"></span>Earth</span>
+          <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:#e8e4d8"></span>Moon</span>
+          <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:#ff6b6b"></span>Observer / landmark</span>
+        </div>
+      </div>
+
+      <div class="cc-panel">
+        <p class="panel-label">Controls</p>
+        <div class="controls-row">
+          <div class="ctrl-group">
+            <button class="cc-btn primary" id="playBtn">▶ Play</button>
+            <button class="cc-btn" id="resetBtn">↺ Reset</button>
+            <button class="cc-btn" id="todayBtn">🌍 Sync to Today</button>
+          </div>
+
+          <div class="ctrl-group">
+            <label class="plain" for="speed">Speed</label>
+            <input type="range" id="speed" min="0.1" max="7" step="0.1" value="0.5">
+            <span class="speed-readout" id="speedVal">0.5 days/sec</span>
+          </div>
+
+          <div class="ctrl-group dateBadge">
+            🗓️ <b id="simDate">Day 0</b>
+          </div>
+
+          <div class="ctrl-group stack">
+            <label class="toggle"><input type="checkbox" id="chkAngle" checked> Show elongation angle</label>
+            <label class="toggle"><input type="checkbox" id="chkLandmark"> Show lunar landmark</label>
+            <label class="toggle"><input type="checkbox" id="chkNames" checked> Show labels</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rightcol">
+      <div class="cc-panel">
+        <p class="panel-label">Moon Phase — view from Earth <button class="cc-btn cc-btn-sm helpToggle" id="helpOpen">?</button></p>
+        <canvas id="phaseCanvas" class="cc-canvas-frame" width="420" height="300"></canvas>
+        <div class="phase-status">
+          <div class="cc-stat-value" id="phaseName">New Moon</div>
+          <div class="cc-stat-note" id="phaseSub">0% illuminated</div>
+        </div>
+        <div class="readout-grid">
+          <div class="readout-chip">
+            <div class="readout-chip-label">Days since new</div>
+            <div class="readout-chip-value" id="ageVal">0.0</div>
+          </div>
+          <div class="readout-chip">
+            <div class="readout-chip-label">Elongation</div>
+            <div class="readout-chip-value" id="elongVal">0°</div>
+          </div>
+          <div class="readout-chip">
+            <div class="readout-chip-label">Illumination</div>
+            <div class="readout-chip-value" id="illumVal">0%</div>
+          </div>
+          <div class="readout-chip">
+            <div class="readout-chip-label">Orbital position</div>
+            <div class="readout-chip-value" id="orbitVal">0°</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-panel">
+        <p class="panel-label">Horizon Diagram <span class="hint">observer looking south</span></p>
+        <canvas id="horizonCanvas" class="cc-canvas-frame" width="420" height="260"></canvas>
+        <div class="readout-grid">
+          <div class="readout-chip">
+            <div class="readout-chip-label">Local time</div>
+            <div class="readout-chip-value" id="timeVal">12:00</div>
+          </div>
+          <div class="readout-chip">
+            <div class="readout-chip-label">Moon altitude</div>
+            <div class="readout-chip-value" id="moonAltVal">—</div>
+          </div>
+        </div>
+        <p class="simplified-note">Simplified model: assumes a fixed, non-tilted orbit passing through the zenith. In reality, both the Sun's and the Moon's maximum altitude shift with the seasons.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="source-note">Simplified 2D geometric model for educational use — assumes a circular orbit and equatorial, non-tilted illumination. Built as an original simulator inspired by CCNMTL's Lunar Phase Simulator.</p>
+
+  <div id="helpPanel">
+    <div class="helpBox">
+      <h3>How to use this simulator</h3>
+      <p>The <b>Orbit View</b> shows Earth, the Sun's direction, and the Moon's orbit from above. Drag the Moon around its orbit to change the phase, or drag Earth to spin it and change the observer's local time.</p>
+      <ul>
+        <li><b>Moon Phase panel</b> shows exactly how the Moon looks from Earth right now, rendered from the real Sun–Earth–Moon angle.</li>
+        <li><b>Horizon Diagram</b> shows the Sun and Moon's position in the sky for an observer facing south, based on the current local time.</li>
+        <li><b>Elongation angle</b> is the angle between the Sun and Moon as seen from Earth — 0° at new moon, 180° at full moon.</li>
+        <li><b>Lunar landmark</b> shows a fixed point on the Moon's surface that always faces Earth, demonstrating tidal locking.</li>
+        <li><b>Sync to Today</b> calculates the real Moon phase and approximate local time for right now, using your device's clock.</li>
+      </ul>
+      <button class="cc-btn primary" id="helpClose" style="margin-top:10px;">Close</button>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- State ---------- */
+  var TWO_PI = Math.PI*2;
+  var SYNODIC_MONTH = 29.530588853; // days
+
+  var state = {
+    theta: 0,             // moon's orbital angle (rad), 0 = new moon
+    earthRotation: Math.PI/2, // 0..2PI; PI/2 = noon (see localHourAngle)
+    playing: false,
+    speed: 0.5,            // simulated days per real second
+    showAngle: true,
+    showLandmark: false,
+    showNames: true,
+    simDay: 0
+  };
+
+  /* ---------- Helpers: phase math ---------- */
+  function illumFraction(theta){
+    return (1 - Math.cos(theta)) / 2;
+  }
+
+  // Build the polygon points for the illuminated silhouette of a sphere
+  // viewed from Earth, given orbital angle theta (0=new, PI=full).
+  function moonSilhouette(cx, cy, r, theta, steps){
+    steps = steps || 40;
+    var waning = theta > Math.PI;
+    var thetaW = waning ? (TWO_PI - theta) : theta; // folded into [0,PI]
+    var rx = r * Math.cos(thetaW);
+    var pts = [];
+    var i, a, y, x, t;
+    // limb: right semicircle, top -> right -> bottom
+    for(i=0;i<=steps;i++){
+      t = i/steps;
+      a = -Math.PI/2 + t*Math.PI; // -90deg to 90deg
+      pts.push([cx + r*Math.cos(a), cy + r*Math.sin(a)]);
+    }
+    // terminator: bottom -> top
+    for(i=0;i<=steps;i++){
+      t = i/steps;
+      y = (cy + r) - t*(2*r);
+      var frac = (y-cy)/r;
+      var s = Math.sqrt(Math.max(0, 1 - frac*frac));
+      x = cx + rx*s;
+      pts.push([x, y]);
+    }
+    if(waning){
+      for(i=0;i<pts.length;i++){ pts[i][0] = 2*cx - pts[i][0]; }
+    }
+    return pts;
+  }
+
+  function phaseName(theta){
+    var deg = (theta*180/Math.PI) % 360;
+    if(deg < 0) deg += 360;
+    var names = ["New Moon","Waxing Crescent","First Quarter","Waxing Gibbous",
+                 "Full Moon","Waning Gibbous","Last Quarter","Waning Crescent"];
+    var idx = Math.round(deg/45) % 8;
+    return names[idx];
+  }
+
+  /* ---------- Canvas setup (HiDPI) ---------- */
+  var orbitCanvas = document.getElementById("orbitCanvas");
+  var phaseCanvas = document.getElementById("phaseCanvas");
+  var horizonCanvas = document.getElementById("horizonCanvas");
+
+  function getCtx(canvas){
+    var ratio = window.devicePixelRatio || 1;
+    var w = parseInt(canvas.getAttribute("width"),10);
+    var h = parseInt(canvas.getAttribute("height"),10);
+    if(canvas._ratio !== ratio){
+      canvas._ratio = ratio;
+      canvas.width = w*ratio; canvas.height = h*ratio;
+      var ctx0 = canvas.getContext("2d");
+      ctx0.setTransform(ratio,0,0,ratio,0,0);
+    }
+    var ctx = canvas.getContext("2d");
+    return ctx;
+  }
+
+  var LABEL_FONT = "13px 'Public Sans', sans-serif";
+  var LABEL_FONT_SM = "12px 'Public Sans', sans-serif";
+  var DEG_FONT = "700 14px 'Zilla Slab', serif";
+
+  /* ---------- Orbit diagram ---------- */
+  var orbitW = 620, orbitH = 560;
+  var ocx = orbitW/2, ocy = orbitH/2 + 10;
+  var orbitR = 190;
+  var earthR = 34;
+  var moonIconR = 15;
+  var sunPos = {x: 60, y: ocy};
+
+  function moonPos(theta){
+    var angle = Math.PI + theta; // counterclockwise orbit
+    return {
+      x: ocx + orbitR*Math.cos(angle),
+      y: ocy - orbitR*Math.sin(angle)
+    };
+  }
+
+  function drawSun(ctx, x, y, r){
+    var grad = ctx.createRadialGradient(x,y,0,x,y,r*2.2);
+    grad.addColorStop(0,"rgba(255,220,150,0.9)");
+    grad.addColorStop(1,"rgba(255,220,150,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(x,y,r*2.2,0,TWO_PI); ctx.fill();
+
+    var g2 = ctx.createRadialGradient(x-r*0.3,y-r*0.3,1,x,y,r);
+    g2.addColorStop(0,"#fff6d8");
+    g2.addColorStop(1,"#ffb74a");
+    ctx.fillStyle = g2;
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.fill();
+  }
+
+  function drawEarth(ctx, x, y, r, rotation){
+    ctx.save();
+    // ocean base
+    var g = ctx.createRadialGradient(x-r*0.35,y-r*0.35,r*0.1,x,y,r);
+    g.addColorStop(0,"#7fd0ff");
+    g.addColorStop(0.55,"#2f8fe0");
+    g.addColorStop(1,"#124a8f");
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.fillStyle = g; ctx.fill();
+
+    // simple rotating continents
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip();
+    ctx.translate(x,y); ctx.rotate(-rotation*0.3); // counterclockwise spin
+    ctx.fillStyle = "rgba(70,170,90,0.9)";
+    var blobs = [[-0.5,-0.3,0.55],[0.35,-0.1,0.4],[0.05,0.45,0.5],[-0.35,0.4,0.3],[0.55,0.35,0.28]];
+    for(var i=0;i<blobs.length;i++){
+      ctx.beginPath();
+      ctx.ellipse(blobs[i][0]*r, blobs[i][1]*r, blobs[i][2]*r*0.6, blobs[i][2]*r*0.42, blobs[i][0], 0, TWO_PI);
+      ctx.fill();
+    }
+    ctx.translate(-x,-y);
+    ctx.restore();
+
+    // night side shading: dark half faces AWAY from sun (sun is to the left)
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip();
+    ctx.beginPath();
+    ctx.arc(x,y,r,-Math.PI/2,Math.PI/2,false); // right half = away from sun
+    ctx.closePath();
+    var ng = ctx.createLinearGradient(x-r*0.2,y,x+r,y);
+    ng.addColorStop(0,"rgba(2,4,20,0.15)");
+    ng.addColorStop(1,"rgba(2,4,20,0.78)");
+    ctx.fillStyle = ng;
+    ctx.fill();
+
+    // rim light
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI);
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(150,200,255,0.5)"; ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawObserver(ctx, cx, cy, r, rotation, showLabel){
+    var angle = -rotation; // counterclockwise spin, matches drawEarth
+    var px = cx + (r+3)*Math.cos(angle - Math.PI/2);
+    var py = cy + (r+3)*Math.sin(angle - Math.PI/2);
+    // local hour angle: 0 = noon (facing sun which is to the left, angle=PI on screen)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px,py,4.2,0,TWO_PI);
+    ctx.fillStyle = "#ff6b6b";
+    ctx.shadowColor = "#ff6b6b"; ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.restore();
+    if(showLabel){
+      ctx.save();
+      ctx.font = LABEL_FONT_SM;
+      ctx.fillStyle = "#ffb3b3";
+      ctx.textAlign = px > cx ? "left" : "right";
+      ctx.fillText("You", px + (px>cx?7:-7), py+4);
+      ctx.restore();
+    }
+    return angle;
+  }
+
+  function localHourAngle(rotation){
+    // Must increase as rotation (time) increases, so the Sun/Moon sweep
+    // E -> zenith -> W in the horizon diagram as the animation plays.
+    // With drawObserver's angle = -rotation, the marker sits at its
+    // sun-facing (noon) point when rotation = PI/2, so hour angle is
+    // simply (rotation - PI/2), wrapped to [-PI, PI].
+    var h = rotation - Math.PI/2;
+    while(h > Math.PI) h -= TWO_PI;
+    while(h < -Math.PI) h += TWO_PI;
+    return h;
+  }
+
+  function drawDashedOrbit(ctx){
+    ctx.save();
+    ctx.setLineDash([5,7]);
+    ctx.strokeStyle = "rgba(150,170,255,0.35)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(ocx,ocy,orbitR,0,TWO_PI);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSmallMoonIcon(ctx, x, y, r, theta, landmark){
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI);
+    ctx.fillStyle = "#23232f"; ctx.fill();
+    var pts = moonSilhouette(x,y,r,theta,26);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(var i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+    var lg = ctx.createRadialGradient(x-r*0.3,y-r*0.3,1,x,y,r);
+    lg.addColorStop(0,"#fffdf3");
+    lg.addColorStop(1,"#cfc9b4");
+    ctx.fillStyle = lg;
+    ctx.fill();
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI);
+    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.stroke();
+
+    if(landmark){
+      // point always facing Earth = point on icon nearest to Earth center
+      var dx = ocx-x, dy = ocy-y, d = Math.sqrt(dx*dx+dy*dy);
+      var lx = x + dx/d*r*0.55, ly = y + dy/d*r*0.55;
+      ctx.beginPath(); ctx.arc(lx,ly,2.6,0,TWO_PI);
+      ctx.fillStyle = "#ff6b6b"; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Top-down orbit view: the Moon (like Earth) is always lit on the half
+  // facing the Sun, regardless of where it sits in its orbit. Phases only
+  // appear from Earth's point of view — that's what the Phase panel is for.
+  function drawMoonSunlit(ctx, x, y, r, landmark, ex, ey){
+    ctx.save();
+    var lg = ctx.createRadialGradient(x-r*0.35,y-r*0.35,1,x,y,r);
+    lg.addColorStop(0,"#fffdf3");
+    lg.addColorStop(1,"#cfc9b4");
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.fillStyle = lg; ctx.fill();
+
+    // dark hemisphere always faces away from the Sun (Sun is fixed to the left)
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI); ctx.clip();
+    ctx.beginPath();
+    ctx.arc(x,y,r,-Math.PI/2,Math.PI/2,false); // right half = far side from sun
+    ctx.closePath();
+    var dg = ctx.createLinearGradient(x-r*0.1,y,x+r,y);
+    dg.addColorStop(0,"rgba(20,18,26,0.2)");
+    dg.addColorStop(1,"rgba(14,13,20,0.88)");
+    ctx.fillStyle = dg; ctx.fill();
+    ctx.restore();
+
+    ctx.beginPath(); ctx.arc(x,y,r,0,TWO_PI);
+    ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.stroke();
+
+    if(landmark){
+      // the same physical point on the Moon always points at Earth (tidal locking)
+      var dx = ex-x, dy = ey-y, d = Math.sqrt(dx*dx+dy*dy) || 1;
+      var lx = x + dx/d*r*0.55, ly = y + dy/d*r*0.55;
+      var ex2 = ex - dx/d*earthR, ey2 = ey - dy/d*earthR;
+      ctx.save();
+      ctx.setLineDash([2,3]);
+      ctx.strokeStyle = "rgba(255,107,107,0.4)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(ex2,ey2); ctx.stroke();
+      ctx.restore();
+
+      ctx.beginPath(); ctx.arc(lx,ly,2.8,0,TWO_PI);
+      ctx.fillStyle = "#ff6b6b"; ctx.shadowColor = "#ff6b6b"; ctx.shadowBlur = 8; ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  }
+
+  function drawElongationArc(ctx, theta){
+    var r1 = 46;
+    var sunAngle = Math.PI; // sun direction from earth (screen angle, points left)
+    var moonAngle = Math.PI + theta; // matches moonPos's counterclockwise orbit
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,210,122,0.85)";
+    ctx.fillStyle = "rgba(255,210,122,0.85)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    // arc between sunAngle and moonAngle (screen convention: y flipped, use -angle)
+    var a0 = -sunAngle, a1 = -moonAngle;
+    ctx.arc(ocx,ocy,r1,a0,a1, theta>Math.PI);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(ocx,ocy); ctx.lineTo(ocx + (orbitR-10)*Math.cos(sunAngle), ocy - (orbitR-10)*Math.sin(sunAngle));
+    ctx.setLineDash([3,4]);
+    ctx.strokeStyle = "rgba(255,210,122,0.35)";
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var deg = Math.round(theta*180/Math.PI);
+    var lx = ocx + (r1+16)*Math.cos((a0+a1)/2);
+    var ly = ocy + (r1+16)*Math.sin((a0+a1)/2);
+    ctx.font = DEG_FONT;
+    ctx.textAlign = "center";
+    ctx.fillText(deg+"°", lx, ly);
+    ctx.restore();
+  }
+
+  function drawOrbit(){
+    var ctx = getCtx(orbitCanvas);
+    ctx.clearRect(0,0,orbitW,orbitH);
+
+    drawDashedOrbit(ctx);
+
+    drawSun(ctx, sunPos.x, sunPos.y, 30);
+    if(state.showNames){
+      ctx.fillStyle="#ffd27a"; ctx.font=LABEL_FONT; ctx.textAlign="center";
+      ctx.fillText("Sunlight →", sunPos.x, sunPos.y+48);
+    }
+
+    drawEarth(ctx, ocx, ocy, earthR, state.earthRotation);
+    drawObserver(ctx, ocx, ocy, earthR, state.earthRotation, state.showNames);
+    if(state.showNames){
+      ctx.fillStyle="#bcd3ff"; ctx.font=LABEL_FONT; ctx.textAlign="center";
+      ctx.fillText("Earth", ocx, ocy+earthR+18);
+    }
+
+    var mp = moonPos(state.theta);
+    if(state.showAngle) drawElongationArc(ctx, state.theta);
+    drawMoonSunlit(ctx, mp.x, mp.y, moonIconR, state.showLandmark, ocx, ocy);
+    if(state.showNames){
+      ctx.fillStyle="#e8e4d8"; ctx.font=LABEL_FONT; ctx.textAlign="center";
+      ctx.fillText("Moon", mp.x, mp.y-moonIconR-8);
+    }
+  }
+
+  /* ---------- Phase panel ---------- */
+  var phaseW = 420, phaseH = 300;
+
+  function drawPhasePanel(){
+    var ctx = getCtx(phaseCanvas);
+    ctx.clearRect(0,0,phaseW,phaseH);
+    var cx = phaseW/2, cy = phaseH/2, r = 100;
+
+    // soft glow
+    var glow = ctx.createRadialGradient(cx,cy,r*0.7,cx,cy,r*1.6);
+    glow.addColorStop(0,"rgba(230,225,200,0.14)");
+    glow.addColorStop(1,"rgba(230,225,200,0)");
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(cx,cy,r*1.6,0,TWO_PI); ctx.fill();
+
+    // dark base with subtle craters
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,TWO_PI);
+    var dg = ctx.createRadialGradient(cx-r*0.3,cy-r*0.3,1,cx,cy,r);
+    dg.addColorStop(0,"#2b2b38"); dg.addColorStop(1,"#131318");
+    ctx.fillStyle = dg; ctx.fill();
+
+    var pts = moonSilhouette(cx,cy,r,state.theta,64);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0],pts[0][1]);
+    for(var i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+    ctx.closePath();
+    ctx.clip();
+
+    var lg = ctx.createRadialGradient(cx-r*0.35,cy-r*0.35,2,cx,cy,r*1.05);
+    lg.addColorStop(0,"#fffdf6");
+    lg.addColorStop(0.6,"#eee6cf");
+    lg.addColorStop(1,"#c9c0a3");
+    ctx.fillStyle = lg;
+    ctx.fillRect(cx-r,cy-r,2*r,2*r);
+
+    // craters (deterministic pseudo-random)
+    var seed = 42;
+    function rnd(){ seed = (seed*9301+49297) % 233280; return seed/233280; }
+    ctx.globalAlpha = 0.18;
+    for(var c=0;c<26;c++){
+      var ang = rnd()*TWO_PI, dist = rnd()*r*0.92;
+      var cx2 = cx+Math.cos(ang)*dist, cy2 = cy+Math.sin(ang)*dist;
+      var cr = 3+rnd()*9;
+      ctx.beginPath(); ctx.arc(cx2,cy2,cr,0,TWO_PI);
+      ctx.fillStyle = "#a89f88"; ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // outline
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,TWO_PI);
+    ctx.lineWidth=1.2; ctx.strokeStyle="rgba(255,255,255,0.18)"; ctx.stroke();
+
+    if(state.showLandmark){
+      ctx.beginPath(); ctx.arc(cx,cy,3.2,0,TWO_PI);
+      ctx.fillStyle="#ff6b6b"; ctx.shadowColor="#ff6b6b"; ctx.shadowBlur=10; ctx.fill();
+      ctx.shadowBlur=0;
+    }
+  }
+
+  /* ---------- Horizon diagram: sky dome ---------- */
+  // A true dome (semicircle) view of the sky along the observer's meridian:
+  // horizon at the base, zenith at the top apex, E on the left, W on the right.
+  // Simplified model: objects rise due E, transit through the zenith, set due W.
+  var hW = 420, hH = 260;
+  var domeCx = hW/2, domeCy = hH-52;
+  var domeR = Math.min(hW/2-34, domeCy-26);
+
+  function domePos(hourAngle){
+    // hourAngle in radians: 0 = transit (south/zenith), -PI/2 = rise (E), +PI/2 = set (W)
+    var above = Math.abs(hourAngle) <= Math.PI/2;
+    var phi = above ? (hourAngle + Math.PI/2) : (hourAngle > 0 ? Math.PI : 0);
+    var x = domeCx - domeR*Math.cos(phi);
+    var y = domeCy - domeR*Math.sin(phi);
+    var altitudeDeg = 90 - Math.abs(hourAngle)*180/Math.PI;
+    if(!above){
+      var belowDeg = Math.abs(hourAngle)*180/Math.PI - 90;
+      var depth = Math.min(belowDeg/90,1) * 24;
+      y = domeCy + 8 + depth;
+    }
+    return {x:x, y:y, altitudeDeg:altitudeDeg, above:above};
+  }
+
+  function drawStickFigure(ctx, x, y){
+    ctx.save();
+    ctx.strokeStyle = "#ffb3b3";
+    ctx.fillStyle = "#ffb3b3";
+    ctx.lineWidth = 1.6;
+    ctx.lineCap = "round";
+    var footY = y, headR = 3.2, bodyTop = footY-16, bodyBot = footY-4;
+    ctx.beginPath(); ctx.arc(x, bodyTop-headR, headR, 0, TWO_PI); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x,bodyTop); ctx.lineTo(x,bodyBot); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x,bodyTop+4); ctx.lineTo(x-6,bodyTop+9);
+    ctx.moveTo(x,bodyTop+4); ctx.lineTo(x+6,bodyTop+1);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x,bodyBot); ctx.lineTo(x-6,footY);
+    ctx.moveTo(x,bodyBot); ctx.lineTo(x+6,footY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawHorizon(){
+    var ctx = getCtx(horizonCanvas);
+    ctx.clearRect(0,0,hW,hH);
+
+    // sky dome fill
+    ctx.save();
+    ctx.beginPath(); ctx.arc(domeCx,domeCy,domeR,Math.PI,0,false); ctx.closePath();
+    var skyG = ctx.createLinearGradient(0,domeCy-domeR,0,domeCy);
+    skyG.addColorStop(0,"#0a0f2c"); skyG.addColorStop(1,"#22335f");
+    ctx.fillStyle = skyG; ctx.fill();
+    ctx.restore();
+
+    // ground
+    var groundG = ctx.createLinearGradient(0,domeCy,0,hH);
+    groundG.addColorStop(0,"#1c2c1d"); groundG.addColorStop(1,"#0c130d");
+    ctx.fillStyle = groundG;
+    ctx.fillRect(0,domeCy,hW,hH-domeCy);
+
+    // altitude rings + dome outline
+    ctx.save();
+    ctx.strokeStyle = "rgba(150,170,255,0.22)";
+    ctx.setLineDash([3,4]);
+    [0.33,0.66].forEach(function(f){
+      ctx.beginPath(); ctx.arc(domeCx,domeCy,domeR*f,Math.PI,0,false); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(domeCx,domeCy,domeR,Math.PI,0,false);
+    ctx.strokeStyle = "rgba(150,170,255,0.4)"; ctx.stroke();
+    ctx.restore();
+
+    // horizon line
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.beginPath(); ctx.moveTo(domeCx-domeR-14,domeCy); ctx.lineTo(domeCx+domeR+14,domeCy); ctx.stroke();
+
+    // compass + zenith labels
+    ctx.font = LABEL_FONT_SM;
+    ctx.fillStyle = "#9aa3c7"; ctx.textAlign = "center";
+    ctx.fillText("E", domeCx-domeR-8, domeCy+16);
+    ctx.fillText("W", domeCx+domeR+8, domeCy+16);
+    ctx.fillText("zenith", domeCx, domeCy-domeR-8);
+    ctx.fillText("S · transit", domeCx, domeCy+34);
+
+    drawStickFigure(ctx, domeCx, domeCy);
+
+    var hLocal = localHourAngle(state.earthRotation);
+    var hMoon = hLocal - state.theta;
+    while(hMoon > Math.PI) hMoon -= TWO_PI;
+    while(hMoon < -Math.PI) hMoon += TWO_PI;
+
+    var sp = domePos(hLocal);
+    var mp = domePos(hMoon);
+
+    if(state.showAngle){
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,210,122,0.5)";
+      ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(sp.x,sp.y); ctx.lineTo(domeCx,domeCy); ctx.lineTo(mp.x,mp.y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+
+    // sun
+    ctx.save();
+    if(!sp.above) ctx.globalAlpha = 0.3;
+    var sg = ctx.createRadialGradient(sp.x,sp.y,0,sp.x,sp.y,15);
+    sg.addColorStop(0,"#fff6d8"); sg.addColorStop(1,"rgba(255,183,74,0)");
+    ctx.fillStyle = sg; ctx.beginPath(); ctx.arc(sp.x,sp.y,15,0,TWO_PI); ctx.fill();
+    ctx.beginPath(); ctx.arc(sp.x,sp.y,6.5,0,TWO_PI); ctx.fillStyle = "#ffcf6b"; ctx.fill();
+    if(state.showNames){
+      ctx.globalAlpha = 1;
+      ctx.font=LABEL_FONT_SM; ctx.fillStyle="#ffd27a";
+      ctx.fillText("Sun", sp.x, sp.y-14);
+    }
+    ctx.restore();
+
+    // moon
+    ctx.save();
+    if(!mp.above) ctx.globalAlpha = 0.35;
+    drawSmallMoonIcon(ctx, mp.x, mp.y, 9, state.theta, false);
+    if(state.showNames){
+      ctx.globalAlpha = mp.above ? 1 : 0.6;
+      ctx.font=LABEL_FONT_SM; ctx.fillStyle="#e8e4d8";
+      ctx.fillText("Moon", mp.x, mp.y-14);
+    }
+    ctx.restore();
+  }
+
+  /* ---------- Readouts ---------- */
+  function fmtTime(hourAngle){
+    var hours = 12 + (hourAngle/Math.PI)*12;
+    hours = ((hours%24)+24)%24;
+    var h = Math.floor(hours);
+    var m = Math.round((hours-h)*60);
+    if(m===60){m=0;h=(h+1)%24;}
+    var ampm = h>=12 ? "PM":"AM";
+    var h12 = h%12; if(h12===0) h12=12;
+    return h12+":"+(m<10?"0":"")+m+" "+ampm;
+  }
+
+  function updateReadouts(){
+    var deg = Math.round((state.theta*180/Math.PI)%360);
+    if(deg<0) deg+=360;
+    var age = (state.theta/TWO_PI)*SYNODIC_MONTH;
+    var illum = Math.round(illumFraction(state.theta)*100);
+
+    document.getElementById("phaseName").textContent = phaseName(state.theta);
+    document.getElementById("phaseSub").textContent = illum + "% illuminated";
+    document.getElementById("ageVal").textContent = age.toFixed(1)+" days";
+    document.getElementById("elongVal").textContent = deg+"°";
+    document.getElementById("illumVal").textContent = illum+"%";
+    document.getElementById("orbitVal").textContent = deg+"°";
+    document.getElementById("simDate").textContent = "Day " + state.simDay.toFixed(1);
+
+    var hLocal = localHourAngle(state.earthRotation);
+    document.getElementById("timeVal").textContent = fmtTime(hLocal);
+
+    var hMoon = hLocal - state.theta;
+    while(hMoon > Math.PI) hMoon -= TWO_PI;
+    while(hMoon < -Math.PI) hMoon += TWO_PI;
+    var moonAlt = domePos(hMoon);
+    var altText = moonAlt.above ? Math.round(moonAlt.altitudeDeg)+"°" : "below horizon";
+    document.getElementById("moonAltVal").textContent = altText;
+  }
+
+  /* ---------- Render loop ---------- */
+  function renderAll(){
+    drawOrbit();
+    drawPhasePanel();
+    drawHorizon();
+    updateReadouts();
+  }
+
+  /* ---------- Animation ---------- */
+  var lastT = null;
+  function tick(ts){
+    if(state.playing){
+      if(lastT===null) lastT = ts;
+      var dt = (ts-lastT)/1000;
+      lastT = ts;
+      var days = dt*state.speed;
+      state.simDay += days;
+      state.theta = (state.theta + (days/SYNODIC_MONTH)*TWO_PI) % TWO_PI;
+      if(state.theta<0) state.theta+=TWO_PI;
+      state.earthRotation = (state.earthRotation + days*TWO_PI) % TWO_PI;
+      if(state.earthRotation<0) state.earthRotation+=TWO_PI;
+      renderAll();
+    } else {
+      lastT = null;
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  /* ---------- Controls ---------- */
+  var playBtn = document.getElementById("playBtn");
+  playBtn.addEventListener("click", function(){
+    state.playing = !state.playing;
+    playBtn.innerHTML = state.playing ? "⏸ Pause" : "▶ Play";
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    state.theta = 0; state.earthRotation = Math.PI/2; state.simDay = 0;
+    state.playing = false; playBtn.innerHTML = "▶ Play";
+    renderAll();
+  });
+
+  document.getElementById("todayBtn").addEventListener("click", function(){
+    var now = new Date();
+    var refNewMoon = Date.UTC(2000,0,6,18,14,0);
+    var diffDays = (now.getTime() - refNewMoon)/86400000;
+    var age = diffDays % SYNODIC_MONTH;
+    if(age<0) age += SYNODIC_MONTH;
+    state.theta = (age/SYNODIC_MONTH)*TWO_PI;
+
+    var hours = now.getHours() + now.getMinutes()/60;
+    var hourAngle = ((hours-12)/24)*TWO_PI; // -PI..PI-ish
+    // earthRotation such that localHourAngle(earthRotation) == hourAngle
+    // localHourAngle(r) = r - PI/2  =>  r = hourAngle + PI/2
+    state.earthRotation = (hourAngle + Math.PI/2) % TWO_PI;
+    if(state.earthRotation<0) state.earthRotation += TWO_PI;
+
+    renderAll();
+  });
+
+  var speedSlider = document.getElementById("speed");
+  var speedVal = document.getElementById("speedVal");
+  speedSlider.addEventListener("input", function(){
+    state.speed = parseFloat(speedSlider.value);
+    speedVal.textContent = state.speed.toFixed(1)+" days/sec";
+  });
+
+  document.getElementById("chkAngle").addEventListener("change", function(e){
+    state.showAngle = e.target.checked; renderAll();
+  });
+  document.getElementById("chkLandmark").addEventListener("change", function(e){
+    state.showLandmark = e.target.checked; renderAll();
+  });
+  document.getElementById("chkNames").addEventListener("change", function(e){
+    state.showNames = e.target.checked; renderAll();
+  });
+
+  document.getElementById("helpOpen").addEventListener("click", function(){
+    document.getElementById("helpPanel").classList.add("open");
+  });
+  document.getElementById("helpClose").addEventListener("click", function(){
+    document.getElementById("helpPanel").classList.remove("open");
+  });
+  document.getElementById("helpPanel").addEventListener("click", function(e){
+    if(e.target.id === "helpPanel") e.currentTarget.classList.remove("open");
+  });
+
+  /* ---------- Dragging on orbit canvas ---------- */
+  var dragMode = null; // "moon" | "earth"
+  function getCanvasCoords(evt){
+    var rect = orbitCanvas.getBoundingClientRect();
+    var scaleX = orbitW/rect.width, scaleY = orbitH/rect.height;
+    var clientX = evt.touches ? evt.touches[0].clientX : evt.clientX;
+    var clientY = evt.touches ? evt.touches[0].clientY : evt.clientY;
+    return { x:(clientX-rect.left)*scaleX, y:(clientY-rect.top)*scaleY };
+  }
+
+  function pointerDown(evt){
+    var p = getCanvasCoords(evt);
+    var mp = moonPos(state.theta);
+    var dMoon = Math.hypot(p.x-mp.x, p.y-mp.y);
+    var dEarth = Math.hypot(p.x-ocx, p.y-ocy);
+    if(dMoon < moonIconR+14){
+      dragMode = "moon";
+    } else if(dEarth < earthR+14){
+      dragMode = "earth";
+    } else {
+      dragMode = null;
+    }
+    if(dragMode){
+      orbitCanvas.classList.add("dragging");
+      state.playing = false; playBtn.innerHTML = "▶ Play";
+      evt.preventDefault();
+    }
+  }
+  function pointerMove(evt){
+    if(!dragMode) return;
+    var p = getCanvasCoords(evt);
+    if(dragMode === "moon"){
+      var ang = Math.atan2(-(p.y-ocy), p.x-ocx); // standard math angle
+      var theta = ang - Math.PI; // inverse of moonPos: angle = PI + theta
+      theta = ((theta%TWO_PI)+TWO_PI)%TWO_PI;
+      state.theta = theta;
+    } else if(dragMode === "earth"){
+      var ang2 = Math.atan2(p.y-ocy, p.x-ocx) + Math.PI/2;
+      state.earthRotation = ((-ang2%TWO_PI)+TWO_PI)%TWO_PI; // inverse of drawObserver: angle = -rotation
+    }
+    renderAll();
+    evt.preventDefault();
+  }
+  function pointerUp(){
+    dragMode = null;
+    orbitCanvas.classList.remove("dragging");
+  }
+
+  orbitCanvas.addEventListener("mousedown", pointerDown);
+  window.addEventListener("mousemove", pointerMove);
+  window.addEventListener("mouseup", pointerUp);
+  orbitCanvas.addEventListener("touchstart", pointerDown, {passive:false});
+  window.addEventListener("touchmove", pointerMove, {passive:false});
+  window.addEventListener("touchend", pointerUp);
+
+  window.addEventListener("resize", function(){ renderAll(); });
+
+  renderAll();
+})();
+</script>
+
+</body>
+</html>
