@@ -202,16 +202,7 @@ export default function App() {
             color: 'var(--color-text-muted)',
             letterSpacing: '0.05em',
           }}>
-            © {new Date().getFullYear()} ContextClimate · ISP · Long Island · NYC
-          </span>
-          <span style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '10px',
-            color: 'var(--color-text-muted)',
-            letterSpacing: '0.05em',
-            opacity: 0.75,
-          }}>
-            Data: NWS · IEM ASOS · NOAA
+            © {new Date().getFullYear()} ContextClimate
           </span>
         </div>
 
