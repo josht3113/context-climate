@@ -153,6 +153,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
+        title:       'Doppler Shift Explorer',
+        description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together — compressed to shorter wavelengths when approaching, stretched to longer wavelengths when receding. See rest and observed line positions side by side, read off the velocity, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
+        footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect', 'Astronomy'],
+        to:          '/earthandspace/doppler-shift-explorer',
+        thumb:       '/DopplerShiftExplorer_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
         title:       'The H-R Diagram',
         description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is the most powerful tool in stellar astronomy — locate the main sequence, giants, supergiants, and white dwarfs, and read a star\'s size, color, and fate from its position alone.',
