@@ -162,6 +162,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Cosmology', 'Interactive'],
+        title:       "Hubble's Law Explorer",
+        description: 'Stretch a simple row of galaxies and pick any one of them as home to discover that the velocity distance relationship looks the same no matter who is measuring, then build the real Hubble diagram yourself from four classic galaxy clusters. Read each cluster\'s redshifted hydrogen line, plot the point, and reveal the fit line to estimate the Hubble constant and the age of the universe.',
+        footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang Evidence', 'Astronomy'],
+        to:          '/earthandspace/hubbles-law-explorer',
+        thumb:       '/HubblesLawExplorer_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
         title:       'The H-R Diagram',
         description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is the most powerful tool in stellar astronomy — locate the main sequence, giants, supergiants, and white dwarfs, and read a star\'s size, color, and fate from its position alone.',
