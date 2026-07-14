@@ -11,209 +11,233 @@ const ACCENT = {
 
 // ── Section data ──────────────────────────────────────────────────────────────
 const SECTIONS = [
-  // ── ESSRT Pages ─────────────────────────────────────────────────────────────
-  {
-    key:    'essrt',
-    label:  'ESSRT Pages',
-    accent: ACCENT.essrt,
-    cards: [
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Geologic History of New York State',
-        description: 'Explore ESSRT pages 6–7 interactively — navigate the Geologic History of New York State, with fossil time distributions, key events, and inferred positions of Earth\'s landmasses.',
-        footerTags:  ['Geologic Time', 'Fossils', 'New York State', 'Reference'],
-        to:          '/ESSRT_6_7',
-        thumb:       '/ESSRT_6_7_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'NYS Bedrock, Resources & Landscape Regions',
-        description: 'Explore ESSRT pages 8–10 interactively — surface bedrock geology, energy and mineral resources, and the geographic province and landscape regions of New York State.',
-        footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions', 'Reference'],
-        to:          '/ESSRT_8_9_10',
-        thumb:       '/ESSRT_8_9_10_thumbnail.png',
-        status:      'live',
-      },
-    ],
-  },
 
   // ── Astronomy ─────────────────────────────────────────────────────────────────
+  // Grouped into subgroups (still one "Astronomy" section) since this list has
+  // grown past 20 tools — flat, it was a long undifferentiated scroll.
   {
     key:    'astro',
     label:  'Astronomy',
     accent: ACCENT.astro,
-    cards: [
+    subgroups: [
+      // ── The Earth–Moon System ────────────────────────────────────────────────
       {
-        tags:        ['Natural Law', 'Astronomy', 'Interactive'],
-        title:       'The Inverse Square Law',
-        description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance — applications of the inverse square law.',
-        footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight', 'Astronomy'],
-        to:          '/earthandspace/inverse-square-law',
-        thumb:       '/InverseSquareLaw_thumbnail.png',
-        status:      'live',
+        key:   'earth-moon',
+        label: 'The Earth–Moon System',
+        cards: [
+          {
+            tags:        ['Moon Phases', 'Interactive'],
+            title:       'Sidereal vs Synodic Month',
+            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation',
+            footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month'],
+            to:          '/earthandspace/sidereal-synodic-month',
+            thumb:       '/SiderealSynodicMonth_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Moon Phases', 'Interactive'],
+            title:       'Lunar Phase Simulator',
+            description: 'Drag the Moon around its orbit or spin Earth to change the time of day, and watch how orbital position translates into phase, sky position, and the Moon\'s tidal lock with Earth. A live horizon diagram tracks moonrise and moonset, and Sync to Today pulls up tonight\'s real phase.',
+            footerTags:  ['Moon Phases', 'Tidal Locking', 'Horizon Diagram'],
+            to:          '/earthandspace/moon-phase-simulator',
+            thumb:       '/MoonPhaseSimulator_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
+            title:       'Tidal Rhythm',
+            description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
+            footerTags:  ['Tidal Forces', 'Spring & Neap Tides', 'NOAA Data', 'Astronomy'],
+            to:          '/earthandspace/tidal-rhythm',
+            thumb:       '/TidalRhythm_thumbnail.png',
+            status:      'live',
+          },
+        ],
       },
+
+      // ── Orbital Mechanics & Kepler's Laws ────────────────────────────────────
       {
-        tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
-        title:       "Kepler's First Law — Orbit Shape Explorer",
-        description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
-        footerTags:  ["Kepler's Laws", 'Eccentricity', 'Astronomy'],
-        to:          '/earthandspace/kepler-law1-ellipses',
-        thumb:       '/KeplerLaw1_thumbnail.png',
-        status:      'live',
+        key:   'orbital-mechanics',
+        label: "Orbital Mechanics & Kepler's Laws",
+        cards: [
+          {
+            tags:        ['Natural Law', 'Astronomy', 'Interactive'],
+            title:       'The Inverse Square Law',
+            description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance — applications of the inverse square law.',
+            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight', 'Astronomy'],
+            to:          '/earthandspace/inverse-square-law',
+            thumb:       '/InverseSquareLaw_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
+            title:       "Kepler's First Law — Orbit Shape Explorer",
+            description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
+            footerTags:  ["Kepler's Laws", 'Eccentricity', 'Astronomy'],
+            to:          '/earthandspace/kepler-law1-ellipses',
+            thumb:       '/KeplerLaw1_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ["Kepler's Laws", 'Interactive', '2 of 3'],
+            title:       "Kepler's Second Law — Equal Areas Explorer",
+            description: "Discover why planets move faster near their star and slower far away. Click to sweep equal areas in equal times, compare wedges at different orbital positions, and watch the speed arrow change in real time.",
+            footerTags:  ["Kepler's Laws", 'Equal Areas', 'Astronomy'],
+            to:          '/earthandspace/kepler-law2-areas',
+            thumb:       '/KeplerLaw2_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ["Kepler's Laws", 'Interactive', '3 of 3'],
+            title:       "Kepler's Third Law — Harmony of the Spheres",
+            description: "Race all planets simultaneously to see how orbital period scales with distance from the Sun, then explore T² = a³ on an interactive log-log plot. Adjust star mass to explore the law's universality across stellar systems.",
+            footerTags:  ["Kepler's Laws", 'Orbital Periods', 'Astronomy'],
+            to:          '/earthandspace/kepler-law3-periods',
+            thumb:       '/KeplerLaw3_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Orbital Mechanics', 'Astronomy', 'Interactive'],
+            title:       'Planetary Retrograde Motion',
+            description: 'Watch apparent retrograde motion emerge from the geometry of orbits — see how an outer planet appears to reverse direction against the stars as Earth overtakes it, and trace the looping path it draws across the sky.',
+            footerTags:  ['Retrograde Motion', 'Orbital Mechanics', 'Astronomy'],
+            to:          '/earthandspace/planetary-retrograde',
+            thumb:       '/PlanetaryRetrograde_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Gravity Game', 'Astronomy', 'Interactive'],
+            title:       'Flapstronaut',
+            description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive?',
+            footerTags:  ['Gravity', 'Space Physics', 'Astronomy'],
+            to:          '/earthandspace/flapstronaut',
+            thumb:       '/flapstronaut_thumbnail.png',
+            status:      'live',
+          },
+        ],
       },
+
+      // ── Milankovitch Cycles & Climate Astronomy ──────────────────────────────
       {
-        tags:        ["Kepler's Laws", 'Interactive', '2 of 3'],
-        title:       "Kepler's Second Law — Equal Areas Explorer",
-        description: "Discover why planets move faster near their star and slower far away. Click to sweep equal areas in equal times, compare wedges at different orbital positions, and watch the speed arrow change in real time.",
-        footerTags:  ["Kepler's Laws", 'Equal Areas', 'Astronomy'],
-        to:          '/earthandspace/kepler-law2-areas',
-        thumb:       '/KeplerLaw2_thumbnail.png',
-        status:      'live',
+        key:   'milankovitch',
+        label: 'Milankovitch Cycles & Climate Astronomy',
+        cards: [
+          {
+            tags:        ['Milankovitch Cycles', 'Interactive', '1 of 4'],
+            title:       'Obliquity Explorer',
+            description: 'Animate Earth\'s axial tilt as it cycles between ~22° and 24.5° over roughly 41,000 years — and see how changing obliquity drives long-term shifts in seasonal contrast and Milankovitch-driven climate cycles.',
+            footerTags:  ['Axial Tilt', 'Milankovitch Cycles', 'Climate'],
+            to:          '/earthandspace/obliquity-explorer',
+            thumb:       '/ObliquityExplorer_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
+            title:       'Precession Explorer',
+            description: 'Follow Earth\'s slow axial wobble — a ~26,000-year cycle that shifts which star sits at the celestial north pole and alters when perihelion falls relative to the seasons.',
+            footerTags:  ['Axial Precession', 'Milankovitch Cycles', 'Polaris', 'Astronomy'],
+            to:          '/earthandspace/precession-explorer',
+            thumb:       '/PrecessionExplorer_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
+            title:       'Eccentricity Explorer',
+            description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
+            footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles', 'Insolation', 'Astronomy'],
+            to:          '/earthandspace/eccentricity-explorer',
+            thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Milankovitch Cycles', 'Interactive', '4 of 4'],
+            title:       'The Stacked Signal',
+            description: 'Layer all three Milankovitch cycles — eccentricity, obliquity, and precession — to compute 65°N summer insolation and compare it directly to the EPICA Dome C ice core record. Toggle each component on and off, then witness the pacemaker of the ice ages.',
+            footerTags:  ['Milankovitch Cycles', 'Ice Ages', 'EPICA Ice Core', 'Astronomy'],
+            to:          '/earthandspace/stacked-signal',
+            thumb:       '/StackedSignal_thumbnail.png',
+            status:      'live',
+          },
+        ],
       },
+
+      // ── Observing the Sky ────────────────────────────────────────────────────
       {
-        tags:        ["Kepler's Laws", 'Interactive', '3 of 3'],
-        title:       "Kepler's Third Law — Harmony of the Spheres",
-        description: "Race all planets simultaneously to see how orbital period scales with distance from the Sun, then explore T² = a³ on an interactive log-log plot. Adjust star mass to explore the law's universality across stellar systems.",
-        footerTags:  ["Kepler's Laws", 'Orbital Periods', 'Astronomy'],
-        to:          '/earthandspace/kepler-law3-periods',
-        thumb:       '/KeplerLaw3_thumbnail.png',
-        status:      'live',
+        key:   'observing-sky',
+        label: 'Observing the Sky',
+        cards: [
+          {
+            tags:        ['Apparent Motion', 'Astronomy', 'Interactive'],
+            title:       "The Sun's Path",
+            description: "Watch the Sun trace its daily arc across a south-facing sky — sunrise and sunset sliding along the horizon, the noon Sun climbing higher or lower with the seasons, and the atmosphere shifting from golden dawn to twilight purple. Switch latitude from Long Island to the equator to the Arctic Circle and see the Sun's entire path reshape, including the equator's flip to a north-facing sky and the Arctic's midnight Sun.",
+            footerTags:  ['Solar Altitude', 'Azimuth', 'Latitude', 'Astronomy'],
+            to:          '/earthandspace/suns-path',
+            thumb:       '/TheSunsPath_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Apparent Motion', 'Astronomy', 'Interactive'],
+            title:       'The Turning Sky',
+            description: 'Step outside on a Long Island night and watch the sky turn — the North Star anchors a slow celestial clock while the southern sky drifts past in a Stellarium-style star field. Toggle between one night\'s hourly rotation and a full year\'s monthly march to see how the steady 15°-per-hour spin of the celestial sphere builds the changing seasons of stars.',
+            footerTags:  ['Celestial Rotation', 'Circumpolar Stars', 'Star Field', 'Astronomy'],
+            to:          '/earthandspace/turning-sky',
+            thumb:       '/TheTurningSky_thumbnail.png',
+            status:      'live',
+          },
+        ],
       },
+
+      // ── Stars, Spectra & Cosmology ────────────────────────────────────────────
       {
-        tags:        ['Moon Phases', 'Interactive'],
-        title:       'Sidereal vs Synodic Month',
-        description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation',
-        footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month'],
-        to:          '/earthandspace/sidereal-synodic-month',
-        thumb:       '/SiderealSynodicMonth_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Milankovitch Cycles', 'Interactive', '1 of 4'],
-        title:       'Obliquity Explorer',
-        description: 'Animate Earth\'s axial tilt as it cycles between ~22° and 24.5° over roughly 41,000 years — and see how changing obliquity drives long-term shifts in seasonal contrast and Milankovitch-driven climate cycles.',
-        footerTags:  ['Axial Tilt', 'Milankovitch Cycles', 'Climate'],
-        to:          '/earthandspace/obliquity-explorer',
-        thumb:       '/ObliquityExplorer_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
-        title:       'Precession Explorer',
-        description: 'Follow Earth\'s slow axial wobble — a ~26,000-year cycle that shifts which star sits at the celestial north pole and alters when perihelion falls relative to the seasons.',
-        footerTags:  ['Axial Precession', 'Milankovitch Cycles', 'Polaris', 'Astronomy'],
-        to:          '/earthandspace/precession-explorer',
-        thumb:       '/PrecessionExplorer_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
-        title:       'Eccentricity Explorer',
-        description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
-        footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles', 'Insolation', 'Astronomy'],
-        to:          '/earthandspace/eccentricity-explorer',
-        thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Milankovitch Cycles', 'Interactive', '4 of 4'],
-        title:       'The Stacked Signal',
-        description: 'Layer all three Milankovitch cycles — eccentricity, obliquity, and precession — to compute 65°N summer insolation and compare it directly to the EPICA Dome C ice core record. Toggle each component on and off, then witness the pacemaker of the ice ages.',
-        footerTags:  ['Milankovitch Cycles', 'Ice Ages', 'EPICA Ice Core', 'Astronomy'],
-        to:          '/earthandspace/stacked-signal',
-        thumb:       '/StackedSignal_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Gravity Game', 'Astronomy', 'Interactive'],
-        title:       'Flapstronaut',
-        description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive?',
-        footerTags:  ['Gravity', 'Space Physics', 'Astronomy'],
-        to:          '/earthandspace/flapstronaut',
-        thumb:       '/flapstronaut_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Orbital Mechanics', 'Astronomy', 'Interactive'],
-        title:       'Planetary Retrograde Motion',
-        description: 'Watch apparent retrograde motion emerge from the geometry of orbits — see how an outer planet appears to reverse direction against the stars as Earth overtakes it, and trace the looping path it draws across the sky.',
-        footerTags:  ['Retrograde Motion', 'Orbital Mechanics', 'Astronomy'],
-        to:          '/earthandspace/planetary-retrograde',
-        thumb:       '/PlanetaryRetrograde_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
-        title:       'Spectral Fingerprint Lab',
-        description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that doesn\'t depend on brightness or color. Toggle between a continuous source, a cool gas cloud, and glowing gas alone to see absorption and emission lines emerge for hydrogen, helium, carbon, nitrogen, oxygen, and silicon, matched to the ESRT\'s own emission spectra chart.',
-        footerTags:  ['Emission Spectra', 'Absorption Spectra', 'Stellar Composition', 'Astronomy'],
-        to:          '/earthandspace/spectral-fingerprint-lab',
-        thumb:       '/SpectralFingerprintLab_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
-        title:       'Doppler Shift Explorer',
-        description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together — compressed to shorter wavelengths when approaching, stretched to longer wavelengths when receding. See rest and observed line positions side by side, read off the velocity, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
-        footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect', 'Astronomy'],
-        to:          '/earthandspace/doppler-shift-explorer',
-        thumb:       '/DopplerShiftExplorer_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Cosmology', 'Interactive'],
-        title:       "Hubble's Law Explorer",
-        description: 'Stretch a simple row of galaxies and pick any one of them as home to discover that the velocity distance relationship looks the same no matter who is measuring, then build the real Hubble diagram yourself from four classic galaxy clusters. Read each cluster\'s redshifted hydrogen line, plot the point, and reveal the fit line to estimate the Hubble constant and the age of the universe.',
-        footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang Evidence', 'Astronomy'],
-        to:          '/earthandspace/hubbles-law-explorer',
-        thumb:       '/HubblesLawExplorer_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
-        title:       'The H-R Diagram',
-        description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is the most powerful tool in stellar astronomy — locate the main sequence, giants, supergiants, and white dwarfs, and read a star\'s size, color, and fate from its position alone.',
-        footerTags:  ['H-R Diagram', 'Luminosity', 'Stellar Classification', 'Astronomy'],
-        to:          '/earthandspace/hr-diagram',
-        thumb:       '/HRdiagram_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
-        title:       'Life Cycles of Stars',
-        description: 'Follow a star from its birth in a nebula through to its end — and see how a star\'s initial mass branches its path toward a white dwarf, neutron star, or black hole, mirroring the ESSRT Life Cycles of Stars Model.',
-        footerTags:  ['Stellar Evolution', 'Nebula', 'Supernova', 'Astronomy'],
-        to:          '/earthandspace/stellar-life-cycles',
-        thumb:       '/StellarLifeCycles_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
-        title:       'Tidal Rhythm',
-        description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
-        footerTags:  ['Tidal Forces', 'Spring & Neap Tides', 'NOAA Data', 'Astronomy'],
-        to:          '/earthandspace/tidal-rhythm',
-        thumb:       '/TidalRhythm_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Apparent Motion', 'Astronomy', 'Interactive'],
-        title:       "The Sun's Path",
-        description: "Watch the Sun trace its daily arc across a south-facing sky — sunrise and sunset sliding along the horizon, the noon Sun climbing higher or lower with the seasons, and the atmosphere shifting from golden dawn to twilight purple. Switch latitude from Long Island to the equator to the Arctic Circle and see the Sun's entire path reshape, including the equator's flip to a north-facing sky and the Arctic's midnight Sun.",
-        footerTags:  ['Solar Altitude', 'Azimuth', 'Latitude', 'Astronomy'],
-        to:          '/earthandspace/suns-path',
-        thumb:       '/TheSunsPath_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Apparent Motion', 'Astronomy', 'Interactive'],
-        title:       'The Turning Sky',
-        description: 'Step outside on a Long Island night and watch the sky turn — the North Star anchors a slow celestial clock while the southern sky drifts past in a Stellarium-style star field. Toggle between one night\'s hourly rotation and a full year\'s monthly march to see how the steady 15°-per-hour spin of the celestial sphere builds the changing seasons of stars.',
-        footerTags:  ['Celestial Rotation', 'Circumpolar Stars', 'Star Field', 'Astronomy'],
-        to:          '/earthandspace/turning-sky',
-        thumb:       '/TheTurningSky_thumbnail.png',
-        status:      'live',
+        key:   'stars-cosmology',
+        label: 'Stars, Spectra & Cosmology',
+        cards: [
+          {
+            tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
+            title:       'Spectral Fingerprint Lab',
+            description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that doesn\'t depend on brightness or color. Toggle between a continuous source, a cool gas cloud, and glowing gas alone to see absorption and emission lines emerge for hydrogen, helium, carbon, nitrogen, oxygen, and silicon, matched to the ESRT\'s own emission spectra chart.',
+            footerTags:  ['Emission Spectra', 'Absorption Spectra', 'Stellar Composition', 'Astronomy'],
+            to:          '/earthandspace/spectral-fingerprint-lab',
+            thumb:       '/SpectralFingerprintLab_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['ESSRT', 'Spectroscopy', 'Interactive'],
+            title:       'Doppler Shift Explorer',
+            description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together — compressed to shorter wavelengths when approaching, stretched to longer wavelengths when receding. See rest and observed line positions side by side, read off the velocity, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
+            footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect', 'Astronomy'],
+            to:          '/earthandspace/doppler-shift-explorer',
+            thumb:       '/DopplerShiftExplorer_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['ESSRT', 'Cosmology', 'Interactive'],
+            title:       "Hubble's Law Explorer",
+            description: 'Stretch a simple row of galaxies and pick any one of them as home to discover that the velocity distance relationship looks the same no matter who is measuring, then build the real Hubble diagram yourself from four classic galaxy clusters. Read each cluster\'s redshifted hydrogen line, plot the point, and reveal the fit line to estimate the Hubble constant and the age of the universe.',
+            footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang Evidence', 'Astronomy'],
+            to:          '/earthandspace/hubbles-law-explorer',
+            thumb:       '/HubblesLawExplorer_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
+            title:       'The H-R Diagram',
+            description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is the most powerful tool in stellar astronomy — locate the main sequence, giants, supergiants, and white dwarfs, and read a star\'s size, color, and fate from its position alone.',
+            footerTags:  ['H-R Diagram', 'Luminosity', 'Stellar Classification', 'Astronomy'],
+            to:          '/earthandspace/hr-diagram',
+            thumb:       '/HRdiagram_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['ESSRT', 'Stellar Evolution', 'Interactive'],
+            title:       'Life Cycles of Stars',
+            description: 'Follow a star from its birth in a nebula through to its end — and see how a star\'s initial mass branches its path toward a white dwarf, neutron star, or black hole, mirroring the ESSRT Life Cycles of Stars Model.',
+            footerTags:  ['Stellar Evolution', 'Nebula', 'Supernova', 'Astronomy'],
+            to:          '/earthandspace/stellar-life-cycles',
+            thumb:       '/StellarLifeCycles_thumbnail.png',
+            status:      'live',
+          },
+        ],
       },
     ],
   },
@@ -364,6 +388,34 @@ const SECTIONS = [
     ],
   },
 
+  // ── ESSRT Pages ─────────────────────────────────────────────────────────────
+  // Kept last — this is reference-table lookup material rather than a concept
+  // exploration tool, so it trails the browsable/exploratory sections above.
+  {
+    key:    'essrt',
+    label:  'ESSRT Pages',
+    accent: ACCENT.essrt,
+    cards: [
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'Geologic History of New York State',
+        description: 'Explore ESSRT pages 6–7 interactively — navigate the Geologic History of New York State, with fossil time distributions, key events, and inferred positions of Earth\'s landmasses.',
+        footerTags:  ['Geologic Time', 'Fossils', 'New York State', 'Reference'],
+        to:          '/ESSRT_6_7',
+        thumb:       '/ESSRT_6_7_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'NYS Bedrock, Resources & Landscape Regions',
+        description: 'Explore ESSRT pages 8–10 interactively — surface bedrock geology, energy and mineral resources, and the geographic province and landscape regions of New York State.',
+        footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions', 'Reference'],
+        to:          '/ESSRT_8_9_10',
+        thumb:       '/ESSRT_8_9_10_thumbnail.png',
+        status:      'live',
+      },
+    ],
+  },
 
 ]
 
@@ -423,12 +475,41 @@ export default function EarthAndSpace() {
             }} />
           </div>
 
-          {/* Cards grid */}
-          <div className={styles.grid}>
-            {section.cards.map((card, i) => (
-              <ToolCard key={`${section.key}-${i}`} {...card} accent={section.accent} />
-            ))}
-          </div>
+          {/* Cards grid — either a flat grid, or (for sections with a
+              "subgroups" array, e.g. Astronomy) a labeled grid per subgroup,
+              still nested under the one section header above. */}
+          {section.subgroups
+            ? section.subgroups.map((sub, si) => (
+                <div
+                  key={sub.key}
+                  style={{ marginBottom: si < section.subgroups.length - 1 ? '40px' : 0 }}
+                >
+                  <h3 style={{
+                    margin:        '0 0 16px',
+                    fontFamily:    'var(--font-mono)',
+                    fontSize:      '0.78rem',
+                    fontWeight:    600,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color:         'var(--color-text-secondary)',
+                  }}>
+                    {sub.label}
+                  </h3>
+                  <div className={styles.grid}>
+                    {sub.cards.map((card, i) => (
+                      <ToolCard key={`${section.key}-${sub.key}-${i}`} {...card} accent={section.accent} />
+                    ))}
+                  </div>
+                </div>
+              ))
+            : (
+              <div className={styles.grid}>
+                {section.cards.map((card, i) => (
+                  <ToolCard key={`${section.key}-${i}`} {...card} accent={section.accent} />
+                ))}
+              </div>
+            )
+          }
 
         </section>
       ))}
