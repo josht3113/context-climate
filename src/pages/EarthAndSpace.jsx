@@ -106,6 +106,15 @@ const SECTIONS = [
             status:      'live',
           },
           {
+            tags:        ['Hohmann Transfer', 'Astronomy', 'Interactive'],
+            title:       'Mission to Mars',
+            description: "Launch a rover toward Mars by timing your departure, not aiming at where Mars is right now. Watch the rover sweep a real Hohmann transfer ellipse — equal areas in equal times, straight out of Kepler's Second Law — and see exactly how many degrees (and days) a mistimed launch misses by.",
+            footerTags:  ['Hohmann Transfer', "Kepler's Laws", 'Launch Windows', 'Astronomy'],
+            to:          '/earthandspace/mission-to-mars',
+            thumb:       '/MissionToMars_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ['Gravity Game', 'Astronomy', 'Interactive'],
             title:       'Flapstronaut',
             description: 'Guide your astronaut through the cosmos in this physics-based arcade challenge. Navigate gravitational fields and orbital hazards — how long can you survive?',
