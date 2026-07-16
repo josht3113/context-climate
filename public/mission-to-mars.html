@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mission to Mars — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<style>
+  :root {
+    --tool-accent: var(--accent-solar);
+    --tier-hit:   #4FAE7C;
+    --tier-close: #D9A441;
+    --tier-miss:  #C1544B;
+    --col-earth:  #5B8DEF;
+    --col-mars:   #C1543A;
+    --col-sun:    #F4D35E;
+    --col-orbit:  rgba(232,228,217,0.22);
+    --canvas-bg:  #262B27; /* opaque literal per core-sample-tools.css chart-surface rule */
+  }
+
+  body { padding: 18px 20px 24px; }
+
+  .mtm-wrap { max-width: 1140px; margin: 0 auto; }
+
+  .mtm-head { text-align: center; margin-bottom: 12px; }
+  .mtm-head .cc-title { margin: 4px 0 6px; font-size: 26px; }
+  .mtm-head .cc-subtitle { max-width: 560px; margin: 0 auto; font-size: 14px; }
+
+  .mtm-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+    align-items: flex-start;
+  }
+
+  .mtm-canvas-card { padding: 10px; }
+  .mtm-canvas-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  #orbitCanvas { background: var(--canvas-bg); border-radius: var(--radius-md); cursor: default; }
+
+  .mtm-launch-row { display: flex; gap: 10px; align-items: center; justify-content: center; }
+  .mtm-launch-btn {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 12px 36px;
+  }
+  .mtm-launch-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .mtm-speed-row { min-height: 30px; }
+
+  .mtm-side { display: flex; flex-direction: column; gap: 10px; }
+  .mtm-side .cc-panel { padding: 13px 16px; }
+
+  .mtm-panel-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: 10px;
+  }
+
+  #phaseBadge {
+    background: var(--color-surface-2);
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-border);
+    font-size: 13px;
+  }
+
+  #windowReadout {
+    margin-top: 10px;
+  }
+
+  .mtm-stat-stack { display: flex; flex-direction: column; gap: 10px; }
+  .mtm-stat-chip .cc-stat-value { font-size: 20px; }
+
+  #resultPanel { border-color: var(--color-border-hover); }
+  #outcomeBadge { font-size: 14px; padding: 8px 18px; margin-bottom: 10px; }
+  #outcomeText { margin: 0; }
+
+  .mtm-result-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 14px;
+    margin-top: 12px;
+  }
+  .mtm-result-item .cc-stat-value { font-size: 18px; }
+
+  @media (max-width: 880px) {
+    .mtm-layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="mtm-wrap">
+
+  <div class="mtm-head">
+    <div class="cc-eyebrow">ASTRONOMY &middot; HOHMANN TRANSFER</div>
+    <h1 class="cc-title">Mission to Mars</h1>
+    <p class="cc-subtitle">Earth and Mars are both moving. Launch when the timing lines up — aim for where Mars will be, not where it is now.</p>
+  </div>
+
+  <div class="mtm-layout">
+
+    <div class="mtm-canvas-wrap">
+      <div class="cc-panel mtm-canvas-card">
+        <canvas id="orbitCanvas" width="560" height="560" class="cc-canvas-frame"></canvas>
+      </div>
+
+      <div class="mtm-launch-row">
+        <button id="launchBtn" class="cc-btn primary mtm-launch-btn">LAUNCH</button>
+        <button id="resetBtn" class="cc-btn mtm-launch-btn" style="display:none;">RESET MISSION</button>
+      </div>
+
+      <div class="mtm-speed-row cc-btn-row" id="speedRow" style="display:none;">
+        <span class="cc-btn-row-label">TRANSIT SPEED</span>
+        <button class="cc-btn cc-btn-sm speed-btn is-active" data-speed="1">&times;1</button>
+        <button class="cc-btn cc-btn-sm speed-btn" data-speed="2">&times;2</button>
+        <button class="cc-btn cc-btn-sm speed-btn" data-speed="5">&times;5</button>
+        <button class="cc-btn cc-btn-sm speed-btn" data-speed="10">&times;10</button>
+      </div>
+    </div>
+
+    <div class="mtm-side">
+
+      <div class="cc-panel">
+        <div class="mtm-panel-label">Mission Phase</div>
+        <span id="phaseBadge" class="cc-badge">WATCHING</span>
+      </div>
+
+      <div class="cc-panel">
+        <div class="mtm-panel-label">Launch Window Overlay</div>
+        <div class="cc-segmented" id="windowToggle">
+          <button class="cc-segmented-btn" data-val="off">OFF</button>
+          <button class="cc-segmented-btn" data-val="on">ON</button>
+        </div>
+        <div id="windowReadout" class="cc-stat-note" style="display:none;"></div>
+      </div>
+
+      <div class="cc-panel">
+        <div class="mtm-panel-label">Telemetry</div>
+        <div class="mtm-stat-stack">
+          <div class="cc-stat-chip mtm-stat-chip">
+            <div class="cc-stat-label">Mission Clock</div>
+            <div class="cc-stat-value" id="statClock">Day 0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cc-panel" id="resultPanel" style="display:none;">
+        <span id="outcomeBadge" class="cc-badge"></span>
+        <p id="outcomeText" class="cc-stat-note"></p>
+        <div class="mtm-result-grid">
+          <div class="mtm-result-item">
+            <div class="cc-stat-label">Arrival Gap</div>
+            <div class="cc-stat-value" id="resGap">&mdash;</div>
+          </div>
+          <div class="mtm-result-item">
+            <div class="cc-stat-label">Timing</div>
+            <div class="cc-stat-value" id="resTiming">&mdash;</div>
+          </div>
+          <div class="mtm-result-item">
+            <div class="cc-stat-label">Miss Distance</div>
+            <div class="cc-stat-value" id="resDist">&mdash;</div>
+          </div>
+          <div class="mtm-result-item">
+            <div class="cc-stat-label">Transit Time</div>
+            <div class="cc-stat-value" id="resTransit">&mdash;</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ============================ ORBITAL CONSTANTS ============================
+     Real ESSRT Solar System Data Table values (circular, coplanar simplification —
+     matches the diagram convention used in the source Regents item). */
+  var R_EARTH_AU = 1.00;
+  var R_MARS_AU  = 1.524;
+  var T_EARTH    = 365.25;   // days
+  var T_MARS     = 687.0;    // days
+
+  var OMEGA_EARTH = 360 / T_EARTH;               // deg/day
+  var OMEGA_MARS  = 360 / T_MARS;                // deg/day
+  var DRIFT       = OMEGA_EARTH - OMEGA_MARS;     // deg/day, Earth gains on Mars
+  var SYNODIC     = 360 / DRIFT;                  // ~780 days
+
+  var A_T  = (R_EARTH_AU + R_MARS_AU) / 2;        // transfer ellipse semi-major axis, AU
+  var ECC  = 1 - R_EARTH_AU / A_T;                // transfer ellipse eccentricity
+  var P_FULL = Math.sqrt(Math.pow(A_T, 3)) * 365.25; // full ellipse period, days
+  var T_TRANSFER = P_FULL / 2;                    // perihelion -> aphelion transit time, days
+
+  var GAMMA_REQ = 180 - OMEGA_MARS * T_TRANSFER;  // required Mars-ahead-of-Earth angle at launch, deg
+  var TOL = 5;                                    // +/- deg tolerance defining the true launch window
+  var TIER_CLOSE = 15;                             // +/- deg for "close flyby" tier
+
+  var KM_PER_AU = 149597870;
+  var MARS_CIRCUMFERENCE_KM = 2 * Math.PI * R_MARS_AU * KM_PER_AU;
+
+  /* ============================ RENDER CONSTANTS ============================ */
+  var CX = 280, CY = 280;
+  var AU_PX = 145;
+  var R_EARTH_PX = R_EARTH_AU * AU_PX;
+  var R_MARS_PX  = R_MARS_AU * AU_PX;
+
+  var WATCH_RATE = 8;          // simulated days per real second while watching
+  var TRANSIT_BASE_RATE = 10.8; // simulated days per real second at transit x1 (~24s @ T_TRANSFER)
+
+  /* ============================ STATE ============================ */
+  var state = {
+    phase: 'watching',      // 'watching' | 'transit' | 'result'
+    simDay: 0,
+    earthAngle0: 0,
+    gammaStart: 0,
+    windowOn: false,
+    speed: 1,
+    launch: null,            // { simDay, earthAngle, gammaChosen, pathPoints }
+    result: null,
+    trail: []
+  };
+
+  var lastTs = null;
+
+  /* ============================ HELPERS ============================ */
+  function norm360(a) { return ((a % 360) + 360) % 360; }
+  function norm180(a) { var n = norm360(a + 180) - 180; return n; }
+
+  function earthAngle(day) { return state.earthAngle0 + OMEGA_EARTH * day; }
+  function marsAngle(day)  { return state.earthAngle0 + state.gammaStart + OMEGA_MARS * day; }
+  function relativePhase(day) { return state.gammaStart - DRIFT * day; }
+
+  function toXY(r_au, angleDeg) {
+    var rad = angleDeg * Math.PI / 180;
+    return { x: CX + r_au * AU_PX * Math.cos(rad), y: CY - r_au * AU_PX * Math.sin(rad) };
+  }
+
+  function solveKepler(M, e) {
+    var E = M + e * Math.sin(M);
+    for (var i = 0; i < 10; i++) {
+      var dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+      E -= dE;
+      if (Math.abs(dE) < 1e-9) break;
+    }
+    return E;
+  }
+
+  function trueAnomalyFromE(E, e) {
+    var y = Math.sqrt(1 + e) * Math.sin(E / 2);
+    var x = Math.sqrt(1 - e) * Math.cos(E / 2);
+    return 2 * Math.atan2(y, x);
+  }
+
+  // Position along the transfer ellipse at elapsed days since launch (0..T_TRANSFER)
+  function transferPosition(launchEarthAngle, elapsedDays) {
+    var frac = Math.max(0, Math.min(1, elapsedDays / T_TRANSFER));
+    var M = frac * Math.PI; // 0 at perihelion, PI at aphelion
+    var E = solveKepler(M, ECC);
+    var nu = trueAnomalyFromE(E, ECC);
+    var r = A_T * (1 - ECC * Math.cos(E));
+    var angleDeg = launchEarthAngle + nu * 180 / Math.PI;
+    return { r: r, angle: angleDeg };
+  }
+
+  function buildTransferPath(launchEarthAngle) {
+    var pts = [];
+    var N = 72;
+    for (var i = 0; i <= N; i++) {
+      var pos = transferPosition(launchEarthAngle, (i / N) * T_TRANSFER);
+      pts.push(toXY(pos.r, pos.angle));
+    }
+    return pts;
+  }
+
+  function newRound() {
+    state.phase = 'watching';
+    state.simDay = 0;
+    state.earthAngle0 = Math.random() * 360;
+    state.gammaStart = Math.random() * 360;
+    state.launch = null;
+    state.result = null;
+    state.trail = [];
+    lastTs = null;
+
+    launchBtn.style.display = '';
+    launchBtn.disabled = false;
+    resetBtn.style.display = 'none';
+    speedRow.style.display = 'none';
+    resultPanel.style.display = 'none';
+    setPhaseBadge('WATCHING', null);
+    statClock.textContent = 'Day 0';
+  }
+
+  function setPhaseBadge(text, tierColor) {
+    phaseBadge.textContent = text;
+    if (tierColor) {
+      phaseBadge.style.borderColor = tierColor;
+      phaseBadge.style.color = tierColor;
+    } else {
+      phaseBadge.style.borderColor = '';
+      phaseBadge.style.color = '';
+    }
+  }
+
+  /* ============================ WINDOW READOUT ============================ */
+  function updateWindowReadout() {
+    if (!state.windowOn || state.phase !== 'watching') {
+      windowReadout.style.display = 'none';
+      return;
+    }
+    windowReadout.style.display = '';
+    var phaseNow = norm360(relativePhase(state.simDay));
+    var lower = GAMMA_REQ - TOL, upper = GAMMA_REQ + TOL;
+    var text;
+    if (phaseNow >= lower && phaseNow <= upper) {
+      var remaining = (phaseNow - lower) / DRIFT;
+      text = 'WINDOW OPEN \u2014 closes in ~' + Math.max(0, Math.round(remaining)) + ' days';
+      windowReadout.style.color = 'var(--tier-hit)';
+    } else if (phaseNow > upper) {
+      var until = (phaseNow - upper) / DRIFT;
+      text = 'Window opens in ~' + Math.round(until) + ' days';
+      windowReadout.style.color = '';
+    } else {
+      var until2 = (phaseNow - upper + 360) / DRIFT;
+      text = 'Window opens in ~' + Math.round(until2) + ' days (next cycle)';
+      windowReadout.style.color = '';
+    }
+    windowReadout.textContent = text;
+  }
+
+  /* ============================ LAUNCH / RESULT ============================ */
+  function doLaunch() {
+    if (state.phase !== 'watching') return;
+    var eA = earthAngle(state.simDay);
+    var gammaChosen = norm360(relativePhase(state.simDay));
+    state.launch = {
+      simDay: state.simDay,
+      earthAngle: eA,
+      gammaChosen: gammaChosen,
+      pathPoints: buildTransferPath(eA)
+    };
+    state.trail = [];
+    state.phase = 'transit';
+    launchBtn.style.display = 'none';
+    speedRow.style.display = '';
+    setPhaseBadge('IN TRANSIT', null);
+  }
+
+  function finalizeArrival() {
+    var launch = state.launch;
+    var arrivalDay = launch.simDay + T_TRANSFER;
+    state.simDay = arrivalDay;
+
+    var arrivalPointAngle = norm360(launch.earthAngle + 180);
+    var marsAtArrival = norm360(marsAngle(arrivalDay));
+    var missAngle = norm180(marsAtArrival - arrivalPointAngle);
+    var missAbs = Math.abs(missAngle);
+    var missDistanceKm = (missAbs / 360) * MARS_CIRCUMFERENCE_KM;
+    var daysOff = missAngle / DRIFT; // + = launched early, - = launched late
+
+    var tier, tierColor, tierText;
+    if (missAbs <= TOL) {
+      tier = 'PRECISION RENDEZVOUS'; tierColor = 'var(--tier-hit)';
+      tierText = 'Textbook Hohmann transfer \u2014 the rover meets Mars right at the transfer orbit\u2019s aphelion.';
+    } else if (missAbs <= TIER_CLOSE) {
+      tier = 'CLOSE FLYBY'; tierColor = 'var(--tier-close)';
+      tierText = 'The rover reaches Mars\u2019 orbit, but Mars isn\u2019t quite there yet \u2014 a near miss, not a landing.';
+    } else {
+      tier = 'LOST IN SPACE'; tierColor = 'var(--tier-miss)';
+      tierText = 'The rover arrives at Mars\u2019 orbital distance, but Mars is far from that point in space.';
+    }
+
+    state.result = {
+      arrivalPointAngle: arrivalPointAngle,
+      marsAtArrival: marsAtArrival,
+      missAngle: missAngle,
+      missAbs: missAbs,
+      missDistanceKm: missDistanceKm,
+      daysOff: daysOff,
+      tier: tier,
+      tierColor: tierColor,
+      tierText: tierText
+    };
+    state.phase = 'result';
+
+    speedRow.style.display = 'none';
+    resetBtn.style.display = '';
+    setPhaseBadge(tier, tierColor);
+
+    outcomeBadge.textContent = tier;
+    outcomeBadge.style.borderColor = tierColor;
+    outcomeBadge.style.color = tierColor;
+    outcomeText.textContent = tierText;
+    resGap.textContent = missAbs.toFixed(1) + '\u00B0';
+    resTiming.textContent = (daysOff >= 0 ? '~' + Math.round(Math.abs(daysOff)) + 'd early' : '~' + Math.round(Math.abs(daysOff)) + 'd late');
+    resDist.textContent = formatKm(missDistanceKm);
+    resTransit.textContent = Math.round(T_TRANSFER) + ' days';
+    resultPanel.style.display = '';
+  }
+
+  function formatKm(km) {
+    if (km >= 1e6) return (km / 1e6).toFixed(2) + 'M km';
+    return Math.round(km).toLocaleString() + ' km';
+  }
+
+  /* ============================ DRAWING ============================ */
+  var ctx = orbitCanvas.getContext('2d');
+
+  function drawOrbits() {
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--col-orbit') || 'rgba(232,228,217,0.22)';
+    ctx.lineWidth = 1.3;
+    [R_EARTH_PX, R_MARS_PX].forEach(function (r) {
+      ctx.beginPath();
+      ctx.arc(CX, CY, r, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  }
+
+  function drawSun() {
+    var grad = ctx.createRadialGradient(CX, CY, 0, CX, CY, 16);
+    grad.addColorStop(0, '#FFF4CC');
+    grad.addColorStop(1, '#F4D35E');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(CX, CY, 9, 0, Math.PI * 2);
+    ctx.fill();
+    drawLabel('SUN', CX, CY + 24, 'rgba(255,255,255,0.6)', 13);
+  }
+
+  function drawLabel(text, x, y, color, size) {
+    ctx.font = (size || 13) + 'px "Courier Prime", monospace';
+    ctx.fillStyle = color || 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+  }
+
+  function drawPlanet(pos, color, radius, label, glow) {
+    if (glow) {
+      ctx.save();
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 14;
+    }
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    if (glow) ctx.restore();
+    if (label) drawLabel(label, pos.x, pos.y - radius - 12, 'rgba(255,255,255,0.62)', 13);
+  }
+
+  function drawWindowOverlay() {
+    if (!state.windowOn || state.phase !== 'watching') return;
+    var eA = earthAngle(state.simDay);
+    var center = eA + GAMMA_REQ;
+    var a0 = -(center + TOL) * Math.PI / 180;
+    var a1 = -(center - TOL) * Math.PI / 180;
+    ctx.save();
+    ctx.strokeStyle = 'var(--accent-solar)';
+    ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_MARS_PX, a0, a1);
+    ctx.stroke();
+    ctx.restore();
+
+    // faint guide line from Earth toward the ideal aim point
+    var ideal = toXY(R_MARS_AU, center);
+    var eaPos = toXY(R_EARTH_AU, eA);
+    ctx.save();
+    ctx.setLineDash([3, 5]);
+    ctx.strokeStyle = 'rgba(166,150,48,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(eaPos.x, eaPos.y);
+    ctx.lineTo(ideal.x, ideal.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTransferPath(points) {
+    ctx.save();
+    ctx.setLineDash([4, 5]);
+    ctx.strokeStyle = 'rgba(166,150,48,0.6)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    points.forEach(function (p, i) { if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawTrail() {
+    if (state.trail.length < 2) return;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (var i = 1; i < state.trail.length; i++) {
+      var a = i / state.trail.length;
+      ctx.strokeStyle = 'rgba(166,150,48,' + (a * 0.5).toFixed(2) + ')';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(state.trail[i - 1].x, state.trail[i - 1].y);
+      ctx.lineTo(state.trail[i].x, state.trail[i].y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawMissArc() {
+    var r = state.result;
+    if (!r) return;
+    var a0 = -r.arrivalPointAngle * Math.PI / 180;
+    var a1 = -r.marsAtArrival * Math.PI / 180;
+    ctx.save();
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = r.tierColor === 'var(--tier-hit)' ? '#4FAE7C' : (r.tierColor === 'var(--tier-close)' ? '#D9A441' : '#C1544B');
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(CX, CY, R_MARS_PX, a0, a1, a1 < a0);
+    ctx.stroke();
+    ctx.restore();
+
+    var mid = toXY(R_MARS_AU + 0.14, (r.arrivalPointAngle + norm360(r.marsAtArrival - r.arrivalPointAngle) / 2));
+    drawLabel(r.missAbs.toFixed(1) + '\u00B0 gap', mid.x, mid.y, '#E8E4D9', 18);
+  }
+
+  function render() {
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg') || '#262B27';
+    ctx.fillRect(0, 0, 560, 560);
+
+    drawOrbits();
+    drawLabel('EARTH\u2019S ORBIT \u00B7 1.00 AU', CX, CY - R_EARTH_PX - 13, 'rgba(255,255,255,0.55)', 13);
+    drawLabel('MARS\u2019 ORBIT \u00B7 1.52 AU', CX, CY - R_MARS_PX - 13, 'rgba(255,255,255,0.55)', 13);
+
+    drawWindowOverlay();
+
+    if (state.launch && (state.phase === 'transit' || state.phase === 'result')) {
+      drawTransferPath(state.launch.pathPoints);
+    }
+
+    drawSun();
+
+    if (state.phase !== 'result') {
+      drawPlanet(toXY(R_EARTH_AU, earthAngle(state.simDay)), '#5B8DEF', 8, 'EARTH', false);
+      drawPlanet(toXY(R_MARS_AU, marsAngle(state.simDay)), '#C1543A', 7, 'MARS', false);
+    } else {
+      // frozen launch-point Earth ghost + live Mars-at-arrival highlight
+      drawPlanet(toXY(R_EARTH_AU, state.launch.earthAngle), '#5B8DEF', 8, 'EARTH (at launch)', false);
+      drawPlanet(toXY(R_MARS_AU, state.result.marsAtArrival), '#C1543A', 9, 'MARS (on arrival)', true);
+      drawPlanet(toXY(R_MARS_AU, state.result.arrivalPointAngle), '#F5D061', 7, 'ROVER', true);
+      drawMissArc();
+    }
+
+    if (state.phase === 'transit') {
+      var elapsed = state.simDay - state.launch.simDay;
+      var pos = transferPosition(state.launch.earthAngle, elapsed);
+      var xy = toXY(pos.r, pos.angle);
+      state.trail.push(xy);
+      if (state.trail.length > 50) state.trail.shift();
+      drawTrail();
+      drawPlanet(xy, '#F5D061', 6, null, true);
+    }
+  }
+
+  /* ============================ MAIN LOOP ============================ */
+  function tick(ts) {
+    if (lastTs === null) lastTs = ts;
+    var dtSec = Math.min(0.1, (ts - lastTs) / 1000);
+    lastTs = ts;
+
+    if (state.phase === 'watching') {
+      state.simDay += dtSec * WATCH_RATE;
+      statClock.textContent = 'Day ' + Math.floor(state.simDay);
+      updateWindowReadout();
+    } else if (state.phase === 'transit') {
+      state.simDay += dtSec * TRANSIT_BASE_RATE * state.speed;
+      var elapsed = state.simDay - state.launch.simDay;
+      statClock.textContent = 'Day ' + Math.floor(state.simDay) + ' (T+' + Math.floor(elapsed) + ')';
+      if (elapsed >= T_TRANSFER) {
+        finalizeArrival();
+      }
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  /* ============================ DOM WIRING ============================ */
+  var launchBtn = document.getElementById('launchBtn');
+  var resetBtn = document.getElementById('resetBtn');
+  var speedRow = document.getElementById('speedRow');
+  var phaseBadge = document.getElementById('phaseBadge');
+  var windowToggle = document.getElementById('windowToggle');
+  var windowReadout = document.getElementById('windowReadout');
+  var statClock = document.getElementById('statClock');
+  var resultPanel = document.getElementById('resultPanel');
+  var outcomeBadge = document.getElementById('outcomeBadge');
+  var outcomeText = document.getElementById('outcomeText');
+  var resGap = document.getElementById('resGap');
+  var resTiming = document.getElementById('resTiming');
+  var resDist = document.getElementById('resDist');
+  var resTransit = document.getElementById('resTransit');
+  var orbitCanvasEl = document.getElementById('orbitCanvas');
+
+  launchBtn.addEventListener('click', doLaunch);
+  resetBtn.addEventListener('click', newRound);
+
+  windowToggle.querySelectorAll('.cc-segmented-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.windowOn = btn.getAttribute('data-val') === 'on';
+      windowToggle.querySelectorAll('.cc-segmented-btn').forEach(function (b) { b.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+      updateWindowReadout();
+    });
+  });
+  windowToggle.querySelector('[data-val="off"]').classList.add('is-active');
+
+  speedRow.querySelectorAll('.speed-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.speed = parseFloat(btn.getAttribute('data-speed'));
+      speedRow.querySelectorAll('.speed-btn').forEach(function (b) { b.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+    });
+  });
+
+  /* ============================ INIT ============================ */
+  window.orbitCanvas = orbitCanvasEl;
+  newRound();
+  requestAnimationFrame(tick);
+
+  // expose for headless validation harness
+  window.__mtm = { state: state, GAMMA_REQ: GAMMA_REQ, T_TRANSFER: T_TRANSFER, SYNODIC: SYNODIC, DRIFT: DRIFT, doLaunch: doLaunch, newRound: newRound, finalizeArrival: finalizeArrival, transferPosition: transferPosition, render: render };
+})();
+</script>
+</body>
+</html>
