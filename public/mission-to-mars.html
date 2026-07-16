@@ -33,9 +33,37 @@
     align-items: flex-start;
   }
 
-  .mtm-canvas-card { padding: 10px; }
+  .mtm-canvas-card { padding: 10px; position: relative; }
   .mtm-canvas-wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   #orbitCanvas { background: var(--canvas-bg); border-radius: var(--radius-md); cursor: default; }
+
+  .mtm-mute-btn {
+    position: absolute;
+    top: 20px; right: 20px;
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 2;
+    transition: border-color 0.15s ease;
+  }
+  .mtm-mute-btn:hover { border-color: var(--color-border-hover); }
+
+  @keyframes mtmPop {
+    0%   { transform: scale(0.6); opacity: 0; }
+    60%  { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .mtm-pop { animation: mtmPop 0.5s cubic-bezier(.34,1.56,.64,1); }
+  @media (prefers-reduced-motion: reduce) {
+    .mtm-pop { animation: none; }
+  }
+
+  #resultPanel { transition: opacity 0.4s ease; }
 
   .mtm-launch-row { display: flex; gap: 10px; align-items: center; justify-content: center; }
   .mtm-launch-btn {
@@ -105,6 +133,7 @@
 
     <div class="mtm-canvas-wrap">
       <div class="cc-panel mtm-canvas-card">
+        <button id="muteBtn" class="mtm-mute-btn" aria-label="Mute sound" title="Sound on"></button>
         <canvas id="orbitCanvas" width="560" height="560" class="cc-canvas-frame"></canvas>
       </div>
 
@@ -214,6 +243,14 @@
   var TRANSIT_BASE_RATE = 10.8; // simulated days per real second at transit x1 (~24s @ T_TRANSFER)
 
   /* ============================ STATE ============================ */
+  var REDUCE_MOTION = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  var HIT_LINES  = ['Touchdown confirmed.', 'Signal acquired from the surface.', 'Rover wheels down.', 'Contact established.'];
+  var MISS_LINES = ['Still out there, somewhere.', 'Last transmission: static.', 'No signal returned.', 'Drifting on, alone.'];
+
+  var HIT_ANIM_DUR  = 1.3;  // seconds
+  var MISS_ANIM_DUR = 2.2;  // seconds
+
   var state = {
     phase: 'watching',      // 'watching' | 'transit' | 'result'
     simDay: 0,
@@ -221,10 +258,14 @@
     gammaStart: 0,
     windowOn: false,
     speed: 1,
+    muted: false,
     launch: null,            // { simDay, earthAngle, gammaChosen, pathPoints }
     result: null,
-    trail: []
+    trail: [],
+    particles: [],
+    revealStart: null
   };
+  try { state.muted = localStorage.getItem('mtm_muted') === '1'; } catch (e) { state.muted = false; }
 
   var lastTs = null;
 
@@ -257,9 +298,12 @@
     return 2 * Math.atan2(y, x);
   }
 
-  // Position along the transfer ellipse at elapsed days since launch (0..T_TRANSFER)
+  // Position along the transfer ellipse at elapsed days since launch. Intentionally
+  // unclamped past T_TRANSFER — the miss-reveal drift effect extrapolates a bit
+  // further along the same real ellipse; normal transit rendering never actually
+  // sees elapsed > T_TRANSFER because finalizeArrival() flips the phase first.
   function transferPosition(launchEarthAngle, elapsedDays) {
-    var frac = Math.max(0, Math.min(1, elapsedDays / T_TRANSFER));
+    var frac = elapsedDays / T_TRANSFER;
     var M = frac * Math.PI; // 0 at perihelion, PI at aphelion
     var E = solveKepler(M, ECC);
     var nu = trueAnomalyFromE(E, ECC);
@@ -286,6 +330,8 @@
     state.launch = null;
     state.result = null;
     state.trail = [];
+    state.particles = [];
+    state.revealStart = null;
     lastTs = null;
 
     launchBtn.style.display = '';
@@ -293,6 +339,8 @@
     resetBtn.style.display = 'none';
     speedRow.style.display = 'none';
     resultPanel.style.display = 'none';
+    resultPanel.style.opacity = '1';
+    outcomeBadge.classList.remove('mtm-pop');
     setPhaseBadge('WATCHING', null);
     statClock.textContent = 'Day 0';
   }
@@ -337,6 +385,7 @@
   /* ============================ LAUNCH / RESULT ============================ */
   function doLaunch() {
     if (state.phase !== 'watching') return;
+    ensureAudio();
     var eA = earthAngle(state.simDay);
     var gammaChosen = norm360(relativePhase(state.simDay));
     state.launch = {
@@ -364,16 +413,19 @@
     var missDistanceKm = (missAbs / 360) * MARS_CIRCUMFERENCE_KM;
     var daysOff = missAngle / DRIFT; // + = launched early, - = launched late
 
-    var tier, tierColor, tierText;
+    var tier, tierColor, tierText, flavor;
     if (missAbs <= TOL) {
       tier = 'PRECISION RENDEZVOUS'; tierColor = 'var(--tier-hit)';
       tierText = 'Textbook Hohmann transfer \u2014 the rover meets Mars right at the transfer orbit\u2019s aphelion.';
+      flavor = HIT_LINES[Math.floor(Math.random() * HIT_LINES.length)];
     } else if (missAbs <= TIER_CLOSE) {
       tier = 'CLOSE FLYBY'; tierColor = 'var(--tier-close)';
       tierText = 'The rover reaches Mars\u2019 orbit, but Mars isn\u2019t quite there yet \u2014 a near miss, not a landing.';
+      flavor = '';
     } else {
       tier = 'LOST IN SPACE'; tierColor = 'var(--tier-miss)';
       tierText = 'The rover arrives at Mars\u2019 orbital distance, but Mars is far from that point in space.';
+      flavor = MISS_LINES[Math.floor(Math.random() * MISS_LINES.length)];
     }
 
     state.result = {
@@ -385,9 +437,14 @@
       daysOff: daysOff,
       tier: tier,
       tierColor: tierColor,
-      tierText: tierText
+      tierText: tierText,
+      flavor: flavor
     };
     state.phase = 'result';
+    state.revealStart = performance.now();
+
+    if (tier === 'PRECISION RENDEZVOUS') { spawnParticles(); playChime('hit'); }
+    else if (tier === 'LOST IN SPACE')   { playChime('miss'); }
 
     speedRow.style.display = 'none';
     resetBtn.style.display = '';
@@ -401,12 +458,85 @@
     resTiming.textContent = (daysOff >= 0 ? '~' + Math.round(Math.abs(daysOff)) + 'd early' : '~' + Math.round(Math.abs(daysOff)) + 'd late');
     resDist.textContent = formatKm(missDistanceKm);
     resTransit.textContent = Math.round(T_TRANSFER) + ' days';
-    resultPanel.style.display = '';
+
+    var isFlourishTier = (tier === 'PRECISION RENDEZVOUS' || tier === 'LOST IN SPACE') && !REDUCE_MOTION;
+    if (isFlourishTier) {
+      var delay = tier === 'PRECISION RENDEZVOUS' ? HIT_ANIM_DUR * 1000 : MISS_ANIM_DUR * 1000;
+      resultPanel.style.opacity = '0';
+      resultPanel.style.display = '';
+      setTimeout(function () {
+        resultPanel.style.opacity = '1';
+        outcomeBadge.classList.remove('mtm-pop');
+        void outcomeBadge.offsetWidth; // restart the keyframe animation
+        outcomeBadge.classList.add('mtm-pop');
+      }, delay);
+    } else {
+      resultPanel.style.opacity = '1';
+      resultPanel.style.display = '';
+    }
   }
 
   function formatKm(km) {
     if (km >= 1e6) return (km / 1e6).toFixed(2) + 'M km';
     return Math.round(km).toLocaleString() + ' km';
+  }
+
+  /* ============================ AUDIO (optional, mutable) ============================
+     AudioContext is created on the LAUNCH click (a real user gesture) so it's already
+     unlocked by the time the arrival chime plays several seconds later. */
+  var audioCtx = null;
+  function ensureAudio() {
+    if (audioCtx) return;
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+  }
+
+  function playChime(kind) {
+    if (state.muted || !audioCtx) return;
+    if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+    var now = audioCtx.currentTime;
+    if (kind === 'hit') {
+      [523.25, 659.25, 783.99].forEach(function (freq, i) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        var t0 = now + i * 0.11;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(0.11, t0 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(t0);
+        osc.stop(t0 + 0.5);
+      });
+    } else if (kind === 'miss') {
+      var osc2 = audioCtx.createOscillator();
+      var gain2 = audioCtx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(260, now);
+      osc2.frequency.exponentialRampToValueAtTime(140, now + 1.8);
+      gain2.gain.setValueAtTime(0.001, now);
+      gain2.gain.linearRampToValueAtTime(0.06, now + 0.15);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, now + 1.9);
+      osc2.connect(gain2).connect(audioCtx.destination);
+      osc2.start(now);
+      osc2.stop(now + 2.0);
+    }
+  }
+
+  function spawnParticles() {
+    var pos = toXY(R_MARS_AU, state.result.arrivalPointAngle);
+    state.particles = [];
+    var n = 16;
+    for (var i = 0; i < n; i++) {
+      var ang = Math.random() * Math.PI * 2;
+      var spd = 26 + Math.random() * 44;
+      state.particles.push({
+        x: pos.x, y: pos.y,
+        vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+        life: 0.9 + Math.random() * 0.5
+      });
+    }
   }
 
   /* ============================ DRAWING ============================ */
@@ -529,6 +659,91 @@
     drawLabel(r.missAbs.toFixed(1) + '\u00B0 gap', mid.x, mid.y, '#E8E4D9', 18);
   }
 
+  // Precision Rendezvous: a docking-confirmation ping (staggered expanding rings),
+  // a restrained gold particle burst, and a rotating mission-log flavor line.
+  function drawHitReveal(t) {
+    var pos = toXY(R_MARS_AU, state.result.arrivalPointAngle);
+
+    ctx.save();
+    [0, 0.16, 0.32].forEach(function (rs) {
+      var rt = t - rs;
+      if (rt < 0 || rt > 0.75) return;
+      var frac = rt / 0.75;
+      var radius = 6 + frac * 46;
+      var alpha = 0.75 * (1 - frac);
+      ctx.strokeStyle = 'rgba(245,208,97,' + alpha.toFixed(2) + ')';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    ctx.restore();
+
+    ctx.save();
+    state.particles.forEach(function (p) {
+      var alpha = Math.max(0, 1 - t / p.life);
+      if (alpha <= 0) return;
+      var px = p.x + p.vx * t, py = p.y + p.vy * t;
+      ctx.fillStyle = 'rgba(245,208,97,' + (alpha * 0.9).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.arc(px, py, 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    if (state.result.flavor && t > 0.25) {
+      drawLabel(state.result.flavor, pos.x, pos.y - 34, '#F5D061', 15);
+    }
+  }
+
+  // Lost in Space: dim everything but the rover, let it drift on past the
+  // arrival point along its real trajectory, send one ping that fades unanswered,
+  // then fade the scene back in.
+  function drawMissReveal(t) {
+    var dimOut = 0.5, holdEnd = 1.6, fadeInEnd = 2.2;
+    var dimFactor;
+    if (t < dimOut) dimFactor = 1 - (t / dimOut) * 0.88;
+    else if (t < holdEnd) dimFactor = 0.12;
+    else dimFactor = 0.12 + Math.min(1, (t - holdEnd) / (fadeInEnd - holdEnd)) * 0.88;
+
+    drawPlanet(toXY(R_EARTH_AU, state.launch.earthAngle), '#5B8DEF', 8, 'EARTH (at launch)', false);
+    drawPlanet(toXY(R_MARS_AU, state.result.marsAtArrival), '#C1543A', 9, 'MARS (on arrival)', true);
+    drawPlanet(toXY(R_MARS_AU, state.result.arrivalPointAngle), '#F5D061', 7, 'ROVER', true);
+    drawMissArc();
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(38,43,39,' + (1 - dimFactor).toFixed(2) + ')';
+    ctx.fillRect(0, 0, 560, 560);
+    ctx.restore();
+
+    if (t < holdEnd + 0.3) {
+      var driftDays = 0;
+      if (t > dimOut && t < holdEnd) driftDays = ((t - dimOut) / (holdEnd - dimOut)) * 46;
+      else if (t >= holdEnd) driftDays = 46;
+
+      var pos = transferPosition(state.launch.earthAngle, T_TRANSFER + driftDays);
+      var xy = toXY(pos.r, pos.angle);
+      drawPlanet(xy, '#F5D061', 5, null, true);
+
+      if (t > 0.6 && t < 1.6) {
+        var pt = (t - 0.6) / 1.0;
+        var radius = 5 + pt * 26;
+        var alpha = 0.5 * (1 - pt);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(245,208,97,' + Math.max(0, alpha).toFixed(2) + ')';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(xy.x, xy.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (state.result.flavor && t > 0.7 && t < holdEnd + 0.2) {
+        drawLabel(state.result.flavor, xy.x, xy.y - 20, 'rgba(232,228,217,0.8)', 14);
+      }
+    }
+  }
+
   function render() {
     ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg') || '#262B27';
     ctx.fillRect(0, 0, 560, 560);
@@ -549,11 +764,22 @@
       drawPlanet(toXY(R_EARTH_AU, earthAngle(state.simDay)), '#5B8DEF', 8, 'EARTH', false);
       drawPlanet(toXY(R_MARS_AU, marsAngle(state.simDay)), '#C1543A', 7, 'MARS', false);
     } else {
-      // frozen launch-point Earth ghost + live Mars-at-arrival highlight
-      drawPlanet(toXY(R_EARTH_AU, state.launch.earthAngle), '#5B8DEF', 8, 'EARTH (at launch)', false);
-      drawPlanet(toXY(R_MARS_AU, state.result.marsAtArrival), '#C1543A', 9, 'MARS (on arrival)', true);
-      drawPlanet(toXY(R_MARS_AU, state.result.arrivalPointAngle), '#F5D061', 7, 'ROVER', true);
-      drawMissArc();
+      var tier = state.result.tier;
+      var revealElapsed = state.revealStart ? (performance.now() - state.revealStart) / 1000 : 999;
+      var animatingHit  = !REDUCE_MOTION && tier === 'PRECISION RENDEZVOUS' && revealElapsed < HIT_ANIM_DUR;
+      var animatingMiss = !REDUCE_MOTION && tier === 'LOST IN SPACE' && revealElapsed < MISS_ANIM_DUR;
+
+      if (animatingMiss) {
+        drawMissReveal(revealElapsed);
+      } else {
+        // frozen launch-point Earth ghost + live Mars-at-arrival highlight
+        drawPlanet(toXY(R_EARTH_AU, state.launch.earthAngle), '#5B8DEF', 8, 'EARTH (at launch)', false);
+        drawPlanet(toXY(R_MARS_AU, state.result.marsAtArrival), '#C1543A', 9, 'MARS (on arrival)', true);
+        drawPlanet(toXY(R_MARS_AU, state.result.arrivalPointAngle), '#F5D061', 7, 'ROVER', true);
+        if (tier !== 'PRECISION RENDEZVOUS') drawMissArc();
+      }
+
+      if (animatingHit) drawHitReveal(revealElapsed);
     }
 
     if (state.phase === 'transit') {
@@ -606,6 +832,19 @@
   var resDist = document.getElementById('resDist');
   var resTransit = document.getElementById('resTransit');
   var orbitCanvasEl = document.getElementById('orbitCanvas');
+  var muteBtn = document.getElementById('muteBtn');
+
+  function updateMuteBtn() {
+    muteBtn.textContent = state.muted ? '\u{1F507}' : '\u{1F50A}';
+    muteBtn.title = state.muted ? 'Sound off (click to unmute)' : 'Sound on (click to mute)';
+    muteBtn.setAttribute('aria-label', state.muted ? 'Unmute sound' : 'Mute sound');
+  }
+  muteBtn.addEventListener('click', function () {
+    state.muted = !state.muted;
+    try { localStorage.setItem('mtm_muted', state.muted ? '1' : '0'); } catch (e) {}
+    updateMuteBtn();
+  });
+  updateMuteBtn();
 
   launchBtn.addEventListener('click', doLaunch);
   resetBtn.addEventListener('click', newRound);
@@ -634,7 +873,7 @@
   requestAnimationFrame(tick);
 
   // expose for headless validation harness
-  window.__mtm = { state: state, GAMMA_REQ: GAMMA_REQ, T_TRANSFER: T_TRANSFER, SYNODIC: SYNODIC, DRIFT: DRIFT, doLaunch: doLaunch, newRound: newRound, finalizeArrival: finalizeArrival, transferPosition: transferPosition, render: render };
+  window.__mtm = { state: state, GAMMA_REQ: GAMMA_REQ, T_TRANSFER: T_TRANSFER, SYNODIC: SYNODIC, DRIFT: DRIFT, doLaunch: doLaunch, newRound: newRound, finalizeArrival: finalizeArrival, transferPosition: transferPosition, render: render, HIT_ANIM_DUR: HIT_ANIM_DUR, MISS_ANIM_DUR: MISS_ANIM_DUR, playChime: playChime, ensureAudio: ensureAudio };
 })();
 </script>
 </body>
