@@ -787,6 +787,7 @@ function getWeatherIcon(skyc1,wxcodes){
 // ================================================================
 let curStation=null,allObs=[],activeDirs=new Set(DIRS),showSunLines=false;
 let refreshTimer=null,countdownTimer=null,lastFetchTime=null,chartsBuilt=false;
+let curDisplayObs=[],curFullObs=[];
 let obs30Loaded=false,activeRange=10;
 
 // ================================================================
@@ -1306,7 +1307,9 @@ function medianStepMs(dates){
   return diffs[Math.floor(diffs.length/2)];
 }
 
-function buildCharts(obs){
+function buildCharts(obs, fullObs){
+  fullObs=(fullObs&&fullObs.length)?fullObs:obs;
+  curDisplayObs=obs;curFullObs=fullObs;
   const xs=obs.map(o=>o.dt);
   const barW=Math.max(medianStepMs(xs)*.88,60000);
   const nowISO=new Date().toISOString();
@@ -1337,9 +1340,9 @@ function buildCharts(obs){
   const windTrace={x:windObs.map(o=>o.dt),y:windObs.map(o=>o.sknt),type:'bar',width:barW,name:'Wind Speed',marker:{color:windObs.map(o=>dirColor(o.drct)),line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata[0]} %{y:.0f} mph<extra></extra>',customdata:windObs.map(o=>[drctCompass(o.drct)])};
   const calmObs=obs.filter(o=>o.sknt!=null&&o.sknt<1);
   const calmTrace={x:calmObs.map(o=>o.dt),y:calmObs.map(()=>0.4),type:'bar',width:barW,name:'Calm',marker:{color:'rgba(180,180,180,0.55)',line:{width:0}},hovertemplate:'<b>Wind</b> Calm<extra></extra>',showlegend:false};
-  const gustObs=obs.filter(o=>o.gust!=null&&o.gust>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
+  const gustObs=fullObs.filter(o=>o.gust!=null&&o.gust>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
   const gustTrace={x:gustObs.map(o=>o.dt),y:gustObs.map(o=>o.gust),type:'scatter',mode:'markers',name:'Gust',marker:{color:'#FFE8A8',size:7,symbol:'circle',line:{color:'#262B27',width:1.2}},hovertemplate:'<b>Gust</b> %{y:.0f} mph<extra></extra>'};
-  const allWindSpeeds=obs.flatMap(o=>[o.sknt,o.gust]).filter(v=>v!=null&&v>=1);
+  const allWindSpeeds=fullObs.flatMap(o=>[o.sknt,o.gust]).filter(v=>v!=null&&v>=1);
   const maxWSpd=allWindSpeeds.length?Math.max(...allWindSpeeds):20;
   const windTickMax=Math.ceil(maxWSpd/5)*5+5;
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:30,b:40},showlegend:false,
@@ -1411,8 +1414,10 @@ function initWheel(){
   });
 }
 function applyDirFilter(){
-  const windObs=allObs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
-  const gustObs=allObs.filter(o=>o.gust!=null&&o.gust>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
+  // Re-filter from the same range-aware datasets buildCharts used (not raw allObs),
+  // so a direction toggle doesn't silently ignore the active date range.
+  const windObs=curDisplayObs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
+  const gustObs=curFullObs.filter(o=>o.gust!=null&&o.gust>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
   Plotly.restyle('chart-wind',{x:[windObs.map(o=>o.dt)],y:[windObs.map(o=>o.sknt)],'marker.color':[windObs.map(o=>dirColor(o.drct))],customdata:[windObs.map(o=>[drctCompass(o.drct)])]},0);
   Plotly.restyle('chart-wind',{x:[gustObs.map(o=>o.dt)],y:[gustObs.map(o=>o.gust)]},2);
 }
@@ -1436,7 +1441,11 @@ function applyRange(days){
   const start=new Date(now.getTime()-days*24*60*60*1000);
   const windowObs=hourly.filter(o=>o.dt>=start&&o.dt<=now);
   const displayObs=windowObs.length>=2?windowObs:hourly;
-  buildCharts(displayObs);
+  // Full-resolution (un-thinned) obs for the same window — used for wind gust
+  // markers so a peak gust reported on a special ob (not the top-of-hour report)
+  // isn't silently dropped by the hourly thinning above.
+  const fullWindowObs=allObs.filter(o=>o.dt>=start&&o.dt<=now);
+  buildCharts(displayObs, fullWindowObs.length?fullWindowObs:allObs);
 }
 async function selectRange(days){
   if(!curStation)return;
