@@ -110,6 +110,31 @@
 .chips-solar   .chip { border-color: rgba(166,150,48,.18); }
 .chips-summary .chip { border-color: rgba(42,168,126,.18); }
 
+/* ── NWS Forecast (36-hour + 7-day) ────────────────────────────── */
+.rh-forecast { color: #7EC8E3; }
+.fc-hourly-wrap, .fc-daily-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 12px 10px; margin-bottom: 4px; overflow-x: auto; }
+.fc-hourly-strip, .fc-daily-strip { display: flex; gap: 2px; min-width: min-content; }
+.fc-empty { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); padding: 20px; white-space: nowrap; }
+.fc-h-item { flex: 0 0 52px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 2px; }
+.fc-h-time { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); letter-spacing: .02em; white-space: nowrap; }
+.fc-h-icon { width: 28px; height: 28px; }
+.fc-h-icon svg { width: 100%; height: 100%; }
+.fc-h-temp { font-family: var(--font-mono); font-size: 15px; font-weight: 700; }
+.fc-h-pop { font-family: var(--font-mono); font-size: 10px; color: #5AADEC; min-height: 12px; }
+.fc-h-pop-empty { opacity: 0; }
+.fc-d-item { flex: 0 0 82px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; border-radius: var(--radius-md); }
+.fc-d-item.today { background: rgba(42,168,126,.10); }
+.fc-d-dow { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .04em; color: var(--color-text-primary); }
+.fc-d-item.today .fc-d-dow { color: var(--tool-accent); }
+.fc-d-date { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
+.fc-d-icon { width: 26px; height: 26px; margin: 3px 0; }
+.fc-d-icon svg { width: 100%; height: 100%; }
+.fc-d-pop { font-family: var(--font-mono); font-size: 11px; color: #5AADEC; min-height: 14px; }
+.fc-d-hi { font-family: var(--font-mono); font-size: 13px; font-weight: 700; }
+.fc-d-lo { font-family: var(--font-mono); font-size: 12px; font-weight: 600; opacity: .82; }
+.fc-d-bar-track { position: relative; height: 68px; width: 14px; margin: 2px 0; }
+.fc-d-bar { position: absolute; left: 0; right: 0; border-radius: 7px; }
+
 </style>
 </head>
 <body>
@@ -159,6 +184,14 @@
     <div class="mc"><div class="mc-lbl">Ceiling</div><div class="mc-val" id="mc-ceil" style="font-size:16px">--</div></div>
   </div>
 </div>
+
+<!-- 36-HOUR FORECAST -->
+<div class="row-hdr rh-forecast">Next 36 Hours</div>
+<div class="fc-hourly-wrap"><div class="fc-hourly-strip" id="fc-hourly-strip"><div class="fc-empty">Loading forecast&hellip;</div></div></div>
+
+<!-- 7-DAY FORECAST -->
+<div class="row-hdr rh-forecast">7-Day Forecast</div>
+<div class="fc-daily-wrap"><div class="fc-daily-strip" id="fc-daily-strip"><div class="fc-empty">Loading forecast&hellip;</div></div></div>
 
 <!-- CLIMATE -->
 <div class="row-hdr rh-climate">Today's Climate</div>
@@ -495,6 +528,27 @@ const WX_ICONS={
   MIST:`<svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg"><g stroke="#88AABB" stroke-width="2.5" stroke-linecap="round" opacity=".9"><line x1="9" y1="17" x2="43" y2="17"/><line x1="7" y1="27" x2="45" y2="27"/><line x1="9" y1="37" x2="43" y2="37"/></g><g stroke="#88AABB" stroke-width="1.5" stroke-linecap="round" opacity=".45"><line x1="13" y1="12" x2="39" y2="12"/><line x1="11" y1="42" x2="41" y2="42"/></g></svg>`
 };
 WX_ICONS.SKC=WX_ICONS.CLR;
+// Night variants — only clear/partly-cloudy need a distinct look (moon vs sun);
+// overcast/precip icons already read fine regardless of time of day.
+WX_ICONS.CLR_NIGHT=`<svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg"><path d="M32 8A15 15 0 1 0 32 38A11 15 0 1 1 32 8Z" fill="#D8DCE8"/><circle cx="12" cy="12" r="1.4" fill="#D8DCE8" opacity=".85"/><circle cx="9" cy="22" r="1" fill="#D8DCE8" opacity=".6"/><circle cx="16" cy="34" r="1.1" fill="#D8DCE8" opacity=".7"/></svg>`;
+WX_ICONS.SCT_NIGHT=`<svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg"><path d="M33 10A8 8 0 1 0 33 26A6 8 0 1 1 33 10Z" fill="#D8DCE8" opacity=".85"/><path d="M19 47 Q11 47 11 40 Q11 33 19 33 Q20 27 27 27 Q35 27 36 33 Q42 32 43 38 Q43 47 35 47Z" fill="#5A7A99"/></svg>`;
+
+// Maps an NWS forecast period's prose ("Partly Cloudy", "Chance Showers And
+// Thunderstorms", ...) to one of the icon keys above — NWS's vocabulary differs
+// from the METAR skyc1/wxcodes used by getWeatherIcon() above, so this is separate.
+function classifyForecastIcon(shortForecast,isDaytime){
+  const s=(shortForecast||'').toLowerCase();
+  if(s.includes('thunderstorm')||s.includes('tstorm'))return'THUNDER';
+  if(s.includes('snow')||s.includes('flurr')||s.includes('sleet')||s.includes('wintry')||s.includes('ice'))return'SNOW';
+  if(s.includes('drizzle'))return'DRIZ';
+  if(s.includes('rain')||s.includes('shower'))return'RAIN';
+  if(s.includes('fog')||s.includes('haze')||s.includes('mist')||s.includes('smoke'))return'MIST';
+  if(s.includes('overcast')||(s.includes('cloudy')&&!s.includes('partly')&&!s.includes('mostly clear')))return'OVC';
+  if(s.includes('mostly cloudy')||s.includes('considerable cloud'))return'BKN';
+  if(s.includes('partly cloudy')||s.includes('partly sunny')||s.includes('mostly sunny')||s.includes('a few clouds')||s.includes('mostly clear'))return isDaytime?'SCT':'SCT_NIGHT';
+  if(s.includes('clear')||s.includes('sunny'))return isDaytime?'CLR':'CLR_NIGHT';
+  return isDaytime?'SCT':'SCT_NIGHT';
+}
 function getWeatherIcon(skyc1,wxcodes){
   if(wxcodes){const wx=(wxcodes||'').toUpperCase();
     if(wx.match(/\bTS\b/)||wx.includes('TSRA'))return WX_ICONS.THUNDER;
@@ -704,6 +758,81 @@ function renderAlerts(alerts){
     const exp=new Date(p.expires).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
     return `<div class="alert-item" style="border-left-color:${col}"><span class="alert-event" style="color:${col}">${p.event}</span><span class="alert-area">${p.areaDesc||''}</span><span class="alert-expire">until ${exp}</span></div>`;
   }).join('');
+}
+
+// ================================================================
+// NWS FORECAST (next 36 hours + 7-day)
+// ================================================================
+const forecastGridCache={}; // icao -> {hourlyUrl, dailyUrl} — grid rarely changes, avoid re-resolving every refresh
+async function fetchNWSForecast(station){
+  const[icao,,,lat,lon]=station;
+  let grid=forecastGridCache[icao];
+  if(!grid){
+    const ptResp=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
+    if(!ptResp.ok)throw new Error('NWS points lookup failed');
+    const pt=await ptResp.json();
+    grid={hourlyUrl:pt.properties.forecastHourly,dailyUrl:pt.properties.forecast};
+    forecastGridCache[icao]=grid;
+  }
+  const[hResp,dResp]=await Promise.all([fetch(grid.hourlyUrl),fetch(grid.dailyUrl)]);
+  if(!hResp.ok||!dResp.ok)throw new Error('NWS forecast fetch failed');
+  const[hJson,dJson]=await Promise.all([hResp.json(),dResp.json()]);
+  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[]};
+}
+
+function fcPopStr(period){
+  const v=period&&period.probabilityOfPrecipitation&&period.probabilityOfPrecipitation.value;
+  return(v!=null&&v>=5)?v:null;
+}
+
+function buildHourlyStrip(periods,tz){
+  const wrap=document.getElementById('fc-hourly-strip');if(!wrap)return;
+  const now=Date.now();
+  const upcoming=periods.filter(p=>new Date(p.endTime).getTime()>=now).slice(0,36);
+  if(!upcoming.length){wrap.innerHTML='<div class="fc-empty">Hourly forecast unavailable</div>';return;}
+  wrap.innerHTML=upcoming.map((p,i)=>{
+    const d=new Date(p.startTime);
+    const timeStr=i===0?'Now':d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric'}).replace(' ','').toUpperCase();
+    const icon=classifyForecastIcon(p.shortForecast,p.isDaytime);
+    const pop=fcPopStr(p);
+    const col=tempBarColor(p.temperature);
+    return`<div class="fc-h-item"><div class="fc-h-time">${timeStr}</div><div class="fc-h-icon">${WX_ICONS[icon]||WX_ICONS.SCT}</div><div class="fc-h-temp" style="color:${col}">${Math.round(p.temperature)}&deg;</div><div class="fc-h-pop${pop==null?' fc-h-pop-empty':''}">${pop!=null?pop+'%':'&nbsp;'}</div></div>`;
+  }).join('');
+}
+
+function buildDailyStrip(periods,tz){
+  const wrap=document.getElementById('fc-daily-strip');if(!wrap)return;
+  const groups=new Map(),order=[];
+  periods.forEach(p=>{
+    const key=new Date(p.startTime).toLocaleDateString('en-US',{timeZone:tz});
+    if(!groups.has(key)){groups.set(key,[]);order.push(key);}
+    groups.get(key).push(p);
+  });
+  const days=order.slice(0,7).map(k=>groups.get(k));
+  if(!days.length){wrap.innerHTML='<div class="fc-empty">Forecast unavailable</div>';return;}
+  const allTemps=days.flat().map(p=>p.temperature);
+  const weekLo=Math.min(...allTemps),weekHi=Math.max(...allTemps),span=weekHi-weekLo;
+  const pct=v=>span>0?(v-weekLo)/span:.5;
+  wrap.innerHTML=days.map((group,i)=>{
+    const dayTemps=group.map(p=>p.temperature);
+    const hi=Math.max(...dayTemps),lo=Math.min(...dayTemps);
+    const primary=group.find(p=>p.isDaytime)||group[0];
+    const icon=classifyForecastIcon(primary.shortForecast,primary.isDaytime);
+    const pops=group.map(fcPopStr).filter(v=>v!=null);
+    const pop=pops.length?Math.max(...pops):null;
+    const dt=new Date(group[0].startTime);
+    const dow=i===0?'Today':dt.toLocaleDateString('en-US',{timeZone:tz,weekday:'short'}).toUpperCase();
+    const dateStr=dt.toLocaleDateString('en-US',{timeZone:tz,month:'short',day:'numeric'});
+    const top=(1-pct(hi))*100,bot=pct(lo)*100;
+    const hiCol=tempBarColor(hi),loCol=tempBarColor(lo);
+    return`<div class="fc-d-item${i===0?' today':''}"><div class="fc-d-dow">${dow}</div><div class="fc-d-date">${dateStr}</div><div class="fc-d-icon">${WX_ICONS[icon]||WX_ICONS.SCT}</div><div class="fc-d-pop">${pop!=null?'&#128167; '+pop+'%':'&nbsp;'}</div><div class="fc-d-hi" style="color:${hiCol}">${Math.round(hi)}&deg;</div><div class="fc-d-bar-track"><div class="fc-d-bar" style="top:${top.toFixed(1)}%;bottom:${bot.toFixed(1)}%;background:linear-gradient(to top,${loCol},${hiCol})"></div></div><div class="fc-d-lo" style="color:${loCol}">${Math.round(lo)}&deg;</div></div>`;
+  }).join('');
+}
+
+function forecastError(){
+  const h=document.getElementById('fc-hourly-strip'),d=document.getElementById('fc-daily-strip');
+  if(h)h.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
+  if(d)d.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
 }
 
 // ================================================================
@@ -1049,6 +1178,8 @@ async function loadStation(station){
     applyRange(activeRange);
     fetchClimate(icao).then(c=>updateClimateChips(c)).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
+    const ianaTz=TZ_IANA[tz]||'America/New_York';
+    fetchNWSForecast(station).then(f=>{buildHourlyStrip(f.hourly,ianaTz);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
     startRefreshTimer();
   }catch(e){console.error('Load error:',e);setText('ts-lbl','Error loading data');}
   finally{setLoading(false);}
