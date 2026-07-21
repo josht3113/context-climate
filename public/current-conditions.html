@@ -511,6 +511,20 @@ function parseIEM(text){
   return obs;
 }
 
+// Routine (hourly) obs land on the same minute-of-hour each time; SPECI/other
+// sub-hourly reports land at irregular minutes and are what caused the uneven,
+// gappy bar spacing on the charts. Keep only obs near the station's dominant
+// minute-of-hour so chart bars fall on an even hourly cadence.
+function filterHourly(obs){
+  if(obs.length<4)return obs;
+  const counts={};
+  obs.forEach(o=>{const m=o.dt.getUTCMinutes();counts[m]=(counts[m]||0)+1;});
+  let modeMin=0,modeCount=-1;
+  for(const m in counts){if(counts[m]>modeCount){modeCount=counts[m];modeMin=parseInt(m);}}
+  const filtered=obs.filter(o=>Math.abs(o.dt.getUTCMinutes()-modeMin)<=3);
+  return filtered.length>=Math.min(4,obs.length)?filtered:obs;
+}
+
 // ================================================================
 // ACIS CLIMATE FETCH
 // ================================================================
@@ -738,14 +752,14 @@ function buildCharts(obs){
   const tempLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:14,b:36},showlegend:false,
     xaxis:{...commonX,rangeslider:{visible:false}},
     yaxis:{title:{text:'Temperature (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.04,shapes,hovermode:'x unified'};
+    bargap:.015,shapes,hovermode:'x unified'};
 
   // Dewpoint — its own panel, bars colored by value (see dewpoint color bar legend)
   const dewTrace={x:xs,y:obs.map(o=>o.dwpf),type:'bar',name:'Dewpoint',marker:{color:obs.map(o=>dewBarColor(o.dwpf)),line:{width:0}},hovertemplate:'<b>Dewpt</b> %{y:.0f}°F<extra></extra>'};
   const dewLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:14,b:36},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.04,shapes,hovermode:'x unified'};
+    bargap:.015,shapes,hovermode:'x unified'};
 
   // Wind: bar height = speed, bar color = direction (via compass wheel)
   const windObs=obs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
@@ -758,7 +772,7 @@ function buildCharts(obs){
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:10,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    shapes,barmode:'overlay',bargap:.04,hovermode:'x unified'};
+    shapes,barmode:'overlay',bargap:.015,hovermode:'x unified'};
 
   const presTrace={x:xs,y:obs.map(o=>o.mslp),type:'scatter',mode:'lines',name:'Pressure',line:{color:'#F5A623',width:2},hovertemplate:'<b>Pressure</b> %{y:.1f} mb<extra></extra>'};
   const pcpnTrace={x:xs,y:obs.map(o=>o.p01i===0.001?0.001:o.p01i),type:'bar',name:'Precip',yaxis:'y2',marker:{color:'rgba(42,168,126,.75)',line:{width:0}},hovertemplate:'<b>Precip</b> %{customdata[0]}<extra></extra>',customdata:obs.map(o=>[o.p01i===0.001?'T':(o.p01i!=null?o.p01i.toFixed(2)+'"':'--')])};
@@ -842,11 +856,14 @@ function toggleSunLines(){
 // ================================================================
 function applyRange(days){
   if(!allObs.length)return;
-  // Slice allObs to the requested window and rebuild — avoids all Plotly.relayout date-axis issues
+  // Charts use hourly-cadence obs only (drops SPECI/sub-hourly reports so bar
+  // spacing stays even); the hero/summary chips still use the full allObs.
+  const hourly=filterHourly(allObs);
+  // Slice to the requested window and rebuild — avoids all Plotly.relayout date-axis issues
   const now=new Date();
   const start=new Date(now.getTime()-days*24*60*60*1000);
-  const windowObs=allObs.filter(o=>o.dt>=start&&o.dt<=now);
-  const displayObs=windowObs.length>=2?windowObs:allObs;
+  const windowObs=hourly.filter(o=>o.dt>=start&&o.dt<=now);
+  const displayObs=windowObs.length>=2?windowObs:hourly;
   buildCharts(displayObs);
 }
 async function selectRange(days){
