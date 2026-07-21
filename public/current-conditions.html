@@ -132,6 +132,18 @@
 .fc-d-bar-track { position: relative; height: 100px; width: 22px; margin: 4px 0; }
 .fc-d-bar { position: absolute; left: 0; right: 0; border-radius: 8px; }
 
+/* ── Sky Position Plots (Sun/Moon azimuth + altitude) ────────────── */
+.skyplot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 2px; }
+.skyplot-box { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 12px 16px 10px; }
+.skyplot-cap { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
+.skyplot-cap-lbl { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-secondary); font-weight: 600; }
+.skyplot-cap-val { font-family: var(--font-mono); font-size: 11.5px; color: var(--color-text-muted); }
+.skyplot-svg { width: 100%; height: 150px; display: block; overflow: visible; }
+.skyplot-foot { display: flex; gap: 10px; align-items: center; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--color-border); flex-wrap: wrap; min-height: 18px; }
+.skyplot-foot .sp-sep { color: var(--color-text-muted); }
+@media (max-width: 720px) { .skyplot-grid { grid-template-columns: 1fr; } }
+
+
 </style>
 </head>
 <body>
@@ -289,6 +301,19 @@
   <div class="chip solar-chip"><div class="chip-lbl">Day Length</div><div class="chip-val" id="cs-len">--</div></div>
   <div class="chip solar-chip"><div class="chip-lbl">Moon Phase</div><div class="chip-val" id="cs-moon" style="font-size:16px">--</div></div>
   <div class="chip solar-chip"><div class="chip-lbl">Illumination</div><div class="chip-val" id="cs-moonpct">--%</div></div>
+</div>
+
+<div class="skyplot-grid">
+  <div class="skyplot-box">
+    <div class="skyplot-cap"><span class="skyplot-cap-lbl">&#9728; Sun Path Today</span><span class="skyplot-cap-val" id="sp-sun-daylen">--</span></div>
+    <svg class="skyplot-svg" id="sp-sun-svg" viewBox="0 0 400 170" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="skyplot-foot"><span id="sp-sun-alt">--</span><span class="sp-sep" id="sp-sun-sep"></span><span id="sp-sun-az"></span></div>
+  </div>
+  <div class="skyplot-box">
+    <div class="skyplot-cap"><span class="skyplot-cap-lbl" id="sp-moon-cap-lbl">&#127768; Moon Path Today</span><span class="skyplot-cap-val" id="sp-moon-daylen">--</span></div>
+    <svg class="skyplot-svg" id="sp-moon-svg" viewBox="0 0 400 170" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="skyplot-foot"><span id="sp-moon-alt">--</span><span class="sp-sep" id="sp-moon-sep"></span><span id="sp-moon-az"></span></div>
+  </div>
 </div>
 
 </div>
@@ -499,7 +524,7 @@ function calcSunTimes(year,month,day,lat,lon){
   const setDate=new Date(midnight.getTime()+setMinUTC*60000);
   const noonDate=new Date(midnight.getTime()+noonMinUTC*60000);
   const dayLenMin=Math.round(setMinUTC-riseMinUTC);
-  return{riseDate,setDate,noonDate,riseMinUTC,setMinUTC,noonMinUTC,dayLenMin,dayLength:`${Math.floor(dayLenMin/60)}h ${String(dayLenMin%60).padStart(2,'0')}m`};
+  return{riseDate,setDate,noonDate,riseMinUTC,setMinUTC,noonMinUTC,dayLenMin,decRad,latRad,HA,dayLength:`${Math.floor(dayLenMin/60)}h ${String(dayLenMin%60).padStart(2,'0')}m`};
 }
 function fmtSunTime(date,tz){
   if(!date)return'--';
@@ -516,6 +541,196 @@ function getMoonPhase(date){
   else if(age<16.61){phase='Full Moon';sym='🌕';}else if(age<22.15){phase='Waning Gibbous';sym='🌖';}
   else if(age<23.99){phase='Last Quarter';sym='🌗';}else{phase='Waning Crescent';sym='🌘';}
   return{phase,sym,illum};
+}
+
+
+// ================================================================
+// SKY POSITION PLOTS — sun & moon altitude/azimuth arcs
+// ================================================================
+function sunAltAz(decRad, latRad, Hdeg){
+  const H=toRad(Hdeg);
+  const alt=Math.asin(Math.sin(latRad)*Math.sin(decRad)+Math.cos(latRad)*Math.cos(decRad)*Math.cos(H));
+  const azRad=Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(latRad)-Math.tan(decRad)*Math.cos(latRad));
+  let az=(toDeg(azRad)+180)%360; if(az<0)az+=360;
+  return {alt:toDeg(alt), az};
+}
+function buildSunArc(sun, now){
+  if(!sun) return null;
+  const N=48, pts=[];
+  for(let i=0;i<=N;i++){
+    const frac=i/N;
+    const Hdeg=-sun.HA+frac*(2*sun.HA);
+    const aa=sunAltAz(sun.decRad, sun.latRad, Hdeg);
+    pts.push({frac, alt:Math.max(0,aa.alt)});
+  }
+  const riseAA=sunAltAz(sun.decRad, sun.latRad, -sun.HA);
+  const setAA=sunAltAz(sun.decRad, sun.latRad, sun.HA);
+  const nowInRange = now>=sun.riseDate && now<=sun.setDate;
+  let nowFrac=null,nowAlt=null,nowAz=null;
+  if(nowInRange){
+    nowFrac=(now.getTime()-sun.riseDate.getTime())/(sun.setDate.getTime()-sun.riseDate.getTime());
+    const nowH=-sun.HA+nowFrac*(2*sun.HA);
+    const aa=sunAltAz(sun.decRad, sun.latRad, nowH);
+    nowAlt=aa.alt; nowAz=aa.az;
+  }
+  return {riseT:sun.riseDate, setT:sun.setDate, riseAz:riseAA.az, setAz:setAA.az, points:pts, nowFrac, nowAlt, nowAz, currentlyUp:nowInRange};
+}
+
+// Low-precision lunar ecliptic position (Meeus-style truncated series) — plenty accurate for a sky-position graphic.
+const J1970_=2440588, J2000_=2451545, MS_DAY_=86400000, MOON_OBLIQ=toRad(23.4397);
+function toDaysJ2000(date){return date.getTime()/MS_DAY_ - 0.5 + J1970_ - J2000_;}
+function eqRA(l,b){return Math.atan2(Math.sin(l)*Math.cos(MOON_OBLIQ)-Math.tan(b)*Math.sin(MOON_OBLIQ), Math.cos(l));}
+function eqDec(l,b){return Math.asin(Math.sin(b)*Math.cos(MOON_OBLIQ)+Math.cos(b)*Math.sin(MOON_OBLIQ)*Math.sin(l));}
+function eqAzimuth(H,phi,dec){return Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(phi)-Math.tan(dec)*Math.cos(phi));}
+function eqAltitude(H,phi,dec){return Math.asin(Math.sin(phi)*Math.sin(dec)+Math.cos(phi)*Math.cos(dec)*Math.cos(H));}
+function moonEclipticCoords(d){
+  const L=toRad(218.316+13.176396*d);
+  const M=toRad(134.963+13.064993*d);
+  const F=toRad(93.272+13.229350*d);
+  const l=L+toRad(6.289)*Math.sin(M);
+  const b=toRad(5.128)*Math.sin(F);
+  return {ra:eqRA(l,b), dec:eqDec(l,b)};
+}
+function getMoonAltAz(date, lat, lon){
+  const lw=toRad(-lon), phi=toRad(lat), d=toDaysJ2000(date);
+  const c=moonEclipticCoords(d);
+  const H=(toRad(280.16+360.9856235*d) - lw) - c.ra;
+  const altRad=eqAltitude(H,phi,c.dec);
+  const azRad=eqAzimuth(H,phi,c.dec);
+  let az=(toDeg(azRad)+180)%360; if(az<0)az+=360;
+  return {alt:toDeg(altRad), az};
+}
+function findMoonArc(now, lat, lon){
+  const stepMin=4, lookbackH=24, lookaheadH=50;
+  const startT=now.getTime()-lookbackH*3600000;
+  const n=Math.round(((lookbackH+lookaheadH)*60)/stepMin);
+  const samples=[];
+  for(let i=0;i<=n;i++){
+    const t=new Date(startT+i*stepMin*60000);
+    const p=getMoonAltAz(t, lat, lon);
+    samples.push({t, alt:p.alt, az:p.az});
+  }
+  const crossings=[];
+  for(let i=1;i<samples.length;i++){
+    const a=samples[i-1], b=samples[i];
+    if((a.alt<0)!==(b.alt<0)){
+      const frac=(-a.alt)/(b.alt-a.alt);
+      const tc=new Date(a.t.getTime()+frac*(b.t.getTime()-a.t.getTime()));
+      const azc=a.az+frac*(b.az-a.az);
+      crossings.push({t:tc, az:azc, rising: b.alt>a.alt});
+    }
+  }
+  if(!crossings.length) return null;
+  let riseC=null, setC=null;
+  for(let i=0;i<crossings.length;i++){
+    if(crossings[i].rising && crossings[i].t<=now){
+      const nextSet=crossings.find(c=>!c.rising && c.t>crossings[i].t);
+      if(nextSet && nextSet.t>=now){ riseC=crossings[i]; setC=nextSet; break; }
+    }
+  }
+  let currentlyUp=true;
+  if(!riseC){
+    currentlyUp=false;
+    riseC=crossings.find(c=>c.rising && c.t>now);
+    if(riseC) setC=crossings.find(c=>!c.rising && c.t>riseC.t);
+  }
+  if(!riseC||!setC) return null;
+  const pts=[]; const N=48;
+  for(let i=0;i<=N;i++){
+    const frac=i/N;
+    const t=new Date(riseC.t.getTime()+frac*(setC.t.getTime()-riseC.t.getTime()));
+    const p=getMoonAltAz(t, lat, lon);
+    pts.push({frac, alt:Math.max(0,p.alt)});
+  }
+  const nowInRange = now>=riseC.t && now<=setC.t;
+  let nowFrac=null, nowAlt=null, nowAz=null;
+  if(nowInRange){
+    nowFrac=(now.getTime()-riseC.t.getTime())/(setC.t.getTime()-riseC.t.getTime());
+    const p=getMoonAltAz(now, lat, lon);
+    nowAlt=p.alt; nowAz=p.az;
+  }
+  return {riseT:riseC.t, setT:setC.t, riseAz:riseC.az, setAz:setC.az, points:pts, nowFrac, nowAlt, nowAz, currentlyUp};
+}
+function azLabel(az){ return Math.round(az)+'° '+drctCompass(az); }
+function fmtHM(mins){ mins=Math.max(0,Math.round(mins)); return Math.floor(mins/60)+'h '+String(mins%60).padStart(2,'0')+'m'; }
+function skyArrow(cx,cy,azDeg,color){
+  return `<g transform="translate(${cx},${cy-15}) rotate(${azDeg.toFixed(0)})" opacity=".9"><line x1="0" y1="6" x2="0" y2="-5" stroke="${color}" stroke-width="1.6" stroke-linecap="round"/><path d="M0,-8 L-3,-3 L3,-3 Z" fill="${color}"/></g>`;
+}
+function renderSkyArc(svg, arc, opts){
+  if(!svg) return;
+  const W=400,H=170,baseY=126,topY=20,padX=20;
+  if(!arc){
+    svg.innerHTML=`<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="var(--color-text-muted)" font-family="var(--font-mono)" font-size="12">no data</text>`;
+    return;
+  }
+  const usableW=W-padX*2;
+  const xf=f=>padX+f*usableW;
+  const yf=alt=>baseY-(Math.min(Math.max(alt,0),90)/90)*(baseY-topY);
+  const pathPts=arc.points.map(p=>`${xf(p.frac).toFixed(1)},${yf(p.alt).toFixed(1)}`);
+  const linePath='M'+pathPts.join(' L');
+  const areaPath=`M${xf(0).toFixed(1)},${baseY} L${pathPts.join(' L')} L${xf(1).toFixed(1)},${baseY} Z`;
+  const riseX=xf(0), setX=xf(1);
+  let parts=[];
+  parts.push(`<defs><linearGradient id="${opts.gradId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${opts.color}" stop-opacity=".38"/><stop offset="100%" stop-color="${opts.color}" stop-opacity="0"/></linearGradient></defs>`);
+  parts.push(`<line x1="${padX}" y1="${baseY}" x2="${W-padX}" y2="${baseY}" stroke="var(--color-border)" stroke-width="1"/>`);
+  parts.push(`<path d="${areaPath}" fill="url(#${opts.gradId})" stroke="none"/>`);
+  parts.push(`<path d="${linePath}" fill="none" stroke="${opts.color}" stroke-width="2" stroke-dasharray="4,3" opacity=".9"/>`);
+  parts.push(skyArrow(riseX, baseY, arc.riseAz, opts.color));
+  parts.push(skyArrow(setX, baseY, arc.setAz, opts.color));
+  parts.push(`<circle cx="${riseX}" cy="${baseY}" r="3" fill="${opts.color}"/>`);
+  parts.push(`<circle cx="${setX}" cy="${baseY}" r="3" fill="${opts.color}"/>`);
+  parts.push(`<text x="${riseX}" y="${baseY+32}" text-anchor="start" fill="var(--color-text-secondary)" font-family="var(--font-mono)" font-size="12" font-weight="600">${opts.fmtTime(arc.riseT)}</text>`);
+  parts.push(`<text x="${riseX}" y="${baseY+46}" text-anchor="start" fill="var(--color-text-muted)" font-family="var(--font-mono)" font-size="10.5">${azLabel(arc.riseAz)}</text>`);
+  parts.push(`<text x="${setX}" y="${baseY+32}" text-anchor="end" fill="var(--color-text-secondary)" font-family="var(--font-mono)" font-size="12" font-weight="600">${opts.fmtTime(arc.setT)}</text>`);
+  parts.push(`<text x="${setX}" y="${baseY+46}" text-anchor="end" fill="var(--color-text-muted)" font-family="var(--font-mono)" font-size="10.5">${azLabel(arc.setAz)}</text>`);
+  if(arc.nowFrac!=null){
+    const nx=xf(arc.nowFrac), ny=yf(arc.nowAlt);
+    parts.push(`<line x1="${nx}" y1="${ny}" x2="${nx}" y2="${baseY}" stroke="${opts.color}" stroke-width="1" stroke-dasharray="2,2" opacity=".5"/>`);
+    parts.push(`<circle cx="${nx}" cy="${ny}" r="8" fill="${opts.color}" opacity=".2"/>`);
+    parts.push(`<circle cx="${nx}" cy="${ny}" r="4.5" fill="${opts.color}" stroke="var(--color-surface)" stroke-width="1.5"/>`);
+  }
+  svg.innerHTML=parts.join('');
+}
+function buildSkyPlots(station, now, sun){
+  if(!station) return;
+  const[,,,lat,lon,tz]=station;
+  const ianaTime=TZ_IANA[tz]||'America/New_York';
+  const fmtTimeLoc=(d)=>fmtSunTime(d, ianaTime);
+
+  const sunArc=buildSunArc(sun, now);
+  renderSkyArc(document.getElementById('sp-sun-svg'), sunArc, {color:'#FFC200', gradId:'sp-sun-grad', fmtTime:fmtTimeLoc});
+  if(sunArc){
+    setText('sp-sun-daylen', fmtHM((sunArc.setT-sunArc.riseT)/60000)+' above horizon');
+    if(sunArc.nowFrac!=null){
+      setText('sp-sun-alt','Altitude '+Math.round(sunArc.nowAlt)+'°');
+      setText('sp-sun-sep','·');
+      setText('sp-sun-az','Azimuth '+azLabel(sunArc.nowAz));
+    } else {
+      setText('sp-sun-alt','Sun is below the horizon');
+      setText('sp-sun-sep','');
+      setText('sp-sun-az','');
+    }
+  } else {
+    setText('sp-sun-daylen','--');setText('sp-sun-alt','--');setText('sp-sun-sep','');setText('sp-sun-az','');
+  }
+
+  const moonArc=findMoonArc(now, lat, lon);
+  renderSkyArc(document.getElementById('sp-moon-svg'), moonArc, {color:'#B7A6E0', gradId:'sp-moon-grad', fmtTime:fmtTimeLoc});
+  if(moonArc){
+    const durMin=(moonArc.setT-moonArc.riseT)/60000;
+    setText('sp-moon-daylen', (moonArc.currentlyUp?'':'next ')+fmtHM(durMin)+' above horizon');
+    if(moonArc.nowFrac!=null){
+      setText('sp-moon-alt','Altitude '+Math.round(moonArc.nowAlt)+'°');
+      setText('sp-moon-sep','·');
+      setText('sp-moon-az','Azimuth '+azLabel(moonArc.nowAz));
+    } else {
+      setText('sp-moon-alt','Moon is below the horizon');
+      setText('sp-moon-sep','·');
+      setText('sp-moon-az','Rises '+fmtTimeLoc(moonArc.riseT));
+    }
+  } else {
+    setText('sp-moon-daylen','--');setText('sp-moon-alt','--');setText('sp-moon-sep','');setText('sp-moon-az','');
+  }
 }
 
 // ================================================================
@@ -1014,6 +1229,8 @@ function updateSolarChips(station){
   const moon=getMoonPhase(now);
   setText('cs-moon',`${moon.sym} ${moon.phase}`);
   setText('cs-moonpct',moon.illum+'%');
+
+  buildSkyPlots(station, now, sun);
 }
 
 function updateStationHeader(station){
@@ -1273,6 +1490,13 @@ function startRefreshTimer(){
   updateTimestamp();
 }
 function refreshData(){if(curStation)loadStation(curStation);}
+setInterval(()=>{
+  if(!curStation)return;
+  const now=new Date();
+  const[,,,lat,lon]=curStation;
+  const sun=calcSunTimes(now.getFullYear(),now.getMonth()+1,now.getDate(),lat,lon);
+  buildSkyPlots(curStation, now, sun);
+}, 60000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&lastFetchTime&&Date.now()-lastFetchTime>55*60*1000)refreshData();});
 
 // ================================================================
