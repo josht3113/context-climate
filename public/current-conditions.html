@@ -68,16 +68,19 @@
 
 .controls { display: flex; align-items: center; gap: 12px; margin: 28px 0 7px; flex-wrap: wrap; }
 .ctrl-lbl { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; font-weight: 600; color: var(--tool-accent); }
-.dir-btns { display: flex; gap: 3px; flex-wrap: wrap; }
-.dir-btn { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: 4px 9px; font-family: var(--font-body); font-size: 14px; font-weight: 600; letter-spacing: .02em; color: var(--color-text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all .12s; }
-.dir-btn.on { border-color: var(--color-border-hover); color: var(--color-text-primary); background: var(--color-surface-2); }
-.dir-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.wind-row { display: flex; gap: 4px; margin-bottom: 4px; align-items: stretch; }
+.wheel-box { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 14px; flex: 0 0 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.wheel-note { font-family: var(--font-mono); font-size: 11px; letter-spacing: .05em; color: var(--color-text-muted); text-align: center; margin-top: 8px; }
+.wedge { cursor: pointer; transition: opacity .15s ease; }
+.wedge.off { opacity: .16; }
+.wedge:hover { opacity: .82; }
+.wind-chart-box { flex: 1; min-width: 0; }
 .ctrl-sep { width: 1px; height: 20px; background: var(--color-border); }
 .range-btns { display: flex; gap: 3px; }
 .range-btn.loading { opacity: .5; pointer-events: none; }
 
 .chart-box { position: relative; margin-bottom: 4px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 4px; }
-#chart-upper { height: 370px; } #chart-lower { height: 210px; }
+#chart-upper { height: 370px; } #chart-wind { height: 230px; } #chart-lower { height: 210px; }
 .chart-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(30,35,32,.85); z-index: 10; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-muted); }
 .chart-overlay.show { display: flex; }
 .obs-section { margin-top: 22px; }
@@ -201,9 +204,6 @@
 
 <!-- CONTROLS -->
 <div class="controls">
-  <span class="ctrl-lbl">Wind Dir</span>
-  <div class="dir-btns" id="dir-btns"></div>
-  <div class="ctrl-sep"></div>
   <button class="cc-btn cc-btn-sm sun-btn" id="sun-btn" onclick="toggleSunLines()">&#9728; Sunrise/Sunset Lines</button>
   <div class="ctrl-sep"></div>
   <span class="ctrl-lbl">Range</span>
@@ -220,6 +220,16 @@
   <div class="chart-overlay" id="chart-loading">FETCHING DATA...</div>
   <div id="chart-upper"></div>
 </div>
+
+<!-- WIND: compass wheel (legend + filter) + speed bar chart -->
+<div class="wind-row">
+  <div class="wheel-box">
+    <svg id="wind-wheel" viewBox="0 0 220 220" width="220" height="220"></svg>
+    <div class="wheel-note">Click a wedge to filter by direction</div>
+  </div>
+  <div class="chart-box wind-chart-box"><div id="chart-wind"></div></div>
+</div>
+
 <div class="chart-box"><div id="chart-lower"></div></div>
 
 <!-- OBSERVATIONS TABLE -->
@@ -321,20 +331,15 @@ const STATIONS=[
 ["TJSJ","Luis Munoz Marin Intl","PR",18.440,-66.005,"ET"],
 ];
 const TZ_IANA={ET:'America/New_York',CT:'America/Chicago',MT:'America/Denver',PT:'America/Los_Angeles',AK:'America/Anchorage',HI:'Pacific/Honolulu',AZ:'America/Phoenix'};
-const DIRS=['N','NE','E','SE','S','SW','W','NW'];
-// Fixed wind direction palette (matches site wind-dir buttons)
-const DIR_COLORS=['#5b8fe8','#d855c0','#44c853','#28c4b0','#e04848','#e89028','#a8cc28','#8060cc'];
-function dirColor(d){if(d==null||isNaN(d))return'rgba(255,255,255,.25)';return DIR_COLORS[Math.round(d/45)%8];}
-function drctSector(d){if(d==null)return null;const i=Math.round(d/45)%8;return DIRS[i];}
-function inSector(d,s){
-  const b={N:v=>v>=337.5||v<22.5,NE:v=>v>=22.5&&v<67.5,E:v=>v>=67.5&&v<112.5,SE:v=>v>=112.5&&v<157.5,
-    S:v=>v>=157.5&&v<202.5,SW:v=>v>=202.5&&v<247.5,W:v=>v>=247.5&&v<292.5,NW:v=>v>=292.5&&v<337.5};
-  return b[s]?.(d)??false;
-}
+const DIRS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+// Temperature-intuitive wind direction palette: cool blue at N, warm red at S,
+// two arcs of transitional hues connecting them (long/rich arc via E, short arc via W).
+const DIR_HUES=[234,220,196,172,148,124,100,76,42,8,340,318,296,274,258,246];
+function dirColor(d){if(d==null||isNaN(d))return'rgba(255,255,255,.25)';return`hsl(${DIR_HUES[Math.round(d/22.5)%16]},68%,54%)`;}
+function drctSector(d){if(d==null)return null;const i=Math.round(d/22.5)%16;return DIRS[i];}
 function drctCompass(d){
   if(d==null||isNaN(d))return'--';
-  const dirs=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
-  return dirs[Math.round(d/22.5)%16];
+  return DIRS[Math.round(d/22.5)%16];
 }
 function skyDesc(c){const m={CLR:'Clear',SKC:'Clear',FEW:'Few Clouds',SCT:'Partly Cloudy',BKN:'Mostly Cloudy',OVC:'Overcast',VV:'Obscured'};return m[c]||c||'--';}
 function calcRH(tmpf,dwpf){const T=(tmpf-32)*5/9,Td=(dwpf-32)*5/9,a=17.625,b=243.04;return Math.min(100,Math.max(0,Math.round(100*Math.exp(a*Td/(b+Td))/Math.exp(a*T/(b+T)))));}
@@ -741,27 +746,31 @@ function buildCharts(obs){
   const xs=obs.map(o=>o.dt);
   const tempTrace={x:xs,y:obs.map(o=>o.tmpf),type:'scatter',mode:'lines',name:'Temperature',line:{color:'#5AADEC',width:2},hovertemplate:'<b>Temp</b> %{y:.1f}°F<extra></extra>'};
   const dewTrace={x:xs,y:obs.map(o=>o.dwpf),type:'scatter',mode:'lines',name:'Dewpoint',line:{color:'#7DD95A',width:1.5},hovertemplate:'<b>Dewpt</b> %{y:.1f}°F<extra></extra>'};
-  const windObs=obs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
-  const windTrace={x:windObs.map(o=>o.dt),y:windObs.map(o=>o.sknt),type:'scatter',mode:'markers',name:'Wind (color=dir)',yaxis:'y2',marker:{color:windObs.map(o=>dirColor(o.drct)),size:6,opacity:.88,line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata[0]} %{y:.0f} mph<extra></extra>',customdata:windObs.map(o=>[drctCompass(o.drct)])};
-  const calmObs=obs.filter(o=>o.sknt!=null&&o.sknt<1);
-  const calmTrace={x:calmObs.map(o=>o.dt),y:calmObs.map(()=>0),type:'scatter',mode:'markers',name:'Calm',yaxis:'y2',marker:{color:'rgba(180,180,180,0.55)',size:5,line:{width:0}},hovertemplate:'<b>Wind</b> Calm<extra></extra>',showlegend:false};
-  const allWindSpeeds=obs.flatMap(o=>[o.sknt,o.gust]).filter(v=>v!=null&&v>=1);
-  const maxWSpd=allWindSpeeds.length?Math.max(...allWindSpeeds):20;
-  const windTickMax=Math.ceil(maxWSpd/5)*5+5;
-  const windTickVals=[];for(let v=0;v<=windTickMax;v+=5)windTickVals.push(v);
-  const windTickText=windTickVals.map(v=>v===0?'Calm':String(v));
-  // Now marker
+  // Now marker + sun shading (shared across all three panels)
   const nowISO=new Date().toISOString();
   const nowShape={type:'line',x0:nowISO,x1:nowISO,y0:0,y1:1,yref:'paper',xref:'x',line:{color:'rgba(255,255,255,.22)',width:1.5}};
   const sunShapes=buildSunShapes(obs);
   const shapes=[nowShape,...sunShapes];
   const xRange=[new Date(obs[0].dt.getTime()-30*60000),new Date(obs[obs.length-1].dt.getTime()+30*60000)];
-  const upperLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:18,b:40},
+  const upperLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:18,b:40},
     legend:{x:.01,y:.99,bgcolor:'rgba(0,0,0,0)',bordercolor:'rgba(255,255,255,.1)',borderwidth:1,font:{size:13}},
     xaxis:{type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%b %d',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true,rangeslider:{visible:false}},
     yaxis:{title:{text:'Temperature (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    yaxis2:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},overlaying:'y',side:'right',gridcolor:'rgba(0,0,0,0)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,rangemode:'tozero',tickmode:'array',tickvals:windTickVals,ticktext:windTickText},
     shapes,hovermode:'x unified'};
+
+  // Wind: separated bar panel, bar height = speed, bar color = direction (via compass wheel)
+  const windObs=obs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
+  const windTrace={x:windObs.map(o=>o.dt),y:windObs.map(o=>o.sknt),type:'bar',name:'Wind Speed',marker:{color:windObs.map(o=>dirColor(o.drct)),line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata[0]} %{y:.0f} mph<extra></extra>',customdata:windObs.map(o=>[drctCompass(o.drct)])};
+  const calmObs=obs.filter(o=>o.sknt!=null&&o.sknt<1);
+  const calmTrace={x:calmObs.map(o=>o.dt),y:calmObs.map(()=>0.4),type:'bar',name:'Calm',marker:{color:'rgba(180,180,180,0.55)',line:{width:0}},hovertemplate:'<b>Wind</b> Calm<extra></extra>',showlegend:false};
+  const allWindSpeeds=obs.flatMap(o=>[o.sknt,o.gust]).filter(v=>v!=null&&v>=1);
+  const maxWSpd=allWindSpeeds.length?Math.max(...allWindSpeeds):20;
+  const windTickMax=Math.ceil(maxWSpd/5)*5+5;
+  const windLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:10,b:40},showlegend:false,
+    xaxis:{type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%b %d',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true},
+    yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    shapes,barmode:'overlay',bargap:.15,hovermode:'x unified'};
+
   const presTrace={x:xs,y:obs.map(o=>o.mslp),type:'scatter',mode:'lines',name:'Pressure',line:{color:'#F5A623',width:2},hovertemplate:'<b>Pressure</b> %{y:.1f} mb<extra></extra>'};
   const pcpnTrace={x:xs,y:obs.map(o=>o.p01i===0.001?0.001:o.p01i),type:'bar',name:'Precip',yaxis:'y2',marker:{color:'rgba(42,168,126,.75)',line:{width:0}},hovertemplate:'<b>Precip</b> %{customdata[0]}<extra></extra>',customdata:obs.map(o=>[o.p01i===0.001?'T':(o.p01i!=null?o.p01i.toFixed(2)+'"':'--')])};
   const lowerLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:10,b:48},
@@ -770,43 +779,71 @@ function buildCharts(obs){
     yaxis:{title:{text:'Pressure (mb)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     yaxis2:{title:{text:'Precip (in)',font:{size:13},standoff:6},overlaying:'y',side:'right',gridcolor:'rgba(0,0,0,0)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,rangemode:'tozero'},
     shapes:[nowShape,...sunShapes],barmode:'overlay',hovermode:'x unified'};
+
   const config={responsive:true,displayModeBar:true,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d','toggleSpikelines'],toImageButtonOptions:{scale:2}};
+  const panelIds=['chart-upper','chart-wind','chart-lower'];
   if(!chartsBuilt){
-    Plotly.newPlot('chart-upper',[tempTrace,dewTrace,windTrace,calmTrace],upperLayout,config);
+    Plotly.newPlot('chart-upper',[tempTrace,dewTrace],upperLayout,config);
+    Plotly.newPlot('chart-wind',[windTrace,calmTrace],windLayout,config);
     Plotly.newPlot('chart-lower',[presTrace,pcpnTrace],lowerLayout,config);
     chartsBuilt=true;
     let syncing=false;
-    const upper=document.getElementById('chart-upper'),lower=document.getElementById('chart-lower');
-    upper.on('plotly_relayout',ed=>{if(syncing)return;syncing=true;const r=ed['xaxis.range[0]']?[ed['xaxis.range[0]'],ed['xaxis.range[1]']]:ed['xaxis.range'];if(r)Plotly.relayout('chart-lower',{'xaxis.range':r});else if(ed['xaxis.autorange'])Plotly.relayout('chart-lower',{'xaxis.autorange':true});setTimeout(()=>{syncing=false;},50);});
-    lower.on('plotly_relayout',ed=>{if(syncing)return;syncing=true;const r=ed['xaxis.range[0]']?[ed['xaxis.range[0]'],ed['xaxis.range[1]']]:ed['xaxis.range'];if(r)Plotly.relayout('chart-upper',{'xaxis.range':r});else if(ed['xaxis.autorange'])Plotly.relayout('chart-upper',{'xaxis.autorange':true});setTimeout(()=>{syncing=false;},50);});
+    panelIds.forEach(id=>{
+      document.getElementById(id).on('plotly_relayout',ed=>{
+        if(syncing)return;syncing=true;
+        const r=ed['xaxis.range[0]']?[ed['xaxis.range[0]'],ed['xaxis.range[1]']]:ed['xaxis.range'];
+        panelIds.filter(o=>o!==id).forEach(oid=>{
+          if(r)Plotly.relayout(oid,{'xaxis.range':r});
+          else if(ed['xaxis.autorange'])Plotly.relayout(oid,{'xaxis.autorange':true});
+        });
+        setTimeout(()=>{syncing=false;},50);
+      });
+    });
   }else{
-    Plotly.react('chart-upper',[tempTrace,dewTrace,windTrace,calmTrace],upperLayout,config);
+    Plotly.react('chart-upper',[tempTrace,dewTrace],upperLayout,config);
+    Plotly.react('chart-wind',[windTrace,calmTrace],windLayout,config);
     Plotly.react('chart-lower',[presTrace,pcpnTrace],lowerLayout,config);
   }
 }
 
 // ================================================================
-// DIRECTION TOGGLES
+// WIND DIRECTION COMPASS WHEEL (legend + filter)
 // ================================================================
-function initDirToggles(){
-  const container=document.getElementById('dir-btns');
-  DIRS.forEach(dir=>{
-    const color=DIR_COLORS[DIRS.indexOf(dir)];const btn=document.createElement('button');
-    btn.className='dir-btn on';btn.dataset.dir=dir;
-    btn.innerHTML=`<span class="dir-dot" style="background:${color}"></span>${dir}`;
-    btn.addEventListener('click',()=>{const on=activeDirs.has(dir);if(on)activeDirs.delete(dir);else activeDirs.add(dir);btn.classList.toggle('on',!on);if(chartsBuilt&&allObs.length)applyDirFilter();});
-    container.appendChild(btn);
+function initWheel(){
+  const svg=document.getElementById('wind-wheel');
+  const cx=110,cy=110,rOuter=96,rInner=38,gapDeg=1.2;
+  const polar=(r,a)=>{const rad=(a-90)*Math.PI/180;return[cx+r*Math.cos(rad),cy+r*Math.sin(rad)];};
+  const wedgePath=(s,e)=>{const[x1,y1]=polar(rOuter,s),[x2,y2]=polar(rOuter,e),[x3,y3]=polar(rInner,e),[x4,y4]=polar(rInner,s);const large=(e-s)>180?1:0;return`M${x1},${y1} A${rOuter},${rOuter} 0 ${large} 1 ${x2},${y2} L${x3},${y3} A${rInner},${rInner} 0 ${large} 0 ${x4},${y4} Z`;};
+  let html='';
+  DIRS.forEach((d,i)=>{
+    const seg=360/16,start=i*seg-seg/2+gapDeg/2,end=i*seg+seg/2-gapDeg/2;
+    const color=dirColor(i*22.5);
+    const[lx,ly]=polar((rOuter+rInner)/2+1,i*seg);
+    html+=`<path class="wedge" data-dir="${d}" d="${wedgePath(start,end)}" fill="${color}" stroke="#1E2320" stroke-width="2"/>`;
+    html+=`<text x="${lx}" y="${ly}" fill="#1E2320" font-size="9" font-weight="700" text-anchor="middle" dominant-baseline="middle" style="pointer-events:none;font-family:'Courier Prime',monospace;">${d}</text>`;
+  });
+  html+=`<circle cx="${cx}" cy="${cy}" r="${rInner-5}" fill="#262B27" stroke="rgba(232,228,217,.14)" stroke-width="1"/>`;
+  html+=`<text x="${cx}" y="${cy-4}" fill="#948F82" font-size="8" text-anchor="middle" font-family="'Courier Prime',monospace" letter-spacing="1">COLD</text>`;
+  html+=`<text x="${cx}" y="${cy+11}" fill="#948F82" font-size="8" text-anchor="middle" font-family="'Courier Prime',monospace" letter-spacing="1">WARM</text>`;
+  svg.innerHTML=html;
+  svg.querySelectorAll('.wedge').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const dir=el.dataset.dir,wasOn=activeDirs.has(dir);
+      if(wasOn)activeDirs.delete(dir);else activeDirs.add(dir);
+      el.classList.toggle('off',wasOn);
+      if(chartsBuilt&&allObs.length)applyDirFilter();
+    });
   });
 }
 function applyDirFilter(){
   const windObs=allObs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
-  Plotly.restyle('chart-upper',{x:[windObs.map(o=>o.dt)],y:[windObs.map(o=>o.sknt)],'marker.color':[windObs.map(o=>dirColor(o.drct))],'marker.size':[6],customdata:[windObs.map(o=>[drctCompass(o.drct)])]},2);
+  Plotly.restyle('chart-wind',{x:[windObs.map(o=>o.dt)],y:[windObs.map(o=>o.sknt)],'marker.color':[windObs.map(o=>dirColor(o.drct))],customdata:[windObs.map(o=>[drctCompass(o.drct)])]},0);
 }
 function toggleSunLines(){
   showSunLines=!showSunLines;document.getElementById('sun-btn').classList.toggle('on',showSunLines);
   if(!chartsBuilt||!allObs.length)return;
   const shapes=[{type:'line',x0:new Date().toISOString(),x1:new Date().toISOString(),y0:0,y1:1,yref:'paper',xref:'x',line:{color:'rgba(255,255,255,.22)',width:1.5}},...buildSunShapes(allObs)];
-  Plotly.relayout('chart-upper',{shapes});Plotly.relayout('chart-lower',{shapes});
+  Plotly.relayout('chart-upper',{shapes});Plotly.relayout('chart-wind',{shapes});Plotly.relayout('chart-lower',{shapes});
 }
 
 // ================================================================
@@ -875,7 +912,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&lastFetch
 // INIT
 // ================================================================
 document.addEventListener('DOMContentLoaded',()=>{
-  initDirToggles();initSearch();
+  initWheel();initSearch();
   const def=STATIONS.find(s=>s[0]==='KISP')||STATIONS[0];loadStation(def);
 });
 </script></body></html>
