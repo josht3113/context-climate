@@ -112,19 +112,11 @@
 
 /* ── NWS Forecast (36-hour + 7-day) ────────────────────────────── */
 .rh-forecast { color: #7EC8E3; }
-.fc-hourly-wrap, .fc-daily-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 12px 10px; margin-bottom: 4px; overflow-x: auto; }
-.fc-hourly-strip { display: flex; gap: 3px; min-width: min-content; }
+.fc-daily-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 12px 10px; margin-bottom: 4px; overflow-x: auto; }
 .fc-daily-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .fc-empty { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); padding: 20px; white-space: nowrap; }
-.fc-h-item { flex: 0 0 68px; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 3px; }
-.fc-h-time { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); letter-spacing: .02em; white-space: nowrap; }
-.fc-h-icon { width: 34px; height: 34px; }
-.fc-h-icon svg { width: 100%; height: 100%; }
-.fc-h-temp { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
-.fc-h-dew { font-family: var(--font-mono); font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 3px; }
-.fc-h-dp-lbl { font-size: 10px; color: var(--color-text-muted); letter-spacing: .04em; }
-.fc-h-pop { font-family: var(--font-mono); font-size: 12px; color: #5AADEC; min-height: 14px; }
-.fc-h-pop-empty { opacity: 0; }
+.fc-charts-col { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+#chart-fc-temp { height: 220px; } #chart-fc-wind { height: 190px; } #chart-fc-precip { height: 170px; }
 .fc-d-item { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: var(--radius-md); min-width: 0; }
 .fc-d-item.today { background: rgba(42,168,126,.10); }
 .fc-d-dow { font-family: var(--font-mono); font-size: 15px; font-weight: 700; letter-spacing: .04em; color: var(--color-text-primary); }
@@ -188,9 +180,13 @@
   </div>
 </div>
 
-<!-- 36-HOUR FORECAST -->
-<div class="row-hdr rh-forecast">Next 36 Hours</div>
-<div class="fc-hourly-wrap"><div class="fc-hourly-strip" id="fc-hourly-strip"><div class="fc-empty">Loading forecast&hellip;</div></div></div>
+<!-- 48-HOUR FORECAST -->
+<div class="row-hdr rh-forecast">48-Hour Forecast</div>
+<div class="fc-charts-col">
+  <div class="chart-box"><div id="chart-fc-temp"></div></div>
+  <div class="chart-box"><div id="chart-fc-wind"></div></div>
+  <div class="chart-box"><div id="chart-fc-precip"></div></div>
+</div>
 
 <!-- 7-DAY FORECAST -->
 <div class="row-hdr rh-forecast">7-Day Forecast</div>
@@ -794,22 +790,83 @@ function fcDewF(period){
   const v=period&&period.dewpoint&&period.dewpoint.value;
   return v!=null?v*9/5+32:null;
 }
-function buildHourlyStrip(periods,tz){
-  const wrap=document.getElementById('fc-hourly-strip');if(!wrap)return;
+// NWS's windSpeed is prose ("10 mph" or "5 to 10 mph") — take the upper bound.
+function parseWindMph(windSpeedStr){
+  if(!windSpeedStr)return null;
+  const nums=(String(windSpeedStr).match(/\d+/g)||[]).map(Number);
+  return nums.length?nums[nums.length-1]:null;
+}
+// windDirection comes back as a compass abbreviation ("NW") not degrees — reuse
+// the DIRS ordering (already 22.5°-spaced) to convert so dirColor()/dirColor-based
+// wedge coloring stays identical to the historical wind panel.
+const COMPASS_TO_DEG={};
+DIRS.forEach((d,i)=>{COMPASS_TO_DEG[d]=i*22.5;});
+
+function attributionLineForecast(periods){
+  const st=curStation;
+  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
+  const tz=(st&&TZ_IANA[st[5]])||'America/New_York';
+  const first=new Date(periods[0].startTime),last=new Date(periods[periods.length-1].startTime);
+  const optsD={month:'short',day:'numeric',timeZone:tz};
+  const d1=first.toLocaleDateString('en-US',optsD),d2=last.toLocaleDateString('en-US',optsD);
+  const dateStr=d1===d2?d1:`${d1}–${d2}`;
+  return`${label}  ·  ${dateStr}  ·  ContextClimate  ·  Forecast: NWS/NDFD`;
+}
+
+let fcChartsBuilt=false;
+function buildForecastCharts(hourlyPeriods,tz){
   const now=Date.now();
-  const upcoming=periods.filter(p=>new Date(p.endTime).getTime()>=now).slice(0,36);
-  if(!upcoming.length){wrap.innerHTML='<div class="fc-empty">Hourly forecast unavailable</div>';return;}
-  wrap.innerHTML=upcoming.map((p,i)=>{
-    const d=new Date(p.startTime);
-    const timeStr=i===0?'Now':d.toLocaleTimeString('en-US',{timeZone:tz,hour:'numeric'}).replace(' ','').toUpperCase();
-    const icon=classifyForecastIcon(p.shortForecast,p.isDaytime);
-    const pop=fcPopStr(p);
-    const col=tempBarColor(p.temperature);
-    const dewF=fcDewF(p);
-    const dewCol=dewF!=null?dewBarColor(dewF):'var(--color-text-muted)';
-    const dewStr=dewF!=null?Math.round(dewF)+'&deg;':'--';
-    return`<div class="fc-h-item"><div class="fc-h-time">${timeStr}</div><div class="fc-h-icon">${WX_ICONS[icon]||WX_ICONS.SCT}</div><div class="fc-h-temp" style="color:${col}">${Math.round(p.temperature)}&deg;</div><div class="fc-h-dew"><span class="fc-h-dp-lbl">DP</span><span style="color:${dewCol}">${dewStr}</span></div><div class="fc-h-pop${pop==null?' fc-h-pop-empty':''}">${pop!=null?pop+'%':'&nbsp;'}</div></div>`;
-  }).join('');
+  const periods=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000).slice(0,48);
+  if(!periods.length){forecastError();return;}
+  const xs=periods.map(p=>new Date(p.startTime));
+  const nowShape={type:'line',x0:new Date().toISOString(),x1:new Date().toISOString(),y0:0,y1:1,yref:'paper',xref:'x',line:{color:'rgba(255,255,255,.22)',width:1.5}};
+  const xRange=[new Date(xs[0].getTime()-15*60000),new Date(xs[xs.length-1].getTime()+15*60000)];
+  const commonX={type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%a %I%p',hoverformat:'%a %b %d, %H:%M',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true};
+  const attrib=attributionLineForecast(periods);
+
+  // Temperature + Dewpoint — continuous forecast trend, so lines (not bars); markers
+  // still colored by value on the same scales used everywhere else in this tool.
+  const tempY=periods.map(p=>p.temperature);
+  const dewY=periods.map(p=>fcDewF(p));
+  const tempTrace={x:xs,y:tempY,type:'scatter',mode:'lines+markers',name:'Temperature',line:{color:'rgba(255,255,255,.2)',width:1.5,shape:'spline'},marker:{color:tempY.map(v=>tempBarColor(v)),size:7,line:{width:0}},hovertemplate:'<b>Temp</b> %{y:.0f}°F<extra></extra>'};
+  const dewTrace={x:xs,y:dewY,type:'scatter',mode:'lines+markers',name:'Dewpoint',line:{color:'rgba(255,255,255,.14)',width:1.5,shape:'spline'},marker:{color:dewY.map(v=>v!=null?dewBarColor(v):'rgba(255,255,255,.12)'),size:6,line:{width:0}},hovertemplate:'<b>Dewpt</b> %{y:.0f}°F<extra></extra>'};
+  const tempLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:34,b:36},showlegend:true,
+    legend:{x:.01,y:.99,bgcolor:'rgba(0,0,0,0)',bordercolor:'rgba(255,255,255,.1)',borderwidth:1,font:{size:12}},
+    xaxis:{...commonX,rangeslider:{visible:false}},
+    yaxis:{title:{text:'Temp / Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    shapes:[nowShape],annotations:[attribAnno(attrib)],hovermode:'x unified'};
+
+  // Wind speed — bars colored by forecast direction, same palette as the historical wind panel.
+  // (NWS's simplified hourly product has no gust field, so no gust markers here.)
+  const windY=periods.map(p=>parseWindMph(p.windSpeed));
+  const windCol=periods.map(p=>dirColor(COMPASS_TO_DEG[p.windDirection]));
+  const validW=windY.filter(v=>v!=null);
+  const windTickMax=validW.length?Math.ceil(Math.max(...validW)/5)*5+5:20;
+  const windTrace={x:xs,y:windY,type:'bar',name:'Wind Speed',marker:{color:windCol,line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata} %{y:.0f} mph<extra></extra>',customdata:periods.map(p=>p.windDirection||'--')};
+  const windLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:10,b:40},showlegend:false,
+    xaxis:{...commonX},
+    yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    shapes:[nowShape],bargap:.15,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+
+  // Precipitation chance
+  const popY=periods.map(p=>{const v=fcPopStr(p);return v==null?0:v;});
+  const popTrace={x:xs,y:popY,type:'bar',name:'Precip Chance',marker:{color:'rgba(90,173,236,.75)',line:{width:0}},hovertemplate:'<b>Precip Chance</b> %{y}%<extra></extra>'};
+  const popLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:10,b:40},showlegend:false,
+    xaxis:{...commonX},
+    yaxis:{title:{text:'Precip Chance (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    shapes:[nowShape],bargap:.1,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+
+  const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),pConfig=chartConfig('forecast_precip_chance',500);
+  if(!fcChartsBuilt){
+    Plotly.newPlot('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
+    Plotly.newPlot('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.newPlot('chart-fc-precip',[popTrace],popLayout,pConfig);
+    fcChartsBuilt=true;
+  }else{
+    Plotly.react('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
+    Plotly.react('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.react('chart-fc-precip',[popTrace],popLayout,pConfig);
+  }
 }
 
 function buildDailyStrip(periods,tz){
@@ -842,9 +899,10 @@ function buildDailyStrip(periods,tz){
 }
 
 function forecastError(){
-  const h=document.getElementById('fc-hourly-strip'),d=document.getElementById('fc-daily-strip');
-  if(h)h.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
-  if(d)d.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
+  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
+  });
+  const d=document.getElementById('fc-daily-strip');if(d)d.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
 }
 
 // ================================================================
@@ -1191,7 +1249,7 @@ async function loadStation(station){
     fetchClimate(icao).then(c=>updateClimateChips(c)).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
     const ianaTz=TZ_IANA[tz]||'America/New_York';
-    fetchNWSForecast(station).then(f=>{buildHourlyStrip(f.hourly,ianaTz);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
+    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
     startRefreshTimer();
   }catch(e){console.error('Load error:',e);setText('ts-lbl','Error loading data');}
   finally{setLoading(false);}
