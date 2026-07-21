@@ -736,78 +736,106 @@ function buildSunShapes(obs){
 // ================================================================
 // PLOTLY CHARTS
 // ================================================================
-const PLOTLY_BASE={paper_bgcolor:'#262B27',plot_bgcolor:'#262B27',font:{family:'Courier Prime, monospace',color:'rgba(232,228,217,.6)',size:14},hoverlabel:{bgcolor:'#2C322D',bordercolor:'rgba(232,228,217,.2)',font:{family:'Courier Prime, monospace',size:13}},dragmode:'zoom'};
+const PLOTLY_BASE={paper_bgcolor:'#262B27',plot_bgcolor:'#262B27',font:{family:'Courier Prime, monospace',color:'rgba(232,228,217,.6)',size:14},hoverlabel:{bgcolor:'#2C322D',bordercolor:'rgba(232,228,217,.2)',font:{family:'Courier Prime, monospace',size:13}},dragmode:false};
+
+// Zoom/pan are disabled — every panel is pre-sliced to the selected range, so dragging
+// never reveals more data. Only the camera (PNG export) button is left in the modebar.
+function chartConfig(label,h){
+  const icao=curStation?curStation[0]:'station';
+  return {responsive:true,displayModeBar:true,displaylogo:false,scrollZoom:false,
+    modeBarButtonsToRemove:['select2d','lasso2d','toggleSpikelines','zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','hoverClosestCartesian','hoverCompareCartesian'],
+    toImageButtonOptions:{format:'png',filename:`${icao}_${label}`,width:1200,height:h,scale:2}};
+}
+
+// Small on-chart watermark so a downloaded/screenshotted panel is self-explanatory
+// (station, date range, source) with no surrounding page needed — same on mobile or desktop
+// since it's baked into the export at a fixed size, not the live on-screen container.
+function attributionLine(obs){
+  const st=curStation;
+  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
+  const tz=(st&&TZ_IANA[st[5]])||'America/New_York';
+  const first=obs[0].dt,last=obs[obs.length-1].dt;
+  const optsD={month:'short',day:'numeric',timeZone:tz};
+  const d1=first.toLocaleDateString('en-US',optsD),d2=last.toLocaleDateString('en-US',optsD);
+  const dateStr=d1===d2?d1:`${d1}–${d2}`;
+  return `${label}  ·  ${dateStr}  ·  ContextClimate  ·  Data: NOAA ASOS via IEM`;
+}
+function attribAnno(text){
+  return{text,xref:'paper',yref:'paper',x:.01,y:.96,xanchor:'left',yanchor:'top',showarrow:false,font:{family:'Courier Prime, monospace',size:10,color:'rgba(232,228,217,.3)'}};
+}
+
+// Bars are sized from the data's own median spacing (not Plotly's gap-from-min-spacing
+// guess) so they stay evenly, tightly packed regardless of range or any leftover
+// irregular timestamps.
+function medianStepMs(dates){
+  if(dates.length<2)return 3600000;
+  const diffs=[];
+  for(let i=1;i<dates.length;i++){const d=dates[i].getTime()-dates[i-1].getTime();if(d>0)diffs.push(d);}
+  if(!diffs.length)return 3600000;
+  diffs.sort((a,b)=>a-b);
+  return diffs[Math.floor(diffs.length/2)];
+}
 
 function buildCharts(obs){
   const xs=obs.map(o=>o.dt);
+  const barW=Math.max(medianStepMs(xs)*.88,60000);
   const nowISO=new Date().toISOString();
   const nowShape={type:'line',x0:nowISO,x1:nowISO,y0:0,y1:1,yref:'paper',xref:'x',line:{color:'rgba(255,255,255,.22)',width:1.5}};
   const sunShapes=buildSunShapes(obs);
   const shapes=[nowShape,...sunShapes];
   const xRange=[new Date(obs[0].dt.getTime()-30*60000),new Date(obs[obs.length-1].dt.getTime()+30*60000)];
   const commonX={type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%b %d',hoverformat:'%b %d, %H:%M',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true};
+  const attrib=attributionLine(obs);
 
   // Temperature — its own panel, bars colored by value (see temp color bar legend)
-  const tempTrace={x:xs,y:obs.map(o=>o.tmpf),type:'bar',name:'Temperature',marker:{color:obs.map(o=>tempBarColor(o.tmpf)),line:{width:0}},hovertemplate:'<b>Temp</b> %{y:.0f}°F<extra></extra>'};
+  const tempTrace={x:xs,y:obs.map(o=>o.tmpf),type:'bar',width:barW,name:'Temperature',marker:{color:obs.map(o=>tempBarColor(o.tmpf)),line:{width:0}},hovertemplate:'<b>Temp</b> %{y:.0f}°F<extra></extra>'};
   const tempLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:14,b:36},showlegend:false,
     xaxis:{...commonX,rangeslider:{visible:false}},
     yaxis:{title:{text:'Temperature (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.015,shapes,hovermode:'x unified'};
+    bargap:0,shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
 
   // Dewpoint — its own panel, bars colored by value (see dewpoint color bar legend)
-  const dewTrace={x:xs,y:obs.map(o=>o.dwpf),type:'bar',name:'Dewpoint',marker:{color:obs.map(o=>dewBarColor(o.dwpf)),line:{width:0}},hovertemplate:'<b>Dewpt</b> %{y:.0f}°F<extra></extra>'};
+  const dewTrace={x:xs,y:obs.map(o=>o.dwpf),type:'bar',width:barW,name:'Dewpoint',marker:{color:obs.map(o=>dewBarColor(o.dwpf)),line:{width:0}},hovertemplate:'<b>Dewpt</b> %{y:.0f}°F<extra></extra>'};
   const dewLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:14,b:36},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.015,shapes,hovermode:'x unified'};
+    bargap:0,shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
 
   // Wind: bar height = speed, bar color = direction (via compass wheel)
   const windObs=obs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null&&activeDirs.has(drctSector(o.drct)));
-  const windTrace={x:windObs.map(o=>o.dt),y:windObs.map(o=>o.sknt),type:'bar',name:'Wind Speed',marker:{color:windObs.map(o=>dirColor(o.drct)),line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata[0]} %{y:.0f} mph<extra></extra>',customdata:windObs.map(o=>[drctCompass(o.drct)])};
+  const windTrace={x:windObs.map(o=>o.dt),y:windObs.map(o=>o.sknt),type:'bar',width:barW,name:'Wind Speed',marker:{color:windObs.map(o=>dirColor(o.drct)),line:{width:0}},hovertemplate:'<b>Wind</b> %{customdata[0]} %{y:.0f} mph<extra></extra>',customdata:windObs.map(o=>[drctCompass(o.drct)])};
   const calmObs=obs.filter(o=>o.sknt!=null&&o.sknt<1);
-  const calmTrace={x:calmObs.map(o=>o.dt),y:calmObs.map(()=>0.4),type:'bar',name:'Calm',marker:{color:'rgba(180,180,180,0.55)',line:{width:0}},hovertemplate:'<b>Wind</b> Calm<extra></extra>',showlegend:false};
+  const calmTrace={x:calmObs.map(o=>o.dt),y:calmObs.map(()=>0.4),type:'bar',width:barW,name:'Calm',marker:{color:'rgba(180,180,180,0.55)',line:{width:0}},hovertemplate:'<b>Wind</b> Calm<extra></extra>',showlegend:false};
   const allWindSpeeds=obs.flatMap(o=>[o.sknt,o.gust]).filter(v=>v!=null&&v>=1);
   const maxWSpd=allWindSpeeds.length?Math.max(...allWindSpeeds):20;
   const windTickMax=Math.ceil(maxWSpd/5)*5+5;
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:10,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    shapes,barmode:'overlay',bargap:.015,hovermode:'x unified'};
+    shapes,barmode:'overlay',bargap:0,annotations:[attribAnno(attrib)],hovermode:'x unified'};
 
   const presTrace={x:xs,y:obs.map(o=>o.mslp),type:'scatter',mode:'lines',name:'Pressure',line:{color:'#F5A623',width:2},hovertemplate:'<b>Pressure</b> %{y:.1f} mb<extra></extra>'};
-  const pcpnTrace={x:xs,y:obs.map(o=>o.p01i===0.001?0.001:o.p01i),type:'bar',name:'Precip',yaxis:'y2',marker:{color:'rgba(42,168,126,.75)',line:{width:0}},hovertemplate:'<b>Precip</b> %{customdata[0]}<extra></extra>',customdata:obs.map(o=>[o.p01i===0.001?'T':(o.p01i!=null?o.p01i.toFixed(2)+'"':'--')])};
+  const pcpnTrace={x:xs,y:obs.map(o=>o.p01i===0.001?0.001:o.p01i),type:'bar',width:barW,name:'Precip',yaxis:'y2',marker:{color:'rgba(42,168,126,.75)',line:{width:0}},hovertemplate:'<b>Precip</b> %{customdata[0]}<extra></extra>',customdata:obs.map(o=>[o.p01i===0.001?'T':(o.p01i!=null?o.p01i.toFixed(2)+'"':'--')])};
   const lowerLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:10,b:48},
     legend:{x:.01,y:.99,bgcolor:'rgba(0,0,0,0)',bordercolor:'rgba(255,255,255,.1)',borderwidth:1,font:{size:13}},
     xaxis:{...commonX},
     yaxis:{title:{text:'Pressure (mb)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     yaxis2:{title:{text:'Precip (in)',font:{size:13},standoff:6},overlaying:'y',side:'right',gridcolor:'rgba(0,0,0,0)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,rangemode:'tozero'},
-    shapes:[nowShape,...sunShapes],barmode:'overlay',hovermode:'x unified'};
+    shapes:[nowShape,...sunShapes],barmode:'overlay',annotations:[attribAnno(attrib)],hovermode:'x unified'};
 
-  const config={responsive:true,displayModeBar:true,displaylogo:false,modeBarButtonsToRemove:['select2d','lasso2d','toggleSpikelines'],toImageButtonOptions:{scale:2}};
-  const panelIds=['chart-temp','chart-dew','chart-wind','chart-lower'];
+  const tempConfig=chartConfig('temperature',630),dewConfig=chartConfig('dewpoint',630),
+        windConfig=chartConfig('wind',630),lowerConfig=chartConfig('pressure_precip',630);
   if(!chartsBuilt){
-    Plotly.newPlot('chart-temp',[tempTrace],tempLayout,config);
-    Plotly.newPlot('chart-dew',[dewTrace],dewLayout,config);
-    Plotly.newPlot('chart-wind',[windTrace,calmTrace],windLayout,config);
-    Plotly.newPlot('chart-lower',[presTrace,pcpnTrace],lowerLayout,config);
+    Plotly.newPlot('chart-temp',[tempTrace],tempLayout,tempConfig);
+    Plotly.newPlot('chart-dew',[dewTrace],dewLayout,dewConfig);
+    Plotly.newPlot('chart-wind',[windTrace,calmTrace],windLayout,windConfig);
+    Plotly.newPlot('chart-lower',[presTrace,pcpnTrace],lowerLayout,lowerConfig);
     chartsBuilt=true;
-    let syncing=false;
-    panelIds.forEach(id=>{
-      document.getElementById(id).on('plotly_relayout',ed=>{
-        if(syncing)return;syncing=true;
-        const r=ed['xaxis.range[0]']?[ed['xaxis.range[0]'],ed['xaxis.range[1]']]:ed['xaxis.range'];
-        panelIds.filter(o=>o!==id).forEach(oid=>{
-          if(r)Plotly.relayout(oid,{'xaxis.range':r});
-          else if(ed['xaxis.autorange'])Plotly.relayout(oid,{'xaxis.autorange':true});
-        });
-        setTimeout(()=>{syncing=false;},50);
-      });
-    });
   }else{
-    Plotly.react('chart-temp',[tempTrace],tempLayout,config);
-    Plotly.react('chart-dew',[dewTrace],dewLayout,config);
-    Plotly.react('chart-wind',[windTrace,calmTrace],windLayout,config);
-    Plotly.react('chart-lower',[presTrace,pcpnTrace],lowerLayout,config);
+    Plotly.react('chart-temp',[tempTrace],tempLayout,tempConfig);
+    Plotly.react('chart-dew',[dewTrace],dewLayout,dewConfig);
+    Plotly.react('chart-wind',[windTrace,calmTrace],windLayout,windConfig);
+    Plotly.react('chart-lower',[presTrace,pcpnTrace],lowerLayout,lowerConfig);
   }
 }
 
