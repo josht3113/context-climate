@@ -97,20 +97,37 @@
 .rh-solar   { color: var(--accent-solar); }
 .rh-summary { color: var(--tool-accent); }
 
+/* ── Major section dividers — these three stand well apart from the page's
+   smaller sub-labels (Today's Climate, 10-Day Summary, etc.) ─────────────── */
+.rh-current, .rh-recent, .rh-solar {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: .01em;
+  margin: 32px 0 14px;
+}
+.rh-current::after, .rh-recent::after, .rh-solar::after { height: 2px; opacity: .8; }
+.station-bar + .alerts-bar + .rh-current,
+.alerts-bar + .rh-current { margin-top: 4px; }
+
 /* ── Chip label tints per section ────────────────────────────── */
 .chips-climate .chip-lbl { color: rgba(208,132,37,.65); }
 .chips-solar   .chip-lbl { color: rgba(166,150,48,.75); }
 .chips-summary .chip-lbl { color: rgba(42,168,126,.65); }
+.chips-planets .chip-lbl { color: rgba(214,126,96,.75); }
+.rh-planets { color: var(--accent-seasons); font-size: 14px; }
 
 /* ── Chip value sizes for solar and summary (values are longer strings) */
 .chips-solar   .chip-val { font-size: 18px; }
 .chips-summary .chip-val { font-size: 19px; }
 .chips-summary .chip-val.sm { font-size: 16px; }
+.chips-planets .chip-val { font-size: 15px; }
+.chips-planets .chip { min-width: 168px; }
 
 /* ── Chip border tints per section (very subtle) ─────────────── */
 .chips-climate .chip { border-color: rgba(208,132,37,.18); }
 .chips-solar   .chip { border-color: rgba(166,150,48,.18); }
 .chips-summary .chip { border-color: rgba(42,168,126,.18); }
+.chips-planets .chip { border-color: rgba(214,126,96,.18); }
 
 /* ── NWS Forecast (36-hour + 7-day) ────────────────────────────── */
 .rh-forecast { color: #7EC8E3; }
@@ -318,6 +335,10 @@
     <div class="skyplot-foot"><span id="sp-moon-alt">--</span><span class="sp-sep" id="sp-moon-sep"></span><span id="sp-moon-az"></span><span class="sp-hint">hover the arc for any time &#8594;</span></div>
   </div>
 </div>
+
+<!-- VISIBLE PLANETS -->
+<div class="row-hdr rh-planets">Visible Planets Tonight</div>
+<div class="chips chips-planets" id="planet-chips"></div>
 
 </div>
 <script>
@@ -677,9 +698,6 @@ function findMoonArc(now, lat, lon){
 }
 function azLabel(az){ return Math.round(az)+'° '+drctCompass(az); }
 function fmtHM(mins){ mins=Math.max(0,Math.round(mins)); return Math.floor(mins/60)+'h '+String(mins%60).padStart(2,'0')+'m'; }
-function skyArrow(cx,cy,azDeg,color){
-  return `<g transform="translate(${cx},${cy-15}) rotate(${azDeg.toFixed(0)})" opacity=".9"><line x1="0" y1="6" x2="0" y2="-5" stroke="${color}" stroke-width="1.8" stroke-linecap="round"/><path d="M0,-9 L-3.4,-3.5 L3.4,-3.5 Z" fill="${color}"/></g>`;
-}
 // Linear-interpolate altitude/azimuth at an arbitrary fraction along a sampled arc —
 // backs the hover readout so it isn't limited to the 49 discrete sample points.
 function interpAtFrac(points, frac){
@@ -797,8 +815,6 @@ function renderSkyArc(svg, arc, opts){
   parts.push(`<path d="${linePath}" fill="none" stroke="${opts.color}" stroke-width="2.4" opacity=".95" stroke-linecap="round"/>`);
 
   const riseX=xf(0), setX=xf(1);
-  parts.push(skyArrow(riseX, baseY, arc.riseAz, opts.color));
-  parts.push(skyArrow(setX, baseY, arc.setAz, opts.color));
   parts.push(`<circle cx="${riseX}" cy="${baseY}" r="3.5" fill="${opts.color}"/>`);
   parts.push(`<circle cx="${setX}" cy="${baseY}" r="3.5" fill="${opts.color}"/>`);
   parts.push(`<text x="${riseX}" y="${baseY+34}" text-anchor="start" fill="var(--color-text-secondary)" font-family="var(--font-mono)" font-size="14" font-weight="700">${opts.fmtTime(arc.riseT)}</text>`);
@@ -921,6 +937,122 @@ function buildSkyPlots(station, now, sun){
   } else {
     setText('sp-moon-daylen','--');setText('sp-moon-alt','--');setText('sp-moon-sep','');setText('sp-moon-az','');
   }
+}
+
+// ================================================================
+// NAKED-EYE PLANETS — low-precision Keplerian elements (epoch J2000.0),
+// good to a few arcminutes over 1800-2050. Same family of approximation as
+// the Sun/Moon models above; validated against hard physical constraints
+// (Venus max elongation ~48°, Mercury max elongation ~28°) before shipping.
+// ================================================================
+const PLANET_ELEMENTS={
+  mercury:{name:'Mercury',sym:'☿',N:[48.3313,3.24587e-5],i:[7.0047,5.00e-8],w:[29.1241,1.01444e-5],a:[0.387098,0],e:[0.205635,5.59e-10],M:[168.6562,4.0923344368]},
+  venus:  {name:'Venus',  sym:'♀',N:[76.6799,2.46590e-5],i:[3.3946,2.75e-8], w:[54.8910,1.38374e-5],a:[0.723330,0],e:[0.006773,-1.302e-9],M:[48.0052,1.6021302244]},
+  mars:   {name:'Mars',   sym:'♂',N:[49.5574,2.11081e-5],i:[1.8497,-1.78e-8],w:[286.5016,2.92961e-5],a:[1.523688,0],e:[0.093405,2.516e-9],M:[18.6021,0.5240207766]},
+  jupiter:{name:'Jupiter',sym:'♃',N:[100.4542,2.76854e-5],i:[1.3030,-1.557e-7],w:[273.8777,1.64505e-5],a:[5.20256,0],e:[0.048498,4.469e-9],M:[19.8950,0.0830853001]},
+  saturn: {name:'Saturn', sym:'♄',N:[113.6634,2.38980e-5],i:[2.4886,-1.081e-7],w:[339.3939,2.97661e-5],a:[9.55475,0],e:[0.055546,-9.499e-9],M:[316.9670,0.0334442282]}
+};
+const EARTH_ELEMENTS={N:[0,0],i:[0.0001,0],w:[282.9404,4.70935e-5],a:[1.0,0],e:[0.016709,-1.151e-9],M:[356.0470,0.9856002585]};
+function solveKepler(Mrad,e){
+  let E=Mrad;
+  for(let k=0;k<8;k++) E=E-(E-e*Math.sin(E)-Mrad)/(1-e*Math.cos(E));
+  return E;
+}
+function heliocentricXYZ(el,d){
+  const N=toRad(el.N[0]+el.N[1]*d);
+  const i=toRad(el.i[0]+el.i[1]*d);
+  const w=toRad(el.w[0]+el.w[1]*d);
+  const a=el.a[0]+el.a[1]*d;
+  const e=el.e[0]+el.e[1]*d;
+  let M=(el.M[0]+el.M[1]*d)%360; if(M<0)M+=360;
+  const E=solveKepler(toRad(M),e);
+  const xv=a*(Math.cos(E)-e), yv=a*(Math.sqrt(1-e*e)*Math.sin(E));
+  const v=Math.atan2(yv,xv), r=Math.sqrt(xv*xv+yv*yv);
+  const vw=v+w;
+  return {
+    x:r*(Math.cos(N)*Math.cos(vw)-Math.sin(N)*Math.sin(vw)*Math.cos(i)),
+    y:r*(Math.sin(N)*Math.cos(vw)+Math.cos(N)*Math.sin(vw)*Math.cos(i)),
+    z:r*(Math.sin(vw)*Math.sin(i))
+  };
+}
+function planetGeoEcliptic(key,d){
+  const ph=heliocentricXYZ(PLANET_ELEMENTS[key],d);
+  const es=heliocentricXYZ(EARTH_ELEMENTS,d); // Sun's geocentric xyz (Earth-elements shortcut)
+  const xg=ph.x+es.x, yg=ph.y+es.y, zg=ph.z+es.z;
+  return {lon:Math.atan2(yg,xg), lat:Math.atan2(zg,Math.sqrt(xg*xg+yg*yg))};
+}
+function getPlanetAltAz(key,date,lat,lon){
+  const d=toDaysJ2000(date);
+  const g=planetGeoEcliptic(key,d);
+  const dec=eqDec(g.lon,g.lat), ra=eqRA(g.lon,g.lat);
+  const lw=toRad(-lon), phi=toRad(lat);
+  const H=(toRad(280.16+360.9856235*d)-lw)-ra;
+  const alt=toDeg(eqAltitude(H,phi,dec));
+  const azRad=eqAzimuth(H,phi,dec);
+  let az=(toDeg(azRad)+180)%360; if(az<0)az+=360;
+  return {alt,az};
+}
+function planetElongationDeg(key,d){
+  const g=planetGeoEcliptic(key,d);
+  const dec=eqDec(g.lon,g.lat), ra=eqRA(g.lon,g.lat);
+  const s=sunCoordsLP(d);
+  const cosEl=Math.sin(dec)*Math.sin(s.dec)+Math.cos(dec)*Math.cos(s.dec)*Math.cos(ra-s.ra);
+  return toDeg(Math.acos(Math.max(-1,Math.min(1,cosEl))));
+}
+// Generic rise/set window finder (numeric crossing scan) — same technique already
+// proven for the Moon, generalized to any altitude(t) function so planets reuse it too.
+function findRiseSetWindow(now, altFn, lookbackH, lookaheadH, stepMin){
+  const startT=now.getTime()-lookbackH*3600000;
+  const n=Math.round(((lookbackH+lookaheadH)*60)/stepMin);
+  const samples=[];
+  for(let i=0;i<=n;i++){
+    const t=new Date(startT+i*stepMin*60000);
+    samples.push({t, alt:altFn(t)});
+  }
+  const crossings=[];
+  for(let i=1;i<samples.length;i++){
+    const a=samples[i-1], b=samples[i];
+    if((a.alt<0)!==(b.alt<0)){
+      const frac=(-a.alt)/(b.alt-a.alt);
+      const tc=new Date(a.t.getTime()+frac*(b.t.getTime()-a.t.getTime()));
+      crossings.push({t:tc, rising:b.alt>a.alt});
+    }
+  }
+  if(!crossings.length) return null;
+  let riseC=null,setC=null;
+  for(let i=0;i<crossings.length;i++){
+    if(crossings[i].rising && crossings[i].t<=now){
+      const nextSet=crossings.find(c=>!c.rising && c.t>crossings[i].t);
+      if(nextSet && nextSet.t>=now){ riseC=crossings[i]; setC=nextSet; break; }
+    }
+  }
+  let currentlyUp=true;
+  if(!riseC){
+    currentlyUp=false;
+    riseC=crossings.find(c=>c.rising && c.t>now);
+    if(riseC) setC=crossings.find(c=>!c.rising && c.t>riseC.t);
+  }
+  if(!riseC||!setC) return null;
+  return {riseT:riseC.t, setT:setC.t, currentlyUp};
+}
+// Evening-sky-first ordering — the planets most people can casually catch first.
+const PLANET_ORDER=['venus','jupiter','mars','saturn','mercury'];
+function buildPlanetChips(station, now){
+  const container=document.getElementById('planet-chips');
+  if(!container||!station) return;
+  const[,,,lat,lon,tz]=station;
+  const ianaTime=TZ_IANA[tz]||'America/New_York';
+  const d=toDaysJ2000(now);
+  const rows=[];
+  PLANET_ORDER.forEach(key=>{
+    const elong=planetElongationDeg(key,d);
+    if(elong<10) return; // too close to the Sun to see with the naked eye
+    const win=findRiseSetWindow(now, t=>getPlanetAltAz(key,t,lat,lon).alt, 24, 50, 8);
+    if(!win) return;
+    const info=PLANET_ELEMENTS[key];
+    rows.push(`<div class="chip planet-chip"><div class="chip-lbl">${info.sym} ${info.name}</div><div class="chip-val sm">${fmtSunTime(win.riseT,ianaTime)} &ndash; ${fmtSunTime(win.setT,ianaTime)}</div><div class="chip-sub">${Math.round(elong)}&#176; from Sun</div></div>`);
+  });
+  container.innerHTML = rows.length ? rows.join('') : `<div class="chip planet-chip"><div class="chip-sub" style="margin-top:0">No naked-eye planets well-placed tonight</div></div>`;
 }
 
 // ================================================================
@@ -1421,6 +1553,7 @@ function updateSolarChips(station){
   setText('cs-moonpct',moon.illum+'%');
 
   buildSkyPlots(station, now, sun);
+  buildPlanetChips(station, now);
 }
 
 function updateStationHeader(station){
