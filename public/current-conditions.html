@@ -90,6 +90,7 @@
 
 .chart-box { position: relative; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 4px; }
 #chart-temp { height: 215px; } #chart-dew { height: 215px; } #chart-wind { height: 240px; } #chart-precip { height: 200px; } #chart-lower { height: 190px; }
+#chart-clim-hi { height: 260px; } #chart-clim-lo { height: 260px; }
 .chart-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(30,35,32,.85); z-index: 10; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-muted); }
 .chart-overlay.show { display: flex; }
 .wind-barb-overlay { position: absolute; pointer-events: none; }
@@ -134,6 +135,11 @@
 .chips-solar   .chip { border-color: rgba(166,150,48,.18); }
 .chips-summary .chip { border-color: rgba(42,168,126,.18); }
 .chips-planets .chip { border-color: rgba(214,126,96,.18); }
+
+/* ── Today's Climate — period-of-record bar charts ────────────── */
+.clim-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0 4px; }
+.clim-chart-cap { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); text-align: center; padding: 8px 6px 2px; }
+@media (max-width: 720px) { .clim-charts-grid { grid-template-columns: 1fr; } }
 
 /* ── NWS Forecast (36-hour + 7-day) ────────────────────────────── */
 .rh-forecast { color: var(--color-text-muted); }
@@ -232,10 +238,23 @@
   <div class="chip"><div class="chip-lbl">Normal Low</div><div class="chip-val" id="cc-nlo">--&#176;F</div></div>
   <div class="chip"><div class="chip-lbl" id="cc-rhi-lbl">Daily Record High</div><div class="chip-val sm" id="cc-rhi">--</div><div class="chip-sub" id="cc-rhi-yr"></div></div>
   <div class="chip"><div class="chip-lbl" id="cc-rlo-lbl">Daily Record Low</div><div class="chip-val sm" id="cc-rlo">--</div><div class="chip-sub" id="cc-rlo-yr"></div></div>
+  <div class="chip"><div class="chip-lbl" id="cc-rpcp-lbl">Record Precip</div><div class="chip-val sm" id="cc-rpcp">--</div><div class="chip-sub" id="cc-rpcp-yr"></div></div>
+  <div class="chip"><div class="chip-lbl" id="cc-rsnow-lbl">Record Snowfall</div><div class="chip-val sm" id="cc-rsnow">--</div><div class="chip-sub" id="cc-rsnow-yr"></div></div>
+</div>
+
+<div class="clim-charts-grid">
+  <div class="chart-box">
+    <div class="clim-chart-cap" id="clim-hi-cap">High Temperature &mdash; loading period of record&hellip;</div>
+    <div id="chart-clim-hi"></div>
+  </div>
+  <div class="chart-box">
+    <div class="clim-chart-cap" id="clim-lo-cap">Low Temperature &mdash; loading period of record&hellip;</div>
+    <div id="chart-clim-lo"></div>
+  </div>
 </div>
 
 <!-- 7-DAY FORECAST -->
-<div class="row-hdr rh-forecast">7-Day Forecast</div>
+<div class="row-hdr rh-forecast">7-Day Forecast <span style="font-weight:400;letter-spacing:.04em;text-transform:none;color:rgba(232,234,240,.35);font-size:13px">&middot; Source: NWS/NDFD</span></div>
 <div class="fc-daily-wrap"><div class="fc-daily-strip" id="fc-daily-strip"><div class="fc-empty">Loading forecast&hellip;</div></div></div>
 
 <!-- 48-HOUR FORECAST -->
@@ -1351,7 +1370,9 @@ async function fetchClimate(icao){
   const now=new Date();
   const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const today=fmt(now),yesterday=fmt(new Date(now-86400000));
-  let normHi=null,normLo=null,recHi=null,recHiYr=null,recLo=null,recLoYr=null;
+  const mm=String(now.getMonth()+1).padStart(2,'0'),dd=String(now.getDate()).padStart(2,'0');
+  const prevYr=now.getFullYear()-1;
+  let normHi=null,normLo=null;
   const acisPost=async body=>{
     const r=await fetch('https://data.rcc-acis.org/StnData',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const txt=await r.text();
@@ -1359,7 +1380,7 @@ async function fetchClimate(icao){
     return JSON.parse(txt);
   };
   try{
-    const tryN=async date=>{return acisPost({sid,sdate:date,edate:date,elems:[{name:'maxt',normal:'1'},{name:'mint',normal:'1'}]});};
+    const tryN=async date=>acisPost({sid,sdate:date,edate:date,elems:[{name:'maxt',normal:'1'},{name:'mint',normal:'1'}]});
     let nd=await tryN(today);if(!nd.data||!nd.data.length)nd=await tryN(yesterday);
     if(nd.data&&nd.data.length){
       const row=nd.data[0];
@@ -1367,33 +1388,166 @@ async function fetchClimate(icao){
       normHi=parseN(row[1]);normLo=parseN(row[2]);
     }
   }catch(e){console.warn('ACIS normals:',e);}
+
+  // Full calendar-day history across the entire period of record: sdate:'por' is ACIS's own
+  // period-of-record code, so this asks for each station's true starting date rather than a
+  // guessed/hardcoded year. Requesting valid_daterange alongside tells us where each element's
+  // own history actually begins (maxt/mint, pcpn and snow don't always start the same year),
+  // so captions/"since <year>" labels stay accurate. Missing days come back as "M", trace
+  // precip/snow as "T" (handled in parseVal below).
+  const parseVal=e=>{
+    if(e==null||e===''||e==='M'||e==='S')return{v:null,trace:false};
+    if(e==='T')return{v:0,trace:true};
+    const n=parseFloat(e);return{v:isNaN(n)?null:n,trace:false};
+  };
+  const yearlyHighs=[],yearlyLows=[];
+  let porStart={maxt:null,pcpn:null,snow:null};
+  let recHi=null,recHiYrs=[],recLo=null,recLoYrs=[];
+  let recPcpn=null,recPcpnYrs=[],recPcpnTrace=false;
+  let recSnow=null,recSnowYrs=[],recSnowTrace=false;
   try{
-    // Calendar-day records: fetch full daily range and filter client-side to rows matching MM-DD.
-    // ACIS StnData doesn't support per-element interval/duration; daily fetch + client filter
-    // is the reliable path. ~27k rows x 3 fields ~200-300KB JSON - acceptable one-time load.
-    const mm=String(now.getMonth()+1).padStart(2,'0');
-    const dd=String(now.getDate()).padStart(2,'0');
-    const prevYr=now.getFullYear()-1;
     const rd=await acisPost({
-      sid,
-      sdate:`1950-${mm}-${dd}`,
-      edate:`${prevYr}-${mm}-${dd}`,
-      elems:[{name:'maxt'},{name:'mint'}]
+      sid,sdate:'por',edate:`${prevYr}-${mm}-${dd}`,
+      elems:[{name:'maxt'},{name:'mint'},{name:'pcpn'},{name:'snow'}],
+      meta:['valid_daterange']
     });
+    const vdr=rd.meta&&rd.meta.valid_daterange;
+    if(vdr){
+      const startYr=r=>(r&&r[0])?parseInt(String(r[0]).slice(0,4),10):null;
+      porStart.maxt=startYr(vdr[0])||startYr(vdr[1]);
+      porStart.pcpn=startYr(vdr[2]);
+      porStart.snow=startYr(vdr[3]);
+    }
     const target=`-${mm}-${dd}`;
-    if(rd.data&&rd.data.length>5){
-      let hiV=-Infinity,hiY=null,loV=Infinity,loY=null;
+    if(rd.data&&rd.data.length){
       for(const row of rd.data){
         if(!row[0].endsWith(target))continue;
-        const hi=parseFloat(row[1]),lo=parseFloat(row[2]);
-        if(!isNaN(hi)&&hi>hiV){hiV=hi;hiY=row[0].slice(0,4);}
-        if(!isNaN(lo)&&lo<loV){loV=lo;loY=row[0].slice(0,4);}
+        const yr=row[0].slice(0,4);
+        const hi=parseVal(row[1]),lo=parseVal(row[2]),pc=parseVal(row[3]),sn=parseVal(row[4]);
+        if(hi.v!=null){
+          yearlyHighs.push({year:yr,val:hi.v});
+          if(recHi==null||hi.v>recHi){recHi=hi.v;recHiYrs=[yr];}else if(hi.v===recHi)recHiYrs.push(yr);
+        }
+        if(lo.v!=null){
+          yearlyLows.push({year:yr,val:lo.v});
+          if(recLo==null||lo.v<recLo){recLo=lo.v;recLoYrs=[yr];}else if(lo.v===recLo)recLoYrs.push(yr);
+        }
+        if(pc.v!=null){
+          const cmp=pc.trace?0.005:pc.v;
+          if(recPcpn==null||cmp>recPcpn){recPcpn=cmp;recPcpnYrs=[yr];recPcpnTrace=pc.trace;}
+          else if(cmp===recPcpn)recPcpnYrs.push(yr);
+        }
+        if(sn.v!=null){
+          const cmp=sn.trace?0.05:sn.v;
+          if(recSnow==null||cmp>recSnow){recSnow=cmp;recSnowYrs=[yr];recSnowTrace=sn.trace;}
+          else if(cmp===recSnow)recSnowYrs.push(yr);
+        }
       }
-      if(hiV>-Infinity){recHi=hiV;recHiYr=hiY;}
-      if(loV<Infinity){recLo=loV;recLoYr=loY;}
     }
-  }catch(e){console.warn('ACIS calendar records:',e);}
-  return{normHi,normLo,recHi,recHiYr,recLo,recLoYr};
+    if(porStart.maxt==null&&yearlyHighs.length)porStart.maxt=parseInt(yearlyHighs[0].year,10);
+  }catch(e){console.warn('ACIS calendar history:',e);}
+  yearlyHighs.sort((a,b)=>a.year-b.year);
+  yearlyLows.sort((a,b)=>a.year-b.year);
+  return{normHi,normLo,recHi,recHiYrs,recLo,recLoYrs,recPcpn,recPcpnYrs,recPcpnTrace,recSnow,recSnowYrs,recSnowTrace,yearlyHighs,yearlyLows,porStart};
+}
+
+// ================================================================
+// TODAY'S CLIMATE — PERIOD-OF-RECORD BAR CHARTS
+// ================================================================
+let climChartsBuilt=false,climateData=null,todayForecastHiLo=null;
+
+// Called after either the ACIS climate fetch or the NWS forecast resolves — whichever
+// finishes second is what actually triggers (or re-triggers, via Plotly.react) the render.
+function maybeBuildClimateCharts(){
+  if(climateData)buildClimateCharts(climateData,todayForecastHiLo);
+}
+
+function attributionLineClimate(startYr,endYr){
+  const st=curStation;
+  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
+  return `${label}  ·  ${startYr}–${endYr}  ·  ContextClimate  ·  Data: NOAA/ACIS`;
+}
+
+// Category axes get unreadable past a few dozen labels — show at most ~14 evenly spaced
+// ticks (always keeping the final one) rather than every single year.
+function sparseTicks(xArr,maxTicks){
+  maxTicks=maxTicks||14;
+  const n=xArr.length;
+  if(n<=maxTicks)return{tickvals:xArr,ticktext:xArr};
+  const stride=Math.ceil(n/maxTicks);
+  const tickvals=[],ticktext=[];
+  xArr.forEach((v,i)=>{if(i%stride===0||i===n-1){tickvals.push(v);ticktext.push(v);}});
+  return{tickvals,ticktext};
+}
+
+// Builds one bar series (year -> value) plus, if a forecast value is supplied, an extra
+// "this year" bar that's visually distinct — reduced opacity, bright outline, an asterisked
+// label, and its own hover text — so it never reads as an actual observed record.
+function buildClimateSeries(rows,normVal,todayVal,fmtVal){
+  const yr=new Date().getFullYear();
+  const x=rows.map(r=>r.year),y=rows.map(r=>r.val);
+  const colors=y.map(v=>tempBarColor(v));
+  const opac=y.map(()=>1);
+  const lineColor=y.map(()=>'rgba(0,0,0,0)');
+  const lineWidth=y.map(()=>0);
+  const hoverText=x.map((yy,i)=>`<b>${yy}</b><br>${fmtVal(y[i])}`);
+  let hasForecast=false;
+  if(todayVal!=null){
+    hasForecast=true;
+    x.push(yr+'*');y.push(todayVal);
+    colors.push(tempBarColor(todayVal));
+    opac.push(.5);
+    lineColor.push('rgba(232,228,217,.9)');
+    lineWidth.push(2);
+    hoverText.push(`<b>${yr} — forecast</b><br>Expected ${fmtVal(todayVal)}<br><i>Not yet observed</i>`);
+  }
+  const shapes=[],annotations=[];
+  if(normVal!=null){
+    shapes.push({type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:normVal,y1:normVal,line:{color:'rgba(232,228,217,.55)',width:1.5,dash:'dash'}});
+    annotations.push({x:1,y:normVal,xref:'paper',yref:'y',xanchor:'right',yanchor:'bottom',text:`Normal ${Math.round(normVal)}°F`,showarrow:false,font:{size:11,color:'rgba(232,228,217,.65)'}});
+  }
+  return{x,y,colors,opac,lineColor,lineWidth,hoverText,shapes,annotations,hasForecast};
+}
+
+function buildClimateCharts(c,todayHiLo){
+  if(!c||(!c.yearlyHighs.length&&!c.yearlyLows.length))return;
+  const now=new Date();
+  const startYr=(c.porStart&&c.porStart.maxt)?c.porStart.maxt:(c.yearlyHighs[0]?c.yearlyHighs[0].year:'');
+  const endYr=now.getFullYear()-1;
+  const attrib=attributionLineClimate(startYr,endYr);
+  const fmtT=v=>`${Math.round(v)}°F`;
+
+  const hiS=buildClimateSeries(c.yearlyHighs,c.normHi,todayHiLo?todayHiLo.hi:null,fmtT);
+  const loS=buildClimateSeries(c.yearlyLows,c.normLo,todayHiLo?todayHiLo.lo:null,fmtT);
+
+  const hiTicks=sparseTicks(hiS.x),loTicks=sparseTicks(loS.x);
+  const axisBase={type:'category',gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:10},tickangle:-55,tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:false};
+
+  const hiTrace={x:hiS.x,y:hiS.y,type:'bar',marker:{color:hiS.colors,opacity:hiS.opac,line:{color:hiS.lineColor,width:hiS.lineWidth}},hovertext:hiS.hoverText,hovertemplate:'%{hovertext}<extra></extra>'};
+  const hiLayout={...PLOTLY_BASE,margin:{l:48,r:20,t:34,b:54},showlegend:false,
+    xaxis:{...axisBase,tickmode:'array',tickvals:hiTicks.tickvals,ticktext:hiTicks.ticktext},
+    yaxis:{title:{text:'High (°F)',font:{size:12},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:12},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    bargap:.15,shapes:hiS.shapes,annotations:[attribAnno(attrib),...hiS.annotations],hovermode:'closest'};
+
+  const loTrace={x:loS.x,y:loS.y,type:'bar',marker:{color:loS.colors,opacity:loS.opac,line:{color:loS.lineColor,width:loS.lineWidth}},hovertext:loS.hoverText,hovertemplate:'%{hovertext}<extra></extra>'};
+  const loLayout={...PLOTLY_BASE,margin:{l:48,r:20,t:34,b:54},showlegend:false,
+    xaxis:{...axisBase,tickmode:'array',tickvals:loTicks.tickvals,ticktext:loTicks.ticktext},
+    yaxis:{title:{text:'Low (°F)',font:{size:12},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:12},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    bargap:.15,shapes:loS.shapes,annotations:[attribAnno(attrib),...loS.annotations],hovermode:'closest'};
+
+  const hiConfig=chartConfig('climate_high',420),loConfig=chartConfig('climate_low',420);
+  if(!climChartsBuilt){
+    Plotly.newPlot('chart-clim-hi',[hiTrace],hiLayout,hiConfig);
+    Plotly.newPlot('chart-clim-lo',[loTrace],loLayout,loConfig);
+    climChartsBuilt=true;
+  }else{
+    Plotly.react('chart-clim-hi',[hiTrace],hiLayout,hiConfig);
+    Plotly.react('chart-clim-lo',[loTrace],loLayout,loConfig);
+  }
+  const dateLabel=now.toLocaleDateString('en-US',{month:'long',day:'numeric'});
+  const fcNote=(hiS.hasForecast||loS.hasForecast)?' · * = today, forecast — not yet observed':'';
+  setText('clim-hi-cap',`High Temp — every ${dateLabel} since ${startYr} (n=${c.yearlyHighs.length})${fcNote}`);
+  setText('clim-lo-cap',`Low Temp — every ${dateLabel} since ${startYr} (n=${c.yearlyLows.length})${fcNote}`);
 }
 
 // ================================================================
@@ -1558,6 +1712,7 @@ function buildDailyStrip(periods,tz){
   wrap.innerHTML=days.map((group,i)=>{
     const dayTemps=group.map(p=>p.temperature);
     const hi=Math.max(...dayTemps),lo=Math.min(...dayTemps);
+    if(i===0){todayForecastHiLo={hi,lo};} // feeds the "today" bar on the climate charts below
     const primary=group.find(p=>p.isDaytime)||group[0];
     const icon=classifyForecastIcon(primary.shortForecast,primary.isDaytime);
     const pops=group.map(fcPopStr).filter(v=>v!=null);
@@ -1568,6 +1723,7 @@ function buildDailyStrip(periods,tz){
     const hiCol=tempBarColor(hi),loCol=tempBarColor(lo);
     return`<div class="fc-d-item${i===0?' today':''}"><div class="fc-d-dow">${dow}</div><div class="fc-d-date">${dateStr}</div><div class="fc-d-icon">${WX_ICONS[icon]||WX_ICONS.SCT}</div><div class="fc-d-pop">${pop!=null?'&#128167; '+pop+'%':'&nbsp;'}</div><div class="fc-d-stat"><div class="fc-d-stat-lbl">High</div><div class="fc-d-hi" style="color:${hiCol}">${Math.round(hi)}&deg;</div></div><div class="fc-d-stat"><div class="fc-d-stat-lbl">Low</div><div class="fc-d-lo" style="color:${loCol}">${Math.round(lo)}&deg;</div></div></div>`;
   }).join('');
+  maybeBuildClimateCharts();
 }
 
 function forecastError(){
@@ -1646,6 +1802,7 @@ function updateSummaryChips(s){
   setText('c-ptend',s.ptend||'--');
 }
 
+function fmtYrs(arr){return(arr&&arr.length)?arr.join(', '):'';}
 function updateClimateChips(c){
   setText('cc-nhi',c.normHi!=null?Math.round(c.normHi)+'°F':'--');
   setText('cc-nlo',c.normLo!=null?Math.round(c.normLo)+'°F':'--');
@@ -1654,10 +1811,16 @@ function updateClimateChips(c){
   const dateLabel=now.toLocaleDateString('en-US',{month:'short',day:'numeric'});
   setText('cc-rhi-lbl',`Record High (${dateLabel})`);
   setText('cc-rlo-lbl',`Record Low (${dateLabel})`);
+  setText('cc-rpcp-lbl',`Record Precip (${dateLabel})`);
+  setText('cc-rsnow-lbl',`Record Snowfall (${dateLabel})`);
   setText('cc-rhi',c.recHi!=null?Math.round(c.recHi)+'°F':'--');
-  setText('cc-rhi-yr',c.recHiYr?c.recHiYr:'');
+  setText('cc-rhi-yr',fmtYrs(c.recHiYrs));
   setText('cc-rlo',c.recLo!=null?Math.round(c.recLo)+'°F':'--');
-  setText('cc-rlo-yr',c.recLoYr?c.recLoYr:'');
+  setText('cc-rlo-yr',fmtYrs(c.recLoYrs));
+  setText('cc-rpcp',c.recPcpn!=null?(c.recPcpnTrace?'Trace':c.recPcpn.toFixed(2)+'"'):'--');
+  setText('cc-rpcp-yr',fmtYrs(c.recPcpnYrs));
+  setText('cc-rsnow',c.recSnow!=null?(c.recSnowTrace?'Trace':c.recSnow.toFixed(1)+'"'):'--');
+  setText('cc-rsnow-yr',fmtYrs(c.recSnowYrs));
 }
 
 function updateSolarChips(station){
@@ -1937,7 +2100,7 @@ async function loadStation(station){
     lastFetchTime=Date.now();
     updateCurrentObs(allObs);updateSummaryChips(computeSummary(allObs));
     applyRange(activeRange);
-    fetchClimate(icao).then(c=>updateClimateChips(c)).catch(()=>{});
+    fetchClimate(icao).then(c=>{updateClimateChips(c);climateData=c;maybeBuildClimateCharts();}).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
     const ianaTz=TZ_IANA[tz]||'America/New_York';
     fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
