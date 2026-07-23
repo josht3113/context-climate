@@ -401,11 +401,50 @@ function buildClimatologyRows(normalsMap,records){
   });
 }
 
+// Finds the representative "peak" day for a smoothed normal curve. ACIS's daily
+// normal values are rounded, so the true seasonal max/min often plateaus across
+// many consecutive days rather than landing on a single one -- e.g. a normal high
+// can sit at the same rounded value for 3-4 weeks running. Reporting the FIRST day
+// that hits the extreme (a naive max scan) skews "peak of summer/winter" toward
+// early in that plateau instead of its true center. This finds the longest run of
+// days at the extreme value and returns its center day, treating the 366-day year
+// as circular so a winter plateau straddling Dec 31 / Jan 1 isn't split into two
+// separate runs.
+function centerOfExtremeRun(rows,key,mode){
+  const n=rows.length;
+  const vals=rows.map(r=>r[key]);
+  const valid=vals.filter(v=>v!=null);
+  if(!valid.length)return null;
+  const target=mode==='max'?Math.max(...valid):Math.min(...valid);
+  const isTarget=i=>vals[i]!=null&&Math.abs(vals[i]-target)<1e-9;
+
+  // Cut the circular year at any day that is NOT the extreme value, so a run
+  // never needs to wrap across the array boundary during the scan below.
+  // Guaranteed to exist -- a station with zero seasonal variation isn't real.
+  let cut=0;
+  while(cut<n&&isTarget(cut))cut++;
+  if(cut===n)return rows[Math.floor((n-1)/2)]; // degenerate: every day identical
+
+  let bestStart=cut,bestLen=0,curStart=-1,curLen=0;
+  for(let k=0;k<n;k++){
+    const i=(cut+k)%n;
+    if(isTarget(i)){
+      if(curLen===0)curStart=i;
+      curLen++;
+      if(curLen>bestLen){bestLen=curLen;bestStart=curStart;}
+    }else{
+      curLen=0;
+    }
+  }
+  const centerIdx=(bestStart+Math.floor((bestLen-1)/2))%n;
+  return rows[centerIdx];
+}
+
 function computeStats(rows){
-  let peakSummer=null,peakWinter=null,allHigh=null,allLow=null;
+  const peakSummer=centerOfExtremeRun(rows,'normHi','max');
+  const peakWinter=centerOfExtremeRun(rows,'normLo','min');
+  let allHigh=null,allLow=null;
   rows.forEach(r=>{
-    if(r.normHi!=null&&(!peakSummer||r.normHi>peakSummer.normHi))peakSummer=r;
-    if(r.normLo!=null&&(!peakWinter||r.normLo<peakWinter.normLo))peakWinter=r;
     if(r.recHi!=null&&(!allHigh||r.recHi>allHigh.recHi))allHigh=r;
     if(r.recLo!=null&&(!allLow||r.recLo<allLow.recLo))allLow=r;
   });
