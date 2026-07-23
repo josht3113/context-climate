@@ -143,7 +143,7 @@
 <div class="clim-warn" id="clim-warn" style="display:none"></div>
 
 <div class="about-note">
-  <b>About this data.</b> Normals reflect NOAA&rsquo;s 1991&ndash;2020 climate normals (a smoothed 30-year daily average) &mdash; dot color follows the same temperature scale used across ContextClimate&rsquo;s heatmap tools. Records reflect the station&rsquo;s entire threaded period of record via NOAA/ACIS ThreadEx, which stitches together nearby station history so long-running sites don&rsquo;t lose decades to a single station move or renaming. Some cities are only served by a shorter-record airport station &mdash; check the period-of-record note above the chart before treating record values as definitive.
+  <b>About this data.</b> Normals reflect NOAA&rsquo;s 1991&ndash;2020 climate normals (a smoothed 30-year daily average) &mdash; dot color follows the same temperature scale used across ContextClimate&rsquo;s heatmap tools, and the curve itself is lightly smoothed to remove the whole-degree rounding steps in NOAA&rsquo;s published values. Records reflect the station&rsquo;s entire threaded period of record via NOAA/ACIS ThreadEx, which stitches together nearby station history so long-running sites don&rsquo;t lose decades to a single station move or renaming. Some cities are only served by a shorter-record airport station &mdash; check the period-of-record note above the chart before treating record values as definitive.
 </div>
 
 </div>
@@ -443,7 +443,8 @@ function buildClimatologyRows(normalsMap,records){
 // early in that plateau instead of its true center. This finds the longest run of
 // days at the extreme value and returns its center day, treating the 366-day year
 // as circular so a winter plateau straddling Dec 31 / Jan 1 isn't split into two
-// separate runs.
+// separate runs. This runs on the RAW published values, independent of the chart
+// smoothing below, so the stat chips always cite the real ACIS number.
 function centerOfExtremeRun(rows,key,mode){
   const n=rows.length;
   const vals=rows.map(r=>r[key]);
@@ -452,9 +453,6 @@ function centerOfExtremeRun(rows,key,mode){
   const target=mode==='max'?Math.max(...valid):Math.min(...valid);
   const isTarget=i=>vals[i]!=null&&Math.abs(vals[i]-target)<1e-9;
 
-  // Cut the circular year at any day that is NOT the extreme value, so a run
-  // never needs to wrap across the array boundary during the scan below.
-  // Guaranteed to exist -- a station with zero seasonal variation isn't real.
   let cut=0;
   while(cut<n&&isTarget(cut))cut++;
   if(cut===n)return rows[Math.floor((n-1)/2)]; // degenerate: every day identical
@@ -548,9 +546,7 @@ function rerenderChart(){
 }
 
 // Centered moving average over a circular 366-day year (so a window near Dec 31
-// correctly wraps into early January instead of truncating). Display-only: this
-// never touches the underlying recHi/recLo values used by hover text or the stat
-// chips -- it only smooths the shape of the plotted line when the toggle is on.
+// correctly wraps into early January instead of truncating). Display-only.
 function smoothCircular(values,halfWindow){
   const n=values.length;
   return values.map((_,i)=>{
@@ -577,13 +573,31 @@ function renderChart(rows,stats,station,records){
   const rawRecLoY=rows.map(r=>r.recLo);
   const recHiY=smoothRecords?smoothCircular(rawRecHiY,2):rawRecHiY;
   const recLoY=smoothRecords?smoothCircular(rawRecLoY,2):rawRecLoY;
-  const normHiY=rows.map(r=>r.normHi);
-  const normLoY=rows.map(r=>r.normLo);
+
+  // Normal-curve smoothing is always on (not a toggle): the "stairstep" in the
+  // raw values is a rounding artifact -- ACIS/NOAA publish normals as whole
+  // degrees, so 4-5 consecutive days often share one integer before ticking up
+  // by one -- not real day-to-day variability. A 7-day centered window is short
+  // relative to the ~180-day seasonal cycle, so it erases the single-degree
+  // steps without perceptibly shifting the curve's true shape. Hover text and
+  // the stat chips (via computeStats, above) always reference the raw published
+  // value for that exact day regardless of this display-only smoothing.
+  const rawNormHiY=rows.map(r=>r.normHi);
+  const rawNormLoY=rows.map(r=>r.normLo);
+  const normHiY=smoothCircular(rawNormHiY,3);
+  const normLoY=smoothCircular(rawNormLoY,3);
   const normHiColors=normHiY.map(v=>tempColor(v));
   const normLoColors=normLoY.map(v=>tempColor(v));
+  // Small dots every day (always a real, hoverable point) with a slightly
+  // larger accent dot every 4th day, so the color reads as a thin colored
+  // thread rather than one solid painted band.
+  const dotSize=i=>i%4===0?5:2.2;
+  const normHiSizes=normHiY.map((_,i)=>dotSize(i));
+  const normLoSizes=normLoY.map((_,i)=>dotSize(i));
 
-  // Hover always reflects the true recorded value/year regardless of the smoothing
-  // toggle -- smoothing only reshapes the plotted line, never the numbers shown.
+  // Hover always reflects the true recorded/published value regardless of any
+  // smoothing toggle -- smoothing only reshapes the plotted line, never the
+  // numbers shown.
   const hiHover=rows.map(r=>r.recHi!=null?`<b>${fmtDate(r.date)}</b><br>Record High: ${Math.round(r.recHi)}°F (${r.recHiYears.join(', ')})`:'');
   const loHover=rows.map(r=>r.recLo!=null?`<b>${fmtDate(r.date)}</b><br>Record Low: ${Math.round(r.recLo)}°F (${r.recLoYears.join(', ')})`:'');
   const nHiHover=rows.map(r=>r.normHi!=null?`<b>${fmtDate(r.date)}</b><br>Normal High: ${Math.round(r.normHi)}°F`:'');
@@ -599,12 +613,12 @@ function renderChart(rows,stats,station,records){
     hovertext:loHover,hovertemplate:'%{hovertext}<extra></extra>'};
   const traceNormLo={x,y:normLoY,type:'scatter',mode:'lines+markers',name:'Normal Low (1991–2020)',
     line:{color:'rgba(232,228,217,.3)',width:1,shape:'spline'},
-    marker:{color:normLoColors,size:4.5},
+    marker:{color:normLoColors,size:normLoSizes},
     fill:'tonexty',fillcolor:'rgba(90,173,236,.10)',
     hovertext:nLoHover,hovertemplate:'%{hovertext}<extra></extra>'};
   const traceNormHi={x,y:normHiY,type:'scatter',mode:'lines+markers',name:'Normal High (1991–2020)',
     line:{color:'rgba(232,228,217,.3)',width:1,shape:'spline'},
-    marker:{color:normHiColors,size:4.5},
+    marker:{color:normHiColors,size:normHiSizes},
     hovertext:nHiHover,hovertemplate:'%{hovertext}<extra></extra>'};
   const traceRecHi={x,y:recHiY,type:'scatter',mode:'lines',name:'Record High',
     line:{color:'#E8664F',width:1.3},
@@ -679,8 +693,8 @@ function ensurePngButton(chartDivId){
 // Plotly.toImage() rasterizes whatever is currently rendered in the div -- since
 // every toggle above re-renders via Plotly.react on this same div before the user
 // would click export, the exported PNG always matches the live screen exactly
-// (peaks/today line only appear if their toggle is on; smoothed lines only if
-// that toggle is on). No special-casing needed here for toggle state.
+// (peaks/today line only appear if their toggle is on; smoothed record lines only
+// if that toggle is on). No special-casing needed here for toggle state.
 function exportChartPNG(chartDivId){
   const gd=document.getElementById(chartDivId);
   if(!gd||!window.Plotly)return;
