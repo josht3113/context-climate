@@ -94,9 +94,9 @@
 .wind-barb-overlay { position: absolute; pointer-events: none; }
 .fc-wind-legend-row { display: flex; align-items: center; gap: 10px; padding: 2px 6px; }
 .fwl-cap { font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; color: var(--color-text-muted); text-transform: uppercase; }
-.fwl-wrap { display: flex; gap: 10px; flex-wrap: wrap; }
-.fwl-item { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); }
-.fwl-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.fwl-grad-wrap { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 160px; }
+.fwl-grad-track { flex: 1; height: 10px; border-radius: 4px; border: 1px solid rgba(255,255,255,.15); }
+.fwl-grad-lo, .fwl-grad-hi { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
 ::-webkit-scrollbar { width: 5px; height: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(232,228,217,.15); border-radius: 3px; }
 
 /* ── Section label colors — chrome is neutral; hue is reserved for data.
@@ -270,7 +270,14 @@
 <div class="row-hdr rh-forecast">48-Hour Forecast</div>
 <div class="fc-charts-col">
   <div class="chart-box"><div id="chart-fc-temp"></div></div>
-  <div class="fc-wind-legend-row"><span class="fwl-cap">Wind barb color = direction</span><div class="fwl-wrap" id="fc-wind-legend"></div></div>
+  <div class="fc-wind-legend-row">
+    <span class="fwl-cap">Wind barb color = speed (mph)</span>
+    <div class="fwl-grad-wrap">
+      <span class="fwl-grad-lo" id="fcwind-cb-lo">--</span>
+      <div class="fwl-grad-track" id="fcwind-cb-track"></div>
+      <span class="fwl-grad-hi" id="fcwind-cb-hi">--</span>
+    </div>
+  </div>
   <div class="chart-box"><div id="chart-fc-wind"></div></div>
   <div class="chart-box"><div id="chart-fc-precip"></div></div>
 </div>
@@ -501,27 +508,25 @@ const TZ_IANA={ET:'America/New_York',CT:'America/Chicago',MT:'America/Denver',PT
 const DIRS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 // Temperature-intuitive wind direction palette: cool blue at N, warm red at S,
 // two arcs of transitional hues connecting them (long/rich arc via E, short arc via W).
-const DIR_HUES=[234,220,196,172,148,124,100,76,42,8,340,318,296,274,258,246];
-function dirColor(d){if(d==null||isNaN(d))return'rgba(255,255,255,.25)';return`hsl(${DIR_HUES[Math.round(d/22.5)%16]},68%,54%)`;}
 
 // ================================================================
 // WIND BARBS — official synoptic glyph. Shaft points toward the direction
 // the wind is coming FROM; feathers encode speed in the standard 5/10/50kt
 // steps (pennant=50kt solid triangle, full barb=10kt, half barb=5kt),
-// counted from the outer tip inward. Color still follows dirColor() so it
-// stays consistent with the compass wheel — speed no longer needs color at
-// all, since the feathers carry it, but direction keeps the same palette
-// used everywhere else on this page. Plotly has no native barb marker, so
+// counted from the outer tip inward. Color follows windBarColor()/speed so it
+// stays consistent with the speed colorbar shown alongside each wind panel —
+// speed is already encoded twice over (feather count + fill color), which
+// reinforces it at a glance. Plotly has no native barb marker, so
 // these are drawn as a synced SVG overlay (position mirrors real Plotly
 // pixel coordinates via axis.d2p()/_offset) rather than a shapes/trace.
 function windBarbGroup(cx,cy,speedMph,dirDeg,color,opts){
   opts=opts||{};
   const shaftLen=opts.shaftLen||28,featherLen=opts.featherLen||8,
         featherGap=opts.featherGap||4.4,pennantGap=opts.pennantGap||6.6,
-        side=opts.side||1,tiltDeg=opts.tiltDeg!=null?opts.tiltDeg:18;
+        side=opts.side||1,tiltDeg=opts.tiltDeg!=null?opts.tiltDeg:30;
   if(dirDeg==null||isNaN(dirDeg)||speedMph==null||isNaN(speedMph))return'';
   const knots=speedMph/1.15078;
-  if(knots<2)return`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3" fill="none" stroke="${color}" stroke-width="1.6"/>`;
+  if(knots<2)return`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.2" fill="none" stroke="${color}" stroke-width="2"/>`;
   let rounded=Math.max(5,Math.round(knots/5)*5);
   const pennants=Math.floor(rounded/50);rounded-=pennants*50;
   const fulls=Math.floor(rounded/10);rounded-=fulls*10;
@@ -531,23 +536,23 @@ function windBarbGroup(cx,cy,speedMph,dirDeg,color,opts){
   const fx_=perpX*Math.cos(tilt)-dirX*Math.sin(tilt),fy_=perpY*Math.cos(tilt)-dirY*Math.sin(tilt);
   const tipX=cx+dirX*shaftLen,tipY=cy+dirY*shaftLen;
   const ptAt=dist=>[cx+dirX*dist,cy+dirY*dist];
-  let out=`<line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${tipX.toFixed(1)}" y2="${tipY.toFixed(1)}" stroke="${color}" stroke-width="1.8" stroke-linecap="round"/>`+
-          `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="1.7" fill="${color}"/>`;
+  let out=`<line x1="${cx.toFixed(1)}" y1="${cy.toFixed(1)}" x2="${tipX.toFixed(1)}" y2="${tipY.toFixed(1)}" stroke="${color}" stroke-width="2.2" stroke-linecap="round"/>`+
+          `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="1.9" fill="${color}"/>`;
   let pos=shaftLen;
   for(let i=0;i<pennants;i++){
     const b=ptAt(pos),t=ptAt(pos-pennantGap);
     const fp=[b[0]+fx_*featherLen,b[1]+fy_*featherLen];
-    out+=`<path d="M${b[0].toFixed(1)},${b[1].toFixed(1)} L${fp[0].toFixed(1)},${fp[1].toFixed(1)} L${t[0].toFixed(1)},${t[1].toFixed(1)} Z" fill="${color}"/>`;
+    out+=`<path d="M${b[0].toFixed(1)},${b[1].toFixed(1)} L${fp[0].toFixed(1)},${fp[1].toFixed(1)} L${t[0].toFixed(1)},${t[1].toFixed(1)} Z" fill="${color}" stroke="${color}" stroke-width="0.6"/>`;
     pos-=pennantGap;
   }
   for(let i=0;i<fulls;i++){
     const b=ptAt(pos),fp=[b[0]+fx_*featherLen,b[1]+fy_*featherLen];
-    out+=`<line x1="${b[0].toFixed(1)}" y1="${b[1].toFixed(1)}" x2="${fp[0].toFixed(1)}" y2="${fp[1].toFixed(1)}" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`;
+    out+=`<line x1="${b[0].toFixed(1)}" y1="${b[1].toFixed(1)}" x2="${fp[0].toFixed(1)}" y2="${fp[1].toFixed(1)}" stroke="${color}" stroke-width="2.3" stroke-linecap="round"/>`;
     pos-=featherGap;
   }
   if(half){
     const b=ptAt(pos),fp=[b[0]+fx_*featherLen*.52,b[1]+fy_*featherLen*.52];
-    out+=`<line x1="${b[0].toFixed(1)}" y1="${b[1].toFixed(1)}" x2="${fp[0].toFixed(1)}" y2="${fp[1].toFixed(1)}" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`;
+    out+=`<line x1="${b[0].toFixed(1)}" y1="${b[1].toFixed(1)}" x2="${fp[0].toFixed(1)}" y2="${fp[1].toFixed(1)}" stroke="${color}" stroke-width="2.1" stroke-linecap="round"/>`;
   }
   return out;
 }
@@ -635,12 +640,13 @@ function tempBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=g
 function dewBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.td);return`rgb(${r},${g},${b})`;}
 function precipBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.precip);return`rgb(${r},${g},${b})`;}
 function windBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.wind);return`rgb(${r},${g},${b})`;}
-function vGradCss(scale){
+function vGradCss(scale,dir){
+  dir=dir||'to top';
   const lo=scale.vals[0],span=scale.vals[scale.vals.length-1]-lo;
-  return'linear-gradient(to top,'+scale.cols.map((c,i)=>`${c} ${((scale.vals[i]-lo)/span*100).toFixed(1)}%`).join(',')+')';
+  return'linear-gradient('+dir+','+scale.cols.map((c,i)=>`${c} ${((scale.vals[i]-lo)/span*100).toFixed(1)}%`).join(',')+')';
 }
-function setColorBar(trackId,hiId,loId,scale,fmt){
-  const el=document.getElementById(trackId);if(el)el.style.background=vGradCss(scale);
+function setColorBar(trackId,hiId,loId,scale,fmt,dir){
+  const el=document.getElementById(trackId);if(el)el.style.background=vGradCss(scale,dir);
   setText(hiId,fmt(scale.vals[scale.vals.length-1]));
   setText(loId,fmt(scale.vals[0]));
 }
@@ -649,6 +655,7 @@ function initColorBars(){
   setColorBar('dew-cb-track','dew-cb-hi','dew-cb-lo',SCALES.td,v=>v+'°');
   setColorBar('precip-cb-track','precip-cb-hi','precip-cb-lo',SCALES.precip,v=>v.toFixed(2)+'"');
   setColorBar('wind-cb-track','wind-cb-hi','wind-cb-lo',SCALES.wind,v=>Math.round(v)+' mph');
+  setColorBar('fcwind-cb-track','fcwind-cb-hi','fcwind-cb-lo',SCALES.wind,v=>Math.round(v)+' mph','to right');
 }
 function drctSector(d){if(d==null)return null;const i=Math.round(d/22.5)%16;return DIRS[i];}
 function drctCompass(d){
@@ -1618,8 +1625,8 @@ function parseWindMph(windSpeedStr){
   return nums.length?nums[nums.length-1]:null;
 }
 // windDirection comes back as a compass abbreviation ("NW") not degrees — reuse
-// the DIRS ordering (already 22.5°-spaced) to convert so dirColor()/dirColor-based
-// wedge coloring stays identical to the historical wind panel.
+// the DIRS ordering (already 22.5°-spaced) to convert to degrees for the barb glyphs
+// (color comes from windBarColor/speed, same as the historical wind panel).
 const COMPASS_TO_DEG={};
 DIRS.forEach((d,i)=>{COMPASS_TO_DEG[d]=i*22.5;});
 
@@ -1689,20 +1696,9 @@ function buildForecastCharts(hourlyPeriods,tz){
     Plotly.react('chart-fc-wind',[windTrace],windLayout,wConfig);
     Plotly.react('chart-fc-precip',[popTrace],popLayout,pConfig);
   }
-  const barbObs=xs.map((dt,i)=>({dt,speedMph:windY[i],dirDeg:windDirDeg[i],color:dirColor(windDirDeg[i])})).filter(o=>o.speedMph!=null&&o.dirDeg!=null);
-  drawBarbs('chart-fc-wind',barbObs,{shaftLen:24,featherLen:7.5,featherGap:4,pennantGap:6,minSpacing:15});
+  const barbObs=xs.map((dt,i)=>({dt,speedMph:windY[i],dirDeg:windDirDeg[i],color:windBarColor(windY[i])})).filter(o=>o.speedMph!=null&&o.dirDeg!=null);
+  drawBarbs('chart-fc-wind',barbObs,{shaftLen:28,featherLen:8.5,featherGap:4.4,pennantGap:6.6,minSpacing:17});
   ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
-  buildFcWindLegend();
-}
-let fcWindLegendBuilt=false;
-function buildFcWindLegend(){
-  if(fcWindLegendBuilt)return;
-  const el=document.getElementById('fc-wind-legend');
-  if(!el)return;
-  fcWindLegendBuilt=true;
-  el.innerHTML=DIRS.filter((d,i)=>i%2===0).map((d,i)=>
-    `<span class="fwl-item"><span class="fwl-swatch" style="background:${dirColor(i*45)}"></span>${d}</span>`
-  ).join('');
 }
 
 // One stacked half of a day column (either the daytime or nighttime period). Returns ''
@@ -2038,7 +2034,7 @@ function buildCharts(obs, fullObs){
     bargap:0,shapes,hovermode:'x unified'};
 
   // Wind: official wind-barb glyphs (SVG overlay, see drawBarbs) — shaft/feathers
-  // encode speed, color still follows the direction palette (dirColor/compass wheel).
+  // encode speed; glyph color also follows speed (see windBarColor/SCALES.wind),
   // These two traces are invisible hit-targets so Plotly's native hover still works;
   // a bright marker rides above for any hour with a reported gust.
   const windObs=obs.filter(o=>o.sknt!=null&&o.sknt>=1&&o.drct!=null);
@@ -2088,7 +2084,7 @@ function buildCharts(obs, fullObs){
     Plotly.react('chart-precip',[pcpnTrace],precipLayout,precipConfig);
     Plotly.react('chart-lower',[presTrace],lowerLayout,lowerConfig);
   }
-  drawBarbs('chart-wind',barbObs,{shaftLen:26,featherLen:8,featherGap:4.2,pennantGap:6.4,minSpacing:15});
+  drawBarbs('chart-wind',barbObs,{shaftLen:30,featherLen:9,featherGap:4.6,pennantGap:7,minSpacing:17});
   ['chart-temp','chart-dew','chart-wind','chart-precip','chart-lower'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
 }
 
