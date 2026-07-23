@@ -89,6 +89,8 @@
 .colorbar-hi, .colorbar-lo { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
 
 .chart-box { position: relative; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 4px; }
+.chart-png-btn { position: absolute; top: 8px; right: 8px; z-index: 6; opacity: .82; }
+.chart-png-btn:hover { opacity: 1; }
 #chart-temp { height: 215px; } #chart-dew { height: 215px; } #chart-wind { height: 240px; } #chart-precip { height: 200px; } #chart-lower { height: 190px; }
 #chart-clim-hi { height: 260px; } #chart-clim-lo { height: 260px; }
 .chart-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(30,35,32,.85); z-index: 10; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-muted); }
@@ -1256,6 +1258,7 @@ function getWeatherIcon(skyc1,wxcodes){
 let curStation=null,allObs=[],activeDirs=new Set(DIRS),showSunLines=false;
 let refreshTimer=null,countdownTimer=null,lastFetchTime=null,chartsBuilt=false;
 let curDisplayObs=[],curFullObs=[];
+const chartAttrib={}; // per-chart {context, source} — feeds the prominent PNG-export header (see exportChartPNG)
 let obs30Loaded=false,activeRange=10;
 
 // ================================================================
@@ -1478,8 +1481,8 @@ function maybeBuildClimateCharts(){
 
 function attributionLineClimate(startYr,endYr){
   const st=curStation;
-  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
-  return `${label}  ·  ${startYr}–${endYr}  ·  ContextClimate  ·  Data: NOAA/ACIS`;
+  const label=st?`${st[1]}, ${st[2]} (${st[0]})`:'Station not selected';
+  return{context:`${label}  \u00b7  ${startYr}\u2013${endYr} climatology`,source:'Data: NOAA/ACIS (ThreadEx daily climate records)'};
 }
 
 // Category axes get unreadable past a few dozen labels — show at most ~14 evenly spaced
@@ -1541,13 +1544,13 @@ function buildClimateCharts(c,todayHiLo){
   const hiLayout={...PLOTLY_BASE,margin:{l:48,r:20,t:34,b:54},showlegend:false,
     xaxis:{...axisBase,tickmode:'array',tickvals:hiTicks.tickvals,ticktext:hiTicks.ticktext},
     yaxis:{title:{text:'High (°F)',font:{size:12},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:12},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.15,shapes:hiS.shapes,annotations:[attribAnno(attrib),...hiS.annotations],hovermode:'closest'};
+    bargap:.15,shapes:hiS.shapes,annotations:hiS.annotations,hovermode:'closest'};
 
   const loTrace={x:loS.x,y:loS.y,type:'bar',marker:{color:loS.colors,opacity:loS.opac,line:{color:loS.lineColor,width:loS.lineWidth}},hovertext:loS.hoverText,hovertemplate:'%{hovertext}<extra></extra>'};
   const loLayout={...PLOTLY_BASE,margin:{l:48,r:20,t:34,b:54},showlegend:false,
     xaxis:{...axisBase,tickmode:'array',tickvals:loTicks.tickvals,ticktext:loTicks.ticktext},
     yaxis:{title:{text:'Low (°F)',font:{size:12},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:12},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.15,shapes:loS.shapes,annotations:[attribAnno(attrib),...loS.annotations],hovermode:'closest'};
+    bargap:.15,shapes:loS.shapes,annotations:loS.annotations,hovermode:'closest'};
 
   const hiConfig=chartConfig('climate_high',420),loConfig=chartConfig('climate_low',420);
   if(!climChartsBuilt){
@@ -1558,6 +1561,8 @@ function buildClimateCharts(c,todayHiLo){
     Plotly.react('chart-clim-hi',[hiTrace],hiLayout,hiConfig);
     Plotly.react('chart-clim-lo',[loTrace],loLayout,loConfig);
   }
+  chartAttrib['chart-clim-hi']=attrib;chartAttrib['chart-clim-lo']=attrib;
+  ensurePngButton('chart-clim-hi');ensurePngButton('chart-clim-lo');
   const dateLabel=now.toLocaleDateString('en-US',{month:'long',day:'numeric'});
   const fcNote=(hiS.hasForecast||loS.hasForecast)?' · * = today, forecast — not yet observed':'';
   setText('clim-hi-cap',`High Temp — every ${dateLabel} since ${startYr} (n=${c.yearlyHighs.length})${fcNote}`);
@@ -1631,13 +1636,13 @@ DIRS.forEach((d,i)=>{COMPASS_TO_DEG[d]=i*22.5;});
 
 function attributionLineForecast(periods){
   const st=curStation;
-  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
+  const label=st?`${st[1]}, ${st[2]} (${st[0]})`:'Station not selected';
   const tz=(st&&TZ_IANA[st[5]])||'America/New_York';
   const first=new Date(periods[0].startTime),last=new Date(periods[periods.length-1].startTime);
   const optsD={month:'short',day:'numeric',timeZone:tz};
   const d1=first.toLocaleDateString('en-US',optsD),d2=last.toLocaleDateString('en-US',optsD);
-  const dateStr=d1===d2?d1:`${d1}–${d2}`;
-  return`${label}  ·  ${dateStr}  ·  ContextClimate  ·  Forecast: NWS/NDFD`;
+  const dateStr=d1===d2?d1:`${d1}\u2013${d2}`;
+  return{context:`${label}  \u00b7  ${dateStr}`,source:'Forecast: National Weather Service (NDFD)'};
 }
 
 let fcChartsBuilt=false;
@@ -1660,7 +1665,7 @@ function buildForecastCharts(hourlyPeriods,tz){
     legend:{x:.01,y:.94,bgcolor:'rgba(0,0,0,0)',bordercolor:'rgba(255,255,255,.1)',borderwidth:1,font:{size:12}},
     xaxis:{...commonX,rangeslider:{visible:false}},
     yaxis:{title:{text:'Temp / Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    hovermode:'x unified'};
 
   // Wind speed — official wind-barb glyphs (SVG overlay, see drawBarbs), same
   // direction color palette as the historical wind panel. Trace below is an
@@ -1674,7 +1679,7 @@ function buildForecastCharts(hourlyPeriods,tz){
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.15,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    bargap:.15,hovermode:'x unified'};
 
   // Precipitation chance
   const popY=periods.map(p=>{const v=fcPopStr(p);return v==null?0:v;});
@@ -1682,7 +1687,7 @@ function buildForecastCharts(hourlyPeriods,tz){
   const popLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Precip Chance (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:.1,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    bargap:.1,hovermode:'x unified'};
 
   const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),pConfig=chartConfig('forecast_precip_chance',500);
   if(!fcChartsBuilt){
@@ -1697,6 +1702,7 @@ function buildForecastCharts(hourlyPeriods,tz){
   }
   const barbObs=xs.map((dt,i)=>({dt,speedMph:windY[i],dirDeg:windDirDeg[i],color:dirColor(windDirDeg[i])})).filter(o=>o.speedMph!=null&&o.dirDeg!=null);
   drawBarbs('chart-fc-wind',barbObs,{shaftLen:24,featherLen:7.5,featherGap:4,pennantGap:6,minSpacing:15});
+  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
   buildFcWindLegend();
 }
 let fcWindLegendBuilt=false;
@@ -1918,29 +1924,122 @@ function buildSunShapes(obs){
 const PLOTLY_BASE={paper_bgcolor:'#262B27',plot_bgcolor:'#262B27',font:{family:'Courier Prime, monospace',color:'rgba(232,228,217,.6)',size:14},hoverlabel:{bgcolor:'#2C322D',bordercolor:'rgba(232,228,217,.2)',font:{family:'Courier Prime, monospace',size:13}},dragmode:false};
 
 // Zoom/pan are disabled — every panel is pre-sliced to the selected range, so dragging
-// never reveals more data. Only the camera (PNG export) button is left in the modebar.
-function chartConfig(label,h){
-  const icao=curStation?curStation[0]:'station';
-  return {responsive:true,displayModeBar:true,displaylogo:false,scrollZoom:false,
-    modeBarButtonsToRemove:['select2d','lasso2d','toggleSpikelines','zoom2d','pan2d','zoomIn2d','zoomOut2d','autoScale2d','resetScale2d','hoverClosestCartesian','hoverCompareCartesian'],
-    toImageButtonOptions:{format:'png',filename:`${icao}_${label}`,width:1200,height:h,scale:2}};
+// never reveals more data. The Plotly modebar is fully hidden; every chart instead gets
+// its own "\u2193 PNG" button (see ensurePngButton/exportChartPNG below) that composes a
+// self-contained image — large title, station + date context, the chart, and a source
+// citation footer — so a downloaded or shared chart never needs the surrounding page to
+// make sense. This is the site-wide PNG standard, not specific to this tool: every chart
+// export anywhere on ContextClimate gets a prominent heading with full context and
+// attribution baked in.
+function chartConfig(){
+  return {responsive:true,displayModeBar:false,scrollZoom:false};
 }
 
-// Small on-chart watermark so a downloaded/screenshotted panel is self-explanatory
-// (station, date range, source) with no surrounding page needed — same on mobile or desktop
-// since it's baked into the export at a fixed size, not the live on-screen container.
+// Large title shown at the top of every exported chart PNG.
+const CHART_TITLES={
+  'chart-temp':'Temperature',
+  'chart-dew':'Dewpoint',
+  'chart-wind':'Wind Speed & Gusts',
+  'chart-precip':'Precipitation Rate',
+  'chart-lower':'Sea-Level Pressure',
+  'chart-clim-hi':'Daily High Temperature \u2014 Historical Range',
+  'chart-clim-lo':'Daily Low Temperature \u2014 Historical Range',
+  'chart-fc-temp':'48-Hour Forecast \u2014 Temperature & Dewpoint',
+  'chart-fc-wind':'48-Hour Forecast \u2014 Wind Speed',
+  'chart-fc-precip':'48-Hour Forecast \u2014 Precipitation Chance'
+};
+
 function attributionLine(obs){
   const st=curStation;
-  const label=st?`${st[0]} · ${st[1]}, ${st[2]}`:'';
+  const label=st?`${st[1]}, ${st[2]} (${st[0]})`:'Station not selected';
   const tz=(st&&TZ_IANA[st[5]])||'America/New_York';
   const first=obs[0].dt,last=obs[obs.length-1].dt;
   const optsD={month:'short',day:'numeric',timeZone:tz};
   const d1=first.toLocaleDateString('en-US',optsD),d2=last.toLocaleDateString('en-US',optsD);
-  const dateStr=d1===d2?d1:`${d1}–${d2}`;
-  return `${label}  ·  ${dateStr}  ·  ContextClimate  ·  Data: NOAA ASOS via IEM`;
+  const dateStr=d1===d2?d1:`${d1}\u2013${d2}`;
+  return{context:`${label}  \u00b7  ${dateStr}`,source:'Data: NOAA ASOS via Iowa Environmental Mesonet (IEM)'};
 }
-function attribAnno(text){
-  return{text,xref:'paper',yref:'paper',x:.01,y:1.16,xanchor:'left',yanchor:'top',showarrow:false,font:{family:'Courier Prime, monospace',size:13,color:'rgba(232,228,217,.62)'}};
+
+// Adds a "\u2193 PNG" export button to a chart panel (idempotent — safe to call on
+// every render). Sits top-right of .chart-box, which is already position:relative.
+function ensurePngButton(chartDivId){
+  const gd=document.getElementById(chartDivId);
+  if(!gd)return;
+  const box=gd.closest('.chart-box');
+  if(!box||box.querySelector('.chart-png-btn'))return;
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.className='cc-btn cc-btn-sm chart-png-btn';
+  btn.textContent='\u2193 PNG';
+  btn.title='Download this chart as an image with title, station, date and source attribution';
+  btn.addEventListener('click',()=>exportChartPNG(chartDivId));
+  box.appendChild(btn);
+}
+
+// ================================================================
+// PNG EXPORT — standing rule: every downloaded chart is self-explanatory. A graph
+// with no title, no station/date context, and no data-source attribution is useless
+// once it leaves this page, so every export composes a large title, a context line,
+// the chart itself, and a footer citation into one image (2x scale).
+// Wind panels also composite in the wind-barb SVG overlay (drawBarbs/renderWindBarbs
+// draws barbs as a separate absolutely-positioned <svg> next to the Plotly div, not
+// inside the Plotly chart itself, so Plotly.toImage() alone would silently drop them).
+// ================================================================
+function exportChartPNG(chartDivId){
+  const gd=document.getElementById(chartDivId);
+  if(!gd||!window.Plotly)return;
+  const attrib=chartAttrib[chartDivId]||{context:'',source:''};
+  const title=CHART_TITLES[chartDivId]||chartDivId;
+  const chartW=gd.offsetWidth||900,chartH=gd.offsetHeight||400;
+  const overlay=gd.parentElement&&gd.parentElement.querySelector('svg.wind-barb-overlay');
+
+  const loadImg=src=>new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;});
+  const overlaySrc=overlay?('data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(overlay))))):null;
+
+  Promise.all([
+    Plotly.toImage(gd,{format:'png',width:chartW,height:chartH,scale:1}).then(loadImg),
+    overlaySrc?loadImg(overlaySrc):Promise.resolve(null)
+  ]).then(([chartImg,barbImg])=>{
+    const PAD=28,HDR=112,FTR=42;
+    const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
+    const off=document.createElement('canvas');
+    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    const oc=off.getContext('2d');
+    oc.scale(2,2);
+
+    oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
+    oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
+
+    oc.textBaseline='alphabetic';
+    oc.fillStyle='#948F82';oc.font='600 12px "Courier Prime", monospace';
+    oc.fillText('CONTEXTCLIMATE \u00b7 CURRENT CONDITIONS',PAD,30);
+    oc.textAlign='right';
+    oc.fillText(new Date().toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}),ow-PAD,30);
+    oc.textAlign='left';
+
+    oc.fillStyle='#E8E4D9';oc.font='bold 28px "Zilla Slab", serif';
+    oc.fillText(title,PAD,64);
+
+    oc.fillStyle='#A6A499';oc.font='16px "Public Sans", sans-serif';
+    oc.fillText(attrib.context,PAD,90);
+
+    oc.fillStyle='#262B27';
+    oc.fillRect(PAD,HDR,chartW,chartH);
+    oc.drawImage(chartImg,PAD,HDR,chartW,chartH);
+    if(barbImg)oc.drawImage(barbImg,PAD,HDR,chartW,chartH);
+
+    oc.fillStyle='#948F82';oc.font='12px "Courier Prime", monospace';
+    oc.fillText(`${attrib.source}  \u00b7  ContextClimate  \u00b7  contextclimate.io`,PAD,oh-16);
+
+    oc.fillStyle='#2AA87E';oc.fillRect(0,oh-3,ow,3);
+
+    const icao=curStation?curStation[0]:'station';
+    const slug=chartDivId.replace(/^chart-/,'');
+    const link=document.createElement('a');
+    link.download=`${icao}_${slug}_${new Date().toISOString().slice(0,10)}.png`;
+    link.href=off.toDataURL('image/png');
+    link.click();
+  }).catch(e=>console.warn('PNG export failed:',e));
 }
 
 // Bars are sized from the data's own median spacing (not Plotly's gap-from-min-spacing
@@ -1971,14 +2070,14 @@ function buildCharts(obs, fullObs){
   const tempLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:34,b:36},showlegend:false,
     xaxis:{...commonX,rangeslider:{visible:false}},
     yaxis:{title:{text:'Temperature (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:0,shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    bargap:0,shapes,hovermode:'x unified'};
 
   // Dewpoint — its own panel, bars colored by value (see dewpoint color bar legend)
   const dewTrace={x:xs,y:obs.map(o=>o.dwpf),type:'bar',width:barW,name:'Dewpoint',marker:{color:obs.map(o=>dewBarColor(o.dwpf)),line:{width:0}},hovertemplate:'<b>Dewpt</b> %{y:.0f}°F<extra></extra>'};
   const dewLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:34,b:36},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    bargap:0,shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    bargap:0,shapes,hovermode:'x unified'};
 
   // Wind: official wind-barb glyphs (SVG overlay, see drawBarbs) — shaft/feathers
   // encode speed, color still follows the direction palette (dirColor/compass wheel).
@@ -1996,21 +2095,21 @@ function buildCharts(obs, fullObs){
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:30,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    shapes,barmode:'overlay',bargap:0,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    shapes,barmode:'overlay',bargap:0,hovermode:'x unified'};
 
   // Precipitation — its own panel, bars colored by value on the rain palette (see legend)
   const pcpnTrace={x:xs,y:obs.map(o=>o.p01i===0.001?0.001:(o.p01i||0)),type:'bar',width:barW,name:'Precip',marker:{color:obs.map(o=>precipBarColor(o.p01i===0.001?0.001:o.p01i)),line:{width:0}},hovertemplate:'<b>Precip</b> %{customdata[0]}<extra></extra>',customdata:obs.map(o=>[o.p01i===0.001?'T':(o.p01i!=null?o.p01i.toFixed(2)+'"':'--')])};
   const precipLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:30,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Precip (in/hr)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,rangemode:'tozero'},
-    shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    shapes,hovermode:'x unified'};
 
   // Pressure — standalone line panel
   const presTrace={x:xs,y:obs.map(o=>o.mslp),type:'scatter',mode:'lines',name:'Pressure',line:{color:'#F5A623',width:2},hovertemplate:'<b>Pressure</b> %{y:.1f} mb<extra></extra>'};
   const lowerLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:30,b:40},showlegend:false,
     xaxis:{...commonX},
     yaxis:{title:{text:'Pressure (mb)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
-    shapes,annotations:[attribAnno(attrib)],hovermode:'x unified'};
+    shapes,hovermode:'x unified'};
 
   const tempConfig=chartConfig('temperature',630),dewConfig=chartConfig('dewpoint',630),
         windConfig=chartConfig('wind',630),precipConfig=chartConfig('precip',630),lowerConfig=chartConfig('pressure',630);
@@ -2032,6 +2131,7 @@ function buildCharts(obs, fullObs){
     Plotly.react('chart-lower',[presTrace],lowerLayout,lowerConfig);
   }
   drawBarbs('chart-wind',barbObs,{shaftLen:26,featherLen:8,featherGap:4.2,pennantGap:6.4,minSpacing:15});
+  ['chart-temp','chart-dew','chart-wind','chart-precip','chart-lower'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
 }
 
 // ================================================================
@@ -2172,3 +2272,4 @@ document.addEventListener('DOMContentLoaded',()=>{
   const def=STATIONS.find(s=>s[0]==='KISP')||STATIONS[0];loadStation(def);
 });
 </script></body></html>
+test
