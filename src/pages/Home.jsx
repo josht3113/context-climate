@@ -301,6 +301,15 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/SeaIceExtent_thumbnail.png',
       },
+      {
+        tags:       ['US Cities', 'ANY CITY'],
+        title:      'Daily Temperature Climatology',
+        description:'Every day of the year’s normal and record high/low temperature for any U.S. city, threaded across a station’s full period of record — with peak-of-summer, peak-of-winter, and all-time record chips.',
+        footerTags: ['Normals 1991–2020', 'Record Highs/Lows', 'Any City'],
+        to:         '/temperature-climatology',
+        accentVar:  '--accent-climate',
+        thumb:      '/TemperatureClimatology_thumbnail.png',
+      },
     ],
   },
   {
