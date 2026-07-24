@@ -145,7 +145,7 @@
 <div class="clim-warn" id="clim-warn" style="display:none"></div>
 
 <div class="about-note">
-  <b>About this data.</b> Unlike temperature, NOAA does not publish official 30-year daily dewpoint normals, so this tool is built directly from hourly ASOS/METAR observations archived by the Iowa Environmental Mesonet (IEM), aggregated to a max/min dewpoint for every calendar day across a station&rsquo;s full available record. &ldquo;Average&rdquo; reflects the mean of each day&rsquo;s (max+min)/2 &mdash; the same convention NOAA itself uses for daily mean temperature &mdash; averaged across every year on record for that calendar day; it is lightly smoothed (5-day centered window) to remove year-to-year sampling noise. &ldquo;Record High/Low&rdquo; are the single most extreme dewpoint ever observed on that calendar day. Because this depends on airport ASOS station history rather than NOAA&rsquo;s longer COOP network, period-of-record length varies more by station &mdash; check the note above the chart. The average-line dot colors follow the same dewpoint comfort scale used across ContextClimate&rsquo;s heatmap tools.
+  <b>About this data.</b> Unlike temperature, NOAA does not publish official 30-year daily dewpoint normals, so this tool is built directly from hourly ASOS/METAR observations archived by the Iowa Environmental Mesonet (IEM), aggregated to a max/min dewpoint for every calendar day across a station&rsquo;s full available record. &ldquo;Record High/Low&rdquo; are the single most extreme dewpoint ever observed on that exact calendar day (not windowed). &ldquo;Average&rdquo; is computed the way meteorologists build daily normals: rather than averaging only the exact calendar day across years (a small, noisy sample) and smoothing the result afterward, each day's average pools every QC-passed daily mean &mdash; (max+min)/2, the same convention NOAA uses for daily mean temperature &mdash; observed within &plusmn;10 calendar days of it, across every year on record, and averages that whole pool directly. This mirrors the spirit of NOAA/NCEI's own normals methodology (which fits a smooth curve to the annual cycle rather than a raw day-by-day average) while staying simple enough to compute client-side. Because this depends on airport ASOS station history rather than NOAA&rsquo;s longer COOP network, period-of-record length varies more by station &mdash; check the note above the chart. The average-line dot colors follow the same dewpoint comfort scale used across ContextClimate&rsquo;s heatmap tools.
   <br><br>
   <b>Automated quality control.</b> Raw ASOS/METAR archives occasionally contain bad individual observations &mdash; a stuck sensor, a garbled transmission, a mis-parsed value &mdash; and a single bad hourly reading can distort a whole day's max or min. Before a value is allowed to become a plotted point or a record chip, it has to survive three checks: (1) a physical check that a day's max dewpoint never exceeds that same day's max temperature, since dewpoint by definition cannot exceed air temperature; (2) an absolute sanity range (&minus;75&deg;F to 90&deg;F) wide enough to cover genuine extremes anywhere in the U.S., including Arctic Alaska, while rejecting obviously impossible values; and (3) a robust statistical check that compares each value against the median and typical spread (median absolute deviation) of everything observed within &plusmn;10 calendar days of it, across every year on record &mdash; catching values that are physically plausible in general but implausible for that station at that time of year (e.g. an 88&deg;F dewpoint in a New York August). Values that fail are dropped from that specific field only, not the whole day. Any station/date combination where this excluded readings is noted in the caption below the chart.
 </div>
@@ -407,10 +407,20 @@ function dewptColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=get
 //                            New York airport in August). Uses the modified
 //                            z-score with the standard Iglewicz & Hoaglin
 //                            outlier threshold of 3.5.
+//
+// The "Average" curve is built the same way real daily climate normals are:
+// rather than averaging only the exact calendar day across years (a small,
+// noisy sample of one value per year) and smoothing the result afterward,
+// every QC-passed day's mean is pooled with every other QC-passed day
+// within the same +/-10 day window (across every year) and averaged
+// directly -- a much larger, more stable sample built into the statistic
+// itself instead of bolted on with a display-only smoothing pass. This
+// mirrors the spirit of how NOAA/NCEI derive their own published normals
+// (a smooth fit to the full annual cycle rather than a raw day-by-day mean).
 // ================================================================
 
 const DEWPT_ABS_MIN=-75,DEWPT_ABS_MAX=90;   // Layer 2
-const QC_SEASONAL_WINDOW_DAYS=10;           // Layer 3: +/- days around each calendar day
+const QC_SEASONAL_WINDOW_DAYS=10;           // Layers 3 & the "Average" pool: +/- days around each calendar day
 const QC_MODIFIED_Z_THRESHOLD=3.5;          // Layer 3: Iglewicz & Hoaglin outlier threshold
 
 // IEM group its ASOS stations into one network per state/territory, named
@@ -455,7 +465,7 @@ function modifiedZ(val,med,madVal){
 
 // Full 366-day mmdd scaffold (2024 leap year, purely a calendar index) plus
 // a lookup from mmdd -> position, used to build circular +/-N day windows
-// for the Layer-3 seasonal pools.
+// for both the Layer-3 seasonal QC pools and the "Average" pooling below.
 const MMDD_SEQUENCE=(()=>{
   const seq=[];
   for(let mm=1;mm<=12;mm++){
@@ -466,12 +476,21 @@ const MMDD_SEQUENCE=(()=>{
 })();
 const MMDD_INDEX=new Map(MMDD_SEQUENCE.map((m,i)=>[m,i]));
 
+// The set of mmdd keys within +/-windowDays of mmdd, wrapping circularly
+// across the Dec 31 / Jan 1 boundary.
+function neighborMMDDs(mmdd,windowDays){
+  const idx=MMDD_INDEX.get(mmdd);
+  const out=[];
+  for(let k=-windowDays;k<=windowDays;k++)out.push(MMDD_SEQUENCE[(idx+k+MMDD_SEQUENCE.length)%MMDD_SEQUENCE.length]);
+  return out;
+}
+
 // Fetches every calendar day across the station's full available ASOS
 // record in one request (requesting from 1928 is just a wide net -- IEM
 // simply returns whatever actually exists, so this naturally resolves to
 // each station's true period of record without needing to look it up first),
-// then runs the three-layer QC pipeline before reducing to per-calendar-day
-// records/averages.
+// then runs the three-layer QC pipeline and the windowed-pooling average
+// before reducing to per-calendar-day records/averages.
 async function fetchDewpointDaily(station){
   const[icao,,state]=station;
   const network=iemNetwork(state),sid=iemStationId(icao);
@@ -518,35 +537,37 @@ async function fetchDewpointDaily(station){
     records.push({mmdd,year:yr,mx,mn});
   }
 
-  // ---- Pass 2: build per-mmdd seasonal pools (+/- QC_SEASONAL_WINDOW_DAYS,
-  // circular across the year boundary) and compute median/MAD, lazily and
-  // cached per mmdd since many records share the same calendar day. ----
+  // ---- Pass 2: group by mmdd + a cached seasonal median/MAD lookup used by
+  // Layer 3 below. Pools draw from Pass-1 survivors (Layers 1+2 only) --
+  // MAD is itself outlier-resistant, so it doesn't need to be pre-cleaned of
+  // the very outliers Layer 3 is about to test for. ----
   const byMMDDList={};
   records.forEach(rec=>{(byMMDDList[rec.mmdd]??=[]).push(rec);});
 
   const statsCache={};
   function seasonalStats(mmdd){
     if(statsCache[mmdd])return statsCache[mmdd];
-    const idx=MMDD_INDEX.get(mmdd);
     const mxPool=[],mnPool=[];
-    for(let k=-QC_SEASONAL_WINDOW_DAYS;k<=QC_SEASONAL_WINDOW_DAYS;k++){
-      const neighbor=MMDD_SEQUENCE[(idx+k+MMDD_SEQUENCE.length)%MMDD_SEQUENCE.length];
+    neighborMMDDs(mmdd,QC_SEASONAL_WINDOW_DAYS).forEach(neighbor=>{
       const list=byMMDDList[neighbor];
-      if(!list)continue;
+      if(!list)return;
       list.forEach(rec=>{
         if(rec.mx!=null)mxPool.push(rec.mx);
         if(rec.mn!=null)mnPool.push(rec.mn);
       });
-    }
+    });
     const mxMedian=median(mxPool),mnMedian=median(mnPool);
     const stats={mxMedian,mxMAD:mad(mxPool,mxMedian),mnMedian,mnMAD:mad(mnPool,mnMedian)};
     statsCache[mmdd]=stats;
     return stats;
   }
 
-  // ---- Pass 3: Layer 3 (robust seasonal outlier check) + reduce into the
-  // final per-calendar-day record/average aggregates. ----
+  // ---- Pass 3: Layer 3 QC, exact-day record extremes (never windowed --
+  // a "record" should reflect exactly what was observed on that calendar
+  // date), and a per-day pool of QC-passed daily means for the windowed
+  // "Average" step below. ----
   const byDay={};
+  const meanPoolByMMDD={};
   records.forEach(rec=>{
     const stats=seasonalStats(rec.mmdd);
     let{mx,mn}=rec;
@@ -554,7 +575,7 @@ async function fetchDewpointDaily(station){
     if(mn!=null&&Math.abs(modifiedZ(mn,stats.mnMedian,stats.mnMAD))>QC_MODIFIED_Z_THRESHOLD){mn=null;qcRejected++;}
     if(mx==null&&mn==null)return;
 
-    if(!byDay[rec.mmdd])byDay[rec.mmdd]={recHi:null,recHiYears:[],recLo:null,recLoYears:[],sumMean:0,countMean:0};
+    if(!byDay[rec.mmdd])byDay[rec.mmdd]={recHi:null,recHiYears:[],recLo:null,recLoYears:[]};
     const b=byDay[rec.mmdd];
     if(mx!=null){
       if(b.recHi==null||mx>b.recHi){b.recHi=mx;b.recHiYears=[rec.year];}else if(mx===b.recHi)b.recHiYears.push(rec.year);
@@ -563,11 +584,28 @@ async function fetchDewpointDaily(station){
       if(b.recLo==null||mn<b.recLo){b.recLo=mn;b.recLoYears=[rec.year];}else if(mn===b.recLo)b.recLoYears.push(rec.year);
     }
     if(mx!=null&&mn!=null){
-      b.sumMean+=(mx+mn)/2;b.countMean++;
+      (meanPoolByMMDD[rec.mmdd]??=[]).push((mx+mn)/2);
     }
   });
 
-  return{byDay,porStart,porEnd:porEnd!=null?Math.max(porEnd,now.getFullYear()):null,qcRejected};
+  // ---- Pass 4: windowed-pooled "Average" -- for each calendar day, pool
+  // every QC-passed daily mean within +/-QC_SEASONAL_WINDOW_DAYS (across
+  // every year) and average that whole pool directly. No separate display
+  // smoothing pass is applied on top of this -- the pooling itself already
+  // provides a large, stable sample (typically several hundred to a
+  // thousand+ observations per calendar day on a long-record station). ----
+  const avgDewByMMDD={};
+  MMDD_SEQUENCE.forEach(mmdd=>{
+    let sum=0,count=0;
+    neighborMMDDs(mmdd,QC_SEASONAL_WINDOW_DAYS).forEach(neighbor=>{
+      const list=meanPoolByMMDD[neighbor];
+      if(!list)return;
+      for(let i=0;i<list.length;i++){sum+=list[i];count++;}
+    });
+    if(count)avgDewByMMDD[mmdd]=sum/count;
+  });
+
+  return{byDay,avgDewByMMDD,porStart,porEnd:porEnd!=null?Math.max(porEnd,now.getFullYear()):null,qcRejected};
 }
 
 // ================================================================
@@ -576,18 +614,18 @@ async function fetchDewpointDaily(station){
 // 2024 is an arbitrary leap year used purely as a calendar scaffold so the
 // full 366-day year renders (including Feb 29) -- same trick as the
 // temperature tool.
-function buildClimatologyRows(byDay){
+function buildClimatologyRows(records){
   const rows=[];
   for(let mm=1;mm<=12;mm++){
     const daysInMonth=new Date(2024,mm,0).getDate();
     for(let dd=1;dd<=daysInMonth;dd++){
       const mmdd=`${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-      const b=byDay[mmdd]||{};
+      const b=records.byDay[mmdd]||{};
       rows.push({
         mmdd,date:new Date(2024,mm-1,dd),
         recHi:b.recHi!=null?b.recHi:null,recHiYears:b.recHiYears||[],
         recLo:b.recLo!=null?b.recLo:null,recLoYears:b.recLoYears||[],
-        avgDew:b.countMean?b.sumMean/b.countMean:null
+        avgDew:records.avgDewByMMDD[mmdd]!=null?records.avgDewByMMDD[mmdd]:null
       });
     }
   }
@@ -700,7 +738,10 @@ function rerenderChart(){
   renderChart(lastRows,lastStats,lastStation,lastRecords);
 }
 
-// Centered moving average over a circular 366-day year. Display-only.
+// Centered moving average over a circular 366-day year. Display-only. Still
+// used for the (optional, toggle-driven) smoothing of the raw Record
+// High/Low lines -- the Average curve no longer needs this since its own
+// windowed pooling already provides ample smoothness.
 function smoothCircular(values,halfWindow){
   const n=values.length;
   return values.map((_,i)=>{
@@ -728,14 +769,9 @@ function renderChart(rows,stats,station,records){
   const recHiY=smoothRecords?smoothCircular(rawRecHiY,2):rawRecHiY;
   const recLoY=smoothRecords?smoothCircular(rawRecLoY,2):rawRecLoY;
 
-  // The "Average" curve is always lightly smoothed (5-day centered window)
-  // -- it's built from a per-calendar-day mean across the full period of
-  // record, and a handful of years of sampling still leaves visible
-  // day-to-day noise that isn't a real seasonal signal. Record High/Low
-  // stay raw by default since they're genuine single extreme observations,
-  // not an average.
-  const rawAvgDewY=rows.map(r=>r.avgDew);
-  const avgDewY=smoothCircular(rawAvgDewY,2);
+  // The "Average" curve is the windowed-pooled value computed in
+  // fetchDewpointDaily (Pass 4) -- used as-is, no further smoothing.
+  const avgDewY=rows.map(r=>r.avgDew);
 
   const avgDewColors=avgDewY.map(v=>dewptColor(v));
   const dotSize=i=>i%4===0?5:2.2;
@@ -882,7 +918,7 @@ async function loadStation(station){
   document.getElementById('clim-warn').style.display='none';
   try{
     const records=await fetchDewpointDaily(station);
-    const rows=buildClimatologyRows(records.byDay);
+    const rows=buildClimatologyRows(records);
     const stats=computeStats(rows);
     lastRows=rows;lastStats=stats;lastStation=station;lastRecords=records;
     renderChart(rows,stats,station,records);
