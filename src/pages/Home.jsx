@@ -190,7 +190,7 @@ const SECTIONS = [
         description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window with the current event bold on top. Compare past years to today at a glance.',
         footerTags: ['Niño 3.4', 'ONI', 'Analogs', '1870–Present'],
         to:         '/enso-spaghetti',
-        accentVar:  '--accent-hourly',
+        accentVar:  '--accent-climate',
         thumb:      '/enso-analog-spaghetti_thumbnail.png',
       },
       {
@@ -391,7 +391,7 @@ const SECTIONS = [
         description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record.',
         footerTags: ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
         to:         '/pacific-sst-map',
-        accentVar:  '--accent-hourly',
+        accentVar:  '--accent-live',
         thumb:      '/PacificSstMap_thumbnail.png',
       },
     ],
