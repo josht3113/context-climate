@@ -448,7 +448,7 @@ export default function EarthAndSpace() {
           <p className="page-eyebrow">Earth &amp; Space Science</p>
         <h1 className="page-title">Earth &amp; Space Science Interactive Learning Center</h1>
         <p className="page-subtitle">
-          Interactive learning tools created and maintained by Josh Timlin
+          Page created and maintained by Josh Timlin
         </p>
         <Link to="/" className="jump-link">
           Jump to ContextClimate <span className="jump-link-arrow">→</span>
