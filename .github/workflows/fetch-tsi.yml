@@ -1,0 +1,41 @@
+# ContextClimate data pipeline: monthly Total Solar Irradiance refresh.
+#
+# Place at .github/workflows/fetch-tsi.yml
+#
+# Mirrors the existing sunspot/ENSO/SST pipeline pattern: a small Python
+# script (no third-party deps -- stdlib only) fetches the latest LASP
+# LISIRD composite and self-hosts it as JSON in public/, committed back
+# to the repo so the standalone tool has zero-CORS, same-origin data.
+#
+# TSI only updates monthly at the source, so a monthly cron is plenty --
+# cheaper than a daily poll for data that mostly doesn't change.
+
+name: Fetch Solar TSI Data
+
+on:
+  schedule:
+    - cron: "0 12 3 * *"   # 3rd of each month, 12:00 UTC
+  workflow_dispatch: {}     # allows manual "Run workflow" from the Actions tab
+
+jobs:
+  fetch-tsi:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch TSI composite
+        run: python3 scripts/fetch_tsi.py public/solar-tsi-monthly.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/solar-tsi-monthly.json
+          git diff --cached --quiet || git commit -m "data: refresh solar TSI composite"
+          git push
