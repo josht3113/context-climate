@@ -379,6 +379,15 @@ const SECTIONS = [
         accentVar:  '--accent-enso',
         thumb:      '/SolarCycleProgression_thumbnail.png',
       },
+      {
+        tags:       ['Solar Activity', 'Live + Historical', 'Interactive'],
+        title:      'Solar Output',
+        description:'The Sun\'s total energy output across the 11-year solar cycle, paired with a live look at how much of that energy is actually reaching the ground at Islip right now versus what\'s typical for the date.',
+        footerTags: ['TSI', 'Live Irradiance', 'LASP · Open-Meteo'],
+        to:         '/solar-output',
+        accentVar:  '--accent-enso',
+        thumb:      '/SolarOutput_thumbnail.png',
+      },
     ],
   },
 ]
