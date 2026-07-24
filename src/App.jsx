@@ -84,6 +84,7 @@ import HubblesLawExplorer          from './pages/HubblesLawExplorer'
 import MoonPhaseSimulator          from './pages/MoonPhaseSimulator'
 import EclipseExplorer             from './pages/EclipseExplorer'
 import TemperatureClimatology      from './pages/TemperatureClimatology'
+import DewpointClimatology         from './pages/DewpointClimatology'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -155,6 +156,7 @@ export default function App() {
           <Route path="/us-precip-years"                     element={<UsPrecipYears />}           />
           <Route path="/us-snow-seasons"                     element={<UsSnowSeasons />}           />
           <Route path="/temperature-climatology"             element={<TemperatureClimatology />}  />
+          <Route path="/dewpoint-climatology"                element={<DewpointClimatology />}     />
           <Route path="/temp-threshold-heatmap"              element={<TempThresholdHeatmap />}    />
           <Route path="/slp-heatmap"                         element={<SlpHeatmap />}              />
           <Route path="/wind-threshold-heatmap"              element={<WindThresholdHeatmap />}    />
