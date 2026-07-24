@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solar Output — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root { --tool-accent: var(--accent-solar); }
+
+  .st-wrap { max-width: 920px; margin: 0 auto; }
+  .st-header { text-align: center; margin-bottom: 22px; }
+  .st-header .cc-title { margin: 6px 0 10px; }
+  .st-header .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  .st-tabs { display: flex; justify-content: center; margin-bottom: 22px; }
+
+  .st-panel { display: none; }
+  .st-panel.is-active { display: block; }
+
+  .st-controls-row {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+  }
+
+  .st-canvas-box {
+    background: #262B27;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .st-canvas-box canvas { width: 100% !important; height: 340px !important; }
+
+  .st-footer-row {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 10px; margin-top: 6px;
+  }
+
+  .st-location-line {
+    text-align: center; font-family: var(--font-mono); font-size: 13px;
+    color: var(--color-text-muted); letter-spacing: 0.06em;
+    text-transform: uppercase; margin-bottom: 16px;
+  }
+
+  .st-note {
+    font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted);
+    text-align: center; margin-top: 10px; line-height: 1.5;
+  }
+
+  .st-loading, .st-error {
+    text-align: center; font-family: var(--font-mono); font-size: 13px;
+    color: var(--color-text-muted); padding: 40px 0;
+  }
+  .st-error { color: var(--accent-seasons); }
+
+  .st-stat-value-lg {
+    font-family: var(--font-display); font-weight: 700; font-size: 34px;
+    color: var(--color-text-primary);
+  }
+
+  @media (max-width: 640px) {
+    .st-canvas-box canvas { height: 260px !important; }
+  }
+</style>
+</head>
+<body>
+<div class="st-wrap">
+
+  <div class="st-header">
+    <div class="cc-eyebrow">Solar &middot; ContextClimate</div>
+    <h1 class="cc-title">Solar Output</h1>
+    <p class="cc-subtitle">The Sun's total energy output over the 11-year solar cycle, alongside a live look at how much of that energy is actually reaching the ground right now.</p>
+  </div>
+
+  <div class="st-tabs">
+    <div class="cc-tab-bar" role="tablist">
+      <button class="cc-tab is-active" data-panel="tsi" role="tab">Sun's Output</button>
+      <button class="cc-tab" data-panel="live" role="tab">Live Sun</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════ PANEL: TSI / SOLAR CYCLE ═══════════════ -->
+  <div class="st-panel is-active" id="panel-tsi">
+
+    <div class="st-controls-row">
+      <div class="cc-btn-row-label">Range</div>
+      <div class="cc-segmented" id="tsiRangeToggle">
+        <button class="cc-segmented-btn is-active" data-range="full">Full Record</button>
+        <button class="cc-segmented-btn" data-range="last3">Last 3 Cycles</button>
+        <button class="cc-segmented-btn" data-range="cycle25">Cycle 25</button>
+      </div>
+    </div>
+
+    <div class="st-canvas-box cc-canvas-frame" id="tsiCanvasBox">
+      <canvas id="tsiChart"></canvas>
+    </div>
+
+    <div class="cc-stat-row" id="tsiStatRow">
+      <div class="cc-stat-chip">
+        <span class="cc-stat-label">Latest Reading</span>
+        <span class="cc-stat-value" id="tsiLatestValue">&mdash;</span>
+        <span class="cc-stat-note" id="tsiLatestDate">&mdash;</span>
+      </div>
+      <div class="cc-stat-chip">
+        <span class="cc-stat-label">Cycle Position</span>
+        <span class="cc-stat-value" id="tsiCyclePos">&mdash;</span>
+        <span class="cc-stat-note">months into Cycle 25</span>
+      </div>
+      <div class="cc-stat-chip">
+        <span class="cc-stat-label">Vs. Long-Term Mean</span>
+        <span class="cc-stat-value" id="tsiVsMean">&mdash;</span>
+        <span class="cc-stat-note" id="tsiMeanRange">&mdash;</span>
+      </div>
+    </div>
+
+    <div class="st-footer-row">
+      <span class="cc-tag">LASP LISIRD &middot; NRLTSI2 composite</span>
+      <button class="cc-btn cc-btn-sm" id="tsiPngBtn">&#8595; PNG</button>
+    </div>
+    <p class="st-note" id="tsiCurrencyNote"></p>
+  </div>
+
+  <!-- ═══════════════ PANEL: LIVE SUN ═══════════════ -->
+  <div class="st-panel" id="panel-live">
+
+    <div class="st-location-line">Islip, NY &middot; KISP &middot; 40.80&deg;N, 73.10&deg;W</div>
+
+    <div class="cc-stat-row" id="liveStatRow">
+      <div class="cc-stat-chip" style="flex: 1 1 auto;">
+        <span class="cc-stat-label">Right Now</span>
+        <span class="st-stat-value-lg" id="liveNowValue">&mdash;</span>
+        <span class="cc-stat-note" id="liveNowNote">loading&hellip;</span>
+      </div>
+      <div class="cc-stat-chip">
+        <span class="cc-stat-label">Today's Peak</span>
+        <span class="cc-stat-value" id="livePeakValue">&mdash;</span>
+        <span class="cc-stat-note">so far today</span>
+      </div>
+      <div class="cc-stat-chip">
+        <span class="cc-stat-label">Vs. Typical</span>
+        <span class="cc-stat-value" id="liveVsTypical">&mdash;</span>
+        <span class="cc-stat-note" id="liveVsTypicalNote">for this date</span>
+      </div>
+    </div>
+
+    <div class="st-canvas-box cc-canvas-frame" id="liveCanvasBox">
+      <div class="st-loading" id="liveLoading">Fetching today's irradiance&hellip;</div>
+      <canvas id="liveChart" style="display:none;"></canvas>
+    </div>
+
+    <div class="cc-legend-row" id="liveLegend" style="display:none; margin-bottom: 14px;">
+      <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--tool-accent);"></span>Today</span>
+      <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--color-text-muted);"></span>Typical for this date</span>
+    </div>
+
+    <div class="st-footer-row">
+      <span class="cc-tag">Open-Meteo &middot; live forecast feed</span>
+      <button class="cc-btn cc-btn-sm" id="livePngBtn">&#8595; PNG</button>
+    </div>
+    <p class="st-note">Historical overlay: Open-Meteo historical archive climatology (multi-year average for this calendar date).</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ACCENT = "#A69630";
+  var MUTED = "#948F82";
+  var SURFACE = "#262B27";
+  var TEXT_PRIMARY = "#E8E4D9";
+  var BORDER = "rgba(232,228,217,0.14)";
+
+  var LAT = 40.7952, LON = -73.1002;
+  var TZ = "America/New_York";
+
+  var CYCLE_STARTS = [
+    { cycle: 20, start: "1964-10-01" },
+    { cycle: 21, start: "1976-06-01" },
+    { cycle: 22, start: "1986-09-01" },
+    { cycle: 23, start: "1996-05-01" },
+    { cycle: 24, start: "2008-12-01" },
+    { cycle: 25, start: "2019-12-01" }
+  ];
+
+  function monthsBetween(dA, dB) {
+    return (dB.getFullYear() - dA.getFullYear()) * 12 + (dB.getMonth() - dA.getMonth());
+  }
+
+  function fmtMonthYear(iso) {
+    var d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
+
+  /* ─────────────────────── TAB SWITCHING ─────────────────────── */
+  var tabs = document.querySelectorAll(".cc-tab");
+  var panels = { tsi: document.getElementById("panel-tsi"), live: document.getElementById("panel-live") };
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      tabs.forEach(function (t) { t.classList.remove("is-active"); });
+      tab.classList.add("is-active");
+      Object.keys(panels).forEach(function (k) { panels[k].classList.remove("is-active"); });
+      panels[tab.dataset.panel].classList.add("is-active");
+      if (tab.dataset.panel === "live" && !liveLoaded) { loadLivePanel(); }
+    });
+  });
+
+  /* ═══════════════════════ PANEL: TSI ═══════════════════════ */
+  var tsiData = null;      // full JSON payload
+  var tsiChart = null;
+
+  function buildTsiChart(points) {
+    var ctx = document.getElementById("tsiChart").getContext("2d");
+    var labels = points.map(function (p) { return p.date; });
+    var values = points.map(function (p) { return p.tsi; });
+    var cycle25Values = points.map(function (p) { return p.cycle === 25 ? p.tsi : null; });
+
+    if (tsiChart) { tsiChart.destroy(); }
+    tsiChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "TSI (W/m²)",
+            data: values,
+            borderColor: MUTED,
+            backgroundColor: "transparent",
+            borderWidth: 1.25,
+            pointRadius: 0,
+            tension: 0.15
+          },
+          {
+            label: "Cycle 25",
+            data: cycle25Values,
+            borderColor: ACCENT,
+            backgroundColor: "transparent",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.15,
+            spanGaps: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: SURFACE,
+            titleColor: TEXT_PRIMARY,
+            bodyColor: TEXT_PRIMARY,
+            borderColor: BORDER,
+            borderWidth: 1,
+            callbacks: {
+              title: function (items) { return fmtMonthYear(items[0].label); },
+              label: function (item) { return item.dataset.label + ": " + item.formattedValue + " W/m²"; }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: MUTED, maxTicksLimit: 10, font: { size: 12 } },
+            grid: { color: BORDER }
+          },
+          y: {
+            ticks: { color: MUTED, font: { size: 12 } },
+            grid: { color: BORDER },
+            title: { display: true, text: "W/m²", color: MUTED, font: { size: 12 } }
+          }
+        }
+      }
+    });
+  }
+
+  function filterRange(points, range) {
+    if (range === "full") return points;
+    if (range === "last3") return points.filter(function (p) { return p.date >= "1996-05-01"; });
+    if (range === "cycle25") return points.filter(function (p) { return p.date >= "2019-12-01"; });
+    return points;
+  }
+
+  function renderTsiStats(points) {
+    var last = points[points.length - 1];
+    var all = tsiData.points;
+    var mean = all.reduce(function (s, p) { return s + p.tsi; }, 0) / all.length;
+    var delta = last.tsi - mean;
+
+    document.getElementById("tsiLatestValue").textContent = last.tsi.toFixed(2) + " W/m²";
+    document.getElementById("tsiLatestDate").textContent = fmtMonthYear(last.date);
+
+    var c25 = CYCLE_STARTS.filter(function (c) { return c.cycle === 25; })[0];
+    var startD = new Date(c25.start + "T00:00:00");
+    var lastD = new Date(last.date + "T00:00:00");
+    var moIn = last.cycle === 25 ? Math.max(0, monthsBetween(startD, lastD)) : null;
+    document.getElementById("tsiCyclePos").textContent = moIn !== null ? moIn : "—";
+
+    document.getElementById("tsiVsMean").textContent = (delta >= 0 ? "+" : "") + delta.toFixed(2) + " W/m²";
+    document.getElementById("tsiMeanRange").textContent = "vs. " + all[0].date.slice(0, 4) + "–" + all[all.length - 1].date.slice(0, 4) + " avg";
+
+    var note = "Latest available: " + fmtMonthYear(tsiData.latest_date || last.date) + ".";
+    if (tsiData.note) { note += " " + tsiData.note; }
+    document.getElementById("tsiCurrencyNote").textContent = note;
+  }
+
+  function initTsiPanel() {
+    fetch("solar-tsi-monthly.json")
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (json) {
+        tsiData = json;
+        buildTsiChart(json.points);
+        renderTsiStats(json.points);
+      })
+      .catch(function (err) {
+        document.getElementById("tsiCanvasBox").innerHTML =
+          '<div class="st-error">Couldn’t load solar-tsi-monthly.json &mdash; make sure it’s uploaded alongside this file.</div>';
+        console.error("TSI load failed:", err);
+      });
+
+    document.querySelectorAll("#tsiRangeToggle .cc-segmented-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll("#tsiRangeToggle .cc-segmented-btn").forEach(function (b) { b.classList.remove("is-active"); });
+        btn.classList.add("is-active");
+        if (!tsiData) return;
+        var filtered = filterRange(tsiData.points, btn.dataset.range);
+        buildTsiChart(filtered);
+      });
+    });
+
+    document.getElementById("tsiPngBtn").addEventListener("click", function () {
+      exportPanelPng({
+        chart: tsiChart,
+        title: "Solar Output — Sun's Output",
+        contextLine: document.getElementById("tsiLatestDate").textContent ? ("Latest: " + document.getElementById("tsiLatestValue").textContent + " (" + document.getElementById("tsiLatestDate").textContent + ")") : "",
+        stats: [
+          { label: "Latest Reading", value: document.getElementById("tsiLatestValue").textContent },
+          { label: "Cycle Position", value: document.getElementById("tsiCyclePos").textContent + " mo. into Cycle 25" },
+          { label: "Vs. Long-Term Mean", value: document.getElementById("tsiVsMean").textContent }
+        ],
+        citation: "Source: LASP LISIRD, NRLTSI2 composite · contextclimate.io",
+        filename: "solar-output-tsi.png"
+      });
+    });
+  }
+
+  /* ═══════════════════════ PANEL: LIVE SUN ═══════════════════════ */
+  var liveLoaded = false;
+  var liveChart = null;
+
+  function pad2(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function loadLivePanel() {
+    liveLoaded = true;
+    var forecastUrl = "https://api.open-meteo.com/v1/forecast" +
+      "?latitude=" + LAT + "&longitude=" + LON +
+      "&current=shortwave_radiation,direct_radiation,diffuse_radiation,cloud_cover" +
+      "&hourly=shortwave_radiation" +
+      "&timezone=" + encodeURIComponent(TZ) +
+      "&forecast_days=1";
+
+    var today = new Date();
+    var dayKey = pad2(today.getMonth() + 1) + "-" + pad2(today.getDate());
+
+    Promise.all([
+      fetch(forecastUrl).then(function (r) { if (!r.ok) throw new Error("forecast HTTP " + r.status); return r.json(); }),
+      fetch("islip-irradiance-climatology.json").then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; })
+    ]).then(function (results) {
+      renderLivePanel(results[0], results[1], dayKey);
+    }).catch(function (err) {
+      document.getElementById("liveLoading").textContent = "Live data unavailable right now — check your connection and reload.";
+      document.getElementById("liveLoading").className = "st-error";
+      console.error("Live fetch failed:", err);
+    });
+  }
+
+  function renderLivePanel(forecast, climatology, dayKey) {
+    document.getElementById("liveLoading").style.display = "none";
+    var canvas = document.getElementById("liveChart");
+    canvas.style.display = "block";
+
+    var hourlyTimes = forecast.hourly.time;               // ["2026-07-23T00:00", ...]
+    var hourlyValues = forecast.hourly.shortwave_radiation;
+    var nowHour = new Date().getHours();
+
+    var labels = hourlyTimes.map(function (t) { return t.slice(11, 16); });
+    var todaySoFar = hourlyValues.map(function (v, i) { return i <= nowHour ? v : null; });
+
+    var climCurve = null;
+    if (climatology && climatology.climatology && climatology.climatology[dayKey]) {
+      climCurve = climatology.climatology[dayKey];
+      document.getElementById("liveLegend").style.display = "flex";
+    }
+
+    var ctx = canvas.getContext("2d");
+    if (liveChart) { liveChart.destroy(); }
+    var datasets = [
+      {
+        label: "Today",
+        data: todaySoFar,
+        borderColor: ACCENT,
+        backgroundColor: "rgba(166,150,48,0.16)",
+        fill: true,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false
+      }
+    ];
+    if (climCurve) {
+      datasets.push({
+        label: "Typical for this date",
+        data: climCurve,
+        borderColor: MUTED,
+        backgroundColor: "transparent",
+        borderDash: [5, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3
+      });
+    }
+
+    liveChart = new Chart(ctx, {
+      type: "line",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 400 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: SURFACE, titleColor: TEXT_PRIMARY, bodyColor: TEXT_PRIMARY,
+            borderColor: BORDER, borderWidth: 1
+          }
+        },
+        scales: {
+          x: { ticks: { color: MUTED, maxTicksLimit: 8, font: { size: 12 } }, grid: { color: BORDER } },
+          y: {
+            ticks: { color: MUTED, font: { size: 12 } }, grid: { color: BORDER },
+            title: { display: true, text: "W/m²", color: MUTED, font: { size: 12 } },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+
+    /* stats */
+    var nowVal = forecast.current ? forecast.current.shortwave_radiation : null;
+    document.getElementById("liveNowValue").textContent = (nowVal !== null && nowVal !== undefined) ? Math.round(nowVal) + " W/m²" : "—";
+    var cloud = forecast.current ? forecast.current.cloud_cover : null;
+    document.getElementById("liveNowNote").textContent = (cloud !== null && cloud !== undefined) ? cloud + "% cloud cover" : "as of last update";
+
+    var validToday = todaySoFar.filter(function (v) { return v !== null && v !== undefined; });
+    var peak = validToday.length ? Math.max.apply(null, validToday) : null;
+    document.getElementById("livePeakValue").textContent = peak !== null ? Math.round(peak) + " W/m²" : "—";
+
+    if (climCurve) {
+      var sumToday = 0, sumClim = 0;
+      for (var i = 0; i <= nowHour; i++) {
+        sumToday += (hourlyValues[i] || 0);
+        sumClim += (climCurve[i] || 0);
+      }
+      if (sumClim > 0) {
+        var pct = Math.round((sumToday / sumClim) * 100);
+        document.getElementById("liveVsTypical").textContent = pct + "%";
+        document.getElementById("liveVsTypicalNote").textContent = pct >= 100 ? "brighter than typical" : "of typical for this date";
+      } else {
+        document.getElementById("liveVsTypical").textContent = "—";
+      }
+    } else {
+      document.getElementById("liveVsTypical").textContent = "—";
+      document.getElementById("liveVsTypicalNote").textContent = "climatology not yet uploaded";
+    }
+  }
+
+  document.getElementById("livePngBtn").addEventListener("click", function () {
+    exportPanelPng({
+      chart: liveChart,
+      title: "Solar Output — Live Sun at Islip",
+      contextLine: "Right now: " + document.getElementById("liveNowValue").textContent,
+      stats: [
+        { label: "Right Now", value: document.getElementById("liveNowValue").textContent },
+        { label: "Today's Peak", value: document.getElementById("livePeakValue").textContent },
+        { label: "Vs. Typical", value: document.getElementById("liveVsTypical").textContent }
+      ],
+      citation: "Source: Open-Meteo · contextclimate.io",
+      filename: "solar-output-live.png"
+    });
+  });
+
+  /* ═══════════════════════ PNG EXPORT (shared) ═══════════════════════ */
+  function exportPanelPng(opts) {
+    if (!opts.chart) return;
+    var scale = 2;
+    var W = 900 * scale, H = 720 * scale;
+    var out = document.createElement("canvas");
+    out.width = W; out.height = H;
+    var ctx = out.getContext("2d");
+
+    ctx.fillStyle = "#1E2320";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = MUTED;
+    ctx.font = (13 * scale) + "px 'Courier New', monospace";
+    ctx.textAlign = "left";
+    ctx.fillText("CONTEXTCLIMATE · SOLAR", 32 * scale, 44 * scale);
+
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = "700 " + (28 * scale) + "px Georgia, serif";
+    ctx.fillText(opts.title, 32 * scale, 80 * scale);
+
+    if (opts.contextLine) {
+      ctx.fillStyle = "#A6A499";
+      ctx.font = (15 * scale) + "px Arial, sans-serif";
+      ctx.fillText(opts.contextLine, 32 * scale, 108 * scale);
+    }
+
+    var chartImg = new Image();
+    chartImg.onload = function () {
+      var boxX = 32 * scale, boxY = 128 * scale, boxW = W - 64 * scale, boxH = 380 * scale;
+      ctx.fillStyle = "#262B27";
+      ctx.fillRect(boxX, boxY, boxW, boxH);
+      var iw = chartImg.width, ih = chartImg.height;
+      var ratio = Math.min((boxW - 20 * scale) / iw, (boxH - 20 * scale) / ih);
+      var dw = iw * ratio, dh = ih * ratio;
+      ctx.drawImage(chartImg, boxX + (boxW - dw) / 2, boxY + (boxH - dh) / 2, dw, dh);
+
+      var statsY = boxY + boxH + 50 * scale;
+      var colW = (W - 64 * scale) / opts.stats.length;
+      opts.stats.forEach(function (s, i) {
+        var x = 32 * scale + i * colW;
+        ctx.fillStyle = MUTED;
+        ctx.font = (12 * scale) + "px 'Courier New', monospace";
+        ctx.fillText(s.label.toUpperCase(), x, statsY);
+        ctx.fillStyle = TEXT_PRIMARY;
+        ctx.font = "700 " + (22 * scale) + "px Georgia, serif";
+        ctx.fillText(s.value, x, statsY + 32 * scale);
+      });
+
+      ctx.fillStyle = MUTED;
+      ctx.font = (12 * scale) + "px 'Courier New', monospace";
+      ctx.textAlign = "left";
+      ctx.fillText(opts.citation, 32 * scale, H - 28 * scale);
+
+      var link = document.createElement("a");
+      link.download = opts.filename;
+      link.href = out.toDataURL("image/png");
+      link.click();
+    };
+    chartImg.src = opts.chart.toBase64Image();
+  }
+
+  /* ─────────────────────── INIT ─────────────────────── */
+  initTsiPanel();
+})();
+</script>
+</body>
+</html>
