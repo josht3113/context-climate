@@ -310,6 +310,15 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/TemperatureClimatology_thumbnail.png',
       },
+      {
+        tags:       ['US Cities', 'ANY CITY'],
+        title:      'Daily Dewpoint Climatology',
+        description:'Every day of the year’s record and average dewpoint for any U.S. city, threaded across a station’s full ASOS record — with most-humid-day, driest-day, and all-time record chips.',
+        footerTags: ['Record Highs/Lows', 'Daily Averages', 'Any City'],
+        to:         '/dewpoint-climatology',
+        accentVar:  '--accent-climate',
+        thumb:      '/DewpointClimatology_thumbnail.png',
+      },
     ],
   },
   {
@@ -384,7 +393,7 @@ export default function Home() {
         <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
         <h1 className="page-title">Interactive Weather &amp; Climate Tools</h1>
         <p className="page-subtitle">
-          Created and maintained by Josh Timlin  
+          Created and maintained by Josh Timlin
         </p>
         <Link to="/earthandspace" className="jump-link">
           Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
