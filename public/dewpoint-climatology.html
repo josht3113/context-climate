@@ -146,6 +146,8 @@
 
 <div class="about-note">
   <b>About this data.</b> Unlike temperature, NOAA does not publish official 30-year daily dewpoint normals, so this tool is built directly from hourly ASOS/METAR observations archived by the Iowa Environmental Mesonet (IEM), aggregated to a max/min dewpoint for every calendar day across a station&rsquo;s full available record. &ldquo;Average&rdquo; reflects the mean of each day&rsquo;s (max+min)/2 &mdash; the same convention NOAA itself uses for daily mean temperature &mdash; averaged across every year on record for that calendar day; it is lightly smoothed (5-day centered window) to remove year-to-year sampling noise. &ldquo;Record High/Low&rdquo; are the single most extreme dewpoint ever observed on that calendar day. Because this depends on airport ASOS station history rather than NOAA&rsquo;s longer COOP network, period-of-record length varies more by station &mdash; check the note above the chart. The average-line dot colors follow the same dewpoint comfort scale used across ContextClimate&rsquo;s heatmap tools.
+  <br><br>
+  <b>Automated quality control.</b> Raw ASOS/METAR archives occasionally contain bad individual observations &mdash; a stuck sensor, a garbled transmission, a mis-parsed value &mdash; and a single bad hourly reading can distort a whole day's max or min. Before a value is allowed to become a plotted point or a record chip, it has to survive three checks: (1) a physical check that a day's max dewpoint never exceeds that same day's max temperature, since dewpoint by definition cannot exceed air temperature; (2) an absolute sanity range (&minus;75&deg;F to 90&deg;F) wide enough to cover genuine extremes anywhere in the U.S., including Arctic Alaska, while rejecting obviously impossible values; and (3) a robust statistical check that compares each value against the median and typical spread (median absolute deviation) of everything observed within &plusmn;10 calendar days of it, across every year on record &mdash; catching values that are physically plausible in general but implausible for that station at that time of year (e.g. an 88&deg;F dewpoint in a New York August). Values that fail are dropped from that specific field only, not the whole day. Any station/date combination where this excluded readings is noted in the caption below the chart.
 </div>
 
 </div>
@@ -368,7 +370,7 @@ function getColorRGB(val,scale){
 function dewptColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES_DEWPT);return`rgb(${r},${g},${b})`;}
 
 // ================================================================
-// IEM (Iowa Environmental Mesonet) ASOS DAILY FETCH
+// IEM (Iowa Environmental Mesonet) ASOS DAILY FETCH + QUALITY CONTROL
 //
 // NOAA/ACIS (used by the temperature tool) does not carry dewpoint as an
 // element -- it isn't part of the standard COOP/ThreadEx daily record.
@@ -378,7 +380,38 @@ function dewptColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=get
 // official 30-year "normal" dewpoint product from NOAA the way there is for
 // temperature, so everything here is computed directly from the full
 // available daily record rather than fetched pre-computed.
+//
+// Raw ASOS archives occasionally contain individual bad observations (stuck
+// sensor, garbled transmission, mis-parsed value), and because this tool
+// looks specifically for MAX/MIN across the whole record, a single bad
+// reading is exactly the kind of thing that ends up highlighted as a "record".
+// Every value goes through three QC checks before it can contribute to a
+// record chip, the average curve, or a plotted point:
+//   1. Physical check    -- a day's max dewpoint can never exceed that same
+//                            day's max air temperature (dewpoint <= temp,
+//                            always, by definition), and a day's min
+//                            dewpoint can never exceed its own max dewpoint.
+//   2. Absolute sanity    -- a wide (-75F to 90F) hard bound. Wide enough to
+//      range               never clip a genuine Arctic Alaska cold snap or a
+//                            genuine extreme heat-dome humidity event, but
+//                            tight enough to catch clearly-impossible/garbled
+//                            values (stuck sensors, sentinel values, unit
+//                            errors).
+//   3. Robust seasonal    -- compares each value against the median and MAD
+//      outlier check        (median absolute deviation) of every value
+//                            observed within +/-10 calendar days of it,
+//                            across every year on record. This is what
+//                            catches values that are physically plausible in
+//                            general but implausible for THIS station at
+//                            THIS time of year (e.g. an 88F dewpoint at a
+//                            New York airport in August). Uses the modified
+//                            z-score with the standard Iglewicz & Hoaglin
+//                            outlier threshold of 3.5.
 // ================================================================
+
+const DEWPT_ABS_MIN=-75,DEWPT_ABS_MAX=90;   // Layer 2
+const QC_SEASONAL_WINDOW_DAYS=10;           // Layer 3: +/- days around each calendar day
+const QC_MODIFIED_Z_THRESHOLD=3.5;          // Layer 3: Iglewicz & Hoaglin outlier threshold
 
 // IEM group its ASOS stations into one network per state/territory, named
 // "{STATE}_ASOS" -- with one known exception: Washington-area DC airports
@@ -399,10 +432,46 @@ function parseCSVNum(v){
   return isNaN(n)?null:n;
 }
 
+function median(arr){
+  if(!arr.length)return null;
+  const s=[...arr].sort((a,b)=>a-b);
+  const mid=Math.floor(s.length/2);
+  return s.length%2?s[mid]:(s[mid-1]+s[mid])/2;
+}
+// Median Absolute Deviation -- a robust (outlier-resistant) stand-in for
+// standard deviation, since a raw stdev computed on data that still
+// contains the very outliers we're hunting for would itself be inflated by
+// them.
+function mad(arr,med){
+  if(!arr.length)return 0;
+  return median(arr.map(v=>Math.abs(v-med)));
+}
+// Iglewicz & Hoaglin modified z-score. 0.6745 rescales MAD to be comparable
+// to a standard deviation for normally-distributed data.
+function modifiedZ(val,med,madVal){
+  if(madVal===0)return 0;
+  return 0.6745*(val-med)/madVal;
+}
+
+// Full 366-day mmdd scaffold (2024 leap year, purely a calendar index) plus
+// a lookup from mmdd -> position, used to build circular +/-N day windows
+// for the Layer-3 seasonal pools.
+const MMDD_SEQUENCE=(()=>{
+  const seq=[];
+  for(let mm=1;mm<=12;mm++){
+    const daysInMonth=new Date(2024,mm,0).getDate();
+    for(let dd=1;dd<=daysInMonth;dd++)seq.push(`${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`);
+  }
+  return seq;
+})();
+const MMDD_INDEX=new Map(MMDD_SEQUENCE.map((m,i)=>[m,i]));
+
 // Fetches every calendar day across the station's full available ASOS
 // record in one request (requesting from 1928 is just a wide net -- IEM
 // simply returns whatever actually exists, so this naturally resolves to
-// each station's true period of record without needing to look it up first).
+// each station's true period of record without needing to look it up first),
+// then runs the three-layer QC pipeline before reducing to per-calendar-day
+// records/averages.
 async function fetchDewpointDaily(station){
   const[icao,,state]=station;
   const network=iemNetwork(state),sid=iemStationId(icao);
@@ -415,35 +484,90 @@ async function fetchDewpointDaily(station){
 
   const lines=text.trim().split('\n');
   const header=lines[0].split(',');
-  const idxDay=header.indexOf('day'),idxMax=header.indexOf('max_dewpoint_f'),idxMin=header.indexOf('min_dewpoint_f');
+  const idxDay=header.indexOf('day'),idxMax=header.indexOf('max_dewpoint_f'),idxMin=header.indexOf('min_dewpoint_f'),idxMaxT=header.indexOf('max_temp_f');
   if(idxDay<0||idxMax<0||idxMin<0)throw new Error('Unexpected IEM response format');
 
-  const byDay={};
+  // ---- Pass 1: parse + Layer 1 (physical) + Layer 2 (absolute bounds) ----
+  const records=[]; // {mmdd, year, mx, mn}
   let porStart=null,porEnd=null;
+  let qcRejected=0;
+  const maxIdxNeeded=Math.max(idxDay,idxMax,idxMin,idxMaxT);
   for(let i=1;i<lines.length;i++){
     const cols=lines[i].split(',');
-    if(cols.length<=Math.max(idxDay,idxMax,idxMin))continue;
+    if(cols.length<=maxIdxNeeded)continue;
     const day=cols[idxDay];
     if(!day)continue;
     const yr=day.slice(0,4),mmdd=day.slice(5);
     const yrNum=parseInt(yr,10);
     if(porStart==null||yrNum<porStart)porStart=yrNum;
     if(porEnd==null||yrNum>porEnd)porEnd=yrNum;
-    const mx=parseCSVNum(cols[idxMax]),mn=parseCSVNum(cols[idxMin]);
+
+    let mx=parseCSVNum(cols[idxMax]);
+    let mn=parseCSVNum(cols[idxMin]);
+    const mxT=idxMaxT>=0?parseCSVNum(cols[idxMaxT]):null;
+
+    // Layer 1a: dewpoint can never exceed same-day max air temperature.
+    if(mx!=null&&mxT!=null&&mx>mxT){mx=null;qcRejected++;}
+    // Layer 1b: a day's min dewpoint can never exceed its own max dewpoint.
+    if(mx!=null&&mn!=null&&mn>mx){mx=null;mn=null;qcRejected+=2;}
+    // Layer 2: absolute physical sanity bounds.
+    if(mx!=null&&(mx<DEWPT_ABS_MIN||mx>DEWPT_ABS_MAX)){mx=null;qcRejected++;}
+    if(mn!=null&&(mn<DEWPT_ABS_MIN||mn>DEWPT_ABS_MAX)){mn=null;qcRejected++;}
+
     if(mx==null&&mn==null)continue;
-    if(!byDay[mmdd])byDay[mmdd]={recHi:null,recHiYears:[],recLo:null,recLoYears:[],sumMean:0,countMean:0};
-    const b=byDay[mmdd];
+    records.push({mmdd,year:yr,mx,mn});
+  }
+
+  // ---- Pass 2: build per-mmdd seasonal pools (+/- QC_SEASONAL_WINDOW_DAYS,
+  // circular across the year boundary) and compute median/MAD, lazily and
+  // cached per mmdd since many records share the same calendar day. ----
+  const byMMDDList={};
+  records.forEach(rec=>{(byMMDDList[rec.mmdd]??=[]).push(rec);});
+
+  const statsCache={};
+  function seasonalStats(mmdd){
+    if(statsCache[mmdd])return statsCache[mmdd];
+    const idx=MMDD_INDEX.get(mmdd);
+    const mxPool=[],mnPool=[];
+    for(let k=-QC_SEASONAL_WINDOW_DAYS;k<=QC_SEASONAL_WINDOW_DAYS;k++){
+      const neighbor=MMDD_SEQUENCE[(idx+k+MMDD_SEQUENCE.length)%MMDD_SEQUENCE.length];
+      const list=byMMDDList[neighbor];
+      if(!list)continue;
+      list.forEach(rec=>{
+        if(rec.mx!=null)mxPool.push(rec.mx);
+        if(rec.mn!=null)mnPool.push(rec.mn);
+      });
+    }
+    const mxMedian=median(mxPool),mnMedian=median(mnPool);
+    const stats={mxMedian,mxMAD:mad(mxPool,mxMedian),mnMedian,mnMAD:mad(mnPool,mnMedian)};
+    statsCache[mmdd]=stats;
+    return stats;
+  }
+
+  // ---- Pass 3: Layer 3 (robust seasonal outlier check) + reduce into the
+  // final per-calendar-day record/average aggregates. ----
+  const byDay={};
+  records.forEach(rec=>{
+    const stats=seasonalStats(rec.mmdd);
+    let{mx,mn}=rec;
+    if(mx!=null&&Math.abs(modifiedZ(mx,stats.mxMedian,stats.mxMAD))>QC_MODIFIED_Z_THRESHOLD){mx=null;qcRejected++;}
+    if(mn!=null&&Math.abs(modifiedZ(mn,stats.mnMedian,stats.mnMAD))>QC_MODIFIED_Z_THRESHOLD){mn=null;qcRejected++;}
+    if(mx==null&&mn==null)return;
+
+    if(!byDay[rec.mmdd])byDay[rec.mmdd]={recHi:null,recHiYears:[],recLo:null,recLoYears:[],sumMean:0,countMean:0};
+    const b=byDay[rec.mmdd];
     if(mx!=null){
-      if(b.recHi==null||mx>b.recHi){b.recHi=mx;b.recHiYears=[yr];}else if(mx===b.recHi)b.recHiYears.push(yr);
+      if(b.recHi==null||mx>b.recHi){b.recHi=mx;b.recHiYears=[rec.year];}else if(mx===b.recHi)b.recHiYears.push(rec.year);
     }
     if(mn!=null){
-      if(b.recLo==null||mn<b.recLo){b.recLo=mn;b.recLoYears=[yr];}else if(mn===b.recLo)b.recLoYears.push(yr);
+      if(b.recLo==null||mn<b.recLo){b.recLo=mn;b.recLoYears=[rec.year];}else if(mn===b.recLo)b.recLoYears.push(rec.year);
     }
     if(mx!=null&&mn!=null){
       b.sumMean+=(mx+mn)/2;b.countMean++;
     }
-  }
-  return{byDay,porStart,porEnd:porEnd!=null?Math.max(porEnd,now.getFullYear()):null};
+  });
+
+  return{byDay,porStart,porEnd:porEnd!=null?Math.max(porEnd,now.getFullYear()):null,qcRejected};
 }
 
 // ================================================================
@@ -539,7 +663,8 @@ function renderCaption(records,station){
   const[icao,name,st]=station;
   const yrs=(records.porStart!=null&&records.porEnd!=null)?(records.porEnd-records.porStart):null;
   setText('stn-por',records.porStart!=null?`Period of record: ${records.porStart}–${records.porEnd} (${yrs} yrs)`:'Period of record unavailable');
-  setText('clim-cap',`${name}, ${st} (${icao}) · Records: full available ASOS period${records.porStart!=null?`, ${records.porStart}–${records.porEnd}`:''} · Data: IEM (Iowa Environmental Mesonet), from hourly ASOS/METAR`);
+  const qcNote=records.qcRejected>0?` · ${records.qcRejected} obs excluded by automated QC`:'';
+  setText('clim-cap',`${name}, ${st} (${icao}) · Records: full available ASOS period${records.porStart!=null?`, ${records.porStart}–${records.porEnd}`:''} · Data: IEM (Iowa Environmental Mesonet), from hourly ASOS/METAR${qcNote}`);
   const warnEl=document.getElementById('clim-warn');
   if(yrs!=null&&yrs<20){
     warnEl.style.display='block';
