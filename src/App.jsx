@@ -7,6 +7,7 @@ import ENSO                        from './pages/ENSO'
 import Seasons                     from './pages/Seasons'
 import IspLive                     from './pages/IspLive'
 import CurrentConditions           from './pages/CurrentConditions'
+import CloudCoverExplorer          from './pages/CloudCoverExplorer'
 import PrecipSnow                  from './pages/PrecipSnow'
 import NortheastClimate            from './pages/NortheastClimate'
 import Hurricanes                  from './pages/Hurricanes'
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/"                                    element={<Home />}                    />
           <Route path="/isp-live"                            element={<IspLive />}                 />
           <Route path="/current-conditions"                  element={<CurrentConditions />}       />
+          <Route path="/cloud-cover-explorer"                element={<CloudCoverExplorer />}      />
           <Route path="/precipsnow"                          element={<PrecipSnow />}              />
           <Route path="/northeast-climate"                   element={<NortheastClimate />}        />
           <Route path="/seasons"                             element={<Seasons />}                 />
