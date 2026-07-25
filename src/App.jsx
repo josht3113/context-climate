@@ -71,6 +71,7 @@ import SurfaceAnalysis               from './pages/SurfaceAnalysis'
 import SeafloorSpreading               from './pages/SeafloorSpreading'
 import PlanetaryRetrograde         from './pages/PlanetaryRetrograde'
 import MissionToMars               from './pages/MissionToMars'
+import ChemicalFractionation       from './pages/ChemicalFractionation'
 import HrDiagram                   from './pages/HrDiagram'
 import StellarLifeCycles           from './pages/StellarLifeCycles'
 import TidalRhythm                 from './pages/TidalRhythm'
@@ -182,6 +183,7 @@ export default function App() {
           <Route path="/earthandspace/hurricane-steering"     element={<HurricaneSteering />}       />
           <Route path="/earthandspace/planetary-retrograde"         element={<PlanetaryRetrograde />}       />
           <Route path="/earthandspace/mission-to-mars"               element={<MissionToMars />}             />
+          <Route path="/earthandspace/chemical-fractionation"        element={<ChemicalFractionation />}     />
           <Route path="/surface-map"                              element={<SurfaceMap />}               />
           <Route path="/surface-analysis"                         element={<SurfaceAnalysis />}          />
           <Route path="/earthandspace/seafloor-spreading"         element={<SeafloorSpreading />}        />
