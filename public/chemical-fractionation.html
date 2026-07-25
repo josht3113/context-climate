@@ -639,21 +639,36 @@
      ====================================================================== */
 
   var canvas2 = document.getElementById('diffCanvas');
-  var fit2 = canvas2 ? fitCanvas(canvas2) : { ctx: null, w: 400, h: 400 };
-
   var R_EARTH_KM = 6378;
-  // Radius (in CSS px) representing R_EARTH_KM — derived from the canvas's
-  // actual rendered size now, rather than a size hardcoded for the old
-  // fixed 480px column, so it fills whatever room the bigger canvas has.
-  var CANVAS2_R = Math.min(fit2.w, fit2.h) / 2 * 0.94;
-  var SCALE2 = CANVAS2_R / R_EARTH_KM;
+  var fit2, CANVAS2_R, SCALE2, BOUNDARY, CRUST_VISUAL_THICKNESS, ctx2;
 
-  var BOUNDARY = {
-    innerCore: (R_EARTH_KM - 5150) * SCALE2,
-    outerCore: (R_EARTH_KM - 2900) * SCALE2,
-    mantleTop: (R_EARTH_KM - 50) * SCALE2    // crust exaggerated below
-  };
-  var CRUST_VISUAL_THICKNESS = Math.max(8, CANVAS2_R * 0.045); // scales with size, exaggerated for visibility
+  // (Re)derives the circle's geometry from the canvas's actual rendered
+  // size. This has to be re-run every time Mode 2 becomes visible, not just
+  // once at page load: the <section> it lives in starts as `display: none`
+  // (Mode 1 is active by default), and a hidden element's
+  // getBoundingClientRect() is all-zero in every browser. Computing
+  // geometry once against that zero rect produced a near-zero CANVAS2_R,
+  // which in turn made the crust ring's radius (CANVAS2_R minus half its
+  // stroke width) go negative — and canvas arc() throws on a negative
+  // radius, which silently killed the animation right as it tried to draw
+  // the finished layered planet, leaving the status line stuck on
+  // "Heating…" forever. The 40px floor below is a second line of defense
+  // against that same failure mode.
+  function computeDiffGeometry() {
+    fit2 = canvas2 ? fitCanvas(canvas2) : { ctx: null, w: 400, h: 400 };
+    ctx2 = fit2.ctx;
+    CANVAS2_R = Math.max(40, Math.min(fit2.w, fit2.h) / 2 * 0.94);
+    SCALE2 = CANVAS2_R / R_EARTH_KM;
+    BOUNDARY = {
+      innerCore: (R_EARTH_KM - 5150) * SCALE2,
+      outerCore: (R_EARTH_KM - 2900) * SCALE2,
+      mantleTop: (R_EARTH_KM - 50) * SCALE2    // crust exaggerated below
+    };
+    // Clamped so the ring's drawn radius (CANVAS2_R - thickness/2) can
+    // never go negative, regardless of how small CANVAS2_R ends up being.
+    CRUST_VISUAL_THICKNESS = Math.min(Math.max(8, CANVAS2_R * 0.045), CANVAS2_R * 0.4);
+  }
+  computeDiffGeometry();
 
   function targetRadiusFor(type) {
     if (type === 'metal') {
@@ -697,7 +712,6 @@
     makeParticles: makeParticles, stepParticle: stepParticle
   };
 
-  var ctx2 = fit2.ctx;
   var particles = makeParticles(140);
   var animActive = false;
   var animStart = null;
@@ -783,6 +797,22 @@
     }
   }
 
+  // Full reset: re-measure the canvas (needed the first time Mode 2 is
+  // ever shown, since it starts hidden — see computeDiffGeometry above),
+  // regenerate a fresh undifferentiated particle scatter at the correct
+  // scale, and redraw. Used on page load, on the Reset button, and every
+  // time the Differentiation tab is activated.
+  function resetDiffCanvas() {
+    computeDiffGeometry();
+    animActive = false;
+    animStart = null;
+    particles = makeParticles(140);
+    setLayerRowsOn(false);
+    var statusEl = document.getElementById('statusLine');
+    if (statusEl) statusEl.textContent = 'Undifferentiated — uniform chondritic mix, ~3.0–3.5 g/cm³ throughout';
+    drawDiff(false);
+  }
+
   var heatBtn = document.getElementById('heatBtn');
   var resetBtn = document.getElementById('resetBtn');
 
@@ -796,14 +826,7 @@
     });
   }
   if (resetBtn) {
-    resetBtn.addEventListener('click', function () {
-      animActive = false;
-      animStart = null;
-      particles = makeParticles(140);
-      setLayerRowsOn(false);
-      document.getElementById('statusLine').textContent = 'Undifferentiated — uniform chondritic mix, ~3.0–3.5 g/cm³ throughout';
-      drawDiff(false);
-    });
+    resetBtn.addEventListener('click', resetDiffCanvas);
   }
 
   if (ctx2) { drawDiff(false); }
@@ -822,6 +845,8 @@
       document.getElementById('mode-' + tab.dataset.mode).classList.add('is-active');
       if (tab.dataset.mode === 'condensation') {
         drawCondensation(sliderToKm(Number(slider.value)));
+      } else if (tab.dataset.mode === 'differentiation') {
+        resetDiffCanvas();
       }
     });
   });
