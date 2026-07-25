@@ -23,14 +23,25 @@
   display:flex; align-items:center; gap:14px; flex-wrap:wrap;
   margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--color-border);
 }
-.stn-select-wrap { position:relative; display:inline-block; min-width:230px; max-width:340px; }
-.stn-select-wrap::after {
-  content:'▾'; position:absolute; right:12px; top:50%;
-  transform:translateY(-50%); color:var(--color-text-muted); pointer-events:none; font-size:1rem;
-}
-#stnSelect { width:100%; padding-right:36px; appearance:none; -webkit-appearance:none; }
-#stnSelect option, #stnSelect optgroup { background:var(--color-surface-2); color:var(--color-text-primary); font-family:sans-serif; }
-#stnSelect optgroup { font-weight:700; }
+/* ── Station finder — search box + type-ahead dropdown + geolocation,
+   ported from the Current Conditions app so the roster can scale past
+   what a native <select> can comfortably hold. ── */
+.finder-group { position:relative; flex:0 0 auto; display:flex; align-items:stretch; border:1px solid var(--color-border); border-radius:var(--radius-md); background:var(--color-surface); transition:border-color .15s; }
+.finder-group:focus-within { border-color:var(--tool-accent); }
+.finder-group .search-icon { position:static; display:flex; align-items:center; padding-left:12px; color:var(--color-text-muted); font-size:16px; pointer-events:none; }
+.finder-group .search-input { width:230px; background:transparent; border:none; border-radius:0; padding:9px 10px; color:var(--color-text-primary); font-family:var(--font-mono); font-size:15px; outline:none; }
+.finder-group .search-input::placeholder { color:var(--color-text-muted); }
+.finder-sep { width:1px; align-self:stretch; margin:7px 0; background:var(--color-border); }
+.finder-group .locate-btn { border:none; border-radius:0; background:transparent; white-space:nowrap; }
+.locate-btn.loading { opacity:.5; pointer-events:none; }
+.dropdown { position:absolute; top:calc(100% + 4px); left:0; right:0; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-md); max-height:272px; overflow-y:auto; z-index:200; display:none; box-shadow:0 10px 32px rgba(0,0,0,.6); }
+.dropdown.open { display:block; }
+.d-item { padding:8px 12px; cursor:pointer; font-family:var(--font-mono); font-size:14px; display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--color-border); transition:background .1s; }
+.d-item:last-child { border-bottom:none; }
+.d-item:hover, .d-item.hi { background:rgba(208,132,37,.18); }
+.d-item .d-id { color:var(--tool-accent); font-weight:700; width:52px; flex-shrink:0; }
+.d-item .d-name { color:var(--color-text-primary); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.d-item .d-dist { color:var(--tool-accent); font-size:12px; width:46px; flex-shrink:0; text-align:right; }
 
 .cc-badge.loading { background:rgba(208,132,37,0.14); color:#D08425; border:1px solid rgba(208,132,37,0.4); }
 .cc-badge.ok       { background:rgba(42,168,126,0.14); color:#2AA87E; border:1px solid rgba(42,168,126,0.4); }
@@ -82,7 +93,7 @@ footer a:hover { color:var(--color-text-primary); }
 @media(max-width:640px) {
   .stats-grid { grid-template-columns:1fr 1fr; }
   .chart-wrap { height:420px; }
-  .stn-select-wrap { min-width:180px; max-width:100%; }
+  .finder-group .search-input { width:150px; }
 }
 </style>
 </head>
@@ -97,8 +108,12 @@ footer a:hover { color:var(--color-text-primary); }
 
   <div class="stn-bar">
     <span class="cc-btn-row-label">Location</span>
-    <div class="stn-select-wrap">
-      <select class="cc-select" id="stnSelect" onchange="onStnChange(this)"></select>
+    <div class="finder-group" id="sw">
+      <span class="search-icon">&#9906;</span>
+      <input type="text" class="search-input" id="si" placeholder="Search city or airport code…" autocomplete="off" spellcheck="false">
+      <div class="dropdown" id="dd"></div>
+      <div class="finder-sep"></div>
+      <button class="cc-btn cc-btn-sm locate-btn" id="locate-btn" onclick="findNearestStation()" title="Use my location to find the nearest station">&#128205; Near Me</button>
     </div>
     <span class="cc-badge loading" id="dataStatus">Loading…</span>
     <span class="cc-subtitle" id="stationSubtitle" style="margin-left:auto;">Select a city · NOAA ACIS ThreadEx</span>
@@ -176,133 +191,387 @@ footer a:hover { color:var(--color-text-primary); }
 </div>
 
 <script>
-// ─── REGIONS ─────────────────────────────────────────────────
-const REGIONS = [
-  { id: 'ne',  label: 'Northeast & Mid-Atlantic' },
-  { id: 'gl',  label: 'Great Lakes' },
-  { id: 'se',  label: 'Southeast' },
-  { id: 'mw',  label: 'Midwest & Plains' },
-  { id: 'sc',  label: 'South & Central' },
-  { id: 'sw',  label: 'Southwest' },
-  { id: 'mt',  label: 'Mountain West' },
-  { id: 'pac', label: 'Pacific' },
-];
-
 // ─── STATIONS ─────────────────────────────────────────────────
+// Ported from the Current Conditions app's nationwide airport roster (~375
+// stations, all 50 states + DC/PR) so this tool can search/locate the same
+// breadth of cities instead of a hand-picked ~100-station list. Labels were
+// regenerated as "City, ST"; lat/lon power the "Near Me" locator below.
 const STATIONS = [
-  // Northeast & Mid-Atlantic
-  { id:'KBUF',        label:'Buffalo, NY',           short:'BUF', state:'NY', region:'ne' },
-  { id:'KSYR',        label:'Syracuse, NY',           short:'SYR', state:'NY', region:'ne' },
-  { id:'KROC',        label:'Rochester, NY',          short:'ROC', state:'NY', region:'ne' },
-  { id:'KBGM',        label:'Binghamton, NY',         short:'BGM', state:'NY', region:'ne' },
-  { id:'KALB',        label:'Albany, NY',             short:'ALB', state:'NY', region:'ne' },
-  { id:'KISP',        label:'Islip, NY',              short:'ISP', state:'NY', region:'ne' },
-  { id:'USW00094728', label:'Central Park, NY',       short:'NYC', state:'NY', region:'ne', fallback:['94728 6','305801 3','KNYC'] },
-  { id:'KLGA',        label:'LaGuardia, NY',          short:'LGA', state:'NY', region:'ne' },
-  { id:'KJFK',        label:'JFK Airport, NY',        short:'JFK', state:'NY', region:'ne' },
-  { id:'KEWR',        label:'Newark, NJ',             short:'EWR', state:'NJ', region:'ne' },
-  { id:'KBDR',        label:'Bridgeport, CT',         short:'BDR', state:'CT', region:'ne' },
-  { id:'KTTN',        label:'Trenton, NJ',            short:'TTN', state:'NJ', region:'ne' },
-  { id:'KPHL',        label:'Philadelphia, PA',       short:'PHL', state:'PA', region:'ne' },
-  { id:'KDCA',        label:'Washington, DC',         short:'DCA', state:'DC', region:'ne' },
-  { id:'KPVD',        label:'Providence, RI',         short:'PVD', state:'RI', region:'ne' },
-  { id:'KBOS',        label:'Boston, MA',             short:'BOS', state:'MA', region:'ne' },
-  { id:'KBTV',        label:'Burlington, VT',         short:'BTV', state:'VT', region:'ne' },
-  { id:'KPWM',        label:'Portland, ME',           short:'PWM', state:'ME', region:'ne' },
-  { id:'KCAR',        label:'Caribou, ME',            short:'CAR', state:'ME', region:'ne' },
-  // Great Lakes
-  { id:'KMQT',        label:'Marquette, MI',          short:'MQT', state:'MI', region:'gl' },
-  { id:'KSSM',        label:'Sault Ste. Marie, MI',   short:'SSM', state:'MI', region:'gl', fallback:['USW00014820'] },
-  { id:'KDLH',        label:'Duluth, MN',             short:'DLH', state:'MN', region:'gl' },
-  { id:'KERI',        label:'Erie, PA',               short:'ERI', state:'PA', region:'gl' },
-  { id:'KCLE',        label:'Cleveland, OH',          short:'CLE', state:'OH', region:'gl' },
-  { id:'KTOL',        label:'Toledo, OH',             short:'TOL', state:'OH', region:'gl' },
-  { id:'KCMH',        label:'Columbus, OH',           short:'CMH', state:'OH', region:'gl' },
-  { id:'KDTW',        label:'Detroit, MI',            short:'DTW', state:'MI', region:'gl' },
-  { id:'KGRR',        label:'Grand Rapids, MI',       short:'GRR', state:'MI', region:'gl' },
-  { id:'KSBN',        label:'South Bend, IN',         short:'SBN', state:'IN', region:'gl' },
-  { id:'KORD',        label:'Chicago, IL',            short:'ORD', state:'IL', region:'gl' },
-  { id:'KMKE',        label:'Milwaukee, WI',          short:'MKE', state:'WI', region:'gl' },
-  { id:'KPIT',        label:'Pittsburgh, PA',         short:'PIT', state:'PA', region:'gl' },
-  // Southeast
-  { id:'KORF',        label:'Norfolk, VA',            short:'ORF', state:'VA', region:'se' },
-  { id:'KRIC',        label:'Richmond, VA',            short:'RIC', state:'VA', region:'se' },
-  { id:'KROA',        label:'Roanoke, VA',            short:'ROA', state:'VA', region:'se' },
-  { id:'KRDU',        label:'Raleigh-Durham, NC',     short:'RDU', state:'NC', region:'se' },
-  { id:'KGSO',        label:'Greensboro, NC',         short:'GSO', state:'NC', region:'se' },
-  { id:'KCLT',        label:'Charlotte, NC',          short:'CLT', state:'NC', region:'se' },
-  { id:'KCHS',        label:'Charleston, SC',         short:'CHS', state:'SC', region:'se' },
-  { id:'KGSP',        label:'Greenville, SC',         short:'GSP', state:'SC', region:'se' },
-  { id:'KATL',        label:'Atlanta, GA',            short:'ATL', state:'GA', region:'se' },
-  { id:'KTYS',        label:'Knoxville, TN',          short:'TYS', state:'TN', region:'se' },
-  { id:'KBNA',        label:'Nashville, TN',          short:'BNA', state:'TN', region:'se' },
-  { id:'KSDF',        label:'Louisville, KY',         short:'SDF', state:'KY', region:'se' },
-  { id:'KLEX',        label:'Lexington, KY',          short:'LEX', state:'KY', region:'se' },
-  { id:'KBHM',        label:'Birmingham, AL',         short:'BHM', state:'AL', region:'se' },
-  { id:'KHSV',        label:'Huntsville, AL',         short:'HSV', state:'AL', region:'se' },
-  { id:'KJAX',        label:'Jacksonville, FL',       short:'JAX', state:'FL', region:'se' },
-  { id:'KTPA',        label:'Tampa, FL',              short:'TPA', state:'FL', region:'se' },
-  { id:'KMIA',        label:'Miami, FL',              short:'MIA', state:'FL', region:'se' },
-  // Midwest & Plains
-  { id:'KMSP',        label:'Minneapolis, MN',        short:'MSP', state:'MN', region:'mw' },
-  { id:'KFAR',        label:'Fargo, ND',              short:'FAR', state:'ND', region:'mw' },
-  { id:'KBIS',        label:'Bismarck, ND',           short:'BIS', state:'ND', region:'mw' },
-  { id:'KABR',        label:'Aberdeen, SD',           short:'ABR', state:'SD', region:'mw' },
-  { id:'KFSD',        label:'Sioux Falls, SD',        short:'FSD', state:'SD', region:'mw' },
-  { id:'KRAP',        label:'Rapid City, SD',         short:'RAP', state:'SD', region:'mw' },
-  { id:'KOMA',        label:'Omaha, NE',              short:'OMA', state:'NE', region:'mw' },
-  { id:'KDSM',        label:'Des Moines, IA',         short:'DSM', state:'IA', region:'mw' },
-  { id:'KICT',        label:'Wichita, KS',            short:'ICT', state:'KS', region:'mw' },
-  { id:'KMCI',        label:'Kansas City, MO',        short:'MCI', state:'MO', region:'mw' },
-  { id:'KSTL',        label:'St. Louis, MO',          short:'STL', state:'MO', region:'mw' },
-  { id:'KSGF',        label:'Springfield, MO',        short:'SGF', state:'MO', region:'mw' },
-  // South & Central
-  { id:'KMEM',        label:'Memphis, TN',            short:'MEM', state:'TN', region:'sc' },
-  { id:'KMSY',        label:'New Orleans, LA',        short:'MSY', state:'LA', region:'sc' },
-  { id:'KBTR',        label:'Baton Rouge, LA',        short:'BTR', state:'LA', region:'sc' },
-  { id:'KSHV',        label:'Shreveport, LA',         short:'SHV', state:'LA', region:'sc' },
-  { id:'KJAN',        label:'Jackson, MS',            short:'JAN', state:'MS', region:'sc' },
-  { id:'KMOB',        label:'Mobile, AL',             short:'MOB', state:'AL', region:'sc' },
-  { id:'KLIT',        label:'Little Rock, AR',        short:'LIT', state:'AR', region:'sc' },
-  { id:'KOKC',        label:'Oklahoma City, OK',      short:'OKC', state:'OK', region:'sc' },
-  { id:'KTUL',        label:'Tulsa, OK',              short:'TUL', state:'OK', region:'sc' },
-  { id:'KDFW',        label:'Dallas/Ft. Worth, TX',   short:'DFW', state:'TX', region:'sc' },
-  { id:'KAUS',        label:'Austin, TX',             short:'AUS', state:'TX', region:'sc' },
-  { id:'KSAT',        label:'San Antonio, TX',        short:'SAT', state:'TX', region:'sc' },
-  { id:'KIAH',        label:'Houston, TX',            short:'IAH', state:'TX', region:'sc' },
-  // Southwest
-  { id:'KPHX',        label:'Phoenix, AZ',            short:'PHX', state:'AZ', region:'sw' },
-  { id:'KTUS',        label:'Tucson, AZ',             short:'TUS', state:'AZ', region:'sw' },
-  { id:'KYUM',        label:'Yuma, AZ',               short:'YUM', state:'AZ', region:'sw' },
-  { id:'KLAS',        label:'Las Vegas, NV',          short:'LAS', state:'NV', region:'sw' },
-  { id:'KABQ',        label:'Albuquerque, NM',        short:'ABQ', state:'NM', region:'sw' },
-  { id:'KELP',        label:'El Paso, TX',            short:'ELP', state:'TX', region:'sw' },
-  // Mountain West
-  { id:'KDEN',        label:'Denver, CO',             short:'DEN', state:'CO', region:'mt' },
-  { id:'KCOS',        label:'Colorado Springs, CO',   short:'COS', state:'CO', region:'mt' },
-  { id:'KGJT',        label:'Grand Junction, CO',     short:'GJT', state:'CO', region:'mt' },
-  { id:'KCYS',        label:'Cheyenne, WY',           short:'CYS', state:'WY', region:'mt' },
-  { id:'KCPR',        label:'Casper, WY',             short:'CPR', state:'WY', region:'mt' },
-  { id:'KJAC',        label:'Jackson, WY',            short:'JAC', state:'WY', region:'mt' },
-  { id:'KSLC',        label:'Salt Lake City, UT',     short:'SLC', state:'UT', region:'mt' },
-  { id:'KBOI',        label:'Boise, ID',              short:'BOI', state:'ID', region:'mt' },
-  { id:'KBZN',        label:'Bozeman, MT',            short:'BZN', state:'MT', region:'mt' },
-  { id:'KGTF',        label:'Great Falls, MT',        short:'GTF', state:'MT', region:'mt' },
-  { id:'KMSO',        label:'Missoula, MT',           short:'MSO', state:'MT', region:'mt' },
-  { id:'KGEG',        label:'Spokane, WA',            short:'GEG', state:'WA', region:'mt' },
-  // Pacific
-  { id:'KSEA',        label:'Seattle, WA',            short:'SEA', state:'WA', region:'pac' },
-  { id:'KBLI',        label:'Bellingham, WA',         short:'BLI', state:'WA', region:'pac' },
-  { id:'KPDX',        label:'Portland, OR',           short:'PDX', state:'OR', region:'pac' },
-  { id:'KEUG',        label:'Eugene, OR',             short:'EUG', state:'OR', region:'pac' },
-  { id:'KMFR',        label:'Medford, OR',            short:'MFR', state:'OR', region:'pac' },
-  { id:'KSFO',        label:'San Francisco, CA',      short:'SFO', state:'CA', region:'pac' },
-  { id:'KOAK',        label:'Oakland, CA',            short:'OAK', state:'CA', region:'pac' },
-  { id:'KSMF',        label:'Sacramento, CA',         short:'SMF', state:'CA', region:'pac' },
-  { id:'KFAT',        label:'Fresno, CA',             short:'FAT', state:'CA', region:'pac' },
-  { id:'KLAX',        label:'Los Angeles, CA',        short:'LAX', state:'CA', region:'pac' },
-  { id:'KSAN',        label:'San Diego, CA',          short:'SAN', state:'CA', region:'pac' },
-  { id:'KRNO',        label:'Reno, NV',               short:'RNO', state:'NV', region:'pac' },
+  { id:"PANC", label:"Anchorage, AK", short:"ANC", state:"AK", lat:61.174, lon:-149.996, fallback:["ANCthr"] },
+  { id:"PABR", label:"Barrow, AK", short:"ABR", state:"AK", lat:71.283, lon:-156.792, fallback:["ABRthr"] },
+  { id:"PABE", label:"Bethel, AK", short:"ABE", state:"AK", lat:60.786, lon:-161.826, fallback:["ABEthr"] },
+  { id:"PADU", label:"Dutch Harbor/Unalaska, AK", short:"ADU", state:"AK", lat:53.9, lon:-166.544, fallback:["ADUthr"] },
+  { id:"PAFA", label:"Fairbanks, AK", short:"AFA", state:"AK", lat:64.815, lon:-147.876, fallback:["AFAthr"] },
+  { id:"PAHO", label:"Homer, AK", short:"AHO", state:"AK", lat:59.646, lon:-151.477, fallback:["AHOthr"] },
+  { id:"PAJN", label:"Juneau, AK", short:"AJN", state:"AK", lat:58.355, lon:-134.576, fallback:["AJNthr"] },
+  { id:"PAEN", label:"Kenai, AK", short:"AEN", state:"AK", lat:60.58, lon:-151.239, fallback:["AENthr"] },
+  { id:"PAKT", label:"Ketchikan, AK", short:"AKT", state:"AK", lat:55.356, lon:-131.714, fallback:["AKTthr"] },
+  { id:"PADQ", label:"Kodiak, AK", short:"ADQ", state:"AK", lat:57.749, lon:-152.494, fallback:["ADQthr"] },
+  { id:"KBHM", label:"Birmingham, AL", short:"BHM", state:"AL", lat:33.563, lon:-86.735, fallback:["BHMthr"] },
+  { id:"KHSV", label:"Huntsville, AL", short:"HSV", state:"AL", lat:34.641, lon:-86.775, fallback:["HSVthr"] },
+  { id:"KMOB", label:"Mobile, AL", short:"MOB", state:"AL", lat:30.692, lon:-88.247, fallback:["MOBthr"] },
+  { id:"KMGM", label:"Montgomery, AL", short:"MGM", state:"AL", lat:32.3, lon:-86.394, fallback:["MGMthr"] },
+  { id:"KXNA", label:"Bentonville, AR", short:"XNA", state:"AR", lat:36.282, lon:-94.307, fallback:["XNAthr"] },
+  { id:"KFYV", label:"Fayetteville, AR", short:"FYV", state:"AR", lat:36.004, lon:-94.17, fallback:["FYVthr"] },
+  { id:"KFSM", label:"Fort Smith, AR", short:"FSM", state:"AR", lat:35.337, lon:-94.368, fallback:["FSMthr"] },
+  { id:"KHOT", label:"Hot Springs, AR", short:"HOT", state:"AR", lat:34.478, lon:-93.096, fallback:["HOTthr"] },
+  { id:"KLIT", label:"Little Rock, AR", short:"LIT", state:"AR", lat:34.729, lon:-92.224, fallback:["LITthr"] },
+  { id:"KTXK", label:"Texarkana, AR", short:"TXK", state:"AR", lat:33.454, lon:-93.991, fallback:["TXKthr"] },
+  { id:"KIFP", label:"Bullhead City, AZ", short:"IFP", state:"AZ", lat:35.157, lon:-114.56, fallback:["IFPthr"] },
+  { id:"KFLG", label:"Flagstaff, AZ", short:"FLG", state:"AZ", lat:35.138, lon:-111.67, fallback:["FLGthr"] },
+  { id:"KGCN", label:"Grand Canyon, AZ", short:"GCN", state:"AZ", lat:35.946, lon:-112.155, fallback:["GCNthr"] },
+  { id:"KPHX", label:"Phoenix, AZ", short:"PHX", state:"AZ", lat:33.437, lon:-112.008, fallback:["PHXthr"] },
+  { id:"KPRC", label:"Prescott, AZ", short:"PRC", state:"AZ", lat:34.648, lon:-112.42, fallback:["PRCthr"] },
+  { id:"KSDL", label:"Scottsdale, AZ", short:"SDL", state:"AZ", lat:33.623, lon:-111.911, fallback:["SDLthr"] },
+  { id:"KTUS", label:"Tucson, AZ", short:"TUS", state:"AZ", lat:32.116, lon:-110.941, fallback:["TUSthr"] },
+  { id:"KYUM", label:"Yuma, AZ", short:"YUM", state:"AZ", lat:32.657, lon:-114.605, fallback:["YUMthr"] },
+  { id:"KACV", label:"Arcata/Eureka, CA", short:"ACV", state:"CA", lat:40.978, lon:-124.109, fallback:["ACVthr"] },
+  { id:"KBFL", label:"Bakersfield, CA", short:"BFL", state:"CA", lat:35.434, lon:-119.057, fallback:["BFLthr"] },
+  { id:"KBUR", label:"Burbank, CA", short:"BUR", state:"CA", lat:34.201, lon:-118.359, fallback:["BURthr"] },
+  { id:"KCRQ", label:"Carlsbad, CA", short:"CRQ", state:"CA", lat:33.13, lon:-117.28, fallback:["CRQthr"] },
+  { id:"KCIC", label:"Chico, CA", short:"CIC", state:"CA", lat:39.795, lon:-121.858, fallback:["CICthr"] },
+  { id:"KFAT", label:"Fresno, CA", short:"FAT", state:"CA", lat:36.777, lon:-119.719, fallback:["FATthr"] },
+  { id:"KLGB", label:"Long Beach, CA", short:"LGB", state:"CA", lat:33.818, lon:-118.152, fallback:["LGBthr"] },
+  { id:"KLAX", label:"Los Angeles, CA", short:"LAX", state:"CA", lat:33.942, lon:-118.408, fallback:["LAXthr"] },
+  { id:"KMRY", label:"Monterey, CA", short:"MRY", state:"CA", lat:36.587, lon:-121.843, fallback:["MRYthr"] },
+  { id:"KOAK", label:"Oakland, CA", short:"OAK", state:"CA", lat:37.721, lon:-122.221, fallback:["OAKthr"] },
+  { id:"KONT", label:"Ontario, CA", short:"ONT", state:"CA", lat:34.056, lon:-117.601, fallback:["ONTthr"] },
+  { id:"KSNA", label:"Orange County, CA", short:"SNA", state:"CA", lat:33.676, lon:-117.868, fallback:["SNAthr"] },
+  { id:"KPSP", label:"Palm Springs, CA", short:"PSP", state:"CA", lat:33.83, lon:-116.507, fallback:["PSPthr"] },
+  { id:"KRDD", label:"Redding, CA", short:"RDD", state:"CA", lat:40.509, lon:-122.294, fallback:["RDDthr"] },
+  { id:"KSMF", label:"Sacramento, CA", short:"SMF", state:"CA", lat:38.696, lon:-121.591, fallback:["SMFthr"] },
+  { id:"KSAN", label:"San Diego, CA", short:"SAN", state:"CA", lat:32.733, lon:-117.19, fallback:["SANthr"] },
+  { id:"KSFO", label:"San Francisco, CA", short:"SFO", state:"CA", lat:37.619, lon:-122.375, fallback:["SFOthr"] },
+  { id:"KSJC", label:"San Jose, CA", short:"SJC", state:"CA", lat:37.362, lon:-121.929, fallback:["SJCthr"] },
+  { id:"KSBA", label:"Santa Barbara, CA", short:"SBA", state:"CA", lat:34.426, lon:-119.84, fallback:["SBAthr"] },
+  { id:"KSTS", label:"Santa Rosa, CA", short:"STS", state:"CA", lat:38.509, lon:-122.813, fallback:["STSthr"] },
+  { id:"KALS", label:"Alamosa, CO", short:"ALS", state:"CO", lat:37.439, lon:-105.861, fallback:["ALSthr"] },
+  { id:"KASE", label:"Aspen, CO", short:"ASE", state:"CO", lat:39.223, lon:-106.869, fallback:["ASEthr"] },
+  { id:"KCOS", label:"Colorado Springs, CO", short:"COS", state:"CO", lat:38.806, lon:-104.701, fallback:["COSthr"] },
+  { id:"KDEN", label:"Denver, CO", short:"DEN", state:"CO", lat:39.859, lon:-104.668, fallback:["DENthr"] },
+  { id:"KEGE", label:"Eagle/Vail, CO", short:"EGE", state:"CO", lat:39.643, lon:-106.918, fallback:["EGEthr"] },
+  { id:"KGJT", label:"Grand Junction, CO", short:"GJT", state:"CO", lat:39.122, lon:-108.527, fallback:["GJTthr"] },
+  { id:"KMTJ", label:"Montrose, CO", short:"MTJ", state:"CO", lat:38.505, lon:-107.898, fallback:["MTJthr"] },
+  { id:"KPUB", label:"Pueblo, CO", short:"PUB", state:"CO", lat:38.289, lon:-104.497, fallback:["PUBthr"] },
+  { id:"KBDR", label:"Bridgeport, CT", short:"BDR", state:"CT", lat:41.163, lon:-73.127, fallback:["BDRthr"] },
+  { id:"KDXR", label:"Danbury, CT", short:"DXR", state:"CT", lat:41.37, lon:-73.48, fallback:["DXRthr"] },
+  { id:"KGON", label:"Groton, CT", short:"GON", state:"CT", lat:41.33, lon:-71.995, fallback:["GONthr"] },
+  { id:"KHFD", label:"Hartford Brainard, CT", short:"HFD", state:"CT", lat:41.737, lon:-72.649, fallback:["HFDthr"] },
+  { id:"KBDL", label:"Hartford, CT", short:"BDL", state:"CT", lat:41.939, lon:-72.683, fallback:["BDLthr"] },
+  { id:"KHVN", label:"New Haven, CT", short:"HVN", state:"CT", lat:41.265, lon:-72.887, fallback:["HVNthr"] },
+  { id:"KDCA", label:"Washington, DC", short:"DCA", state:"DC", lat:38.851, lon:-77.037, fallback:["DCAthr"] },
+  { id:"KDOV", label:"Dover AFB, DE", short:"DOV", state:"DE", lat:39.13, lon:-75.466, fallback:["DOVthr"] },
+  { id:"KGED", label:"Georgetown, DE", short:"GED", state:"DE", lat:38.689, lon:-75.359, fallback:["GEDthr"] },
+  { id:"KILG", label:"Wilmington, DE", short:"ILG", state:"DE", lat:39.679, lon:-75.607, fallback:["ILGthr"] },
+  { id:"KFLL", label:"Fort Lauderdale, FL", short:"FLL", state:"FL", lat:26.073, lon:-80.153, fallback:["FLLthr"] },
+  { id:"KRSW", label:"Fort Myers, FL", short:"RSW", state:"FL", lat:26.536, lon:-81.755, fallback:["RSWthr"] },
+  { id:"KGNV", label:"Gainesville, FL", short:"GNV", state:"FL", lat:29.691, lon:-82.271, fallback:["GNVthr"] },
+  { id:"KJAX", label:"Jacksonville, FL", short:"JAX", state:"FL", lat:30.494, lon:-81.688, fallback:["JAXthr"] },
+  { id:"KEYW", label:"Key West, FL", short:"EYW", state:"FL", lat:24.556, lon:-81.759, fallback:["EYWthr"] },
+  { id:"KMIA", label:"Miami, FL", short:"MIA", state:"FL", lat:25.796, lon:-80.287, fallback:["MIAthr"] },
+  { id:"KMCO", label:"Orlando, FL", short:"MCO", state:"FL", lat:28.429, lon:-81.309, fallback:["MCOthr"] },
+  { id:"KPNS", label:"Pensacola, FL", short:"PNS", state:"FL", lat:30.473, lon:-87.189, fallback:["PNSthr"] },
+  { id:"KTLH", label:"Tallahassee, FL", short:"TLH", state:"FL", lat:30.397, lon:-84.347, fallback:["TLHthr"] },
+  { id:"KTPA", label:"Tampa, FL", short:"TPA", state:"FL", lat:27.976, lon:-82.534, fallback:["TPAthr"] },
+  { id:"KATL", label:"Atlanta, GA", short:"ATL", state:"GA", lat:33.641, lon:-84.427, fallback:["ATLthr"] },
+  { id:"KAGS", label:"Augusta, GA", short:"AGS", state:"GA", lat:33.37, lon:-81.965, fallback:["AGSthr"] },
+  { id:"KCSG", label:"Columbus, GA", short:"CSG", state:"GA", lat:32.519, lon:-84.941, fallback:["CSGthr"] },
+  { id:"KSAV", label:"Savannah, GA", short:"SAV", state:"GA", lat:32.128, lon:-81.202, fallback:["SAVthr"] },
+  { id:"KVLD", label:"Valdosta, GA", short:"VLD", state:"GA", lat:30.782, lon:-83.277, fallback:["VLDthr"] },
+  { id:"PHTO", label:"Hilo, HI", short:"HTO", state:"HI", lat:19.72, lon:-155.048, fallback:["HTOthr"] },
+  { id:"PHNL", label:"Honolulu, HI", short:"HNL", state:"HI", lat:21.332, lon:-157.921, fallback:["HNLthr"] },
+  { id:"PHKO", label:"Kona, HI", short:"HKO", state:"HI", lat:19.739, lon:-156.046, fallback:["HKOthr"] },
+  { id:"PHOG", label:"Maui, HI", short:"HOG", state:"HI", lat:20.898, lon:-156.43, fallback:["HOGthr"] },
+  { id:"KCID", label:"Cedar Rapids, IA", short:"CID", state:"IA", lat:41.885, lon:-91.711, fallback:["CIDthr"] },
+  { id:"KDVN", label:"Davenport, IA", short:"DVN", state:"IA", lat:41.612, lon:-90.588, fallback:["DVNthr"] },
+  { id:"KDSM", label:"Des Moines, IA", short:"DSM", state:"IA", lat:41.534, lon:-93.663, fallback:["DSMthr"] },
+  { id:"KDBQ", label:"Dubuque, IA", short:"DBQ", state:"IA", lat:42.398, lon:-90.709, fallback:["DBQthr"] },
+  { id:"KSUX", label:"Sioux City, IA", short:"SUX", state:"IA", lat:42.402, lon:-96.384, fallback:["SUXthr"] },
+  { id:"KALO", label:"Waterloo, IA", short:"ALO", state:"IA", lat:42.554, lon:-92.401, fallback:["ALOthr"] },
+  { id:"KBOI", label:"Boise, ID", short:"BOI", state:"ID", lat:43.564, lon:-116.223, fallback:["BOIthr"] },
+  { id:"KCOE", label:"Coeur d'Alene, ID", short:"COE", state:"ID", lat:47.774, lon:-116.82, fallback:["COEthr"] },
+  { id:"KIDA", label:"Idaho Falls, ID", short:"IDA", state:"ID", lat:43.514, lon:-112.071, fallback:["IDAthr"] },
+  { id:"KLWS", label:"Lewiston, ID", short:"LWS", state:"ID", lat:46.375, lon:-117.015, fallback:["LWSthr"] },
+  { id:"KMYL", label:"McCall, ID", short:"MYL", state:"ID", lat:44.889, lon:-116.102, fallback:["MYLthr"] },
+  { id:"KMUO", label:"Mountain Home AFB, ID", short:"MUO", state:"ID", lat:43.044, lon:-115.872, fallback:["MUOthr"] },
+  { id:"KPIH", label:"Pocatello, ID", short:"PIH", state:"ID", lat:42.91, lon:-112.596, fallback:["PIHthr"] },
+  { id:"KSUN", label:"Sun Valley, ID", short:"SUN", state:"ID", lat:43.497, lon:-114.292, fallback:["SUNthr"] },
+  { id:"KTWF", label:"Twin Falls, ID", short:"TWF", state:"ID", lat:42.482, lon:-114.488, fallback:["TWFthr"] },
+  { id:"KBMI", label:"Bloomington/Normal, IL", short:"BMI", state:"IL", lat:40.477, lon:-88.916, fallback:["BMIthr"] },
+  { id:"KCMI", label:"Champaign, IL", short:"CMI", state:"IL", lat:40.04, lon:-88.278, fallback:["CMIthr"] },
+  { id:"KMDW", label:"Chicago Midway, IL", short:"MDW", state:"IL", lat:41.786, lon:-87.752, fallback:["MDWthr"] },
+  { id:"KORD", label:"Chicago, IL", short:"ORD", state:"IL", lat:41.978, lon:-87.908, fallback:["ORDthr"] },
+  { id:"KDEC", label:"Decatur, IL", short:"DEC", state:"IL", lat:39.835, lon:-88.866, fallback:["DECthr"] },
+  { id:"KPIA", label:"Peoria, IL", short:"PIA", state:"IL", lat:40.664, lon:-89.693, fallback:["PIAthr"] },
+  { id:"KMLI", label:"Quad Cities, IL", short:"MLI", state:"IL", lat:41.448, lon:-90.513, fallback:["MLIthr"] },
+  { id:"KRFD", label:"Rockford, IL", short:"RFD", state:"IL", lat:42.195, lon:-89.097, fallback:["RFDthr"] },
+  { id:"KSPI", label:"Springfield, IL", short:"SPI", state:"IL", lat:39.844, lon:-89.678, fallback:["SPIthr"] },
+  { id:"KEVV", label:"Evansville, IN", short:"EVV", state:"IN", lat:37.999, lon:-87.531, fallback:["EVVthr"] },
+  { id:"KFWA", label:"Fort Wayne, IN", short:"FWA", state:"IN", lat:40.978, lon:-85.196, fallback:["FWAthr"] },
+  { id:"KIND", label:"Indianapolis, IN", short:"IND", state:"IN", lat:39.717, lon:-86.295, fallback:["INDthr"] },
+  { id:"KMIE", label:"Muncie, IN", short:"MIE", state:"IN", lat:40.242, lon:-85.396, fallback:["MIEthr"] },
+  { id:"KSBN", label:"South Bend, IN", short:"SBN", state:"IN", lat:41.708, lon:-86.316, fallback:["SBNthr"] },
+  { id:"KHUF", label:"Terre Haute, IN", short:"HUF", state:"IN", lat:39.451, lon:-87.308, fallback:["HUFthr"] },
+  { id:"KDDC", label:"Dodge City, KS", short:"DDC", state:"KS", lat:37.763, lon:-99.965, fallback:["DDCthr"] },
+  { id:"KGCK", label:"Garden City, KS", short:"GCK", state:"KS", lat:37.928, lon:-100.725, fallback:["GCKthr"] },
+  { id:"KMHK", label:"Manhattan, KS", short:"MHK", state:"KS", lat:39.141, lon:-96.671, fallback:["MHKthr"] },
+  { id:"KSLN", label:"Salina, KS", short:"SLN", state:"KS", lat:38.791, lon:-97.652, fallback:["SLNthr"] },
+  { id:"KTOP", label:"Topeka, KS", short:"TOP", state:"KS", lat:39.068, lon:-95.622, fallback:["TOPthr"] },
+  { id:"KICT", label:"Wichita, KS", short:"ICT", state:"KS", lat:37.65, lon:-97.433, fallback:["ICTthr"] },
+  { id:"KCVG", label:"Cincinnati, KY", short:"CVG", state:"KY", lat:39.046, lon:-84.668, fallback:["CVGthr"] },
+  { id:"KHOP", label:"Fort Campbell AAF, KY", short:"HOP", state:"KY", lat:36.669, lon:-87.496, fallback:["HOPthr"] },
+  { id:"KFFT", label:"Frankfort, KY", short:"FFT", state:"KY", lat:38.185, lon:-84.903, fallback:["FFTthr"] },
+  { id:"KLEX", label:"Lexington, KY", short:"LEX", state:"KY", lat:38.036, lon:-84.606, fallback:["LEXthr"] },
+  { id:"KSDF", label:"Louisville, KY", short:"SDF", state:"KY", lat:38.174, lon:-85.736, fallback:["SDFthr"] },
+  { id:"KPAH", label:"Paducah, KY", short:"PAH", state:"KY", lat:37.061, lon:-88.774, fallback:["PAHthr"] },
+  { id:"KAEX", label:"Alexandria, LA", short:"AEX", state:"LA", lat:31.335, lon:-92.559, fallback:["AEXthr"] },
+  { id:"KBTR", label:"Baton Rouge, LA", short:"BTR", state:"LA", lat:30.533, lon:-91.15, fallback:["BTRthr"] },
+  { id:"KLFT", label:"Lafayette, LA", short:"LFT", state:"LA", lat:30.205, lon:-91.988, fallback:["LFTthr"] },
+  { id:"KLCH", label:"Lake Charles, LA", short:"LCH", state:"LA", lat:30.126, lon:-93.226, fallback:["LCHthr"] },
+  { id:"KMLU", label:"Monroe, LA", short:"MLU", state:"LA", lat:32.511, lon:-92.038, fallback:["MLUthr"] },
+  { id:"KMSY", label:"New Orleans, LA", short:"MSY", state:"LA", lat:29.994, lon:-90.258, fallback:["MSYthr"] },
+  { id:"KSHV", label:"Shreveport, LA", short:"SHV", state:"LA", lat:32.447, lon:-93.826, fallback:["SHVthr"] },
+  { id:"KBED", label:"Bedford, MA", short:"BED", state:"MA", lat:42.47, lon:-71.289, fallback:["BEDthr"] },
+  { id:"KBOS", label:"Boston, MA", short:"BOS", state:"MA", lat:42.363, lon:-71.006, fallback:["BOSthr"] },
+  { id:"KHYA", label:"Hyannis, MA", short:"HYA", state:"MA", lat:41.669, lon:-70.28, fallback:["HYAthr"] },
+  { id:"KMVY", label:"Marthas Vineyard, MA", short:"MVY", state:"MA", lat:41.393, lon:-70.615, fallback:["MVYthr"] },
+  { id:"KACK", label:"Nantucket, MA", short:"ACK", state:"MA", lat:41.253, lon:-70.061, fallback:["ACKthr"] },
+  { id:"KEWB", label:"New Bedford, MA", short:"EWB", state:"MA", lat:41.676, lon:-70.958, fallback:["EWBthr"] },
+  { id:"KORH", label:"Worcester, MA", short:"ORH", state:"MA", lat:42.268, lon:-71.876, fallback:["ORHthr"] },
+  { id:"KADW", label:"Andrews AFB, MD", short:"ADW", state:"MD", lat:38.811, lon:-76.867, fallback:["ADWthr"] },
+  { id:"KBWI", label:"Baltimore, MD", short:"BWI", state:"MD", lat:39.178, lon:-76.669, fallback:["BWIthr"] },
+  { id:"KHGR", label:"Hagerstown, MD", short:"HGR", state:"MD", lat:39.708, lon:-77.73, fallback:["HGRthr"] },
+  { id:"KSBY", label:"Salisbury, MD", short:"SBY", state:"MD", lat:38.34, lon:-75.513, fallback:["SBYthr"] },
+  { id:"KLEW", label:"Auburn-Lewiston, ME", short:"LEW", state:"ME", lat:44.048, lon:-70.284, fallback:["LEWthr"] },
+  { id:"KAUG", label:"Augusta, ME", short:"AUG", state:"ME", lat:44.321, lon:-69.797, fallback:["AUGthr"] },
+  { id:"KBGR", label:"Bangor, ME", short:"BGR", state:"ME", lat:44.808, lon:-68.828, fallback:["BGRthr"] },
+  { id:"KBHB", label:"Bar Harbor, ME", short:"BHB", state:"ME", lat:44.45, lon:-68.361, fallback:["BHBthr"] },
+  { id:"KCAR", label:"Caribou, ME", short:"CAR", state:"ME", lat:46.871, lon:-68.019, fallback:["CARthr"] },
+  { id:"KPWM", label:"Portland, ME", short:"PWM", state:"ME", lat:43.645, lon:-70.309, fallback:["PWMthr"] },
+  { id:"KPQI", label:"Presque Isle, ME", short:"PQI", state:"ME", lat:46.689, lon:-68.045, fallback:["PQIthr"] },
+  { id:"KRKD", label:"Rockland, ME", short:"RKD", state:"ME", lat:44.06, lon:-69.099, fallback:["RKDthr"] },
+  { id:"KAPN", label:"Alpena, MI", short:"APN", state:"MI", lat:45.072, lon:-83.564, fallback:["APNthr"] },
+  { id:"KDTW", label:"Detroit, MI", short:"DTW", state:"MI", lat:42.212, lon:-83.353, fallback:["DTWthr"] },
+  { id:"KFNT", label:"Flint, MI", short:"FNT", state:"MI", lat:42.966, lon:-83.744, fallback:["FNTthr"] },
+  { id:"KGRR", label:"Grand Rapids, MI", short:"GRR", state:"MI", lat:42.881, lon:-85.523, fallback:["GRRthr"] },
+  { id:"KSAW", label:"K.I. Sawyer, MI", short:"SAW", state:"MI", lat:46.351, lon:-87.399, fallback:["SAWthr"] },
+  { id:"KLAN", label:"Lansing, MI", short:"LAN", state:"MI", lat:42.779, lon:-84.588, fallback:["LANthr"] },
+  { id:"KMQT", label:"Marquette, MI", short:"MQT", state:"MI", lat:46.5436, lon:-87.3954, fallback:["MQTthr"] },
+  { id:"KMBS", label:"Saginaw, MI", short:"MBS", state:"MI", lat:43.53, lon:-84.08, fallback:["MBSthr"] },
+  { id:"KSSM", label:"Sault Ste. Marie, MI", short:"SSM", state:"MI", lat:46.495, lon:-84.3453, fallback:["USW00014820"] },
+  { id:"KTVC", label:"Traverse City, MI", short:"TVC", state:"MI", lat:44.742, lon:-85.582, fallback:["TVCthr"] },
+  { id:"KBJI", label:"Bemidji, MN", short:"BJI", state:"MN", lat:47.509, lon:-94.934, fallback:["BJIthr"] },
+  { id:"KDLH", label:"Duluth, MN", short:"DLH", state:"MN", lat:46.843, lon:-92.194, fallback:["DLHthr"] },
+  { id:"KHIB", label:"Hibbing, MN", short:"HIB", state:"MN", lat:47.386, lon:-92.839, fallback:["HIBthr"] },
+  { id:"KMSP", label:"Minneapolis, MN", short:"MSP", state:"MN", lat:44.883, lon:-93.228, fallback:["MSPthr"] },
+  { id:"KRST", label:"Rochester, MN", short:"RST", state:"MN", lat:43.908, lon:-92.5, fallback:["RSTthr"] },
+  { id:"KSTC", label:"St. Cloud, MN", short:"STC", state:"MN", lat:45.547, lon:-94.059, fallback:["STCthr"] },
+  { id:"KSTP", label:"St. Paul, MN", short:"STP", state:"MN", lat:44.934, lon:-93.06, fallback:["STPthr"] },
+  { id:"KCOU", label:"Columbia, MO", short:"COU", state:"MO", lat:38.818, lon:-92.22, fallback:["COUthr"] },
+  { id:"KJLN", label:"Joplin, MO", short:"JLN", state:"MO", lat:37.152, lon:-94.495, fallback:["JLNthr"] },
+  { id:"KMCI", label:"Kansas City, MO", short:"MCI", state:"MO", lat:39.297, lon:-94.714, fallback:["MCIthr"] },
+  { id:"KSGF", label:"Springfield, MO", short:"SGF", state:"MO", lat:37.246, lon:-93.389, fallback:["SGFthr"] },
+  { id:"KSTJ", label:"St. Joseph, MO", short:"STJ", state:"MO", lat:39.772, lon:-94.91, fallback:["STJthr"] },
+  { id:"KSTL", label:"St. Louis, MO", short:"STL", state:"MO", lat:38.749, lon:-90.37, fallback:["STLthr"] },
+  { id:"KBIX", label:"Biloxi, MS", short:"BIX", state:"MS", lat:30.41, lon:-88.924, fallback:["BIXthr"] },
+  { id:"KGPT", label:"Gulfport, MS", short:"GPT", state:"MS", lat:30.408, lon:-89.07, fallback:["GPTthr"] },
+  { id:"KHBG", label:"Hattiesburg, MS", short:"HBG", state:"MS", lat:31.265, lon:-89.253, fallback:["HBGthr"] },
+  { id:"KJAN", label:"Jackson, MS", short:"JAN", state:"MS", lat:32.311, lon:-90.076, fallback:["JANthr"] },
+  { id:"KMEI", label:"Meridian, MS", short:"MEI", state:"MS", lat:32.332, lon:-88.752, fallback:["MEIthr"] },
+  { id:"KTUP", label:"Tupelo, MS", short:"TUP", state:"MS", lat:34.268, lon:-88.769, fallback:["TUPthr"] },
+  { id:"KBIL", label:"Billings, MT", short:"BIL", state:"MT", lat:45.807, lon:-108.543, fallback:["BILthr"] },
+  { id:"KBZN", label:"Bozeman, MT", short:"BZN", state:"MT", lat:45.778, lon:-111.16, fallback:["BZNthr"] },
+  { id:"KBTM", label:"Butte, MT", short:"BTM", state:"MT", lat:45.955, lon:-112.497, fallback:["BTMthr"] },
+  { id:"KGGW", label:"Glasgow, MT", short:"GGW", state:"MT", lat:48.212, lon:-106.615, fallback:["GGWthr"] },
+  { id:"KGTF", label:"Great Falls, MT", short:"GTF", state:"MT", lat:47.482, lon:-111.371, fallback:["GTFthr"] },
+  { id:"KHVR", label:"Havre, MT", short:"HVR", state:"MT", lat:48.543, lon:-109.763, fallback:["HVRthr"] },
+  { id:"KHLN", label:"Helena, MT", short:"HLN", state:"MT", lat:46.607, lon:-111.983, fallback:["HLNthr"] },
+  { id:"KLWT", label:"Lewistown, MT", short:"LWT", state:"MT", lat:47.049, lon:-109.467, fallback:["LWTthr"] },
+  { id:"KMLS", label:"Miles City, MT", short:"MLS", state:"MT", lat:46.428, lon:-105.886, fallback:["MLSthr"] },
+  { id:"KMSO", label:"Missoula, MT", short:"MSO", state:"MT", lat:46.916, lon:-114.091, fallback:["MSOthr"] },
+  { id:"KSDY", label:"Sidney, MT", short:"SDY", state:"MT", lat:47.707, lon:-104.193, fallback:["SDYthr"] },
+  { id:"KAVL", label:"Asheville, NC", short:"AVL", state:"NC", lat:35.436, lon:-82.542, fallback:["AVLthr"] },
+  { id:"KCLT", label:"Charlotte, NC", short:"CLT", state:"NC", lat:35.214, lon:-80.941, fallback:["CLTthr"] },
+  { id:"KFAY", label:"Fayetteville, NC", short:"FAY", state:"NC", lat:34.991, lon:-78.88, fallback:["FAYthr"] },
+  { id:"KFBG", label:"Fort Bragg, NC", short:"FBG", state:"NC", lat:35.132, lon:-78.937, fallback:["FBGthr"] },
+  { id:"KGSO", label:"Greensboro, NC", short:"GSO", state:"NC", lat:36.098, lon:-79.937, fallback:["GSOthr"] },
+  { id:"KEWN", label:"New Bern, NC", short:"EWN", state:"NC", lat:35.073, lon:-77.044, fallback:["EWNthr"] },
+  { id:"KRDU", label:"Raleigh-Durham, NC", short:"RDU", state:"NC", lat:35.878, lon:-78.787, fallback:["RDUthr"] },
+  { id:"KILM", label:"Wilmington, NC", short:"ILM", state:"NC", lat:34.271, lon:-77.903, fallback:["ILMthr"] },
+  { id:"KBIS", label:"Bismarck, ND", short:"BIS", state:"ND", lat:46.773, lon:-100.747, fallback:["BISthr"] },
+  { id:"KDIK", label:"Dickinson, ND", short:"DIK", state:"ND", lat:46.797, lon:-102.802, fallback:["DIKthr"] },
+  { id:"KFAR", label:"Fargo, ND", short:"FAR", state:"ND", lat:46.921, lon:-96.815, fallback:["FARthr"] },
+  { id:"KGFK", label:"Grand Forks, ND", short:"GFK", state:"ND", lat:47.95, lon:-97.176, fallback:["GFKthr"] },
+  { id:"KMOT", label:"Minot, ND", short:"MOT", state:"ND", lat:48.259, lon:-101.28, fallback:["MOTthr"] },
+  { id:"KGRI", label:"Grand Island, NE", short:"GRI", state:"NE", lat:40.967, lon:-98.309, fallback:["GRIthr"] },
+  { id:"KEAR", label:"Kearney, NE", short:"EAR", state:"NE", lat:40.727, lon:-99.007, fallback:["EARthr"] },
+  { id:"KLNK", label:"Lincoln, NE", short:"LNK", state:"NE", lat:40.851, lon:-96.759, fallback:["LNKthr"] },
+  { id:"KLBF", label:"North Platte, NE", short:"LBF", state:"NE", lat:41.122, lon:-100.669, fallback:["LBFthr"] },
+  { id:"KOFF", label:"Offutt AFB, NE", short:"OFF", state:"NE", lat:41.118, lon:-95.913, fallback:["OFFthr"] },
+  { id:"KOMA", label:"Omaha, NE", short:"OMA", state:"NE", lat:41.303, lon:-95.894, fallback:["OMAthr"] },
+  { id:"KBFF", label:"Scottsbluff, NE", short:"BFF", state:"NE", lat:41.875, lon:-103.597, fallback:["BFFthr"] },
+  { id:"KCON", label:"Concord, NH", short:"CON", state:"NH", lat:43.202, lon:-71.502, fallback:["CONthr"] },
+  { id:"KLEB", label:"Lebanon, NH", short:"LEB", state:"NH", lat:43.627, lon:-72.304, fallback:["LEBthr"] },
+  { id:"KMHT", label:"Manchester, NH", short:"MHT", state:"NH", lat:42.933, lon:-71.436, fallback:["MHTthr"] },
+  { id:"KASH", label:"Nashua, NH", short:"ASH", state:"NH", lat:42.782, lon:-71.515, fallback:["ASHthr"] },
+  { id:"KPSM", label:"Portsmouth, NH", short:"PSM", state:"NH", lat:43.078, lon:-70.823, fallback:["PSMthr"] },
+  { id:"KACY", label:"Atlantic City, NJ", short:"ACY", state:"NJ", lat:39.458, lon:-74.577, fallback:["ACYthr"] },
+  { id:"KMMU", label:"Morristown, NJ", short:"MMU", state:"NJ", lat:40.799, lon:-74.415, fallback:["MMUthr"] },
+  { id:"KEWR", label:"Newark, NJ", short:"EWR", state:"NJ", lat:40.693, lon:-74.177, fallback:["EWRthr"] },
+  { id:"KTEB", label:"Teterboro, NJ", short:"TEB", state:"NJ", lat:40.85, lon:-74.061, fallback:["TEBthr"] },
+  { id:"KTTN", label:"Trenton, NJ", short:"TTN", state:"NJ", lat:40.277, lon:-74.816, fallback:["TTNthr"] },
+  { id:"KABQ", label:"Albuquerque, NM", short:"ABQ", state:"NM", lat:35.04, lon:-106.61, fallback:["ABQthr"] },
+  { id:"KCNM", label:"Carlsbad, NM", short:"CNM", state:"NM", lat:32.337, lon:-104.263, fallback:["CNMthr"] },
+  { id:"KFMN", label:"Farmington, NM", short:"FMN", state:"NM", lat:36.744, lon:-108.229, fallback:["FMNthr"] },
+  { id:"KHOB", label:"Hobbs, NM", short:"HOB", state:"NM", lat:32.688, lon:-103.217, fallback:["HOBthr"] },
+  { id:"KLRU", label:"Las Cruces, NM", short:"LRU", state:"NM", lat:32.289, lon:-106.922, fallback:["LRUthr"] },
+  { id:"KROW", label:"Roswell, NM", short:"ROW", state:"NM", lat:33.301, lon:-104.531, fallback:["ROWthr"] },
+  { id:"KSAF", label:"Santa Fe, NM", short:"SAF", state:"NM", lat:35.617, lon:-106.088, fallback:["SAFthr"] },
+  { id:"KSVC", label:"Silver City, NM", short:"SVC", state:"NM", lat:32.637, lon:-108.156, fallback:["SVCthr"] },
+  { id:"KCXP", label:"Carson City, NV", short:"CXP", state:"NV", lat:39.192, lon:-119.733, fallback:["CXPthr"] },
+  { id:"KEKO", label:"Elko, NV", short:"EKO", state:"NV", lat:40.824, lon:-115.786, fallback:["EKOthr"] },
+  { id:"KELY", label:"Ely, NV", short:"ELY", state:"NV", lat:39.295, lon:-114.845, fallback:["ELYthr"] },
+  { id:"KLAS", label:"Las Vegas, NV", short:"LAS", state:"NV", lat:36.08, lon:-115.152, fallback:["LASthr"] },
+  { id:"KVGT", label:"North Las Vegas, NV", short:"VGT", state:"NV", lat:36.211, lon:-115.193, fallback:["VGTthr"] },
+  { id:"KRNO", label:"Reno, NV", short:"RNO", state:"NV", lat:39.499, lon:-119.768, fallback:["RNOthr"] },
+  { id:"KWMC", label:"Winnemucca, NV", short:"WMC", state:"NV", lat:40.902, lon:-117.807, fallback:["WMCthr"] },
+  { id:"KALB", label:"Albany, NY", short:"ALB", state:"NY", lat:42.748, lon:-73.801, fallback:["ALBthr"] },
+  { id:"KBGM", label:"Binghamton, NY", short:"BGM", state:"NY", lat:42.209, lon:-75.98, fallback:["BGMthr"] },
+  { id:"KBUF", label:"Buffalo, NY", short:"BUF", state:"NY", lat:42.941, lon:-78.733, fallback:["BUFthr"] },
+  { id:"USW00094728", label:"Central Park, NY", short:"NYC", state:"NY", lat:40.7825, lon:-73.9655, fallback:["94728 6","305801 3","KNYC"] },
+  { id:"KELM", label:"Elmira, NY", short:"ELM", state:"NY", lat:42.16, lon:-76.892, fallback:["ELMthr"] },
+  { id:"KISP", label:"Islip, NY", short:"ISP", state:"NY", lat:40.795, lon:-73.1, fallback:["ISPthr"] },
+  { id:"KJFK", label:"JFK Airport, NY", short:"JFK", state:"NY", lat:40.64, lon:-73.779, fallback:["JFKthr"] },
+  { id:"KLGA", label:"LaGuardia, NY", short:"LGA", state:"NY", lat:40.778, lon:-73.877, fallback:["LGAthr"] },
+  { id:"KSWF", label:"Newburgh, NY", short:"SWF", state:"NY", lat:41.504, lon:-74.105, fallback:["SWFthr"] },
+  { id:"KIAG", label:"Niagara Falls, NY", short:"IAG", state:"NY", lat:43.107, lon:-78.946, fallback:["IAGthr"] },
+  { id:"KPOU", label:"Poughkeepsie, NY", short:"POU", state:"NY", lat:41.627, lon:-73.884, fallback:["POUthr"] },
+  { id:"KROC", label:"Rochester, NY", short:"ROC", state:"NY", lat:43.12, lon:-77.672, fallback:["ROCthr"] },
+  { id:"KSYR", label:"Syracuse, NY", short:"SYR", state:"NY", lat:43.111, lon:-76.107, fallback:["SYRthr"] },
+  { id:"KCAK", label:"Akron, OH", short:"CAK", state:"OH", lat:40.917, lon:-81.442, fallback:["CAKthr"] },
+  { id:"KCLE", label:"Cleveland, OH", short:"CLE", state:"OH", lat:41.413, lon:-81.855, fallback:["CLEthr"] },
+  { id:"KLCK", label:"Columbus Rickenbacker, OH", short:"LCK", state:"OH", lat:39.814, lon:-82.928, fallback:["LCKthr"] },
+  { id:"KCMH", label:"Columbus, OH", short:"CMH", state:"OH", lat:39.999, lon:-82.887, fallback:["CMHthr"] },
+  { id:"KDAY", label:"Dayton, OH", short:"DAY", state:"OH", lat:39.902, lon:-84.219, fallback:["DAYthr"] },
+  { id:"KMFD", label:"Mansfield, OH", short:"MFD", state:"OH", lat:40.82, lon:-82.52, fallback:["MFDthr"] },
+  { id:"KTOL", label:"Toledo, OH", short:"TOL", state:"OH", lat:41.587, lon:-83.808, fallback:["TOLthr"] },
+  { id:"KFFO", label:"Wright-Patterson AFB, OH", short:"FFO", state:"OH", lat:39.826, lon:-84.048, fallback:["FFOthr"] },
+  { id:"KYNG", label:"Youngstown, OH", short:"YNG", state:"OH", lat:41.261, lon:-80.679, fallback:["YNGthr"] },
+  { id:"KADM", label:"Ardmore, OK", short:"ADM", state:"OK", lat:34.303, lon:-97.02, fallback:["ADMthr"] },
+  { id:"KEND", label:"Enid, OK", short:"END", state:"OK", lat:36.339, lon:-97.917, fallback:["ENDthr"] },
+  { id:"KLAW", label:"Lawton, OK", short:"LAW", state:"OK", lat:34.567, lon:-98.416, fallback:["LAWthr"] },
+  { id:"KOKC", label:"Oklahoma City, OK", short:"OKC", state:"OK", lat:35.394, lon:-97.601, fallback:["OKCthr"] },
+  { id:"KTUL", label:"Tulsa, OK", short:"TUL", state:"OK", lat:36.198, lon:-95.888, fallback:["TULthr"] },
+  { id:"KWDG", label:"Woodward, OK", short:"WDG", state:"OK", lat:36.38, lon:-97.791, fallback:["WDGthr"] },
+  { id:"KAST", label:"Astoria, OR", short:"AST", state:"OR", lat:46.158, lon:-123.879, fallback:["ASTthr"] },
+  { id:"KEUG", label:"Eugene, OR", short:"EUG", state:"OR", lat:44.125, lon:-123.219, fallback:["EUGthr"] },
+  { id:"KMFR", label:"Medford, OR", short:"MFR", state:"OR", lat:42.374, lon:-122.873, fallback:["MFRthr"] },
+  { id:"KOTH", label:"North Bend, OR", short:"OTH", state:"OR", lat:43.417, lon:-124.246, fallback:["OTHthr"] },
+  { id:"KPDT", label:"Pendleton, OR", short:"PDT", state:"OR", lat:45.695, lon:-118.841, fallback:["PDTthr"] },
+  { id:"KPDX", label:"Portland, OR", short:"PDX", state:"OR", lat:45.589, lon:-122.598, fallback:["PDXthr"] },
+  { id:"KRDM", label:"Redmond, OR", short:"RDM", state:"OR", lat:44.254, lon:-121.15, fallback:["RDMthr"] },
+  { id:"KSLE", label:"Salem, OR", short:"SLE", state:"OR", lat:44.91, lon:-123.003, fallback:["SLEthr"] },
+  { id:"KERI", label:"Erie, PA", short:"ERI", state:"PA", lat:42.083, lon:-80.174, fallback:["ERIthr"] },
+  { id:"KMDT", label:"Harrisburg, PA", short:"MDT", state:"PA", lat:40.194, lon:-76.763, fallback:["MDTthr"] },
+  { id:"KAOO", label:"Johnstown, PA", short:"AOO", state:"PA", lat:40.296, lon:-78.319, fallback:["AOOthr"] },
+  { id:"KLNS", label:"Lancaster, PA", short:"LNS", state:"PA", lat:40.12, lon:-76.294, fallback:["LNSthr"] },
+  { id:"KABE", label:"Lehigh Valley, PA", short:"ABE", state:"PA", lat:40.652, lon:-75.441, fallback:["ABEthr"] },
+  { id:"KPHL", label:"Philadelphia, PA", short:"PHL", state:"PA", lat:39.872, lon:-75.241, fallback:["PHLthr"] },
+  { id:"KPIT", label:"Pittsburgh, PA", short:"PIT", state:"PA", lat:40.491, lon:-80.233, fallback:["PITthr"] },
+  { id:"KAVP", label:"Scranton Wilkes-Barre, PA", short:"AVP", state:"PA", lat:41.338, lon:-75.724, fallback:["AVPthr"] },
+  { id:"KIPT", label:"Williamsport, PA", short:"IPT", state:"PA", lat:41.242, lon:-76.921, fallback:["IPTthr"] },
+  { id:"TJSJ", label:"San Juan, PR", short:"TJS", state:"PR", lat:18.44, lon:-66.005, fallback:["JSJthr"] },
+  { id:"KUUU", label:"Newport, RI", short:"UUU", state:"RI", lat:41.532, lon:-71.282, fallback:["UUUthr"] },
+  { id:"KOQU", label:"North Kingstown, RI", short:"OQU", state:"RI", lat:41.597, lon:-71.412, fallback:["OQUthr"] },
+  { id:"KPVD", label:"Providence, RI", short:"PVD", state:"RI", lat:41.724, lon:-71.434, fallback:["PVDthr"] },
+  { id:"KAND", label:"Anderson, SC", short:"AND", state:"SC", lat:34.495, lon:-82.709, fallback:["ANDthr"] },
+  { id:"KCHS", label:"Charleston, SC", short:"CHS", state:"SC", lat:32.899, lon:-80.041, fallback:["CHSthr"] },
+  { id:"KCAE", label:"Columbia, SC", short:"CAE", state:"SC", lat:33.939, lon:-81.12, fallback:["CAEthr"] },
+  { id:"KFLO", label:"Florence, SC", short:"FLO", state:"SC", lat:34.185, lon:-79.724, fallback:["FLOthr"] },
+  { id:"KGSP", label:"Greenville, SC", short:"GSP", state:"SC", lat:34.896, lon:-82.219, fallback:["GSPthr"] },
+  { id:"KMYR", label:"Myrtle Beach, SC", short:"MYR", state:"SC", lat:33.68, lon:-78.928, fallback:["MYRthr"] },
+  { id:"KABR", label:"Aberdeen, SD", short:"ABR", state:"SD", lat:45.449, lon:-98.421, fallback:["ABRthr"] },
+  { id:"KHON", label:"Huron, SD", short:"HON", state:"SD", lat:44.385, lon:-98.229, fallback:["HONthr"] },
+  { id:"KMHE", label:"Mitchell, SD", short:"MHE", state:"SD", lat:43.775, lon:-98.039, fallback:["MHEthr"] },
+  { id:"KRAP", label:"Rapid City, SD", short:"RAP", state:"SD", lat:44.045, lon:-103.057, fallback:["RAPthr"] },
+  { id:"KFSD", label:"Sioux Falls, SD", short:"FSD", state:"SD", lat:43.582, lon:-96.742, fallback:["FSDthr"] },
+  { id:"KATY", label:"Watertown, SD", short:"ATY", state:"SD", lat:44.914, lon:-97.155, fallback:["ATYthr"] },
+  { id:"KTRI", label:"Bristol/Tri-Cities, TN", short:"TRI", state:"TN", lat:36.475, lon:-82.407, fallback:["TRIthr"] },
+  { id:"KCHA", label:"Chattanooga, TN", short:"CHA", state:"TN", lat:35.035, lon:-85.203, fallback:["CHAthr"] },
+  { id:"KMRC", label:"Columbia, TN", short:"MRC", state:"TN", lat:35.554, lon:-87.179, fallback:["MRCthr"] },
+  { id:"KTYS", label:"Knoxville, TN", short:"TYS", state:"TN", lat:35.812, lon:-83.994, fallback:["TYSthr"] },
+  { id:"KMEM", label:"Memphis, TN", short:"MEM", state:"TN", lat:35.042, lon:-89.977, fallback:["MEMthr"] },
+  { id:"KBNA", label:"Nashville, TN", short:"BNA", state:"TN", lat:36.126, lon:-86.679, fallback:["BNAthr"] },
+  { id:"KABI", label:"Abilene, TX", short:"ABI", state:"TX", lat:32.411, lon:-99.682, fallback:["ABIthr"] },
+  { id:"KAMA", label:"Amarillo, TX", short:"AMA", state:"TX", lat:35.22, lon:-101.706, fallback:["AMAthr"] },
+  { id:"KATA", label:"Atlanta, TX", short:"ATA", state:"TX", lat:33.102, lon:-94.195, fallback:["ATAthr"] },
+  { id:"KAUS", label:"Austin, TX", short:"AUS", state:"TX", lat:30.194, lon:-97.67, fallback:["AUSthr"] },
+  { id:"KBRO", label:"Brownsville, TX", short:"BRO", state:"TX", lat:25.906, lon:-97.426, fallback:["BROthr"] },
+  { id:"KBMQ", label:"Burnet, TX", short:"BMQ", state:"TX", lat:30.739, lon:-98.239, fallback:["BMQthr"] },
+  { id:"KCRP", label:"Corpus Christi, TX", short:"CRP", state:"TX", lat:27.77, lon:-97.502, fallback:["CRPthr"] },
+  { id:"KDHT", label:"Dalhart, TX", short:"DHT", state:"TX", lat:36.023, lon:-102.547, fallback:["DHTthr"] },
+  { id:"KDAL", label:"Dallas Love Field, TX", short:"DAL", state:"TX", lat:32.847, lon:-96.851, fallback:["DALthr"] },
+  { id:"KDFW", label:"Dallas/Ft. Worth, TX", short:"DFW", state:"TX", lat:32.896, lon:-97.038, fallback:["DFWthr"] },
+  { id:"KEBG", label:"Edinburg, TX", short:"EBG", state:"TX", lat:26.442, lon:-98.122, fallback:["EBGthr"] },
+  { id:"KELP", label:"El Paso, TX", short:"ELP", state:"TX", lat:31.807, lon:-106.378, fallback:["ELPthr"] },
+  { id:"KFST", label:"Fort Stockton, TX", short:"FST", state:"TX", lat:30.912, lon:-102.917, fallback:["FSTthr"] },
+  { id:"KHOU", label:"Houston Hobby, TX", short:"HOU", state:"TX", lat:29.645, lon:-95.279, fallback:["HOUthr"] },
+  { id:"KIAH", label:"Houston, TX", short:"IAH", state:"TX", lat:29.98, lon:-95.338, fallback:["IAHthr"] },
+  { id:"KLRD", label:"Laredo, TX", short:"LRD", state:"TX", lat:27.544, lon:-99.462, fallback:["LRDthr"] },
+  { id:"KGGG", label:"Longview, TX", short:"GGG", state:"TX", lat:32.384, lon:-94.712, fallback:["GGGthr"] },
+  { id:"KMAF", label:"Midland, TX", short:"MAF", state:"TX", lat:31.943, lon:-102.202, fallback:["MAFthr"] },
+  { id:"KSAT", label:"San Antonio, TX", short:"SAT", state:"TX", lat:29.533, lon:-98.47, fallback:["SATthr"] },
+  { id:"KACT", label:"Waco, TX", short:"ACT", state:"TX", lat:31.611, lon:-97.229, fallback:["ACTthr"] },
+  { id:"KSPS", label:"Wichita Falls, TX", short:"SPS", state:"TX", lat:33.989, lon:-98.492, fallback:["SPSthr"] },
+  { id:"KCDC", label:"Cedar City, UT", short:"CDC", state:"UT", lat:37.701, lon:-113.099, fallback:["CDCthr"] },
+  { id:"KOGD", label:"Ogden, UT", short:"OGD", state:"UT", lat:41.196, lon:-112.012, fallback:["OGDthr"] },
+  { id:"KPVU", label:"Provo, UT", short:"PVU", state:"UT", lat:40.219, lon:-111.726, fallback:["PVUthr"] },
+  { id:"KSLC", label:"Salt Lake City, UT", short:"SLC", state:"UT", lat:40.788, lon:-111.979, fallback:["SLCthr"] },
+  { id:"KSGU", label:"St George, UT", short:"SGU", state:"UT", lat:37.036, lon:-113.51, fallback:["SGUthr"] },
+  { id:"KVEL", label:"Vernal, UT", short:"VEL", state:"UT", lat:40.441, lon:-109.51, fallback:["VELthr"] },
+  { id:"KCHO", label:"Charlottesville, VA", short:"CHO", state:"VA", lat:38.139, lon:-78.453, fallback:["CHOthr"] },
+  { id:"KDAN", label:"Danville, VA", short:"DAN", state:"VA", lat:36.573, lon:-79.336, fallback:["DANthr"] },
+  { id:"KLYH", label:"Lynchburg, VA", short:"LYH", state:"VA", lat:37.321, lon:-79.207, fallback:["LYHthr"] },
+  { id:"KPHF", label:"Newport News, VA", short:"PHF", state:"VA", lat:37.132, lon:-76.493, fallback:["PHFthr"] },
+  { id:"KORF", label:"Norfolk, VA", short:"ORF", state:"VA", lat:36.898, lon:-76.013, fallback:["ORFthr"] },
+  { id:"KRIC", label:"Richmond, VA", short:"RIC", state:"VA", lat:37.505, lon:-77.32, fallback:["RICthr"] },
+  { id:"KROA", label:"Roanoke, VA", short:"ROA", state:"VA", lat:37.325, lon:-79.975, fallback:["ROAthr"] },
+  { id:"KIAD", label:"Washington Dulles, VA", short:"IAD", state:"VA", lat:38.944, lon:-77.456, fallback:["IADthr"] },
+  { id:"KBTV", label:"Burlington, VT", short:"BTV", state:"VT", lat:44.472, lon:-73.153, fallback:["BTVthr"] },
+  { id:"KMPV", label:"Montpelier, VT", short:"MPV", state:"VT", lat:44.204, lon:-72.562, fallback:["MPVthr"] },
+  { id:"KEFK", label:"Newport, VT", short:"EFK", state:"VT", lat:44.889, lon:-72.229, fallback:["EFKthr"] },
+  { id:"KRUT", label:"Rutland, VT", short:"RUT", state:"VT", lat:43.53, lon:-72.95, fallback:["RUTthr"] },
+  { id:"KBLI", label:"Bellingham, WA", short:"BLI", state:"WA", lat:48.793, lon:-122.538, fallback:["BLIthr"] },
+  { id:"KPAE", label:"Everett, WA", short:"PAE", state:"WA", lat:47.906, lon:-122.281, fallback:["PAEthr"] },
+  { id:"KMWH", label:"Moses Lake, WA", short:"MWH", state:"WA", lat:47.209, lon:-119.319, fallback:["MWHthr"] },
+  { id:"KOLM", label:"Olympia, WA", short:"OLM", state:"WA", lat:46.974, lon:-122.903, fallback:["OLMthr"] },
+  { id:"KPSC", label:"Pasco/Tri-Cities, WA", short:"PSC", state:"WA", lat:46.265, lon:-119.119, fallback:["PSCthr"] },
+  { id:"KSEA", label:"Seattle, WA", short:"SEA", state:"WA", lat:47.449, lon:-122.309, fallback:["SEAthr"] },
+  { id:"KGEG", label:"Spokane, WA", short:"GEG", state:"WA", lat:47.62, lon:-117.534, fallback:["GEGthr"] },
+  { id:"KEAT", label:"Wenatchee, WA", short:"EAT", state:"WA", lat:47.399, lon:-120.207, fallback:["EATthr"] },
+  { id:"KYKM", label:"Yakima, WA", short:"YKM", state:"WA", lat:46.568, lon:-120.544, fallback:["YKMthr"] },
+  { id:"KATW", label:"Appleton, WI", short:"ATW", state:"WI", lat:44.258, lon:-88.519, fallback:["ATWthr"] },
+  { id:"KEAU", label:"Eau Claire, WI", short:"EAU", state:"WI", lat:44.865, lon:-91.483, fallback:["EAUthr"] },
+  { id:"KGRB", label:"Green Bay, WI", short:"GRB", state:"WI", lat:44.485, lon:-88.13, fallback:["GRBthr"] },
+  { id:"KLSE", label:"La Crosse, WI", short:"LSE", state:"WI", lat:43.879, lon:-91.257, fallback:["LSEthr"] },
+  { id:"KMSN", label:"Madison, WI", short:"MSN", state:"WI", lat:43.14, lon:-89.338, fallback:["MSNthr"] },
+  { id:"KMKE", label:"Milwaukee, WI", short:"MKE", state:"WI", lat:42.947, lon:-87.897, fallback:["MKEthr"] },
+  { id:"KRHI", label:"Rhinelander, WI", short:"RHI", state:"WI", lat:45.631, lon:-89.467, fallback:["RHIthr"] },
+  { id:"KCWA", label:"Wausau, WI", short:"CWA", state:"WI", lat:44.778, lon:-89.667, fallback:["CWAthr"] },
+  { id:"KBKW", label:"Beckley, WV", short:"BKW", state:"WV", lat:37.787, lon:-81.124, fallback:["BKWthr"] },
+  { id:"KCRW", label:"Charleston, WV", short:"CRW", state:"WV", lat:38.374, lon:-81.593, fallback:["CRWthr"] },
+  { id:"KCKB", label:"Clarksburg, WV", short:"CKB", state:"WV", lat:39.296, lon:-80.228, fallback:["CKBthr"] },
+  { id:"KEKN", label:"Elkins, WV", short:"EKN", state:"WV", lat:38.885, lon:-79.853, fallback:["EKNthr"] },
+  { id:"KHTS", label:"Huntington, WV", short:"HTS", state:"WV", lat:38.365, lon:-82.558, fallback:["HTSthr"] },
+  { id:"KCPR", label:"Casper, WY", short:"CPR", state:"WY", lat:42.908, lon:-106.464, fallback:["CPRthr"] },
+  { id:"KCYS", label:"Cheyenne, WY", short:"CYS", state:"WY", lat:41.156, lon:-104.812, fallback:["CYSthr"] },
+  { id:"KCOD", label:"Cody, WY", short:"COD", state:"WY", lat:44.52, lon:-109.024, fallback:["CODthr"] },
+  { id:"KGCC", label:"Gillette, WY", short:"GCC", state:"WY", lat:44.349, lon:-105.539, fallback:["GCCthr"] },
+  { id:"KJAC", label:"Jackson, WY", short:"JAC", state:"WY", lat:43.613, lon:-110.737, fallback:["JACthr"] },
+  { id:"KLAR", label:"Laramie, WY", short:"LAR", state:"WY", lat:41.311, lon:-105.675, fallback:["LARthr"] },
+  { id:"KRIW", label:"Riverton, WY", short:"RIW", state:"WY", lat:43.064, lon:-108.46, fallback:["RIWthr"] },
+  { id:"KRKS", label:"Rock Springs, WY", short:"RKS", state:"WY", lat:41.595, lon:-109.065, fallback:["RKSthr"] },
+  { id:"KSHR", label:"Sheridan, WY", short:"SHR", state:"WY", lat:44.77, lon:-106.97, fallback:["SHRthr"] },
 ];
 
 // ─── CONSTANTS ────────────────────────────────────────────────
@@ -331,7 +600,7 @@ const DEC_HIGHLIGHT_COLORS = {
 
 // ─── STATE ───────────────────────────────────────────────────
 let dataCache = {};
-let activeStation = STATIONS[0];
+let activeStation = STATIONS.find(s => s.id === "KBUF") || STATIONS[0]; // preserve original default (Buffalo, NY) regardless of roster ordering
 let parsed = [], byDate = {};
 let showDecades = true;
 let mainChart   = null;
@@ -800,27 +1069,71 @@ function toggleDecades(btn) {
   if (parsed.length) renderChart();
 }
 
-// ─── STATION SELECT ──────────────────────────────────────────
-function buildStnSelect() {
-  const sel = document.getElementById('stnSelect');
-  sel.innerHTML = '';
-  REGIONS.forEach(r => {
-    const og = document.createElement('optgroup');
-    og.label = r.label;
-    STATIONS.filter(s => s.region === r.id).forEach(stn => {
-      const opt = document.createElement('option');
-      opt.value = stn.id;
-      opt.textContent = stn.label;
-      if (stn.id === activeStation.id) opt.selected = true;
-      og.appendChild(opt);
-    });
-    sel.appendChild(og);
-  });
+// ─── STATION FINDER (search + "Near Me" geolocation) ──────────
+// Ported from the Current Conditions app: a type-ahead search box over the
+// full roster plus a haversine-ranked geolocation lookup, both surfaced in
+// the same dropdown UI. Replaces the old <select>/optgroup picker, which
+// couldn't comfortably scale to a few hundred stations.
+let ddIdx = -1;
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
 }
 
-function onStnChange(sel) {
-  const stn = STATIONS.find(s => s.id === sel.value);
-  if (stn) selectStation(stn);
+// "Near Me" — geolocate the browser, rank the roster by haversine distance,
+// and surface the closest matches in the dropdown (with mile badges) rather
+// than silently auto-picking one, so the user can confirm/override.
+function findNearestStation() {
+  const btn = document.getElementById('locate-btn');
+  if (!navigator.geolocation) { alert('Geolocation is not supported by this browser.'); return; }
+  const orig = btn.innerHTML; btn.classList.add('loading'); btn.innerHTML = '&#8987; Locating…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    btn.classList.remove('loading'); btn.innerHTML = orig;
+    const { latitude: lat, longitude: lon } = pos.coords;
+    const ranked = STATIONS.map(s => ({ s, dist: haversineMiles(lat, lon, s.lat, s.lon) })).sort((a, b) => a.dist - b.dist).slice(0, 8);
+    if (ranked.length && ranked[0].dist > 50) {
+      console.warn(`Nearest station is ${ranked[0].dist.toFixed(0)}mi away — beyond the usual 50mi match radius.`);
+    }
+    document.getElementById('si').value = '';
+    renderDD(ranked.map(r => r.s), ranked.map(r => r.dist));
+  }, err => {
+    btn.classList.remove('loading'); btn.innerHTML = orig;
+    alert('Could not get your location: ' + (err && err.message ? err.message : 'permission denied or unavailable.'));
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+}
+
+function initSearch() {
+  const inp = document.getElementById('si'), dd = document.getElementById('dd');
+  inp.addEventListener('input', () => {
+    ddIdx = -1; const q = inp.value.trim().toLowerCase();
+    if (!q) { dd.classList.remove('open'); return; }
+    const matches = STATIONS.filter(s =>
+      s.id.toLowerCase().startsWith(q) || s.id.slice(1).toLowerCase().startsWith(q) ||
+      s.label.toLowerCase().includes(q) || (s.state && s.state.toLowerCase() === q)
+    ).slice(0, 18);
+    renderDD(matches);
+  });
+  inp.addEventListener('keydown', e => {
+    const items = dd.querySelectorAll('.d-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); ddIdx = Math.min(ddIdx + 1, items.length - 1); highlightDD(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); ddIdx = Math.max(ddIdx - 1, 0); highlightDD(items); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (ddIdx >= 0 && items[ddIdx]) items[ddIdx].click(); }
+    else if (e.key === 'Escape') { dd.classList.remove('open'); }
+  });
+  document.addEventListener('click', e => { if (!document.getElementById('sw').contains(e.target)) dd.classList.remove('open'); });
+}
+function highlightDD(items) { items.forEach((el, i) => { el.classList.toggle('hi', i === ddIdx); if (i === ddIdx) el.scrollIntoView({ block: 'nearest' }); }); }
+function renderDD(matches, dists) {
+  const dd = document.getElementById('dd');
+  if (!matches.length) { dd.classList.remove('open'); return; }
+  dd.innerHTML = matches.map((s, i) => `<div class="d-item" data-idx="${i}"><span class="d-id">${s.id}</span><span class="d-name">${s.label}</span>${dists ? `<span class="d-dist">${dists[i].toFixed(0)}mi</span>` : ''}</div>`).join('');
+  dd.querySelectorAll('.d-item').forEach((el, i) => el.addEventListener('click', () => {
+    document.getElementById('si').value = ''; dd.classList.remove('open'); selectStation(matches[i]);
+  }));
+  dd.classList.add('open');
 }
 
 function onYearChange(sel) {
@@ -837,7 +1150,6 @@ async function selectStation(stn) {
   activeDecades.clear();
   document.getElementById('stationSubtitle').textContent = `${stn.label} · ${stn.short} · ACIS ThreadEx`;
   document.getElementById('footerStn').textContent = stn.label;
-  document.getElementById('stnSelect').value = stn.id;
 
   if (dataCache[stn.id]) {
     applyCache(stn.id);
@@ -977,7 +1289,7 @@ async function copyChartImage(btn) {
 }
 
 // ─── INIT ─────────────────────────────────────────────────────
-buildStnSelect();
+initSearch();
 selectStation(activeStation);
 
 if (window.self !== window.top) {
