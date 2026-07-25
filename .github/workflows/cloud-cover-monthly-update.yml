@@ -1,0 +1,35 @@
+# Monthly auto-update for the Cloud Cover Explorer.
+#
+# Runs on the 5th of every month (gives IEM a few days' buffer to finish
+# quality-controlling the prior month's obs) and appends the newly
+# completed month for every station already in stations.json. Same
+# pattern as the ENSO / SST / sunspot pipelines: self-hosted JSON,
+# GitHub Actions commits the update, Pages redeploys automatically.
+name: Cache Cloud Cover Monthly Update
+
+on:
+  schedule:
+    - cron: "0 6 5 * *"
+  workflow_dispatch: {}
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch latest completed month for all stations
+        run: python scripts/backfill_cloud_cover.py --stations all --update-latest-only
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/cloud-cover/data/
+          git diff --cached --quiet || git commit -m "Cloud cover: monthly update"
+          git push

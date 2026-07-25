@@ -1,0 +1,49 @@
+# Manually-triggered historical backfill for the Cloud Cover Explorer.
+#
+# Run this from the Actions tab (Run workflow button) after uploading.
+# It's designed to be run in batches rather than all 165 stations at once --
+# each station's full-history pull takes a while and IEM's archive is a
+# shared public resource, so the script sleeps between requests. A good
+# first run: leave "stations" as "all" and just let it go (it can take a
+# few hours for the full curated list; GitHub Actions allows up to 6h per
+# job on the free tier, plenty of headroom). If you want to split it into
+# smaller batches instead, override "stations" with a comma list, e.g.
+# "ORD,DFW,LAX,ATL".
+name: Cache Cloud Cover Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      stations:
+        description: "Comma-separated station IDs, or 'all'"
+        required: false
+        default: "all"
+      start_year:
+        description: "Earliest year to pull (IEM has no data before a station's own record; earlier years just return quickly)"
+        required: false
+        default: "1973"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run backfill
+        run: |
+          python scripts/backfill_cloud_cover.py \
+            --stations "${{ github.event.inputs.stations }}" \
+            --start-year "${{ github.event.inputs.start_year }}"
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/cloud-cover/data/
+          git diff --cached --quiet || git commit -m "Cloud cover backfill: ${{ github.event.inputs.stations }}"
+          git push
