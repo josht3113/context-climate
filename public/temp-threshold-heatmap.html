@@ -72,8 +72,15 @@ body { padding: 20px 0 48px; }
 
 /* ── Legend ── */
 .legend-row {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
 }
+.auto-scale-toggle {
+  display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px;
+  font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px;
+  cursor: pointer; user-select: none;
+}
+.auto-scale-toggle input { accent-color: var(--tool-accent-light); cursor: pointer; }
+.legend-scale-group { display: flex; align-items: center; gap: 8px; }
 .legend-end-label {
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   color: var(--color-text-secondary); white-space: nowrap;
@@ -260,6 +267,8 @@ body { padding: 20px 0 48px; }
       <button class="thresh-btn" id="thresh-h4" onclick="setThresh('heat',4)">≥ 90°F</button>
       <button class="thresh-btn" id="thresh-h5" onclick="setThresh('heat',5)">≥ 95°F</button>
       <button class="thresh-btn" id="thresh-h6" onclick="setThresh('heat',6)">≥ 100°F</button>
+      <button class="thresh-btn" id="thresh-h7" onclick="setThresh('heat',7)">≥ 110°F</button>
+      <button class="thresh-btn" id="thresh-h8" onclick="setThresh('heat',8)">≥ 120°F</button>
     </div>
   </div>
 
@@ -291,9 +300,14 @@ body { padding: 20px 0 48px; }
 
   <!-- Legend -->
   <div class="legend-row">
-    <span class="legend-end-label" id="legend-lo">0%</span>
-    <canvas id="legend-canvas" width="220" height="13"></canvas>
-    <span class="legend-end-label" id="legend-hi">100%</span>
+    <label class="auto-scale-toggle" id="auto-scale-toggle-wrap" title="Scale colors to this view's actual max value so low-probability thresholds (like 110°F+) aren't lost in near-black">
+      <input type="checkbox" id="auto-scale-toggle" checked onchange="toggleAutoScale()"> Auto-scale
+    </label>
+    <div class="legend-scale-group">
+      <span class="legend-end-label" id="legend-lo">0%</span>
+      <canvas id="legend-canvas" width="220" height="13"></canvas>
+      <span class="legend-end-label" id="legend-hi">100%</span>
+    </div>
   </div>
 
   <!-- Heatmap -->
@@ -343,9 +357,9 @@ const CANVAS_HEIGHT = 504; // 21px × 24 rows
 
 // Threshold definitions
 const COLD_THRESHOLDS = [32, 25, 20, 15, 10, 5, 0];
-const HEAT_THRESHOLDS = [70, 75, 80, 85, 90, 95, 100];
+const HEAT_THRESHOLDS = [70, 75, 80, 85, 90, 95, 100, 110, 120];
 const COLD_LABELS     = ['≤ 32°F', '≤ 25°F', '≤ 20°F', '≤ 15°F', '≤ 10°F', '≤ 5°F', '≤ 0°F'];
-const HEAT_LABELS     = ['≥ 70°F', '≥ 75°F', '≥ 80°F', '≥ 85°F', '≥ 90°F', '≥ 95°F', '≥ 100°F'];
+const HEAT_LABELS     = ['≥ 70°F', '≥ 75°F', '≥ 80°F', '≥ 85°F', '≥ 90°F', '≥ 95°F', '≥ 100°F', '≥ 110°F', '≥ 120°F'];
 
 const STATIONS = {
   // Northeast
@@ -473,7 +487,7 @@ const COLOR_STOPS = {
 // Per-threshold UI glow colors for stat chips and tooltip
 const THRESH_GLOW = {
   cold: ['#88c4ff', '#6aabee', '#5599ee', '#4488dd', '#3366dd', '#2255cc', '#1144cc'],
-  heat: ['#ffe066', '#ffcc44', '#ffaa22', '#ff8822', '#ff6622', '#ee3322', '#dd1111'],
+  heat: ['#ffe066', '#ffcc44', '#ffaa22', '#ff8822', '#ff6622', '#ee3322', '#dd1111', '#bb0000', '#880000'],
 };
 
 // Single-year event pixel colors
@@ -481,8 +495,6 @@ const SINGLE_COLOR = {
   cold: [140, 195, 248],
   heat: [240, 90, 32],
 };
-
-const MAX_PROB = 1.0; // 0–100% scale for all thresholds
 
 function lerpColor(t, dir) {
   const stops = COLOR_STOPS[dir];
@@ -502,12 +514,24 @@ function lerpColor(t, dir) {
 function probToRGB(prob, dir) { return lerpColor(Math.min(1, prob), dir); }
 function rgb(r, g, b) { return `rgb(${r},${g},${b})`; }
 
+function formatPct(p) {
+  if (p >= 10) return Math.round(p).toString();
+  if (p >= 1)  return p.toFixed(1);
+  return p.toFixed(2);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let mode      = 'climatology';
 let tempDir   = 'cold'; // 'cold' | 'heat'
-let tempIdx   = 0;      // 0–3
+let tempIdx   = 0;      // 0–8
+
+// Auto-scale: stretch the color gradient to this view's actual max probability
+// instead of a fixed 0–100% range, so rare extremes (e.g. ≥110°F in a cold
+// climate) don't collapse into near-black. Toggle-able from the legend row.
+let autoScale      = true;
+let currentMaxProb = 1.0; // the max probability found in the current grid (drives legend + color scale)
 
 let currentYear   = CLIMO_END;
 let singleMinGrid = null;  // Float32Array(366*24), min temp per hour (for cold)
@@ -701,6 +725,27 @@ function renderHeatmap() {
   const data    = imgData.data;
   const dir     = tempDir;
 
+  // Determine the color-scale ceiling. In climatology mode with auto-scale on,
+  // stretch the gradient to the actual max probability in this view so rare
+  // extremes (e.g. ≥110°F) don't collapse into near-black. Fixed 0–100% otherwise.
+  let scaleMax = 1.0;
+  const min = Math.ceil(TOTAL_YEARS / 3);
+  if (mode === 'climatology') {
+    if (autoScale) {
+      let maxP = 0;
+      for (let doy = 0; doy < 366; doy++) {
+        for (let h = 0; h < 24; h++) {
+          if (dataCount[doy][h] >= min) {
+            const p = getCount(doy, h) / dataCount[doy][h];
+            if (p > maxP) maxP = p;
+          }
+        }
+      }
+      scaleMax = maxP > 0 ? maxP : 1.0;
+    }
+    currentMaxProb = scaleMax;
+  }
+
   for (let doy = 0; doy < 366; doy++) {
     const x0 = Math.round(doy       * cellW * dpr);
     const x1 = Math.round((doy + 1) * cellW * dpr);
@@ -711,10 +756,10 @@ function renderHeatmap() {
 
       let r, g, b;
       if (mode === 'climatology') {
-        const dc  = dataCount[doy][h];
-        const min = Math.ceil(TOTAL_YEARS / 3);
+        const dc   = dataCount[doy][h];
         const prob = (dc >= min) ? getCount(doy, h) / dc : 0;
-        [r, g, b] = probToRGB(prob, dir);
+        const t    = scaleMax > 0 ? prob / scaleMax : 0;
+        [r, g, b] = probToRGB(t, dir);
       } else {
         if (getSingleHas(doy, h)) { [r, g, b] = SINGLE_COLOR[dir]; }
         else                      { [r, g, b] = [5, 8, 16]; }
@@ -761,7 +806,8 @@ function renderLegend() {
     lx.fillStyle = grad;
     lx.fillRect(0, 0, W, H);
     document.getElementById('legend-lo').textContent = '0%';
-    document.getElementById('legend-hi').textContent = '100%';
+    const hiPct = autoScale ? currentMaxProb * 100 : 100;
+    document.getElementById('legend-hi').textContent = formatPct(hiPct) + '%';
   } else {
     lx.fillStyle = rgb(5, 8, 16);
     lx.fillRect(0, 0, W / 2, H);
@@ -1067,6 +1113,7 @@ function setMode(m) {
   const showYear = m === 'single';
   document.getElementById('ctrl-label').style.display  = showYear ? 'inline' : 'none';
   document.getElementById('year-select').style.display = showYear ? 'inline' : 'none';
+  document.getElementById('auto-scale-toggle-wrap').style.display = m === 'climatology' ? 'flex' : 'none';
 
   if (m === 'climatology') loadClimatology();
   else {
@@ -1082,10 +1129,12 @@ function setThresh(dir, idx) {
   // Update CSS glow variable
   document.documentElement.style.setProperty('--type-glow', THRESH_GLOW[dir][idx]);
 
-  // Update all button states
-  for (let i = 0; i < 7; i++) {
+  // Update all button states (cold + heat lists can have different lengths)
+  for (let i = 0; i < COLD_THRESHOLDS.length; i++) {
     document.getElementById('thresh-c' + i).className =
       'thresh-btn' + (dir === 'cold' && i === idx ? ' thresh-active-cold' : '');
+  }
+  for (let i = 0; i < HEAT_THRESHOLDS.length; i++) {
     document.getElementById('thresh-h' + i).className =
       'thresh-btn' + (dir === 'heat' && i === idx ? ' thresh-active-heat' : '');
   }
@@ -1093,6 +1142,14 @@ function setThresh(dir, idx) {
   renderHeatmap();
   renderLegend();
   updateStats();
+}
+
+function toggleAutoScale() {
+  autoScale = document.getElementById('auto-scale-toggle').checked;
+  if (mode === 'climatology' && coldCount) {
+    renderHeatmap();
+    renderLegend();
+  }
 }
 
 function onYearChange() {
