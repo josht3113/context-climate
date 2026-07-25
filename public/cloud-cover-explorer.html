@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Cover Explorer | ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root { --tool-accent: var(--accent-live); }
+
+  .cc-wrap { max-width: 1080px; margin: 0 auto; }
+  .cc-header { text-align: center; margin-bottom: 22px; }
+  .cc-title { margin: 4px 0 8px; }
+  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  /* Station picker */
+  .station-bar {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    justify-content: center; margin: 18px 0 20px;
+  }
+  .station-search {
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    color: var(--color-text-primary); font-family: var(--font-body);
+    font-size: 15px; padding: 9px 14px; border-radius: var(--radius-md);
+    min-width: 260px;
+  }
+  .station-search:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; }
+  .station-now {
+    font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary);
+  }
+  .station-now strong { color: var(--color-text-primary); }
+  .tier-badge {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; padding: 2px 8px; border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border); color: var(--color-text-muted); margin-left: 6px;
+  }
+
+  .empty-state {
+    text-align: center; padding: 32px 20px; color: var(--color-text-secondary);
+    font-size: 15px; line-height: 1.6;
+  }
+  .empty-state .cc-eyebrow { display: block; margin-bottom: 8px; }
+
+  .tab-panel { margin-top: 16px; }
+
+  .chart-box {
+    background: #262B27; position: relative; height: 420px;
+  }
+  #trendCanvas { width: 100% !important; height: 100% !important; }
+
+  .heatmap-scroll { overflow-x: auto; background: #262B27; border-radius: var(--radius-lg); }
+  #heatmapCanvas { display: block; }
+
+  .heatmap-detail {
+    margin-top: 12px; min-height: 26px; font-family: var(--font-mono);
+    font-size: 13px; color: var(--color-text-secondary); text-align: center;
+  }
+  .heatmap-detail strong { color: var(--color-text-primary); }
+
+  .smoothing-row { display: flex; justify-content: center; margin-top: 12px; }
+
+  .legend-scale {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    margin-top: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted);
+  }
+  .legend-scale .bar {
+    width: 160px; height: 8px; border-radius: 4px;
+    background: linear-gradient(to right, #2E6E63, #E8E4D9, #C98A2E);
+  }
+
+  .about-panel { margin-top: 24px; }
+  .about-panel p { margin: 8px 0; font-size: 14px; color: var(--color-text-secondary); line-height: 1.6; }
+  .about-panel .cc-eyebrow { margin-bottom: 6px; display: block; }
+
+  .footer-credit {
+    margin-top: 20px; text-align: center; font-family: var(--font-mono);
+    font-size: 12px; color: var(--color-text-muted);
+  }
+
+  @media (max-width: 640px) {
+    .chart-box { height: 320px; }
+  }
+</style>
+</head>
+<body>
+<div class="cc-wrap">
+
+  <div class="cc-header">
+    <span class="cc-eyebrow">LIVE &middot; CLOUD CLIMATOLOGY</span>
+    <h1 class="cc-title">Cloud Cover Explorer</h1>
+    <p class="cc-subtitle">Monthly frequency of overcast skies for U.S. airports, built from hourly
+      surface observations and updated automatically each month. Pick a city to see its long-term
+      trend and a year-by-year heatmap.</p>
+  </div>
+
+  <div class="station-bar">
+    <input list="station-list" id="stationSearch" class="station-search"
+           placeholder="Search a city or airport code&hellip;" autocomplete="off">
+    <datalist id="station-list"></datalist>
+    <button id="locateBtn" class="cc-btn cc-btn-sm" type="button">Use my location</button>
+    <span class="station-now" id="stationNow"></span>
+  </div>
+
+  <div class="cc-tab-bar" style="justify-content:center; margin-bottom: 16px;">
+    <button class="cc-tab is-active" data-tab="trend" type="button">Trend</button>
+    <button class="cc-tab" data-tab="heatmap" type="button">Heatmap</button>
+  </div>
+
+  <div class="cc-stat-row" id="statRow" style="justify-content:center;"></div>
+
+  <div id="emptyState" class="empty-state" style="display:none;">
+    <span class="cc-eyebrow">No cached history yet</span>
+    This station is on the list but hasn&rsquo;t been through the historical backfill yet &mdash;
+    it&rsquo;ll show real data automatically once that runs. Try a station with the &ldquo;has data&rdquo;
+    marker in the meantime, like Islip, NY.
+  </div>
+
+  <div id="panelTrend" class="tab-panel">
+    <div class="cc-panel chart-box"><canvas id="trendCanvas"></canvas></div>
+    <div class="smoothing-row">
+      <div class="cc-segmented" id="smoothSeg">
+        <button class="cc-segmented-btn is-active" data-window="12" type="button">12-MO AVG</button>
+        <button class="cc-segmented-btn" data-window="24" type="button">24-MO AVG</button>
+        <button class="cc-segmented-btn" data-window="60" type="button">60-MO AVG</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panelHeatmap" class="tab-panel" style="display:none;">
+    <div class="cc-panel" style="padding:0; overflow:hidden;">
+      <div class="heatmap-scroll"><canvas id="heatmapCanvas"></canvas></div>
+    </div>
+    <div class="legend-scale">
+      <span>less overcast</span><div class="bar"></div><span>more overcast</span>
+    </div>
+    <div class="heatmap-detail" id="heatmapDetail">Hover or tap a cell for details.</div>
+  </div>
+
+  <div class="cc-btn-row" style="margin-top:18px;">
+    <button id="pngBtn" class="cc-btn" type="button">&#8595; PNG</button>
+  </div>
+
+  <div class="cc-panel about-panel">
+    <span class="cc-eyebrow">Methodology &amp; caveats</span>
+    <p><strong>What "overcast %" means:</strong> the share of routine hourly surface observations in a
+      given month where the sky was reported fully overcast (or obscured, e.g. by fog) &mdash; not the
+      average cloud cover fraction. A month at 60% means the sky read overcast in three of every five
+      hourly reports.</p>
+    <p><strong>Automated sensors have limits.</strong> Since the early 1990s most U.S. airports report
+      sky condition from an automated ceilometer &mdash; a single upward-pointing sensor with a maximum
+      reporting height around 12,000 ft. It can miss high cirrus above that altitude and, because it only
+      samples the sky directly overhead, may not always represent scattered or broken conditions across
+      the whole sky the way a human observer would.</p>
+    <p id="tierNote"><strong>This station:</strong> &mdash;</p>
+    <p><strong>Data source:</strong> hourly ASOS/AWOS observations via the Iowa Environmental Mesonet.
+      History depth varies by station &mdash; some go back to the 1970s&ndash;80s, others only to when
+      that airport's sensor was installed.</p>
+  </div>
+
+  <div class="footer-credit">Data: IEM ASOS &middot; Chart: ContextClimate</div>
+</div>
+
+<script>
+(function () {
+  var BASE = '.';
+  var stations = [];
+  var stationsById = {};
+  var current = null;       // station record object {id, updated, monthly:[{y,m,pct,n}]}
+  var currentMeta = null;   // station metadata from stations.json
+  var activeTab = 'trend';
+  var smoothWindow = 12;
+  var trendChart = null;
+
+  var LOW = [46, 110, 99], MID = [232, 228, 217], HIGH = [201, 138, 46];
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function colorForValue(pct, lo, hi) {
+    if (hi <= lo) hi = lo + 1;
+    var t = Math.max(0, Math.min(1, (pct - lo) / (hi - lo)));
+    var c;
+    if (t < 0.5) {
+      var tt = t * 2;
+      c = [lerp(LOW[0], MID[0], tt), lerp(LOW[1], MID[1], tt), lerp(LOW[2], MID[2], tt)];
+    } else {
+      var tt2 = (t - 0.5) * 2;
+      c = [lerp(MID[0], HIGH[0], tt2), lerp(MID[1], HIGH[1], tt2), lerp(MID[2], HIGH[2], tt2)];
+    }
+    return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')';
+  }
+
+  function monthKey(y, m) { return y * 12 + (m - 1); }
+
+  function qs(sel) { return document.querySelector(sel); }
+  function qsa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+
+  // ---------- data loading ----------
+  function loadStations() {
+    return fetch(BASE + '/cloud-cover/stations.json')
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        stations = list;
+        list.forEach(function (s) { stationsById[s.id] = s; });
+        var dl = qs('#station-list');
+        dl.innerHTML = list.map(function (s) {
+          var label = s.city + ', ' + s.state + ' — ' + s.icao;
+          return '<option value="' + label.replace(/"/g, '&quot;') + '" data-id="' + s.id + '">';
+        }).join('');
+      });
+  }
+
+  function loadStationData(id) {
+    return fetch(BASE + '/cloud-cover/data/' + id + '.json')
+      .then(function (r) { if (!r.ok) throw new Error('no data'); return r.json(); })
+      .catch(function () { return { id: id, updated: null, monthly: [] }; });
+  }
+
+  function nearestStation(lat, lon) {
+    var best = null, bestD = Infinity;
+    stations.forEach(function (s) {
+      var d = Math.pow(s.lat - lat, 2) + Math.pow(s.lon - lon, 2);
+      if (d < bestD) { bestD = d; best = s; }
+    });
+    return best;
+  }
+
+  // ---------- selection ----------
+  function selectStation(id) {
+    currentMeta = stationsById[id];
+    if (!currentMeta) return;
+    var url = new URL(window.location.href);
+    url.searchParams.set('station', id);
+    history.replaceState(null, '', url.toString());
+
+    loadStationData(id).then(function (rec) {
+      current = rec;
+      render();
+    });
+  }
+
+  function render() {
+    var tierLabel = currentMeta.tier === 'major' ? 'Major / hub airport' : 'Regional airport';
+    qs('#stationNow').innerHTML = '<strong>' + currentMeta.city + ', ' + currentMeta.state + '</strong> (' +
+      currentMeta.icao + ')<span class="tier-badge">' + tierLabel + '</span>';
+
+    var tierNoteText = currentMeta.tier === 'major'
+      ? 'a major/hub airport. Larger towered airports like this one often had a staffed weather ' +
+        'observer backing up or correcting the automated sensor for at least part of their record, ' +
+        'which can smooth out some ceilometer quirks &mdash; but staffing has been reduced at many ' +
+        'sites over the years, so the mix of human vs. automated obs can shift partway through the history.'
+      : 'a smaller regional airport, most likely automated-only (AWOS/ASOS with no on-site human ' +
+        'observer) for its whole period of record. Treat scattered/broken distinctions with a bit more ' +
+        'caution here than at a major hub.';
+    qs('#tierNote').innerHTML = '<strong>This station:</strong> ' + currentMeta.city + ', ' +
+      currentMeta.state + ' (' + currentMeta.icao + ') is ' + tierNoteText;
+
+    var months = (current && current.monthly) ? current.monthly.slice().sort(function (a, b) {
+      return monthKey(a.y, a.m) - monthKey(b.y, b.m);
+    }) : [];
+
+    if (months.length < 3) {
+      qs('#emptyState').style.display = '';
+      qs('#panelTrend').style.display = 'none';
+      qs('#panelHeatmap').style.display = 'none';
+      qs('#statRow').innerHTML = '';
+      return;
+    }
+    qs('#emptyState').style.display = 'none';
+    showTab(activeTab);
+
+    renderStats(months);
+    renderTrend(buildContinuousGrid(months));
+    renderHeatmap(months);
+  }
+
+  // Fill any gap between the first and last real month with null placeholders so
+  // the trend line visibly breaks across periods with no cached data yet, instead
+  // of drawing a straight line across e.g. a 38-year backfill gap as if it were
+  // a real continuous trend.
+  function buildContinuousGrid(months) {
+    var start = monthKey(months[0].y, months[0].m);
+    var end = monthKey(months[months.length - 1].y, months[months.length - 1].m);
+    var byKey = {};
+    months.forEach(function (m) { byKey[monthKey(m.y, m.m)] = m.pct; });
+    var grid = [];
+    for (var k = start; k <= end; k++) {
+      var y = Math.floor(k / 12), mo = (k % 12) + 1;
+      grid.push({ y: y, m: mo, pct: (byKey[k] !== undefined ? byKey[k] : null) });
+    }
+    return grid;
+  }
+
+  // ---------- stats ----------
+  function renderStats(months) {
+    var latest = months[months.length - 1];
+    var last12 = months.slice(Math.max(0, months.length - 12));
+    var avg12 = last12.reduce(function (a, m) { return a + m.pct; }, 0) / last12.length;
+    var allAvg = months.reduce(function (a, m) { return a + m.pct; }, 0) / months.length;
+    var maxRec = months.reduce(function (a, m) { return m.pct > a.pct ? m : a; });
+    var minRec = months.reduce(function (a, m) { return m.pct < a.pct ? m : a; });
+    var MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    function chip(label, value, note) {
+      return '<div class="cc-stat-chip"><span class="cc-stat-label">' + label + '</span>' +
+        '<span class="cc-stat-value">' + value + '</span>' +
+        (note ? '<span class="cc-stat-note">' + note + '</span>' : '') + '</div>';
+    }
+    qs('#statRow').innerHTML =
+      chip('Latest month', latest.pct + '%', MONS[latest.m - 1] + ' ' + latest.y) +
+      chip('12-mo avg', avg12.toFixed(1) + '%', 'trailing') +
+      chip('All-time avg', allAvg.toFixed(1) + '%', months.length + ' months on file') +
+      chip('Cloudiest month', maxRec.pct + '%', MONS[maxRec.m - 1] + ' ' + maxRec.y) +
+      chip('Clearest month', minRec.pct + '%', MONS[minRec.m - 1] + ' ' + minRec.y);
+  }
+
+  // ---------- trend chart ----------
+  function movingAverage(grid, win) {
+    var out = [];
+    for (var i = 0; i < grid.length; i++) {
+      var start = Math.max(0, i - win + 1);
+      var vals = [];
+      for (var j = start; j <= i; j++) { if (grid[j].pct !== null) vals.push(grid[j].pct); }
+      out.push(vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) / vals.length : null);
+    }
+    return out;
+  }
+
+  function renderTrend(grid) {
+    var labels = grid.map(function (m) {
+      return (m.m === 1 ? "'" + String(m.y).slice(2) : '') || '';
+    });
+    var fullLabels = grid.map(function (m) {
+      var MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return MONS[m.m - 1] + ' ' + m.y;
+    });
+    var raw = grid.map(function (m) { return m.pct; });
+    var avg = movingAverage(grid, smoothWindow);
+    var realVals = raw.filter(function (v) { return v !== null; });
+    var lo = Math.min.apply(null, realVals), hi = Math.max.apply(null, realVals);
+
+    var ctx = qs('#trendCanvas').getContext('2d');
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: fullLabels,
+        datasets: [
+          {
+            label: 'Monthly value',
+            data: raw,
+            showLine: false,
+            pointRadius: 2.5,
+            pointBackgroundColor: 'rgba(166,164,153,0.45)',
+            pointBorderWidth: 0,
+            order: 2
+          },
+          {
+            label: smoothWindow + '-month average',
+            data: avg,
+            borderWidth: 2.5,
+            pointRadius: 0,
+            tension: 0.25,
+            spanGaps: false,
+            segment: {
+              borderColor: function (c) {
+                var y0 = c.p0.parsed.y, y1 = c.p1.parsed.y;
+                if (y0 == null || y1 == null || isNaN(y0) || isNaN(y1)) return 'rgba(166,164,153,0.3)';
+                return colorForValue((y0 + y1) / 2, lo, hi);
+              }
+            },
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#1E2320',
+            borderColor: 'rgba(232,228,217,0.14)',
+            borderWidth: 1,
+            titleColor: '#E8E4D9',
+            bodyColor: '#A6A499',
+            callbacks: {
+              label: function (c) {
+                return c.dataset.label + ': ' + c.parsed.y.toFixed(1) + '%';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#948F82',
+              maxRotation: 0,
+              autoSkip: false,
+              callback: function (val, idx) {
+                var lbl = labels[idx];
+                return lbl || null;
+              },
+              font: { size: 12 }
+            },
+            grid: { color: 'rgba(232,228,217,0.06)' }
+          },
+          y: {
+            ticks: { color: '#948F82', font: { size: 12 }, callback: function (v) { return v + '%'; } },
+            grid: { color: 'rgba(232,228,217,0.06)' },
+            title: { display: true, text: '% Overcast', color: '#A6A499' }
+          }
+        }
+      }
+    });
+  }
+
+  // ---------- heatmap ----------
+  var heatmapLayout = null; // cached geometry for hit-testing
+
+  function renderHeatmap(months) {
+    var byYear = {};
+    months.forEach(function (m) {
+      byYear[m.y] = byYear[m.y] || {};
+      byYear[m.y][m.m] = m.pct;
+    });
+    var years = Object.keys(byYear).map(Number).sort(function (a, b) { return a - b; });
+    var minY = years[0], maxY = years[years.length - 1];
+    var allYears = [];
+    for (var y = minY; y <= maxY; y++) allYears.push(y);
+
+    var raw = months.map(function (m) { return m.pct; });
+    var lo = Math.min.apply(null, raw), hi = Math.max.apply(null, raw);
+    var MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    var rowLabelW = 46, colW = 34, rowH = 26, headerH = 28, avgColW = 46;
+    var width = rowLabelW + allYears.length * colW + avgColW;
+    var height = headerH + 12 * rowH + rowH; // + avg row
+
+    var canvas = qs('#heatmapCanvas');
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = '#262B27';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.textBaseline = 'middle';
+    ctx.font = '11px "Courier Prime", monospace';
+
+    // year headers
+    ctx.fillStyle = '#A6A499';
+    ctx.textAlign = 'center';
+    allYears.forEach(function (yr, ci) {
+      var x = rowLabelW + ci * colW + colW / 2;
+      ctx.fillText(String(yr), x, headerH / 2);
+    });
+    ctx.fillText('Avg', rowLabelW + allYears.length * colW + avgColW / 2, headerH / 2);
+
+    var cellGeo = [];
+    var monthAvg = [];
+
+    for (var mi = 0; mi < 12; mi++) {
+      var yRow = headerH + mi * rowH;
+      ctx.fillStyle = '#948F82';
+      ctx.textAlign = 'left';
+      ctx.fillText(MONS[mi], 6, yRow + rowH / 2);
+
+      var sum = 0, n = 0;
+      allYears.forEach(function (yr, ci) {
+        var val = (byYear[yr] && byYear[yr][mi + 1] !== undefined) ? byYear[yr][mi + 1] : null;
+        var x = rowLabelW + ci * colW;
+        if (val !== null) {
+          ctx.fillStyle = colorForValue(val, lo, hi);
+          ctx.fillRect(x + 1, yRow + 1, colW - 2, rowH - 2);
+          var brightness = (val - lo) / Math.max(1, (hi - lo));
+          ctx.fillStyle = brightness > 0.55 ? '#1E2320' : '#E8E4D9';
+          ctx.textAlign = 'center';
+          ctx.font = '10px "Courier Prime", monospace';
+          ctx.fillText(val.toFixed(0), x + colW / 2, yRow + rowH / 2);
+          ctx.font = '11px "Courier Prime", monospace';
+          sum += val; n++;
+        } else {
+          ctx.fillStyle = 'rgba(232,228,217,0.04)';
+          ctx.fillRect(x + 1, yRow + 1, colW - 2, rowH - 2);
+        }
+        cellGeo.push({ x: x, y: yRow, w: colW, h: rowH, year: yr, month: mi + 1, val: val });
+      });
+      var mAvg = n ? sum / n : null;
+      monthAvg.push(mAvg);
+      var avgX = rowLabelW + allYears.length * colW;
+      if (mAvg !== null) {
+        ctx.fillStyle = colorForValue(mAvg, lo, hi);
+        ctx.fillRect(avgX + 1, yRow + 1, avgColW - 2, rowH - 2);
+        ctx.fillStyle = '#1E2320';
+        ctx.textAlign = 'center';
+        ctx.fillText(mAvg.toFixed(0), avgX + avgColW / 2, yRow + rowH / 2);
+      }
+    }
+
+    // bottom avg row (per year)
+    var avgRowY = headerH + 12 * rowH;
+    ctx.fillStyle = '#948F82';
+    ctx.textAlign = 'left';
+    ctx.fillText('Avg', 6, avgRowY + rowH / 2);
+    allYears.forEach(function (yr, ci) {
+      var vals = [];
+      for (var mm = 1; mm <= 12; mm++) {
+        if (byYear[yr] && byYear[yr][mm] !== undefined) vals.push(byYear[yr][mm]);
+      }
+      var x = rowLabelW + ci * colW;
+      if (vals.length) {
+        var a = vals.reduce(function (s, v) { return s + v; }, 0) / vals.length;
+        ctx.fillStyle = colorForValue(a, lo, hi);
+        ctx.fillRect(x + 1, avgRowY + 1, colW - 2, rowH - 2);
+        ctx.fillStyle = '#1E2320';
+        ctx.textAlign = 'center';
+        ctx.fillText(a.toFixed(0), x + colW / 2, avgRowY + rowH / 2);
+      }
+    });
+
+    heatmapLayout = { cellGeo: cellGeo, lo: lo, hi: hi, months: months };
+
+    var detailEl = qs('#heatmapDetail');
+    function describe(cell) {
+      if (!cell || cell.val === null) return 'No data for that month.';
+      var sameMonth = months.filter(function (m) { return m.m === cell.month; })
+        .sort(function (a, b) { return b.pct - a.pct; });
+      var rank = sameMonth.findIndex(function (m) { return m.y === cell.year; }) + 1;
+      return '<strong>' + MONS[cell.month - 1] + ' ' + cell.year + ':</strong> ' + cell.val.toFixed(1) +
+        '% overcast &mdash; ' + ordinal(rank) + ' cloudiest ' + MONS[cell.month - 1] + ' of ' +
+        sameMonth.length + ' on record.';
+    }
+    function ordinal(n) {
+      var s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    }
+    function cellAt(px, py) {
+      return cellGeo.find(function (c) { return px >= c.x && px < c.x + c.w && py >= c.y && py < c.y + c.h; });
+    }
+    canvas.onmousemove = function (e) {
+      var rect = canvas.getBoundingClientRect();
+      var c = cellAt(e.clientX - rect.left, e.clientY - rect.top);
+      if (c) detailEl.innerHTML = describe(c);
+    };
+    canvas.onclick = function (e) {
+      var rect = canvas.getBoundingClientRect();
+      var c = cellAt(e.clientX - rect.left, e.clientY - rect.top);
+      if (c) detailEl.innerHTML = describe(c);
+    };
+  }
+
+  // ---------- tabs ----------
+  function showTab(name) {
+    activeTab = name;
+    qsa('.cc-tab').forEach(function (b) { b.classList.toggle('is-active', b.dataset.tab === name); });
+    qs('#panelTrend').style.display = name === 'trend' ? '' : 'none';
+    qs('#panelHeatmap').style.display = name === 'heatmap' ? '' : 'none';
+  }
+  qsa('.cc-tab').forEach(function (b) {
+    b.addEventListener('click', function () { showTab(b.dataset.tab); });
+  });
+
+  qsa('#smoothSeg .cc-segmented-btn').forEach(function (b) {
+    b.addEventListener('click', function () {
+      qsa('#smoothSeg .cc-segmented-btn').forEach(function (x) { x.classList.remove('is-active'); });
+      b.classList.add('is-active');
+      smoothWindow = parseInt(b.dataset.window, 10);
+      if (current && current.monthly && current.monthly.length) renderTrend(buildContinuousGrid(current.monthly));
+    });
+  });
+
+  // ---------- station picker wiring ----------
+  qs('#stationSearch').addEventListener('change', function (e) {
+    var val = e.target.value;
+    var opt = qsa('#station-list option').find(function (o) { return o.value === val; });
+    if (opt) selectStation(opt.dataset.id);
+  });
+
+  qs('#locateBtn').addEventListener('click', function () {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var s = nearestStation(pos.coords.latitude, pos.coords.longitude);
+      if (s) {
+        qs('#stationSearch').value = s.city + ', ' + s.state + ' — ' + s.icao;
+        selectStation(s.id);
+      }
+    });
+  });
+
+  // ---------- PNG export ----------
+  qs('#pngBtn').addEventListener('click', function () {
+    var sourceCanvas = activeTab === 'trend' ? qs('#trendCanvas') : qs('#heatmapCanvas');
+    var srcW = sourceCanvas.width, srcH = sourceCanvas.height;
+    var scale = 2;
+    var pad = 40 * scale;
+    var titleH = 90 * scale;
+    var footerH = 50 * scale;
+    var out = document.createElement('canvas');
+    var drawW = (activeTab === 'trend' ? 900 : Math.max(srcW / (window.devicePixelRatio || 1), 600)) * scale;
+    var drawH = (activeTab === 'trend' ? 420 : srcH / (window.devicePixelRatio || 1) * (drawW / (srcW / (window.devicePixelRatio||1)))) ;
+    out.width = drawW + pad * 2;
+    out.height = titleH + drawH + footerH + pad;
+    var ctx = out.getContext('2d');
+    ctx.fillStyle = '#1E2320';
+    ctx.fillRect(0, 0, out.width, out.height);
+
+    ctx.fillStyle = '#948F82';
+    ctx.font = (12 * scale) + 'px "Courier Prime", monospace';
+    ctx.fillText('LIVE · CLOUD CLIMATOLOGY', pad, pad);
+
+    ctx.fillStyle = '#E8E4D9';
+    ctx.font = 'bold ' + (26 * scale) + 'px "Zilla Slab", serif';
+    var titleTxt = 'Cloud Cover — ' + currentMeta.city + ', ' + currentMeta.state;
+    ctx.fillText(titleTxt, pad, pad + 34 * scale);
+
+    ctx.fillStyle = '#A6A499';
+    ctx.font = (14 * scale) + 'px "Public Sans", sans-serif';
+    ctx.fillText(activeTab === 'trend' ? 'Monthly % overcast, ' + smoothWindow + '-month average' :
+      'Frequency of overcast skies by month and year', pad, pad + 58 * scale);
+
+    ctx.drawImage(sourceCanvas, pad, titleH, drawW, drawH);
+
+    ctx.fillStyle = '#948F82';
+    ctx.font = (11 * scale) + 'px "Courier Prime", monospace';
+    ctx.fillText('Data: IEM ASOS · Chart: ContextClimate', pad, out.height - pad / 2);
+
+    var link = document.createElement('a');
+    link.download = 'cloud-cover-' + currentMeta.icao + '-' + activeTab + '.png';
+    link.href = out.toDataURL('image/png');
+    link.click();
+  });
+
+  // ---------- boot ----------
+  loadStations().then(function () {
+    var params = new URLSearchParams(window.location.search);
+    var wanted = (params.get('station') || 'ISP').toUpperCase();
+    if (!stationsById[wanted]) wanted = 'ISP';
+    var meta = stationsById[wanted];
+    if (meta) qs('#stationSearch').value = meta.city + ', ' + meta.state + ' — ' + meta.icao;
+    selectStation(wanted);
+  });
+})();
+</script>
+</body>
+</html>
