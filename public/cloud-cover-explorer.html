@@ -66,7 +66,7 @@
   }
   .legend-scale .bar {
     width: 160px; height: 8px; border-radius: 4px;
-    background: linear-gradient(to right, #2E6E63, #E8E4D9, #C98A2E);
+    background: linear-gradient(to right, #F5FA82, #C5C46A, #848477, #626258, #404040);
   }
 
   .about-panel { margin-top: 24px; }
@@ -172,21 +172,42 @@
   var smoothWindow = 12;
   var trendChart = null;
 
-  var LOW = [46, 110, 99], MID = [232, 228, 217], HIGH = [201, 138, 46];
+  // Same 5-stop ramp used for the "Cloud Cover" field on the monthly
+  // heatmap tool (pale yellow-green -> charcoal), so low-to-high overcast
+  // reads consistently across both tools.
+  var CLOUD_STOPS = [
+    [245, 250, 130], // #F5FA82 — least overcast
+    [197, 196, 106], // #C5C46A
+    [132, 132, 119], // #848477
+    [ 98,  98,  88], // #626258
+    [ 64,  64,  64]  // #404040 — most overcast
+  ];
 
   function lerp(a, b, t) { return a + (b - a) * t; }
-  function colorForValue(pct, lo, hi) {
+  function colorRGBForValue(pct, lo, hi) {
     if (hi <= lo) hi = lo + 1;
     var t = Math.max(0, Math.min(1, (pct - lo) / (hi - lo)));
-    var c;
-    if (t < 0.5) {
-      var tt = t * 2;
-      c = [lerp(LOW[0], MID[0], tt), lerp(LOW[1], MID[1], tt), lerp(LOW[2], MID[2], tt)];
-    } else {
-      var tt2 = (t - 0.5) * 2;
-      c = [lerp(MID[0], HIGH[0], tt2), lerp(MID[1], HIGH[1], tt2), lerp(MID[2], HIGH[2], tt2)];
-    }
+    var n = CLOUD_STOPS.length;
+    var scaled = t * (n - 1);
+    var i = Math.min(n - 2, Math.floor(scaled));
+    var tt = scaled - i;
+    var a = CLOUD_STOPS[i], b = CLOUD_STOPS[i + 1];
+    return [lerp(a[0], b[0], tt), lerp(a[1], b[1], tt), lerp(a[2], b[2], tt)];
+  }
+  function colorForValue(pct, lo, hi) {
+    var c = colorRGBForValue(pct, lo, hi);
     return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')';
+  }
+  // Perceived luminance of a fill color, used to pick readable cell text
+  // against the new ramp (which runs light-to-dark instead of the old
+  // light-in-the-middle diverging scale).
+  function textColorFor(rgb) {
+    var lin = rgb.map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    var lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    return lum > 0.4 ? '#1E2320' : '#E8E4D9';
   }
 
   function monthKey(y, m) { return y * 12 + (m - 1); }
@@ -475,10 +496,10 @@
         var val = (byYear[yr] && byYear[yr][mi + 1] !== undefined) ? byYear[yr][mi + 1] : null;
         var x = rowLabelW + ci * colW;
         if (val !== null) {
-          ctx.fillStyle = colorForValue(val, lo, hi);
+          var cellRGB = colorRGBForValue(val, lo, hi);
+          ctx.fillStyle = 'rgb(' + Math.round(cellRGB[0]) + ',' + Math.round(cellRGB[1]) + ',' + Math.round(cellRGB[2]) + ')';
           ctx.fillRect(x + 1, yRow + 1, colW - 2, rowH - 2);
-          var brightness = (val - lo) / Math.max(1, (hi - lo));
-          ctx.fillStyle = brightness > 0.55 ? '#1E2320' : '#E8E4D9';
+          ctx.fillStyle = textColorFor(cellRGB);
           ctx.textAlign = 'center';
           ctx.font = '10px "Courier Prime", monospace';
           ctx.fillText(val.toFixed(0), x + colW / 2, yRow + rowH / 2);
@@ -494,9 +515,10 @@
       monthAvg.push(mAvg);
       var avgX = rowLabelW + allYears.length * colW;
       if (mAvg !== null) {
-        ctx.fillStyle = colorForValue(mAvg, lo, hi);
+        var avgRGB = colorRGBForValue(mAvg, lo, hi);
+        ctx.fillStyle = 'rgb(' + Math.round(avgRGB[0]) + ',' + Math.round(avgRGB[1]) + ',' + Math.round(avgRGB[2]) + ')';
         ctx.fillRect(avgX + 1, yRow + 1, avgColW - 2, rowH - 2);
-        ctx.fillStyle = '#1E2320';
+        ctx.fillStyle = textColorFor(avgRGB);
         ctx.textAlign = 'center';
         ctx.fillText(mAvg.toFixed(0), avgX + avgColW / 2, yRow + rowH / 2);
       }
@@ -515,9 +537,10 @@
       var x = rowLabelW + ci * colW;
       if (vals.length) {
         var a = vals.reduce(function (s, v) { return s + v; }, 0) / vals.length;
-        ctx.fillStyle = colorForValue(a, lo, hi);
+        var rowRGB = colorRGBForValue(a, lo, hi);
+        ctx.fillStyle = 'rgb(' + Math.round(rowRGB[0]) + ',' + Math.round(rowRGB[1]) + ',' + Math.round(rowRGB[2]) + ')';
         ctx.fillRect(x + 1, avgRowY + 1, colW - 2, rowH - 2);
-        ctx.fillStyle = '#1E2320';
+        ctx.fillStyle = textColorFor(rowRGB);
         ctx.textAlign = 'center';
         ctx.fillText(a.toFixed(0), x + colW / 2, avgRowY + rowH / 2);
       }
@@ -575,10 +598,32 @@
   });
 
   // ---------- station picker wiring ----------
-  qs('#stationSearch').addEventListener('change', function (e) {
+  // The datalist popup filters its suggestions against the input's current
+  // text. Since the box starts pre-filled with the active station's full
+  // label, the native dropdown had nothing else left to match against and
+  // only ever showed that one station (ISP). Clearing the field on focus —
+  // and restoring it on blur if nothing new was picked — lets the full
+  // station list show again.
+  var stationSearchEl = qs('#stationSearch');
+  var lastStationLabel = stationSearchEl.value;
+
+  stationSearchEl.addEventListener('focus', function (e) {
+    lastStationLabel = e.target.value;
+    e.target.value = '';
+  });
+
+  stationSearchEl.addEventListener('change', function (e) {
     var val = e.target.value;
     var opt = qsa('#station-list option').find(function (o) { return o.value === val; });
-    if (opt) selectStation(opt.dataset.id);
+    if (opt) {
+      lastStationLabel = val;
+      selectStation(opt.dataset.id);
+    }
+  });
+
+  stationSearchEl.addEventListener('blur', function (e) {
+    var opt = qsa('#station-list option').find(function (o) { return o.value === e.target.value; });
+    if (!opt) e.target.value = lastStationLabel;
   });
 
   qs('#locateBtn').addEventListener('click', function () {
@@ -587,6 +632,7 @@
       var s = nearestStation(pos.coords.latitude, pos.coords.longitude);
       if (s) {
         qs('#stationSearch').value = s.city + ', ' + s.state + ' — ' + s.icao;
+        lastStationLabel = qs('#stationSearch').value;
         selectStation(s.id);
       }
     });
@@ -641,7 +687,10 @@
     var wanted = (params.get('station') || 'ISP').toUpperCase();
     if (!stationsById[wanted]) wanted = 'ISP';
     var meta = stationsById[wanted];
-    if (meta) qs('#stationSearch').value = meta.city + ', ' + meta.state + ' — ' + meta.icao;
+    if (meta) {
+      qs('#stationSearch').value = meta.city + ', ' + meta.state + ' — ' + meta.icao;
+      lastStationLabel = qs('#stationSearch').value;
+    }
     selectStation(wanted);
   });
 })();
