@@ -134,6 +134,15 @@ const SECTIONS = [
         thumb:      '/ThunderstormHeatmap_thumbnail.png',
       },
       {
+        tags:       ['US Cities', 'Smoke Reports'],
+        title:      'Smoke Heatmap',
+        description:'Monthly frequency of smoke reports (METAR code FU) at various US cities — wildfire smoke, agricultural burning, and haze events across the climatological record.',
+        footerTags: ['Smoke', 'Climatology'],
+        to:         '/smoke-heatmap',
+        accentVar:  '--accent-hourly',
+        thumb:      '/SmokeHeatmap_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'WINTER CLIMO'],
         title:      'Winter Precipitation Heatmap',
         description:'Heatmap of winter precipitation types and totals at various US cities.',
