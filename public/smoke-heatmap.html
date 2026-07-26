@@ -103,10 +103,25 @@ body {
 .legend-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
 }
+.auto-scale-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  user-select: none;
+}
+.auto-scale-toggle input { accent-color: var(--tool-accent-light); cursor: pointer; }
+.legend-scale-group { display: flex; align-items: center; gap: 8px; }
 .legend-end-label {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -320,10 +335,16 @@ body {
     </div>
   </div>
 
+  <!-- Legend -->
   <div class="legend-row">
-    <span class="legend-end-label" id="legend-lo">0%</span>
-    <canvas id="legend-canvas" width="220" height="13"></canvas>
-    <span class="legend-end-label" id="legend-hi">≥ 10%</span>
+    <label class="auto-scale-toggle" id="auto-scale-toggle-wrap" title="Scale colors to this view's actual max value so low-frequency stations aren't lost in near-black">
+      <input type="checkbox" id="auto-scale-toggle" checked onchange="toggleAutoScale()"> Auto-scale
+    </label>
+    <div class="legend-scale-group">
+      <span class="legend-end-label" id="legend-lo">0%</span>
+      <canvas id="legend-canvas" width="220" height="13"></canvas>
+      <span class="legend-end-label" id="legend-hi">10%</span>
+    </div>
   </div>
 
   <div class="heatmap-wrapper">
@@ -540,9 +561,10 @@ const MONTH_START_DOY = (() => {
 })(); // [0,31,60,91,121,152,182,213,244,274,305,335]
 
 // ── Smoke color palette ──────────────────────────────────────
-// t = 0..1 maps to probability 0 → MAX_PROB. Ramp runs charcoal (no
-// reports) → smoky brown-grey → amber haze → deep orange-red, echoing
-// the color of a sky thick with wildfire/agricultural smoke.
+// t = 0..1 maps to probability 0 → the current color-scale ceiling (either
+// the fixed MAX_PROB, or the view's actual max when auto-scale is on — see
+// STATE below). Ramp runs charcoal (no reports) → smoky brown-grey → amber
+// haze → deep orange-red, echoing the color of a sky thick with smoke.
 const MAX_PROB = 0.10;
 const COLOR_STOPS = [
   { t: 0.00, rgb: [8,   8,   10 ] },
@@ -568,8 +590,16 @@ function lerpColor(t) {
     Math.round(lo.rgb[2] + f * (hi.rgb[2] - lo.rgb[2])),
   ];
 }
-function probToRGB(prob)  { return lerpColor(Math.min(1, prob / MAX_PROB)); }
+// t is already normalized 0..1 against the current scale ceiling — see the
+// scaleMax computation in renderHeatmap().
+function probToRGB(t)     { return lerpColor(Math.min(1, t)); }
 function rgb(r, g, b)     { return `rgb(${r},${g},${b})`; }
+
+function formatPct(p) {
+  if (p >= 10) return Math.round(p).toString();
+  if (p >= 1)  return p.toFixed(1);
+  return p.toFixed(2);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -580,6 +610,13 @@ let singleGrid      = null;
 let smokeCount      = null;
 let dataCount       = null;
 let nowMarkerActive = false;
+
+// Auto-scale: stretch the color gradient to this view's actual max probability
+// instead of the fixed 0–MAX_PROB range, so low-frequency stations (most of
+// the country, most of the time) aren't lost to near-black. Toggle-able from
+// the legend row; on by default.
+let autoScale      = true;
+let currentMaxProb = MAX_PROB; // the max probability found in the current grid (drives legend + color scale)
 
 // ═══════════════════════════════════════════════════════════════
 // DATE UTILITIES
@@ -783,6 +820,31 @@ function renderHeatmap() {
   const pw = Math.round(W  * dpr);
   const ph = Math.round(H  * dpr);
 
+  // Require ≥ 1/3 of years to avoid inflated % on leap-year-only DOYs
+  // (DOY 59 = Feb 29, DOY 365 = leap Dec 31 only have ~9 years of data)
+  const min = Math.ceil(TOTAL_YEARS / 3);
+
+  // Determine the color-scale ceiling. In climatology mode with auto-scale
+  // on, stretch the gradient to this view's actual max probability so
+  // low-frequency stations aren't lost to near-black. Fixed 0–MAX_PROB
+  // otherwise (matches the toggle behavior on temp-threshold-heatmap.html).
+  let scaleMax = MAX_PROB;
+  if (mode === 'climatology') {
+    if (autoScale) {
+      let maxP = 0;
+      for (let doy = 0; doy < 366; doy++) {
+        for (let h = 0; h < 24; h++) {
+          if (dataCount[doy][h] >= min) {
+            const p = smokeCount[doy][h] / dataCount[doy][h];
+            if (p > maxP) maxP = p;
+          }
+        }
+      }
+      scaleMax = maxP > 0 ? maxP : MAX_PROB;
+    }
+    currentMaxProb = scaleMax;
+  }
+
   for (let doy = 0; doy < 366; doy++) {
     const x0 = Math.round(doy * cellW * dpr);
     const x1 = Math.round((doy + 1) * cellW * dpr);
@@ -794,9 +856,9 @@ function renderHeatmap() {
       let r, g, b;
       if (mode === 'climatology') {
         const dc = dataCount[doy][h];
-        // Require ≥ 1/3 of years to avoid inflated % on leap-year-only DOYs
-        const prob = dc >= Math.ceil(TOTAL_YEARS / 3) ? smokeCount[doy][h] / dc : 0;
-        [r, g, b] = probToRGB(prob);
+        const prob = dc >= min ? smokeCount[doy][h] / dc : 0;
+        const t = scaleMax > 0 ? prob / scaleMax : 0;
+        [r, g, b] = probToRGB(t);
       } else {
         const hasSmoke = singleGrid && singleGrid[doy * 24 + h] === 1;
         [r, g, b] = hasSmoke ? [217, 90, 34] : [8, 8, 10];
@@ -851,7 +913,8 @@ function renderLegend() {
     lx.fillStyle = grad;
     lx.fillRect(0, 0, W, H);
     document.getElementById('legend-lo').textContent = '0%';
-    document.getElementById('legend-hi').textContent = '≥ 10%';
+    const hiPct = autoScale ? currentMaxProb * 100 : MAX_PROB * 100;
+    document.getElementById('legend-hi').textContent = formatPct(hiPct) + '%';
   } else {
     lx.fillStyle = rgb(8, 8, 10);
     lx.fillRect(0, 0, W / 2, H);
@@ -918,6 +981,14 @@ function toggleNow() {
   nowMarkerActive = !nowMarkerActive;
   document.getElementById('btn-now').classList.toggle('active', nowMarkerActive);
   if (mode === 'climatology' && smokeCount) renderHeatmap();
+}
+
+function toggleAutoScale() {
+  autoScale = document.getElementById('auto-scale-toggle').checked;
+  if (mode === 'climatology' && smokeCount) {
+    renderHeatmap();
+    renderLegend();
+  }
 }
 
 // ── Hour labels ──────────────────────────────────────────────
@@ -1199,6 +1270,7 @@ function setMode(m) {
   const showYear = m === 'single';
   document.getElementById('ctrl-label').style.display  = showYear ? 'inline' : 'none';
   document.getElementById('year-select').style.display = showYear ? 'inline' : 'none';
+  document.getElementById('auto-scale-toggle-wrap').style.display = m === 'climatology' ? 'flex' : 'none';
 
   if (m === 'climatology') {
     loadClimatology();
