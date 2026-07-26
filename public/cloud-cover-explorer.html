@@ -50,7 +50,7 @@
   #trendCanvas { width: 100% !important; height: 100% !important; }
 
   .heatmap-scroll { overflow-x: auto; background: #262B27; border-radius: var(--radius-lg); }
-  #heatmapCanvas { display: block; }
+  #heatmapCanvas { display: block; cursor: crosshair; }
 
   .heatmap-detail {
     margin-top: 12px; min-height: 26px; font-family: var(--font-mono);
@@ -66,7 +66,7 @@
   }
   .legend-scale .bar {
     width: 160px; height: 8px; border-radius: 4px;
-    background: linear-gradient(to right, #F5FA82, #C5C46A, #848477, #626258, #404040);
+    background: linear-gradient(to right, #F5FA82, #D3D665, #AAA965, #787668, #4C4C48, #303030);
   }
 
   .about-panel { margin-top: 24px; }
@@ -172,15 +172,18 @@
   var smoothWindow = 12;
   var trendChart = null;
 
-  // Same 5-stop ramp used for the "Cloud Cover" field on the monthly
-  // heatmap tool (pale yellow-green -> charcoal), so low-to-high overcast
-  // reads consistently across both tools.
+  // Sequential "clear -> overcast" ramp: pale warm yellow-green down to a
+  // dark charcoal. Same family as the monthly tool's Cloud Cover field, but
+  // re-spaced for more even perceptual contrast across a continuous 0-100%
+  // scale — the borrowed 5-stop version had three similar-toned stops in
+  // the middle that read as one flat gray band once interpolated.
   var CLOUD_STOPS = [
     [245, 250, 130], // #F5FA82 — least overcast
-    [197, 196, 106], // #C5C46A
-    [132, 132, 119], // #848477
-    [ 98,  98,  88], // #626258
-    [ 64,  64,  64]  // #404040 — most overcast
+    [211, 214, 101], // #D3D665
+    [170, 169, 101], // #AAA965
+    [120, 118, 104], // #787668
+    [ 76,  76,  72], // #4C4C48
+    [ 48,  48,  48]  // #303030 — most overcast
   ];
 
   function lerp(a, b, t) { return a + (b - a) * t; }
@@ -198,16 +201,27 @@
     var c = colorRGBForValue(pct, lo, hi);
     return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')';
   }
-  // Perceived luminance of a fill color, used to pick readable cell text
-  // against the new ramp (which runs light-to-dark instead of the old
-  // light-in-the-middle diverging scale).
-  function textColorFor(rgb) {
-    var lin = rgb.map(function (v) {
-      v /= 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    });
-    var lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-    return lum > 0.4 ? '#1E2320' : '#E8E4D9';
+
+  function percentileValue(sortedVals, p) {
+    if (!sortedVals.length) return 0;
+    var idx = (sortedVals.length - 1) * p;
+    var loI = Math.floor(idx), hiI = Math.ceil(idx);
+    if (loI === hiI) return sortedVals[loI];
+    var frac = idx - loI;
+    return sortedVals[loI] + (sortedVals[hiI] - sortedVals[loI]) * frac;
+  }
+  // Clamps the color scale to the 5th-95th percentile of the data instead
+  // of the literal min/max, so one or two extreme outlier months don't
+  // compress the "normal" range of variation into a narrow, low-contrast
+  // slice of the ramp. Values beyond the clamp still get colored — they
+  // just saturate at the end colors instead of stretching the whole scale.
+  function colorRange(values) {
+    var sorted = values.slice().sort(function (a, b) { return a - b; });
+    var lo = percentileValue(sorted, 0.05);
+    var hi = percentileValue(sorted, 0.95);
+    if (hi <= lo) { lo = sorted[0]; hi = sorted[sorted.length - 1]; }
+    if (hi <= lo) hi = lo + 1;
+    return { lo: lo, hi: hi };
   }
 
   function monthKey(y, m) { return y * 12 + (m - 1); }
@@ -357,7 +371,8 @@
     var raw = grid.map(function (m) { return m.pct; });
     var avg = movingAverage(grid, smoothWindow);
     var realVals = raw.filter(function (v) { return v !== null; });
-    var lo = Math.min.apply(null, realVals), hi = Math.max.apply(null, realVals);
+    var range = colorRange(realVals);
+    var lo = range.lo, hi = range.hi;
 
     var ctx = qs('#trendCanvas').getContext('2d');
     if (trendChart) trendChart.destroy();
@@ -451,12 +466,18 @@
     for (var y = minY; y <= maxY; y++) allYears.push(y);
 
     var raw = months.map(function (m) { return m.pct; });
-    var lo = Math.min.apply(null, raw), hi = Math.max.apply(null, raw);
+    var range = colorRange(raw);
+    var lo = range.lo, hi = range.hi;
     var MONS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
     var rowLabelW = 46, colW = 34, rowH = 26, headerH = 28, avgColW = 46;
-    var width = rowLabelW + allYears.length * colW + avgColW;
-    var height = headerH + 12 * rowH + rowH; // + avg row
+    // Gaps (+ a divider line drawn in each) that separate the Avg column
+    // from the year grid, and the Avg row from December — otherwise the
+    // summary cells read as just one more row/column of the same data.
+    var rowGap = 8, colGap = 8;
+    var avgColX = rowLabelW + allYears.length * colW + colGap;
+    var width = avgColX + avgColW;
+    var height = headerH + 12 * rowH + rowGap + rowH;
 
     var canvas = qs('#heatmapCanvas');
     var dpr = window.devicePixelRatio || 1;
@@ -480,11 +501,14 @@
       var x = rowLabelW + ci * colW + colW / 2;
       ctx.fillText(String(yr), x, headerH / 2);
     });
-    ctx.fillText('Avg', rowLabelW + allYears.length * colW + avgColW / 2, headerH / 2);
+    ctx.fillText('Avg', avgColX + avgColW / 2, headerH / 2);
 
     var cellGeo = [];
     var monthAvg = [];
 
+    // No numeric labels are drawn in the cells themselves anymore — color
+    // carries the signal, and hover/tap (via cellGeo below, including the
+    // Avg row/column) surfaces the exact value in #heatmapDetail.
     for (var mi = 0; mi < 12; mi++) {
       var yRow = headerH + mi * rowH;
       ctx.fillStyle = '#948F82';
@@ -499,11 +523,6 @@
           var cellRGB = colorRGBForValue(val, lo, hi);
           ctx.fillStyle = 'rgb(' + Math.round(cellRGB[0]) + ',' + Math.round(cellRGB[1]) + ',' + Math.round(cellRGB[2]) + ')';
           ctx.fillRect(x + 1, yRow + 1, colW - 2, rowH - 2);
-          ctx.fillStyle = textColorFor(cellRGB);
-          ctx.textAlign = 'center';
-          ctx.font = '10px "Courier Prime", monospace';
-          ctx.fillText(val.toFixed(0), x + colW / 2, yRow + rowH / 2);
-          ctx.font = '11px "Courier Prime", monospace';
           sum += val; n++;
         } else {
           ctx.fillStyle = 'rgba(232,228,217,0.04)';
@@ -513,19 +532,32 @@
       });
       var mAvg = n ? sum / n : null;
       monthAvg.push(mAvg);
-      var avgX = rowLabelW + allYears.length * colW;
       if (mAvg !== null) {
         var avgRGB = colorRGBForValue(mAvg, lo, hi);
         ctx.fillStyle = 'rgb(' + Math.round(avgRGB[0]) + ',' + Math.round(avgRGB[1]) + ',' + Math.round(avgRGB[2]) + ')';
-        ctx.fillRect(avgX + 1, yRow + 1, avgColW - 2, rowH - 2);
-        ctx.fillStyle = textColorFor(avgRGB);
-        ctx.textAlign = 'center';
-        ctx.fillText(mAvg.toFixed(0), avgX + avgColW / 2, yRow + rowH / 2);
+        ctx.fillRect(avgColX + 1, yRow + 1, avgColW - 2, rowH - 2);
       }
+      cellGeo.push({ x: avgColX, y: yRow, w: avgColW, h: rowH, year: null, month: mi + 1, val: mAvg, isMonthAvg: true });
     }
 
+    // Divider between the December row and the Avg summary row below it.
+    var dividerY = Math.round(headerH + 12 * rowH + rowGap / 2) + 0.5;
+    ctx.strokeStyle = 'rgba(232,228,217,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, dividerY);
+    ctx.lineTo(width, dividerY);
+    ctx.stroke();
+
+    // Matching divider between the year columns and the Avg column.
+    var dividerX = Math.round(rowLabelW + allYears.length * colW + colGap / 2) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(dividerX, headerH);
+    ctx.lineTo(dividerX, height);
+    ctx.stroke();
+
     // bottom avg row (per year)
-    var avgRowY = headerH + 12 * rowH;
+    var avgRowY = headerH + 12 * rowH + rowGap;
     ctx.fillStyle = '#948F82';
     ctx.textAlign = 'left';
     ctx.fillText('Avg', 6, avgRowY + rowH / 2);
@@ -535,22 +567,33 @@
         if (byYear[yr] && byYear[yr][mm] !== undefined) vals.push(byYear[yr][mm]);
       }
       var x = rowLabelW + ci * colW;
+      var a = null;
       if (vals.length) {
-        var a = vals.reduce(function (s, v) { return s + v; }, 0) / vals.length;
+        a = vals.reduce(function (s, v) { return s + v; }, 0) / vals.length;
         var rowRGB = colorRGBForValue(a, lo, hi);
         ctx.fillStyle = 'rgb(' + Math.round(rowRGB[0]) + ',' + Math.round(rowRGB[1]) + ',' + Math.round(rowRGB[2]) + ')';
         ctx.fillRect(x + 1, avgRowY + 1, colW - 2, rowH - 2);
-        ctx.fillStyle = textColorFor(rowRGB);
-        ctx.textAlign = 'center';
-        ctx.fillText(a.toFixed(0), x + colW / 2, avgRowY + rowH / 2);
       }
+      cellGeo.push({ x: x, y: avgRowY, w: colW, h: rowH, year: yr, month: null, val: a, isYearAvg: true });
     });
 
     heatmapLayout = { cellGeo: cellGeo, lo: lo, hi: hi, months: months };
 
     var detailEl = qs('#heatmapDetail');
     function describe(cell) {
-      if (!cell || cell.val === null) return 'No data for that month.';
+      if (!cell) return 'Hover or tap a cell for details.';
+      if (cell.val === null) {
+        if (cell.isMonthAvg) return 'No ' + MONS[cell.month - 1] + ' data on file yet.';
+        if (cell.isYearAvg) return 'No data for ' + cell.year + ' yet.';
+        return 'No data for that month.';
+      }
+      if (cell.isMonthAvg) {
+        return '<strong>' + MONS[cell.month - 1] + ' average, ' + allYears[0] + '&ndash;' + allYears[allYears.length - 1] +
+          ':</strong> ' + cell.val.toFixed(1) + '% overcast.';
+      }
+      if (cell.isYearAvg) {
+        return '<strong>' + cell.year + ' average (all months):</strong> ' + cell.val.toFixed(1) + '% overcast.';
+      }
       var sameMonth = months.filter(function (m) { return m.m === cell.month; })
         .sort(function (a, b) { return b.pct - a.pct; });
       var rank = sameMonth.findIndex(function (m) { return m.y === cell.year; }) + 1;
