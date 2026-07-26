@@ -177,6 +177,8 @@
 .skyplot-foot { display: flex; gap: 12px; align-items: baseline; font-family: var(--font-mono); font-size: 17px; font-weight: 600; color: var(--color-text-primary); margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--color-border); flex-wrap: wrap; min-height: 20px; }
 .skyplot-foot .sp-sep { color: var(--color-text-muted); font-weight: 400; }
 .skyplot-foot .sp-hint { font-weight: 400; font-size: 11.5px; color: var(--color-text-muted); margin-left: auto; letter-spacing: .03em; opacity: .7; }
+.skyplot-foot .skyplot-png-btn { align-self: center; opacity: .82; }
+.skyplot-foot .skyplot-png-btn:hover { opacity: 1; }
 @media (max-width: 720px) { .skyplot-grid { grid-template-columns: 1fr; } }
 
 
@@ -351,12 +353,12 @@
   <div class="skyplot-box">
     <div class="skyplot-cap"><span class="skyplot-cap-lbl"><span class="skyplot-cap-icon">&#9728;&#65039;</span>Sun Path Today</span><span class="skyplot-cap-val" id="sp-sun-daylen">--</span></div>
     <svg class="skyplot-svg" id="sp-sun-svg" viewBox="0 0 400 248" preserveAspectRatio="xMidYMid meet"></svg>
-    <div class="skyplot-foot"><span id="sp-sun-alt">--</span><span class="sp-sep" id="sp-sun-sep"></span><span id="sp-sun-az"></span><span class="sp-hint">hover the arc for any time &#8594;</span></div>
+    <div class="skyplot-foot"><span id="sp-sun-alt">--</span><span class="sp-sep" id="sp-sun-sep"></span><span id="sp-sun-az"></span><span class="sp-hint">hover the arc for any time &#8594;</span><button type="button" class="cc-btn cc-btn-sm skyplot-png-btn" onclick="exportSkyPlotPNG('sun')" title="Download this chart as a high-resolution PNG">&#8595; PNG</button></div>
   </div>
   <div class="skyplot-box">
     <div class="skyplot-cap"><span class="skyplot-cap-lbl"><span class="skyplot-cap-icon" id="sp-moon-cap-icon">&#127769;</span>Moon Path Today</span><span class="skyplot-cap-val" id="sp-moon-daylen">--</span></div>
     <svg class="skyplot-svg" id="sp-moon-svg" viewBox="0 0 400 248" preserveAspectRatio="xMidYMid meet"></svg>
-    <div class="skyplot-foot"><span id="sp-moon-alt">--</span><span class="sp-sep" id="sp-moon-sep"></span><span id="sp-moon-az"></span><span class="sp-hint">hover the arc for any time &#8594;</span></div>
+    <div class="skyplot-foot"><span id="sp-moon-alt">--</span><span class="sp-sep" id="sp-moon-sep"></span><span id="sp-moon-az"></span><span class="sp-hint">hover the arc for any time &#8594;</span><button type="button" class="cc-btn cc-btn-sm skyplot-png-btn" onclick="exportSkyPlotPNG('moon')" title="Download this chart as a high-resolution PNG">&#8595; PNG</button></div>
   </div>
 </div>
 
@@ -1981,6 +1983,118 @@ function exportChartPNG(chartDivId){
     link.href=off.toDataURL('image/png');
     link.click();
   }).catch(e=>console.warn('PNG export failed:',e));
+}
+
+// ================================================================
+// SKY PLOT PNG EXPORT — same self-contained-image convention as exportChartPNG
+// above (branded header with title + station/date context, chart, footer
+// citation) but sourced from an inline <svg> instead of a Plotly div. Two
+// wrinkles specific to SVG export:
+//  1. The skyplot SVG paints with CSS custom properties (fill="var(--color-
+//     border)" etc.) that only resolve inside this page's cascade — a cloned
+//     copy serialized to a standalone data: URL has no access to that
+//     cascade, so inlineSvgCssVars() resolves every var() reference to its
+//     computed value before serializing.
+//  2. Because the source is a vector, the SVG is asked to rasterize directly
+//     at a large target size (well above its on-page footprint) rather than
+//     being exported at display size and upscaled afterward — that's what
+//     keeps the download sharp instead of soft/blurry.
+// ================================================================
+const SKY_PLOT_META={
+  sun:{svgId:'sp-sun-svg',hoverId:'sp-sun-hover',title:'Sun Path Today'},
+  moon:{svgId:'sp-moon-svg',hoverId:'sp-moon-hover',title:'Moon Path Today'}
+};
+
+function inlineSvgCssVars(root){
+  const cs=getComputedStyle(document.documentElement);
+  const cache={};
+  const resolve=(val)=>val.replace(/var\((--[a-zA-Z0-9-]+)(?:\s*,\s*([^)]+))?\)/g,(m,name,fb)=>{
+    if(!(name in cache)){
+      let v=cs.getPropertyValue(name).trim();
+      if(!v&&fb)v=fb.trim();
+      cache[name]=v;
+    }
+    return cache[name]||(fb?fb.trim():'');
+  });
+  const attrs=['fill','stroke','stop-color','font-family','color'];
+  (function walk(el){
+    attrs.forEach(a=>{
+      const v=el.getAttribute&&el.getAttribute(a);
+      if(v&&v.indexOf('var(')!==-1)el.setAttribute(a,resolve(v));
+    });
+    Array.from(el.children||[]).forEach(walk);
+  })(root);
+}
+
+function exportSkyPlotPNG(kind){
+  const meta=SKY_PLOT_META[kind];
+  const svg=meta&&document.getElementById(meta.svgId);
+  if(!svg)return;
+
+  const clone=svg.cloneNode(true);
+  const hoverGroup=clone.querySelector('#'+meta.hoverId);
+  if(hoverGroup)hoverGroup.remove(); // transient hover UI, not part of a static export
+  inlineSvgCssVars(clone);
+
+  const vb=svg.viewBox.baseVal;
+  const vbW=(vb&&vb.width)||400,vbH=(vb&&vb.height)||248;
+  const displayW=svg.getBoundingClientRect().width||vbW;
+  // Rasterize several times larger than the on-page size — the source is a
+  // vector, so this stays crisp instead of just upscaling a screenshot.
+  const chartW=Math.round(Math.max(1600,displayW*3));
+  const chartH=Math.round(chartW*vbH/vbW);
+  clone.setAttribute('width',chartW);
+  clone.setAttribute('height',chartH);
+  clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+
+  const svgStr=new XMLSerializer().serializeToString(clone);
+  const svgUrl='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(svgStr)));
+  const img=new Image();
+  img.onload=()=>{
+    const st=curStation;
+    const label=st?`${st[1]}, ${st[2]} (${st[0]})`:'Station not selected';
+    const dateStr=new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric',year:'numeric'});
+
+    const PAD=28,HDR=112,FTR=42;
+    const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
+    const off=document.createElement('canvas');
+    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    const oc=off.getContext('2d');
+    oc.scale(2,2);
+
+    oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
+    oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
+
+    oc.textBaseline='alphabetic';
+    oc.fillStyle='#948F82';oc.font='600 12px "Courier Prime", monospace';
+    oc.fillText('CONTEXTCLIMATE \u00b7 CURRENT CONDITIONS',PAD,30);
+    oc.textAlign='right';
+    oc.fillText(new Date().toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}),ow-PAD,30);
+    oc.textAlign='left';
+
+    oc.fillStyle='#E8E4D9';oc.font='bold 28px "Zilla Slab", serif';
+    oc.fillText(meta.title,PAD,64);
+
+    oc.fillStyle='#A6A499';oc.font='16px "Public Sans", sans-serif';
+    oc.fillText(`${label}  \u00b7  ${dateStr}`,PAD,90);
+
+    oc.fillStyle='#262B27';
+    oc.fillRect(PAD,HDR,chartW,chartH);
+    oc.drawImage(img,PAD,HDR,chartW,chartH);
+
+    oc.fillStyle='#948F82';oc.font='12px "Courier Prime", monospace';
+    oc.fillText('Sun/moon position calculated from station location & time  \u00b7  ContextClimate  \u00b7  contextclimate.io',PAD,oh-16);
+
+    oc.fillStyle='#2AA87E';oc.fillRect(0,oh-3,ow,3);
+
+    const icao=curStation?curStation[0]:'station';
+    const link=document.createElement('a');
+    link.download=`${icao}_${kind}-path_${new Date().toISOString().slice(0,10)}.png`;
+    link.href=off.toDataURL('image/png');
+    link.click();
+  };
+  img.onerror=(e)=>console.warn('Sky plot PNG export failed:',e);
+  img.src=svgUrl;
 }
 
 // Bars are sized from the data's own median spacing (not Plotly's gap-from-min-spacing
