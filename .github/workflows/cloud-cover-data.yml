@@ -1,28 +1,31 @@
 name: Update Global Cloud Cover Data
 
-# Weekly refresh of public/global-cloud-cover.json (global mean cloud cover
-# trend, ERA5 reanalysis via Open-Meteo). First-ever run auto-detects that
-# the data file doesn't exist yet and does a full 1980-present backfill;
-# every run after that is incremental (re-fetches the trailing 90 days to
-# catch ERA5's ~5-day publish delay and any late revisions).
+# Runs daily. Every run does two things, both budget-capped against
+# Open-Meteo's free-tier limit of 10,000 API "calls"/day (calls are
+# metered by date-range length, not just request count -- see the
+# comment block at the top of scripts/fetch_global_cloud_cover.py):
+#
+#   1. Cheap refresh of the trailing ~90 days across all 144 sample
+#      points, so recent months always stay current.
+#   2. Whatever budget is left over goes toward the historical backfill
+#      (1980-present), picking up the oldest not-yet-fetched year where
+#      the last run left off. A committed cache file
+#      (data/global-cloud-cover-raw-cache.json) makes this resumable --
+#      the backfill just gets a little further back in time each day
+#      until it reaches 1980, then that step becomes a no-op forever.
+#
+# Because it's self-throttling and resumable, daily cadence is safe and
+# gives faster backfill progress than weekly would, at negligible extra
+# cost once the backfill is complete.
 #
 # NOTE: add "Update Global Cloud Cover Data" to deploy.yml's workflow_run
-# trigger list so a successful data commit here also redeploys Pages,
-# same as the other data pipelines (ENSO, SST, sea ice, sunspots).
+# trigger list (already done) so a successful data commit here also
+# redeploys Pages, same as the other data pipelines.
 
 on:
   schedule:
-    - cron: "0 13 * * 1"  # every Monday 13:00 UTC
+    - cron: "0 13 * * *"  # daily, 13:00 UTC
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "backfill = full 1980-present history, incremental = trailing 90 days only"
-        required: false
-        default: "incremental"
-        type: choice
-        options:
-          - incremental
-          - backfill
 
 permissions:
   contents: write
@@ -42,27 +45,17 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Determine run mode
-        id: mode
-        run: |
-          if [ -f public/global-cloud-cover.json ]; then
-            echo "mode=${{ github.event.inputs.mode || 'incremental' }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "mode=backfill" >> "$GITHUB_OUTPUT"
-            echo "No existing data file found -- running full backfill instead."
-          fi
-
       - name: Fetch cloud cover data
         run: |
           python scripts/fetch_global_cloud_cover.py \
-            --mode ${{ steps.mode.outputs.mode }} \
-            --out public/global-cloud-cover.json
+            --out public/global-cloud-cover.json \
+            --raw-cache data/global-cloud-cover-raw-cache.json
 
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/global-cloud-cover.json
+          git add public/global-cloud-cover.json data/global-cloud-cover-raw-cache.json
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
