@@ -301,6 +301,15 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/SeaIceExtent_thumbnail.png',
       },
+      {
+        tags:       ['Global Sample', 'UPDATES WEEKLY'],
+        title:      'Global Cloud Cover Trend',
+        description:'Global mean cloud cover from a 144-point equal-area ERA5 reanalysis sample, 1980 to present — tracking how planetary cloudiness is trending against the 1991–2020 baseline.',
+        footerTags: ['ERA5 Reanalysis', '144-Point Sample', '1980–Present'],
+        to:         '/global-cloud-cover-trend',
+        accentVar:  '--accent-climate',
+        thumb:      '/CloudCoverTrend_thumbnail.png',
+      },
     ],
   },
   {
