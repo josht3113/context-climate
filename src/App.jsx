@@ -41,6 +41,7 @@ import Flapstronaut               from './pages/Flapstronaut'
 import DewpointThresholdHeatmap    from './pages/DewpointThresholdHeatmap'
 import FogHeatmap                  from './pages/FogHeatmap'
 import ThunderstormHeatmap         from './pages/ThunderstormHeatmap'
+import SmokeHeatmap                from './pages/SmokeHeatmap'
 import WinterPrecipHeatmap         from './pages/WinterPrecipHeatmap'
 import SnowfallSeasonWindow        from './pages/SnowfallSeasonWindow'
 import SnowFrequency               from './pages/SnowFrequency'
@@ -156,6 +157,7 @@ export default function App() {
           <Route path="/dewpoint-threshold-heatmap"          element={<DewpointThresholdHeatmap />} />
           <Route path="/fog-heatmap"                         element={<FogHeatmap />}              />
           <Route path="/thunderstorm-heatmap"                element={<ThunderstormHeatmap />}     />
+          <Route path="/smoke-heatmap"                       element={<SmokeHeatmap />}            />
           <Route path="/winter-precip-heatmap"               element={<WinterPrecipHeatmap />}     />
           <Route path="/snowfall-season-window"              element={<SnowfallSeasonWindow />}    />
           <Route path="/snow-frequency"                      element={<SnowFrequency />}           />
