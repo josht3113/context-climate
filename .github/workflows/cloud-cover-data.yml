@@ -1,0 +1,71 @@
+name: Update Global Cloud Cover Data
+
+# Weekly refresh of public/global-cloud-cover.json (global mean cloud cover
+# trend, ERA5 reanalysis via Open-Meteo). First-ever run auto-detects that
+# the data file doesn't exist yet and does a full 1980-present backfill;
+# every run after that is incremental (re-fetches the trailing 90 days to
+# catch ERA5's ~5-day publish delay and any late revisions).
+#
+# NOTE: add "Update Global Cloud Cover Data" to deploy.yml's workflow_run
+# trigger list so a successful data commit here also redeploys Pages,
+# same as the other data pipelines (ENSO, SST, sea ice, sunspots).
+
+on:
+  schedule:
+    - cron: "0 13 * * 1"  # every Monday 13:00 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "backfill = full 1980-present history, incremental = trailing 90 days only"
+        required: false
+        default: "incremental"
+        type: choice
+        options:
+          - incremental
+          - backfill
+
+permissions:
+  contents: write
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [ -f public/global-cloud-cover.json ]; then
+            echo "mode=${{ github.event.inputs.mode || 'incremental' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=backfill" >> "$GITHUB_OUTPUT"
+            echo "No existing data file found -- running full backfill instead."
+          fi
+
+      - name: Fetch cloud cover data
+        run: |
+          python scripts/fetch_global_cloud_cover.py \
+            --mode ${{ steps.mode.outputs.mode }} \
+            --out public/global-cloud-cover.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/global-cloud-cover.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update global cloud cover data [automated]"
+            git push
+          fi
