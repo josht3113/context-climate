@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Cloud Cover Trend</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root { --tool-accent: var(--accent-climate); }
+
+  .cc-wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .cc-header { display: flex; flex-direction: column; gap: 6px; text-align: center; }
+
+  .cc-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .chart-box {
+    position: relative;
+    width: 100%;
+    height: 420px;
+    background: var(--color-surface);
+  }
+  .chart-box canvas { width: 100% !important; height: 100% !important; }
+
+  .cc-loading, .cc-error {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text-muted);
+    padding: 60px 0;
+  }
+  .cc-error { color: var(--accent-seasons); }
+
+  .cc-footer-row {
+    display: flex;
+    justify-content: center;
+  }
+
+  .cc-citation {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  #png-export-canvas { display: none; }
+</style>
+</head>
+<body>
+<div class="cc-wrap">
+
+  <div class="cc-header">
+    <div class="cc-eyebrow">Climate &middot; Global Data</div>
+    <div class="cc-title">Global Cloud Cover Trend</div>
+    <div class="cc-subtitle">
+      Mean total cloud cover across a 144-point global sample, ERA5 reanalysis, 1980&ndash;present.
+    </div>
+  </div>
+
+  <div class="cc-controls-row">
+    <div class="cc-tab-bar" id="view-tabs" role="tablist" aria-label="Time resolution">
+      <button class="cc-tab is-active" data-view="annual">Annual</button>
+      <button class="cc-tab" data-view="monthly">Monthly</button>
+    </div>
+
+    <div class="cc-segmented" id="mode-segmented" role="tablist" aria-label="Value type">
+      <button class="cc-segmented-btn is-active" data-mode="anomaly">Anomaly</button>
+      <button class="cc-segmented-btn" data-mode="absolute">Absolute %</button>
+    </div>
+
+    <button class="cc-btn cc-btn-sm" id="png-export-btn">&#8595; PNG</button>
+  </div>
+
+  <div class="cc-panel">
+    <div class="chart-box" id="chart-box">
+      <div class="cc-loading" id="loading-msg">Loading global cloud cover data&hellip;</div>
+      <canvas id="trend-chart" style="display:none;"></canvas>
+    </div>
+  </div>
+
+  <div class="cc-stat-row" id="stat-row" style="justify-content:center;"></div>
+
+  <div class="cc-footer-row">
+    <div class="cc-tag" id="last-updated-tag">&nbsp;</div>
+  </div>
+
+  <div class="cc-citation" id="citation-text"></div>
+
+</div>
+
+<canvas id="png-export-canvas" width="1600" height="1200"></canvas>
+
+<script>
+(function () {
+  const OPAQUE_BG = '#262B27';
+  const ACCENT = '#D08425';       // --accent-climate (canvas can't resolve var())
+  const ACCENT_MUTED = 'rgba(208, 132, 37, 0.35)';
+  const TREND_LINE = '#E8E4D9';   // --color-text-primary, dashed
+  const ZERO_LINE = 'rgba(232, 228, 217, 0.25)';
+  const TEXT_SECONDARY = '#A6A499';
+  const TEXT_MUTED = '#948F82';
+
+  let doc = null;
+  let chart = null;
+  let state = { view: 'annual', mode: 'anomaly' };
+
+  const opaqueBgPlugin = {
+    id: 'opaqueBg',
+    beforeDraw(c) {
+      const ctx = c.ctx;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = OPAQUE_BG;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.restore();
+    }
+  };
+
+  function rollingMean(values, window) {
+    const out = new Array(values.length).fill(null);
+    for (let i = 0; i < values.length; i++) {
+      const start = Math.max(0, i - window + 1);
+      const slice = values.slice(start, i + 1).filter(v => v !== null && v !== undefined);
+      if (slice.length >= Math.min(window, i + 1)) {
+        out[i] = slice.reduce((a, b) => a + b, 0) / slice.length;
+      }
+    }
+    return out;
+  }
+
+  function fmtPct(v, digits = 2) {
+    if (v === null || v === undefined || Number.isNaN(v)) return '—';
+    const sign = v > 0 ? '+' : '';
+    return `${sign}${v.toFixed(digits)}%`;
+  }
+
+  function buildDatasets() {
+    const valueKey = state.mode === 'anomaly' ? 'anomaly_pct' : 'mean_pct';
+    const yLabel = state.mode === 'anomaly'
+      ? 'Cloud cover anomaly (pct pts vs. 1991–2020 baseline)'
+      : 'Mean cloud cover (%)';
+
+    if (state.view === 'annual') {
+      const rows = doc.annual;
+      const labels = rows.map(r => String(r.year));
+      const values = rows.map(r => r[valueKey]);
+
+      const datasets = [{
+        label: state.mode === 'anomaly' ? 'Annual anomaly' : 'Annual mean',
+        data: values,
+        borderColor: ACCENT,
+        backgroundColor: ACCENT_MUTED,
+        pointRadius: rows.map(r => r.complete ? 2.5 : 4),
+        pointStyle: rows.map(r => r.complete ? 'circle' : 'crossRot'),
+        pointBackgroundColor: ACCENT,
+        borderWidth: 2,
+        tension: 0.15,
+        spanGaps: true,
+      }];
+
+      if (state.mode === 'anomaly' && doc.trend) {
+        const t = doc.trend;
+        const trendVals = labels.map(l => {
+          const y = Number(l);
+          if (y < t.fit_year_range[0] || y > t.fit_year_range[1]) return null;
+          return t.slope_pct_per_year * y + t.intercept_pct;
+        });
+        datasets.push({
+          label: 'Trend fit',
+          data: trendVals,
+          borderColor: TREND_LINE,
+          borderDash: [6, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0,
+          spanGaps: true,
+        });
+        datasets.push({
+          label: 'Baseline (0)',
+          data: labels.map(() => 0),
+          borderColor: ZERO_LINE,
+          borderWidth: 1,
+          pointRadius: 0,
+          tension: 0,
+        });
+      }
+
+      return { labels, datasets, yLabel };
+    }
+
+    // monthly view
+    const rows = doc.monthly;
+    const labels = rows.map(r => r.date);
+    const values = rows.map(r => r[valueKey]);
+    const smoothed = rollingMean(values, 12);
+
+    const datasets = [
+      {
+        label: 'Monthly',
+        data: values,
+        borderColor: ACCENT_MUTED,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0.1,
+        spanGaps: true,
+      },
+      {
+        label: '12-month running mean',
+        data: smoothed,
+        borderColor: ACCENT,
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.15,
+        spanGaps: true,
+      },
+    ];
+
+    if (state.mode === 'anomaly') {
+      datasets.push({
+        label: 'Baseline (0)',
+        data: labels.map(() => 0),
+        borderColor: ZERO_LINE,
+        borderWidth: 1,
+        pointRadius: 0,
+        tension: 0,
+      });
+    }
+
+    return { labels, datasets, yLabel };
+  }
+
+  function renderChart() {
+    const { labels, datasets, yLabel } = buildDatasets();
+    const ctx = document.getElementById('trend-chart').getContext('2d');
+
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets },
+      plugins: [opaqueBgPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            labels: { color: TEXT_SECONDARY, font: { family: 'Public Sans', size: 12 } },
+          },
+          tooltip: {
+            backgroundColor: OPAQUE_BG,
+            borderColor: 'rgba(232,228,217,0.14)',
+            borderWidth: 1,
+            titleColor: '#E8E4D9',
+            bodyColor: TEXT_SECONDARY,
+            titleFont: { family: 'Public Sans', size: 12, weight: '600' },
+            bodyFont: { family: 'Public Sans', size: 12 },
+          },
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(232,228,217,0.06)' },
+            ticks: {
+              color: TEXT_MUTED,
+              font: { family: 'Courier Prime', size: 11 },
+              maxTicksLimit: state.view === 'annual' ? 12 : 10,
+            },
+          },
+          y: {
+            grid: { color: 'rgba(232,228,217,0.06)' },
+            ticks: { color: TEXT_MUTED, font: { family: 'Courier Prime', size: 11 } },
+            title: {
+              display: true,
+              text: yLabel,
+              color: TEXT_SECONDARY,
+              font: { family: 'Public Sans', size: 12 },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function renderStats() {
+    const row = document.getElementById('stat-row');
+    const t = doc.trend;
+    const lastComplete = [...doc.annual].reverse().find(r => r.complete);
+    const latestMonth = doc.monthly[doc.monthly.length - 1];
+
+    const chips = [
+      {
+        label: 'Trend',
+        value: t ? `${fmtPct(t.slope_pct_per_decade, 2)} / decade` : '—',
+        note: t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)} · R² ${t.r_squared}` : '',
+      },
+      {
+        label: `Latest complete year (${lastComplete ? lastComplete.year : '—'})`,
+        value: lastComplete ? fmtPct(lastComplete.anomaly_pct) : '—',
+        note: lastComplete ? `${lastComplete.mean_pct.toFixed(1)}% mean cover` : '',
+      },
+      {
+        label: 'Latest month',
+        value: latestMonth ? latestMonth.date : '—',
+        note: latestMonth ? `${latestMonth.mean_pct.toFixed(1)}% mean cover` : '',
+      },
+      {
+        label: 'Sample',
+        value: `${doc.metadata.sample_points} points`,
+        note: `${doc.metadata.data_start} – ${doc.metadata.last_data_month}`,
+      },
+    ];
+
+    row.innerHTML = chips.map(c => `
+      <div class="cc-stat-chip">
+        <div class="cc-stat-label">${c.label}</div>
+        <div class="cc-stat-value" style="font-size:22px;">${c.value}</div>
+        <div class="cc-stat-note" style="font-size:12px;">${c.note}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderFooter() {
+    document.getElementById('last-updated-tag').textContent =
+      `Last updated ${doc.metadata.last_updated_utc.slice(0, 10)} · baseline ${doc.metadata.baseline_period}`;
+    document.getElementById('citation-text').textContent = doc.metadata.citation;
+  }
+
+  function wireControls() {
+    document.getElementById('view-tabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-view]');
+      if (!btn) return;
+      state.view = btn.dataset.view;
+      document.querySelectorAll('#view-tabs .cc-tab').forEach(b => b.classList.toggle('is-active', b === btn));
+      renderChart();
+    });
+    document.getElementById('mode-segmented').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mode]');
+      if (!btn) return;
+      state.mode = btn.dataset.mode;
+      document.querySelectorAll('#mode-segmented .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+      renderChart();
+    });
+    document.getElementById('png-export-btn').addEventListener('click', exportPng);
+  }
+
+  function exportPng() {
+    if (!chart) return;
+    const scale = 2;
+    const W = 1600, H = 1200;
+    const cnv = document.getElementById('png-export-canvas');
+    cnv.width = W; cnv.height = H;
+    const ctx = cnv.getContext('2d');
+
+    ctx.fillStyle = '#1E2320';
+    ctx.fillRect(0, 0, W, H);
+
+    // Title block
+    ctx.fillStyle = '#948F82';
+    ctx.font = '600 22px "Courier Prime", monospace';
+    ctx.textBaseline = 'top';
+    ctx.fillText('CONTEXTCLIMATE · CLIMATE · GLOBAL DATA', 48, 44);
+
+    ctx.fillStyle = '#E8E4D9';
+    ctx.font = '700 52px "Zilla Slab", serif';
+    ctx.fillText('Global Cloud Cover Trend', 48, 80);
+
+    ctx.fillStyle = '#A6A499';
+    ctx.font = '400 24px "Public Sans", sans-serif';
+    const subtitle = `${state.view === 'annual' ? 'Annual' : 'Monthly'} · ${state.mode === 'anomaly' ? 'Anomaly vs. ' + doc.metadata.baseline_period + ' baseline' : 'Absolute mean cover'} · ERA5 reanalysis, ${doc.metadata.sample_points}-point global sample`;
+    ctx.fillText(subtitle, 48, 148);
+
+    // Chart image
+    const chartImg = new Image();
+    chartImg.onload = () => {
+      const chartY = 210, chartH = 620, chartX = 48, chartW = W - 96;
+      ctx.fillStyle = '#262B27';
+      ctx.fillRect(chartX, chartY, chartW, chartH);
+      ctx.drawImage(chartImg, chartX, chartY, chartW, chartH);
+
+      // Stat callout
+      const t = doc.trend;
+      ctx.fillStyle = '#948F82';
+      ctx.font = '600 16px "Courier Prime", monospace';
+      ctx.fillText('TREND', 48, chartY + chartH + 40);
+      ctx.fillStyle = '#D08425';
+      ctx.font = '700 44px "Zilla Slab", serif';
+      const trendStr = t ? `${fmtPct(t.slope_pct_per_decade, 2)} per decade` : 'n/a';
+      ctx.fillText(trendStr, 48, chartY + chartH + 64);
+      ctx.fillStyle = '#A6A499';
+      ctx.font = '400 18px "Public Sans", sans-serif';
+      const ciStr = t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)}, R² = ${t.r_squared}, n = ${t.n_years} complete years` : '';
+      ctx.fillText(ciStr, 48, chartY + chartH + 118);
+
+      // Footer citation
+      ctx.fillStyle = '#948F82';
+      ctx.font = '400 14px "Public Sans", sans-serif';
+      const footerLines = wrapText(ctx, doc.metadata.citation, W - 96);
+      let fy = H - 24 * (footerLines.length + 1) - 20;
+      ctx.fillText(`Data: ${doc.metadata.source}`, 48, fy);
+      fy += 22;
+      footerLines.forEach(line => { ctx.fillText(line, 48, fy); fy += 20; });
+
+      const link = document.createElement('a');
+      link.download = `global-cloud-cover-${state.view}-${state.mode}.png`;
+      link.href = cnv.toDataURL('image/png');
+      link.click();
+    };
+    chartImg.src = chart.toBase64Image('image/png', 1.0);
+  }
+
+  function wrapText(ctx, text, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let cur = '';
+    words.forEach(w => {
+      const test = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(test).width > maxWidth && cur) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = test;
+      }
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  async function init() {
+    try {
+      const resp = await fetch('global-cloud-cover.json', { cache: 'no-store' });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      doc = await resp.json();
+      if (!doc.monthly || !doc.monthly.length) throw new Error('No data in file yet');
+
+      document.getElementById('loading-msg').style.display = 'none';
+      document.getElementById('trend-chart').style.display = 'block';
+
+      wireControls();
+      renderChart();
+      renderStats();
+      renderFooter();
+    } catch (err) {
+      document.getElementById('loading-msg').outerHTML =
+        `<div class="cc-error">Couldn't load global-cloud-cover.json (${err.message}).<br>` +
+        `Make sure the data pipeline has run at least once.</div>`;
+      console.error(err);
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
