@@ -454,6 +454,15 @@ const SECTIONS = [
         accentVar:  '--accent-severe',
         thumb:      '/TornadoClimatology_thumbnail.png',
       },
+      {
+        tags:       ['1950–2022', 'OUTBREAK DAYS'],
+        title:      'Tornado Outbreak Explorer',
+        description:'Ranked outbreak days, a year-by-year intensity timeline, and a full track-by-track map and sequence for the Super Outbreaks, Palm Sunday, and every other major outbreak in the record.',
+        footerTags: ['Outbreak Rankings', 'Sequence Maps', '13 Named Outbreaks'],
+        to:         '/tornado-outbreak-explorer',
+        accentVar:  '--accent-severe',
+        thumb:      '/OutbreakExplorer_thumbnail.png',
+      },
     ],
   },
 ]
