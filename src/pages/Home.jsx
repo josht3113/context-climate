@@ -423,6 +423,21 @@ const SECTIONS = [
       },
     ],
   },
+  {
+    id:    'severe-weather',
+    label: 'Severe Weather',
+    cards: [
+      {
+        tags:       ['1950–2022', 'INTERACTIVE MAP'],
+        title:      'Tornado Track Explorer',
+        description:'Every confirmed tornado track in the NOAA/SPC severe weather database — filter by year, month, and EF rating, and click any track for its full record.',
+        footerTags: ['EF Scale', 'Path Data', '68,701 Tracks'],
+        to:         '/tornado-track-explorer',
+        accentVar:  '--accent-severe',
+        thumb:      '/TornadoTrackExplorer_thumbnail.png',
+      },
+    ],
+  },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
