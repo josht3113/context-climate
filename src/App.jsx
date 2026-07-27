@@ -90,6 +90,7 @@ import MoonPhaseSimulator          from './pages/MoonPhaseSimulator'
 import EclipseExplorer             from './pages/EclipseExplorer'
 import TemperatureClimatology      from './pages/TemperatureClimatology'
 import DewpointClimatology         from './pages/DewpointClimatology'
+import TornadoTrackExplorer        from './pages/TornadoTrackExplorer'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -206,6 +207,7 @@ export default function App() {
           <Route path="/earthandspace/spectral-fingerprint-lab"    element={<SpectralFingerprintLab />}    />
           <Route path="/earthandspace/doppler-shift-explorer"      element={<DopplerShiftExplorer />}      />
           <Route path="/earthandspace/hubbles-law-explorer"        element={<HubblesLawExplorer />}        />
+          <Route path="/tornado-track-explorer"                    element={<TornadoTrackExplorer />}      />
         </Routes>
       </main>
       <footer style={{
