@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="core-sample-tools.css">
+  <title>Tornado Track Explorer — ContextClimate</title>
+
+  <style>
+    /* Tool-specific layout only — shared chrome (colors, type, buttons,
+       panels, gauges, chips, badges, tags) lives in core-sample-tools.css */
+    :root { --tool-accent: #C0392B; } /* Severe Weather section (new) */
+
+    body { display: flex; flex-direction: column; align-items: center; }
+
+    header { max-width: 1080px; width: 100%; text-align: center; margin-bottom: 2px; }
+    .cc-eyebrow { margin-bottom: 10px; }
+    .cc-title { margin-bottom: 8px; }
+    .instr { max-width: 760px; margin: 0 auto 10px; }
+    .cite-tag { margin-top: 6px; }
+
+    .layout { max-width: 1080px; width: 100%; margin-top: 22px; }
+
+    /* ── Filter panel ── */
+    .filter-panel { margin-bottom: 18px; }
+    .filter-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      align-items: center; justify-content: center;
+    }
+    .filter-row + .filter-row { margin-top: 14px; }
+    .filter-label {
+      font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--color-text-muted); margin-right: 4px;
+    }
+    .year-sep { color: var(--color-text-muted); font-family: var(--font-mono); }
+
+    .mini-link {
+      font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.05em;
+      color: var(--color-text-muted); background: none; border: none;
+      cursor: pointer; text-decoration: underline; padding: 2px 4px;
+    }
+    .mini-link:hover { color: var(--color-text-primary); }
+
+    /* Colored toggle chip (EF scale) */
+    .ef-chip, .month-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--color-surface); border: 1px solid var(--color-border);
+      color: var(--color-text-secondary); font-family: var(--font-body);
+      font-size: 13px; font-weight: 600; padding: 7px 13px; border-radius: var(--radius-md);
+      cursor: pointer; transition: border-color 0.15s ease, opacity 0.15s ease;
+    }
+    .ef-chip .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .ef-chip { opacity: 0.4; }
+    .ef-chip.is-active { opacity: 1; border-color: var(--color-border-hover); }
+    .month-chip { font-size: 12px; padding: 6px 10px; opacity: 0.4; }
+    .month-chip.is-active { opacity: 1; border-color: var(--tool-accent); color: var(--color-text-primary); }
+
+    /* ── Map card ── */
+    .map-card { padding: 1.25rem 1.25rem 1rem; }
+    #torCanvas { width: 100%; height: auto; display: block; cursor: crosshair; }
+    .legend-row { margin-top: 14px; }
+
+    /* ── Stats ── */
+    .stat-row { margin-top: 16px; }
+    .stat-row .cc-stat-chip { flex: 1; min-width: 130px; text-align: center; }
+
+    /* ── Detail card ── */
+    .detail-card { margin-top: 16px; min-height: 88px; }
+    .detail-empty { color: var(--color-text-muted); font-style: italic; text-align: center; padding: 18px 0; }
+    .detail-grid {
+      display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: center;
+    }
+    .detail-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 46px; height: 46px; border-radius: 50%;
+      font-family: var(--font-mono); font-weight: 700; font-size: 15px;
+      grid-row: span 2;
+    }
+    .detail-title { font-family: var(--font-display); font-weight: 700; font-size: 19px; color: var(--color-text-primary); }
+    .detail-sub { font-size: 13px; color: var(--color-text-secondary); }
+    .detail-stats { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 4px; grid-column: 1 / -1; }
+    .detail-stats div { font-size: 13px; color: var(--color-text-secondary); }
+    .detail-stats b { color: var(--color-text-primary); font-family: var(--font-mono); }
+    .detail-note { grid-column: 1 / -1; font-size: 12px; color: var(--color-text-muted); font-style: italic; margin-top: 2px; }
+
+    .action-row { display: flex; justify-content: center; margin-top: 18px; }
+
+    @media (max-width: 560px) {
+      .filter-row { gap: 6px; }
+      .month-chip { padding: 5px 8px; font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <p class="cc-eyebrow">Severe Weather · Tornado Climatology</p>
+    <h1 class="cc-title">Tornado Track Explorer</h1>
+    <p class="cc-subtitle instr">Every confirmed tornado track in the NOAA/SPC severe weather database. Filter by year, month, and EF rating — click any track on the map for its full record.</p>
+    <div class="cc-tag cite-tag" id="citeTag">Loading database…</div>
+  </header>
+
+  <div class="layout">
+
+    <div class="cc-panel filter-panel">
+      <div class="filter-row" id="quickRanges"></div>
+
+      <div class="filter-row">
+        <span class="filter-label">Years</span>
+        <select id="yearFrom" class="cc-select"></select>
+        <span class="year-sep">–</span>
+        <select id="yearTo" class="cc-select"></select>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">EF Rating</span>
+        <div class="filter-row" id="efRow" style="margin-top:0;"></div>
+        <button class="mini-link" id="efAll">all</button>
+        <button class="mini-link" id="efNone">none</button>
+      </div>
+
+      <div class="filter-row">
+        <span class="filter-label">Month</span>
+        <div class="filter-row" id="monthRow" style="margin-top:0;"></div>
+        <button class="mini-link" id="moAll">all</button>
+        <button class="mini-link" id="moNone">none</button>
+      </div>
+    </div>
+
+    <div class="cc-panel map-card">
+      <canvas id="torCanvas" class="cc-canvas-frame"></canvas>
+      <div class="cc-legend-row legend-row" id="legendRow"></div>
+    </div>
+
+    <div class="cc-stat-row stat-row" id="statRow"></div>
+
+    <div class="cc-panel detail-card" id="detailCard">
+      <p class="detail-empty">Click any track on the map to see its full record.</p>
+    </div>
+
+    <div class="action-row">
+      <button class="cc-btn cc-btn-sm" id="pngBtn">↓ PNG</button>
+    </div>
+
+    <p class="geo-note" style="margin-top:22px;font-size:13px;color:var(--color-text-muted);text-align:center;font-style:italic;max-width:680px;margin-left:auto;margin-right:auto;line-height:1.65;">
+      Map shows the continental U.S. only; a small number of Alaska, Hawaii, Puerto Rico, and D.C. tracks in the source database aren't plotted here. Property/crop loss figures exist in the source data but are omitted from this view — SPC's own methodology changed in 1996 (categorical codes → dollar figures), and the agency cautions that loss data "should be used with caution, if at all."
+    </p>
+
+  </div>
+
+  <script src="map-base.js"></script>
+  <script src="map-regions.js"></script>
+  <script>
+    // ── EF-scale palette (content-encoded — not a design-system token) ──
+    const EF_COLORS = { '-9': '#8A8578', '0': '#6B9E52', '1': '#B7A83D', '2': '#D68A2E', '3': '#C9622E', '4': '#B8362E', '5': '#7A3A93' };
+    const EF_LABELS = { '-9': 'Unrated', '0': 'EF0', '1': 'EF1', '2': 'EF2', '3': 'EF3', '4': 'EF4', '5': 'EF5' };
+    const EF_ORDER = ['-9', '0', '1', '2', '3', '4', '5'];
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    // record field order, mirrors tornado-tracks.json's "fields"
+    // [om, yr, mo, dy, min, st, mag, fc, inj, fat, loss, closs, slat, slon, elat, elon, len, wid]
+    const F = { om:0, yr:1, mo:2, dy:3, min:4, st:5, mag:6, fc:7, inj:8, fat:9, loss:10, closs:11, slat:12, slon:13, elat:14, elon:15, len:16, wid:17 };
+
+    const QUICK_RANGES = [
+      { label: 'Full Record',    from: null, to: null },
+      { label: 'Since 2000',     from: 2000, to: null },
+      { label: 'Last 10 Years',  from: -10,  to: null },
+      { label: '1974 Outbreak',  from: 1974, to: 1974 },
+      { label: '2011 Outbreak',  from: 2011, to: 2011 },
+    ];
+
+    let DATA = null;       // manifest object
+    let RECORDS = null;    // records array
+    let YEAR_MIN = 1950, YEAR_MAX = 2022;
+    let GEO = null;
+    let PROJECT = null, DIMS = null;
+    let VISIBLE = [];      // cached [rec, x1,y1,x2,y2] for hit-testing after each draw
+
+    const state = {
+      efs: new Set(EF_ORDER),
+      months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]),
+      yearFrom: 2013,
+      yearTo: 2022,
+    };
+
+    // ── DOM refs ──
+    const canvas = document.getElementById('torCanvas');
+    const ctx = canvas.getContext('2d');
+    const yearFromSel = document.getElementById('yearFrom');
+    const yearToSel = document.getElementById('yearTo');
+    const efRow = document.getElementById('efRow');
+    const monthRow = document.getElementById('monthRow');
+    const quickRow = document.getElementById('quickRanges');
+    const legendRow = document.getElementById('legendRow');
+    const statRow = document.getElementById('statRow');
+    const detailCard = document.getElementById('detailCard');
+    const citeTag = document.getElementById('citeTag');
+
+    // ── Load data ──
+    Promise.all([
+      fetch('tornado-tracks.json').then(r => r.json()),
+      fetch((window.MAP_REGIONS && MAP_REGIONS.conus.geo) || 'states-500k.geojson').then(r => r.json()),
+    ]).then(([manifest, geo]) => {
+      DATA = manifest;
+      RECORDS = manifest.records;
+      YEAR_MIN = manifest.coverage_start;
+      YEAR_MAX = manifest.coverage_end;
+      GEO = geo;
+      state.yearFrom = Math.max(YEAR_MIN, YEAR_MAX - 9);
+      state.yearTo = YEAR_MAX;
+      init();
+    }).catch(err => {
+      citeTag.textContent = 'Could not load tornado database — see console for details.';
+      console.error(err);
+    });
+
+    function init() {
+      citeTag.textContent = `${DATA.record_count.toLocaleString()} tracks · ${YEAR_MIN}–${YEAR_MAX} · NOAA/NWS Storm Prediction Center severe weather database`;
+
+      buildYearSelects();
+      buildEfChips();
+      buildMonthChips();
+      buildQuickRanges();
+
+      const region = (window.MAP_REGIONS && MAP_REGIONS.conus) || { bounds: { west: -125.5, east: -66.5, north: 49.8, south: 24.0 } };
+      DIMS = MAP.computeDims(region.bounds, 1000);
+      canvas.width = DIMS.CW;
+      canvas.height = DIMS.CH;
+      PROJECT = MAP.makeProjection(region.bounds, DIMS);
+
+      canvas.addEventListener('click', onCanvasClick);
+      document.getElementById('pngBtn').addEventListener('click', downloadPNG);
+
+      draw();
+    }
+
+    function buildYearSelects() {
+      for (let y = YEAR_MIN; y <= YEAR_MAX; y++) {
+        const o1 = document.createElement('option'); o1.value = y; o1.textContent = y;
+        const o2 = document.createElement('option'); o2.value = y; o2.textContent = y;
+        yearFromSel.appendChild(o1);
+        yearToSel.appendChild(o2);
+      }
+      yearFromSel.value = state.yearFrom;
+      yearToSel.value = state.yearTo;
+      yearFromSel.addEventListener('change', () => {
+        state.yearFrom = parseInt(yearFromSel.value);
+        if (state.yearFrom > state.yearTo) { state.yearTo = state.yearFrom; yearToSel.value = state.yearTo; }
+        clearQuickActive(); draw();
+      });
+      yearToSel.addEventListener('change', () => {
+        state.yearTo = parseInt(yearToSel.value);
+        if (state.yearTo < state.yearFrom) { state.yearFrom = state.yearTo; yearFromSel.value = state.yearFrom; }
+        clearQuickActive(); draw();
+      });
+    }
+
+    function buildEfChips() {
+      EF_ORDER.forEach(mag => {
+        const chip = document.createElement('button');
+        chip.className = 'ef-chip is-active';
+        chip.innerHTML = `<span class="dot" style="background:${EF_COLORS[mag]}"></span>${EF_LABELS[mag]}`;
+        chip.addEventListener('click', () => {
+          if (state.efs.has(mag)) state.efs.delete(mag); else state.efs.add(mag);
+          chip.classList.toggle('is-active', state.efs.has(mag));
+          draw();
+        });
+        efRow.appendChild(chip);
+      });
+      document.getElementById('efAll').addEventListener('click', () => {
+        state.efs = new Set(EF_ORDER);
+        efRow.querySelectorAll('.ef-chip').forEach(c => c.classList.add('is-active'));
+        draw();
+      });
+      document.getElementById('efNone').addEventListener('click', () => {
+        state.efs = new Set();
+        efRow.querySelectorAll('.ef-chip').forEach(c => c.classList.remove('is-active'));
+        draw();
+      });
+    }
+
+    function buildMonthChips() {
+      MONTH_NAMES.forEach((name, i) => {
+        const mo = i + 1;
+        const chip = document.createElement('button');
+        chip.className = 'month-chip is-active';
+        chip.textContent = name;
+        chip.addEventListener('click', () => {
+          if (state.months.has(mo)) state.months.delete(mo); else state.months.add(mo);
+          chip.classList.toggle('is-active', state.months.has(mo));
+          draw();
+        });
+        monthRow.appendChild(chip);
+      });
+      document.getElementById('moAll').addEventListener('click', () => {
+        state.months = new Set([1,2,3,4,5,6,7,8,9,10,11,12]);
+        monthRow.querySelectorAll('.month-chip').forEach(c => c.classList.add('is-active'));
+        draw();
+      });
+      document.getElementById('moNone').addEventListener('click', () => {
+        state.months = new Set();
+        monthRow.querySelectorAll('.month-chip').forEach(c => c.classList.remove('is-active'));
+        draw();
+      });
+    }
+
+    function buildQuickRanges() {
+      QUICK_RANGES.forEach(q => {
+        const btn = document.createElement('button');
+        btn.className = 'cc-btn';
+        btn.textContent = q.label;
+        btn.dataset.label = q.label;
+        btn.addEventListener('click', () => {
+          state.yearFrom = q.from === null ? YEAR_MIN : (q.from < 0 ? Math.max(YEAR_MIN, YEAR_MAX + q.from) : q.from);
+          state.yearTo = q.to === null ? YEAR_MAX : q.to;
+          yearFromSel.value = state.yearFrom;
+          yearToSel.value = state.yearTo;
+          quickRow.querySelectorAll('.cc-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+          draw();
+        });
+        quickRow.appendChild(btn);
+      });
+    }
+
+    function clearQuickActive() {
+      quickRow.querySelectorAll('.cc-btn').forEach(b => b.classList.remove('is-active'));
+    }
+
+    // ── Filtering + drawing ──
+    function filteredRecords() {
+      return RECORDS.filter(r =>
+        r[F.yr] >= state.yearFrom && r[F.yr] <= state.yearTo &&
+        state.months.has(r[F.mo]) &&
+        state.efs.has(String(r[F.mag]))
+      );
+    }
+
+    function draw() {
+      const visible = filteredRecords();
+
+      ctx.clearRect(0, 0, DIMS.CW, DIMS.CH);
+      MAP.renderBase(ctx, GEO, PROJECT, DIMS);
+
+      // group by EF color for batched stroke calls (perf: one path per color, not per track)
+      const groups = {};
+      EF_ORDER.forEach(m => groups[m] = []);
+      VISIBLE = [];
+
+      visible.forEach(r => {
+        const [x1, y1] = PROJECT(r[F.slon], r[F.slat]);
+        const [x2, y2] = PROJECT(r[F.elon], r[F.elat]);
+        groups[String(r[F.mag])].push([x1, y1, x2, y2]);
+        VISIBLE.push([r, x1, y1, x2, y2]);
+      });
+
+      EF_ORDER.forEach(mag => {
+        const segs = groups[mag];
+        if (!segs.length) return;
+        ctx.beginPath();
+        segs.forEach(([x1, y1, x2, y2]) => {
+          if (Math.hypot(x2 - x1, y2 - y1) < 0.6) {
+            // point tornado / no distinct end coord — draw as a tiny cross so it isn't invisible
+            ctx.moveTo(x1 - 1.4, y1); ctx.lineTo(x1 + 1.4, y1);
+            ctx.moveTo(x1, y1 - 1.4); ctx.lineTo(x1, y1 + 1.4);
+          } else {
+            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+          }
+        });
+        ctx.strokeStyle = EF_COLORS[mag];
+        ctx.lineWidth = mag === '-9' ? 1 : 1 + Number(mag) * 0.45;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      });
+
+      MAP.drawStamp(ctx, null, DIMS);
+
+      updateLegend(visible);
+      updateStats(visible);
+    }
+
+    function updateLegend(visible) {
+      const counts = {};
+      EF_ORDER.forEach(m => counts[m] = 0);
+      visible.forEach(r => counts[String(r[F.mag])]++);
+      legendRow.innerHTML = EF_ORDER.map(mag => `
+        <span class="cc-legend-chip">
+          <span class="cc-legend-dot" style="background:${EF_COLORS[mag]}"></span>
+          ${EF_LABELS[mag]} · ${counts[mag].toLocaleString()}
+        </span>
+      `).join('');
+    }
+
+    function updateStats(visible) {
+      let maxMag = -9, fatalities = 0, injuries = 0, longest = null;
+      visible.forEach(r => {
+        if (r[F.mag] > maxMag) maxMag = r[F.mag];
+        fatalities += r[F.fat];
+        injuries += r[F.inj];
+        if (!longest || r[F.len] > longest[F.len]) longest = r;
+      });
+      const chips = [
+        { label: 'Tracks Shown', value: visible.length.toLocaleString() },
+        { label: 'Strongest In View', value: visible.length ? EF_LABELS[String(maxMag)] : '—' },
+        { label: 'Fatalities In View', value: fatalities.toLocaleString() },
+        { label: 'Longest Track', value: longest ? `${longest[F.len].toFixed(1)} mi` : '—' },
+      ];
+      statRow.innerHTML = chips.map(c => `
+        <div class="cc-stat-chip">
+          <div class="cc-stat-value">${c.value}</div>
+          <div class="cc-stat-label">${c.label}</div>
+        </div>
+      `).join('');
+    }
+
+    // ── Click-to-detail (nearest track within pixel threshold) ──
+    function canvasCoords(evt) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+      return { x: (evt.clientX - rect.left) * scaleX, y: (evt.clientY - rect.top) * scaleY };
+    }
+
+    function pointSegDist(px, py, x1, y1, x2, y2) {
+      const dx = x2 - x1, dy = y2 - y1;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 === 0 ? 0 : ((px - x1) * dx + (py - y1) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = x1 + t * dx, cy = y1 + t * dy;
+      return Math.hypot(px - cx, py - cy);
+    }
+
+    function onCanvasClick(evt) {
+      const pt = canvasCoords(evt);
+      let best = null, bestD = 9;
+      VISIBLE.forEach(([r, x1, y1, x2, y2]) => {
+        const d = pointSegDist(pt.x, pt.y, x1, y1, x2, y2);
+        if (d < bestD) { bestD = d; best = r; }
+      });
+      if (best) showDetail(best);
+    }
+
+    function showDetail(r) {
+      const mag = r[F.mag];
+      const color = EF_COLORS[String(mag)];
+      const dateStr = `${MONTH_NAMES[r[F.mo] - 1]} ${r[F.dy]}, ${r[F.yr]}`;
+      const timeStr = r[F.min] >= 0 ? formatTime(r[F.min]) : 'time unknown';
+      const ratingNote = mag === -9
+        ? 'Rating was never assigned in the source database.'
+        : (r[F.fc] ? 'Rating was estimated after the fact from an originally-unrated tornado.' : '');
+
+      detailCard.innerHTML = `
+        <div class="detail-grid">
+          <span class="detail-badge" style="background:${color};color:#1E2320">${mag === -9 ? '?' : 'EF' + mag}</span>
+          <div>
+            <div class="detail-title">${r[F.st]} — ${dateStr}</div>
+            <div class="detail-sub">${timeStr} local · ${EF_LABELS[String(mag)]}</div>
+          </div>
+          <div class="detail-stats">
+            <div>Path length <b>${r[F.len].toFixed(1)} mi</b></div>
+            <div>Path width <b>${r[F.wid].toLocaleString()} yd</b></div>
+            <div>Injuries <b>${r[F.inj].toLocaleString()}</b></div>
+            <div>Fatalities <b>${r[F.fat].toLocaleString()}</b></div>
+          </div>
+          ${ratingNote ? `<div class="detail-note">${ratingNote}</div>` : ''}
+        </div>
+      `;
+    }
+
+    function formatTime(min) {
+      let h = Math.floor(min / 60), m = min % 60;
+      const ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12; if (h === 0) h = 12;
+      return `${h}:${String(m).padStart(2,'0')} ${ap}`;
+    }
+
+    // ── PNG export ──
+    function downloadPNG() {
+      const PAD = 24, HDR = 78, FTR = 40;
+      const CW = DIMS.CW, CH = DIMS.CH;
+      const ow = PAD * 2 + CW, oh = HDR + CH + FTR;
+
+      const off = document.createElement('canvas');
+      off.width = ow * 2; off.height = oh * 2;
+      const oc = off.getContext('2d');
+      oc.scale(2, 2);
+
+      oc.fillStyle = '#1E2320'; oc.fillRect(0, 0, ow, oh);
+      oc.fillStyle = '#C0392B'; oc.fillRect(0, 0, ow, 3);
+
+      oc.fillStyle = '#E8E4D9';
+      oc.font = 'bold 24px "Zilla Slab", serif';
+      oc.fillText('Tornado Track Explorer', PAD, 34);
+
+      oc.fillStyle = '#A6A499';
+      oc.font = '14px "Public Sans", sans-serif';
+      oc.fillText(`${state.yearFrom}–${state.yearTo} · ${VISIBLE.length.toLocaleString()} tracks shown`, PAD, 56);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '12px "Courier Prime", monospace';
+      oc.textAlign = 'right';
+      oc.fillText('contextclimate.io', ow - PAD, 34);
+      oc.textAlign = 'left';
+
+      oc.drawImage(canvas, PAD, HDR, CW, CH);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '11px "Courier Prime", monospace';
+      oc.fillText('NOAA/NWS Storm Prediction Center severe weather database   ·   contextclimate.io', PAD, oh - 14);
+
+      oc.fillStyle = '#C0392B'; oc.fillRect(0, oh - 2, ow, 2);
+
+      const link = document.createElement('a');
+      link.download = `tornado-tracks-${state.yearFrom}-${state.yearTo}.png`;
+      link.href = off.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+
+</body>
+</html>
