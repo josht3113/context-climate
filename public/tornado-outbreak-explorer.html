@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="core-sample-tools.css">
+  <title>Tornado Outbreak Explorer — ContextClimate</title>
+
+  <style>
+    /* Tool-specific layout only — shared chrome (colors, type, buttons,
+       panels, gauges, chips, badges, tags) lives in core-sample-tools.css */
+    :root { --tool-accent: #DE7767; } /* Severe Weather section — 5.27:1 on --color-bg, 4.76:1 on --color-surface */
+
+    body { display: flex; flex-direction: column; align-items: center; }
+
+    header { max-width: 1080px; width: 100%; text-align: center; margin-bottom: 2px; }
+    .cc-eyebrow { margin-bottom: 10px; }
+    .cc-title { margin-bottom: 8px; }
+    .instr { max-width: 720px; margin: 0 auto 10px; }
+    .cite-tag { margin-top: 6px; }
+
+    .layout { max-width: 1080px; width: 100%; margin-top: 22px; }
+
+    section.dash-section { margin-top: 30px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .section-title { font-family: var(--font-display); font-weight: 700; font-size: 20px; color: var(--color-text-primary); }
+    .section-sub { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
+
+    /* ── Local segmented toggle ── */
+    .seg-toggle { display: inline-flex; background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B); border-radius: var(--radius-md); padding: 3px; gap: 2px; }
+    .seg-btn {
+      font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      color: var(--color-text-muted); background: none; border: none; border-radius: calc(var(--radius-md) - 3px);
+      padding: 7px 12px; cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+      text-transform: uppercase;
+    }
+    .seg-btn.is-active { background: var(--tool-accent); color: #1E2320; }
+    .seg-btn:not(.is-active):hover { color: var(--color-text-primary); }
+
+    /* ── Episode chips ── */
+    .episode-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .episode-chip {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+      background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B);
+      border-radius: var(--radius-md); padding: 9px 13px; cursor: pointer; text-align: left;
+      transition: border-color 0.15s ease, background 0.15s ease; min-width: 168px; flex: 1 1 168px;
+    }
+    .episode-chip:hover { border-color: var(--tool-accent); }
+    .episode-chip.is-active { border-color: var(--tool-accent); background: color-mix(in srgb, var(--tool-accent) 10%, var(--color-surface-2)); }
+    .episode-chip .ep-name { font-family: var(--font-body); font-size: 12.5px; font-weight: 700; color: var(--color-text-primary); line-height: 1.3; }
+    .episode-chip .ep-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-muted); }
+
+    /* ── Chart cards ── */
+    .chart-card { padding: 1.1rem 1.1rem 0.9rem; position: relative; }
+    .chart-card canvas { display: block; width: 100%; cursor: crosshair; }
+    .chart-caveat { font-size: 12px; color: var(--color-text-muted); font-style: italic; line-height: 1.6; margin-top: 12px; }
+
+    .chart-tip {
+      position: fixed; pointer-events: none; z-index: 60;
+      background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B);
+      border-radius: 6px; padding: 8px 11px; font-family: var(--font-mono); font-size: 11px;
+      color: var(--color-text-primary, #E8E4D9); line-height: 1.55; opacity: 0;
+      transition: opacity 0.1s ease; transform: translate(-50%, -112%); white-space: nowrap;
+    }
+    .chart-tip.is-visible { opacity: 1; }
+    .chart-tip b { color: var(--tool-accent); }
+
+    /* ── Leaderboard ── */
+    .board-list { display: flex; flex-direction: column; gap: 4px; }
+    .board-row {
+      display: grid; grid-template-columns: 24px 96px 1fr 70px 74px 16px; align-items: center; gap: 10px;
+      padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer; border: 1px solid transparent;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .board-row:hover { background: var(--color-surface-2); }
+    .board-row.is-active { background: var(--color-surface-2); border-color: var(--tool-accent); }
+    .board-rank { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); text-align: right; }
+    .board-date { font-family: var(--font-mono); font-size: 12.5px; color: var(--color-text-primary); white-space: nowrap; }
+    .board-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .board-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; color: var(--tool-accent); text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-ef-bar { display: flex; height: 6px; width: 100%; max-width: 220px; border-radius: 3px; overflow: hidden; background: var(--color-border, #3A413B); }
+    .board-metric { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--color-text-primary); text-align: right; }
+    .board-sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-muted); text-align: right; }
+    .board-arrow { color: var(--color-text-muted); font-size: 13px; text-align: center; }
+    .board-row.is-active .board-arrow { color: var(--tool-accent); }
+
+    @media (max-width: 640px) {
+      .board-row { grid-template-columns: 20px 74px 1fr 60px 16px; }
+      .board-sub { display: none; }
+    }
+
+    /* ── Detail view ── */
+    .detail-head { margin-bottom: 14px; }
+    .detail-name { font-family: var(--font-display); font-weight: 700; font-size: 22px; color: var(--color-text-primary); line-height: 1.25; }
+    .detail-dates { font-family: var(--font-mono); font-size: 12.5px; color: var(--tool-accent); margin-top: 3px; }
+    .detail-blurb { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; margin-top: 8px; max-width: 720px; }
+
+    .detail-two-col { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 18px; margin-top: 18px; }
+    .map-card canvas { width: 100%; height: auto; display: block; }
+    .map-card { padding: 1rem; }
+
+    .table-card { margin-top: 18px; padding: 0; overflow: hidden; }
+    .table-scroll { max-height: 420px; overflow-y: auto; }
+    .track-row {
+      display: grid; grid-template-columns: 108px 42px 46px 70px 70px 52px 52px; gap: 8px;
+      padding: 7px 14px; font-size: 12px; align-items: center; border-bottom: 1px solid var(--color-border, #3A413B);
+    }
+    .track-row.head {
+      font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--color-text-muted); position: sticky; top: 0; background: var(--color-surface); z-index: 2;
+    }
+    .track-row .ef-badge {
+      display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 20px;
+      border-radius: 4px; font-family: var(--font-mono); font-weight: 700; font-size: 10.5px;
+    }
+    .track-row span.num { font-family: var(--font-mono); color: var(--color-text-secondary); }
+
+    @media (max-width: 640px) {
+      .detail-two-col { grid-template-columns: 1fr; }
+      .track-row { grid-template-columns: 88px 36px 40px 1fr 50px; }
+      .track-row .col-wid, .track-row .col-inj { display: none; }
+    }
+
+    .action-row { display: flex; justify-content: center; margin-top: 22px; margin-bottom: 8px; }
+
+    .geo-note { margin-top: 10px; font-size: 13px; color: var(--color-text-muted); text-align: center; font-style: italic; max-width: 680px; margin-left: auto; margin-right: auto; line-height: 1.65; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <p class="cc-eyebrow">Severe Weather · Tornado Climatology</p>
+    <h1 class="cc-title">Tornado Outbreak Explorer</h1>
+    <p class="cc-subtitle instr">The days the sky broke loose — ranked outbreak days, a year-by-year intensity timeline, and a full track-by-track sequence for every major outbreak in the record.</p>
+    <div class="cc-tag cite-tag" id="citeTag">Loading database…</div>
+  </header>
+
+  <div class="layout">
+
+    <section class="dash-section" style="margin-top:18px;">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Famous Outbreaks</div>
+          <div class="section-sub">Jump straight to a well-known event</div>
+        </div>
+      </div>
+      <div class="cc-panel" style="padding: 1rem;">
+        <div class="episode-grid" id="episodeGrid"></div>
+      </div>
+    </section>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Outbreak Intensity by Year</div>
+          <div class="section-sub">Each bar is that year's single most intense outbreak day</div>
+        </div>
+        <div class="seg-toggle" id="timelineToggle">
+          <button class="seg-btn is-active" data-mode="count">By Count</button>
+          <button class="seg-btn" data-mode="score">By Severity</button>
+        </div>
+      </div>
+      <div class="cc-panel chart-card">
+        <canvas id="timelineCanvas"></canvas>
+        <p class="chart-caveat">"Severity" is an EF-weighted score (EF0=1 … EF5=32 per tornado, summed for the day) — it surfaces days like 1965's Palm Sunday Outbreak that were comparatively small in tornado count but exceptionally violent and deadly. Click any bar to open that year's top day below.</p>
+      </div>
+    </section>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Top Outbreak Days</div>
+          <div class="section-sub">1950–2022 · click any row to load its full sequence</div>
+        </div>
+        <div class="seg-toggle" id="boardToggle">
+          <button class="seg-btn is-active" data-mode="count">Tornado Count</button>
+          <button class="seg-btn" data-mode="score">Severity Score</button>
+          <button class="seg-btn" data-mode="fat">Fatalities</button>
+        </div>
+      </div>
+      <div class="cc-panel" style="padding: 0.6rem;">
+        <div class="board-list" id="boardList"></div>
+      </div>
+    </section>
+
+    <section class="dash-section" id="detailSection">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Outbreak Detail</div>
+          <div class="section-sub">Map, timing, and every individual track</div>
+        </div>
+      </div>
+
+      <div class="cc-panel" style="padding: 1.1rem;">
+        <div class="detail-head">
+          <div class="detail-name" id="detailName">—</div>
+          <div class="detail-dates" id="detailDates"></div>
+          <div class="detail-blurb" id="detailBlurb"></div>
+        </div>
+        <div class="cc-stat-row" id="detailStats"></div>
+      </div>
+
+      <div class="detail-two-col">
+        <div class="cc-panel map-card">
+          <canvas id="outbreakMapCanvas"></canvas>
+          <div class="cc-legend-row" id="mapLegend"></div>
+        </div>
+        <div class="cc-panel chart-card">
+          <canvas id="sequenceCanvas"></canvas>
+        </div>
+      </div>
+
+      <div class="cc-panel table-card">
+        <div class="table-scroll" id="trackTable"></div>
+      </div>
+
+      <div class="action-row">
+        <button class="cc-btn cc-btn-sm" id="pngBtn">↓ PNG (Outbreak Map)</button>
+      </div>
+    </section>
+
+    <p class="geo-note">
+      Source: NOAA/NWS Storm Prediction Center severe weather database, 1950–2022. Outbreak day and severity-score groupings are derived from the raw track data and are not official SPC classifications. Named historic outbreaks are a curated selection, not an exhaustive list — many other significant outbreaks live in the rankings above without a special label.
+    </p>
+
+  </div>
+
+  <div class="chart-tip" id="chartTip"></div>
+
+  <script src="map-base.js"></script>
+  <script src="map-regions.js"></script>
+  <script>
+    // ── EF-scale palette (content-encoded — not a design-system token) ──
+    const EF_COLORS = { '-9': '#8E897D', '0': '#6B9E52', '1': '#B7A83D', '2': '#D68A2E', '3': '#D26F3D', '4': '#B8362E', '5': '#7A3A93' };
+    const EF_BADGE_TEXT = { '-9': '#1E2320', '0': '#1E2320', '1': '#1E2320', '2': '#1E2320', '3': '#1E2320', '4': '#E8E4D9', '5': '#E8E4D9' };
+    const EF_LABELS = { '-9': 'Unrated', '0': 'EF0', '1': 'EF1', '2': 'EF2', '3': 'EF3', '4': 'EF4', '5': 'EF5' };
+    const EF_ORDER = ['-9', '0', '1', '2', '3', '4', '5'];
+    const EF_WEIGHT = { '-9': 1, '0': 1, '1': 2, '2': 4, '3': 8, '4': 16, '5': 32 };
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // record field order, mirrors tornado-tracks.json's "fields"
+    const F = { om:0, yr:1, mo:2, dy:3, min:4, st:5, mag:6, fc:7, inj:8, fat:9, loss:10, closs:11, slat:12, slon:13, elat:14, elon:15, len:16, wid:17 };
+
+    // ── Curated historic outbreaks (metadata only — every stat below is computed
+    // live from RECORDS at load time, nothing here is a hardcoded figure) ──
+    const EPISODES = [
+      { key:'ar_tn_1952',      name:'1952 Arkansas–Tennessee Outbreak',        start:[1952,3,21], end:[1952,3,21],
+        blurb:'A comparatively small tornado count masks an unusually deadly outbreak that struck overnight across Arkansas, Tennessee, and Missouri.' },
+      { key:'dallas_kc_1957',  name:'1957 Dallas–Kansas City Outbreak',        start:[1957,5,20], end:[1957,5,20],
+        blurb:'A single afternoon and evening that produced a destructive tornado through Dallas, Texas, and, hours later, a violent tornado through the Ruskin Heights suburb of Kansas City, Missouri.' },
+      { key:'palmsunday_1965', name:'1965 Palm Sunday Outbreak',               start:[1965,4,11], end:[1965,4,11],
+        blurb:'A fast-moving afternoon-into-evening outbreak across the Midwest — one of the deadliest single days in the modern record despite a comparatively modest tornado count.' },
+      { key:'superoutbreak_1974', name:'1974 Super Outbreak',                  start:[1974,4,3],  end:[1974,4,4],
+        blurb:'Still the benchmark for violent, widespread outbreaks — a record seven F5 tornadoes touched down across 13 states in under 24 hours.' },
+      { key:'hesston_1990',    name:'1990 Hesston–Wichita Outbreak',           start:[1990,3,13], end:[1990,3,13],
+        blurb:'An unusually early-season Kansas outbreak that produced a violent tornado through Hesston before the storm system continued into the Wichita area.' },
+      { key:'palmsunday_1994', name:'1994 Palm Sunday Outbreak',               start:[1994,3,27], end:[1994,3,27],
+        blurb:'A Southeast outbreak best remembered for a tornado striking a church in Piedmont, Alabama, during Palm Sunday services.' },
+      { key:'oklahoma_1999',   name:'1999 Oklahoma Outbreak (Bridge Creek–Moore)', start:[1999,5,3], end:[1999,5,4],
+        blurb:'Produced the highest wind speed ever measured near the surface — estimated near 302 mph by mobile Doppler radar near Bridge Creek, Oklahoma.' },
+      { key:'supertuesday_2008', name:'2008 Super Tuesday Outbreak',           start:[2008,2,5],  end:[2008,2,6],
+        blurb:'A rare, large winter outbreak across the mid-South that struck overnight, contributing to an unusually high death toll for a cold-season event.' },
+      { key:'superoutbreak_2011', name:'2011 Super Outbreak',                  start:[2011,4,25], end:[2011,4,28],
+        blurb:'The largest tornado outbreak on record — more than 300 tornadoes over four days, with April 27 alone producing over 200 tornadoes and four EF5s.' },
+      { key:'leapday_2012',    name:'2012 Leap Day Outbreak',                  start:[2012,2,28], end:[2012,3,3],
+        blurb:'A late-February/early-March outbreak sequence that included destructive, long-tracked tornadoes through Harrisburg, Illinois, and Henryville, Indiana.' },
+      { key:'memorial_2019',   name:'2019 Memorial Day Outbreak Sequence',     start:[2019,5,17], end:[2019,5,28],
+        blurb:'A 12-day streak of consecutive tornado days across the Plains and Midwest — one of the most persistent multi-day sieges on record, though most of the 300+ tornadoes were comparatively weak.' },
+      { key:'easter_2020',     name:'2020 Easter Sunday Outbreak',             start:[2020,4,12], end:[2020,4,13],
+        blurb:'A fast-moving Easter Sunday system that produced destructive tornadoes across the Deep South, striking during the early weeks of the COVID-19 pandemic and complicating shelter and recovery efforts.' },
+      { key:'quadstate_2021',  name:'2021 Quad-State/December Outbreak',       start:[2021,12,10], end:[2021,12,11],
+        blurb:'An extraordinarily rare December outbreak, including a Kentucky tornado whose track length sparked debate over whether it was one continuous storm or a family of several.' },
+    ];
+
+    let DATA = null, RECORDS = null, GEO = null;
+    let YEAR_MIN = 1950, YEAR_MAX = 2022;
+    let DAYS = {};             // dayKeyNum -> {yr,mo,dy,count,fat,inj,score,ef5,states:Set,mags:{}}
+    let YEAR_PEAK_COUNT = {};  // yr -> dayKeyNum
+    let YEAR_PEAK_SCORE = {};  // yr -> dayKeyNum
+    let boardMode = 'count';
+    let timelineMode = 'count';
+    let selectedKey = null;    // episode key or 'day-<dayKeyNum>', for active-state highlighting
+
+    const citeTag = document.getElementById('citeTag');
+    const chartTip = document.getElementById('chartTip');
+
+    Promise.all([
+      fetch('tornado-tracks.json').then(r => r.json()),
+      fetch((window.MAP_REGIONS && MAP_REGIONS.conus.geo) || 'states-500k.geojson').then(r => r.json()),
+    ]).then(([manifest, geo]) => {
+      DATA = manifest;
+      RECORDS = manifest.records;
+      YEAR_MIN = manifest.coverage_start;
+      YEAR_MAX = manifest.coverage_end;
+      GEO = geo;
+      init();
+    }).catch(err => {
+      citeTag.textContent = 'Could not load tornado database — see console for details.';
+      console.error(err);
+    });
+
+    function init() {
+      citeTag.textContent = `${DATA.record_count.toLocaleString()} tracks · ${YEAR_MIN}–${YEAR_MAX} · NOAA/NWS Storm Prediction Center severe weather database`;
+
+      aggregate();
+      buildEpisodeChips();
+      drawTimeline();
+      renderLeaderboard();
+
+      document.getElementById('timelineToggle').addEventListener('click', e => {
+        const btn = e.target.closest('.seg-btn'); if (!btn) return;
+        timelineMode = btn.dataset.mode;
+        document.querySelectorAll('#timelineToggle .seg-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        drawTimeline();
+      });
+
+      document.getElementById('boardToggle').addEventListener('click', e => {
+        const btn = e.target.closest('.seg-btn'); if (!btn) return;
+        boardMode = btn.dataset.mode;
+        document.querySelectorAll('#boardToggle .seg-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        renderLeaderboard();
+      });
+
+      document.getElementById('pngBtn').addEventListener('click', downloadPNG);
+      window.addEventListener('resize', debounce(() => {
+        drawTimeline();
+        if (CURRENT) { renderOutbreakMap(CURRENT.records, CURRENT.bounds); renderSequenceChart(CURRENT.records, CURRENT.start, CURRENT.end); }
+      }, 200));
+
+      // default view: the #1 day by count, resolved to its full named episode if it has one
+      const topDayKey = Object.keys(DAYS).map(Number).sort((a, b) => DAYS[b].count - DAYS[a].count)[0];
+      const d = DAYS[topDayKey];
+      const ep = resolveEpisodeForDay(d.yr, d.mo, d.dy);
+      if (ep) selectOutbreak(ep.key, ep.start, ep.end, ep.name, ep.blurb);
+      else selectOutbreak('day-' + topDayKey, [d.yr, d.mo, d.dy], [d.yr, d.mo, d.dy], null, null);
+    }
+
+    function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+    // ── Aggregation ──
+    function dayKey(yr, mo, dy) { return yr * 10000 + mo * 100 + dy; }
+
+    function aggregate() {
+      RECORDS.forEach(r => {
+        const yr = r[F.yr], mo = r[F.mo], dy = r[F.dy], mag = String(r[F.mag]), st = r[F.st], fat = r[F.fat], inj = r[F.inj];
+        const k = dayKey(yr, mo, dy);
+        let b = DAYS[k];
+        if (!b) b = DAYS[k] = { yr, mo, dy, count: 0, fat: 0, inj: 0, score: 0, ef5: 0, states: new Set(), mags: {} };
+        b.count++; b.fat += fat; b.inj += inj; b.score += EF_WEIGHT[mag];
+        if (mag === '5') b.ef5++;
+        b.states.add(st);
+        b.mags[mag] = (b.mags[mag] || 0) + 1;
+
+        if (!(yr in YEAR_PEAK_COUNT) || b.count > DAYS[YEAR_PEAK_COUNT[yr]].count) YEAR_PEAK_COUNT[yr] = k;
+        if (!(yr in YEAR_PEAK_SCORE) || b.score > DAYS[YEAR_PEAK_SCORE[yr]].score) YEAR_PEAK_SCORE[yr] = k;
+      });
+    }
+
+    function resolveEpisodeForDay(yr, mo, dy) {
+      const k = dayKey(yr, mo, dy);
+      return EPISODES.find(ep => {
+        const s = dayKey(...ep.start), e = dayKey(...ep.end);
+        return k >= s && k <= e;
+      }) || null;
+    }
+
+    // ── Episode chips ──
+    function buildEpisodeChips() {
+      const grid = document.getElementById('episodeGrid');
+      grid.innerHTML = EPISODES.map(ep => {
+        const yrLabel = ep.start[0] === ep.end[0] ? ep.start[0] : `${ep.start[0]}`;
+        const dateLabel = fmtRangeShort(ep.start, ep.end);
+        return `<button class="episode-chip" data-key="${ep.key}"><span class="ep-name">${ep.name}</span><span class="ep-meta">${dateLabel}</span></button>`;
+      }).join('');
+      grid.querySelectorAll('.episode-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ep = EPISODES.find(e => e.key === btn.dataset.key);
+          selectOutbreak(ep.key, ep.start, ep.end, ep.name, ep.blurb, true);
+        });
+      });
+    }
+
+    function fmtRangeShort(start, end) {
+      const [sy, sm, sd] = start, [ey, em, ed] = end;
+      if (sy === ey && sm === em && sd === ed) return `${MONTH_NAMES[sm - 1]} ${sd}, ${sy}`;
+      if (sy === ey && sm === em) return `${MONTH_NAMES[sm - 1]} ${sd}–${ed}, ${sy}`;
+      if (sy === ey) return `${MONTH_NAMES[sm - 1]} ${sd} – ${MONTH_NAMES[em - 1]} ${ed}, ${sy}`;
+      return `${MONTH_NAMES[sm - 1]} ${sd}, ${sy} – ${MONTH_NAMES[em - 1]} ${ed}, ${ey}`;
+    }
+
+    // ── Timeline (peak day per year) ──
+    function niceMax(v) {
+      if (v <= 0) return 1;
+      const mag = Math.pow(10, Math.floor(Math.log10(v)));
+      const norm = v / mag;
+      let n;
+      if (norm <= 1) n = 1; else if (norm <= 2) n = 2; else if (norm <= 2.5) n = 2.5; else if (norm <= 5) n = 5; else n = 10;
+      return n * mag;
+    }
+
+    function drawTimeline() {
+      const canvas = document.getElementById('timelineCanvas');
+      const peakMap = timelineMode === 'score' ? YEAR_PEAK_SCORE : YEAR_PEAK_COUNT;
+      const years = [];
+      for (let y = YEAR_MIN; y <= YEAR_MAX; y++) years.push(y);
+      const values = years.map(y => { const dk = peakMap[y]; return dk ? (timelineMode === 'score' ? DAYS[dk].score : DAYS[dk].count) : 0; });
+
+      const cssW = canvas.parentElement.clientWidth;
+      const cssH = 260;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
+      canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const padL = 42, padR = 8, padT = 10, padB = 26;
+      const plotW = cssW - padL - padR, plotH = cssH - padT - padB;
+      const n = years.length;
+      const yMax = niceMax(Math.max(...values));
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      const ticks = 4;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMax * i / ticks;
+        const y = padT + plotH - (v / yMax) * plotH;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW - padR, y); ctx.stroke();
+        ctx.fillText(Math.round(v).toLocaleString(), padL - 6, y);
+      }
+
+      const slot = plotW / n;
+      const barW = Math.max(1, slot - 2);
+      const barRects = [];
+
+      years.forEach((yr, i) => {
+        const v = values[i];
+        const x = padL + i * slot + (slot - barW) / 2;
+        const h = (v / yMax) * plotH;
+        const dk = peakMap[yr];
+        const isNamed = dk && resolveEpisodeForDay(DAYS[dk].yr, DAYS[dk].mo, DAYS[dk].dy);
+        ctx.fillStyle = isNamed ? '#DE7767' : 'color-mix(in srgb, #DE7767 55%, #948F82)';
+        ctx.fillStyle = isNamed ? '#DE7767' : '#A9836F';
+        ctx.fillRect(x, padT + plotH - h, barW, h);
+        barRects.push({ x0: padL + i * slot, x1: padL + (i + 1) * slot, yr });
+      });
+
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      years.forEach((yr, i) => {
+        if (yr % 10 === 0) ctx.fillText(String(yr), padL + i * slot + slot / 2, padT + plotH + 6);
+      });
+
+      canvas.onmousemove = (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = evt.clientX - rect.left;
+        const hit = barRects.find(r => mx >= r.x0 && mx < r.x1);
+        if (!hit) { chartTip.classList.remove('is-visible'); return; }
+        const dk = peakMap[hit.yr];
+        if (!dk) { chartTip.classList.remove('is-visible'); return; }
+        const d = DAYS[dk];
+        const dateStr = `${MONTH_FULL[d.mo - 1]} ${d.dy}, ${d.yr}`;
+        const metric = timelineMode === 'score' ? `Severity score ${d.score}` : `${d.count.toLocaleString()} tornadoes`;
+        chartTip.innerHTML = `<b>${hit.yr}</b> — peak day ${dateStr}<br>${metric} · ${d.fat.toLocaleString()} fatalities`;
+        chartTip.style.left = evt.clientX + 'px';
+        chartTip.style.top = evt.clientY + 'px';
+        chartTip.classList.add('is-visible');
+      };
+      canvas.onmouseleave = () => chartTip.classList.remove('is-visible');
+      canvas.onclick = (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = evt.clientX - rect.left;
+        const hit = barRects.find(r => mx >= r.x0 && mx < r.x1);
+        if (!hit) return;
+        const dk = peakMap[hit.yr];
+        if (!dk) return;
+        const d = DAYS[dk];
+        const ep = resolveEpisodeForDay(d.yr, d.mo, d.dy);
+        if (ep) selectOutbreak(ep.key, ep.start, ep.end, ep.name, ep.blurb, true);
+        else selectOutbreak('day-' + dk, [d.yr, d.mo, d.dy], [d.yr, d.mo, d.dy], null, null, true);
+      };
+    }
+
+    // ── Leaderboard ──
+    function renderLeaderboard() {
+      const entries = Object.keys(DAYS).map(k => ({ k: Number(k), d: DAYS[k] }));
+      const metricFn = boardMode === 'score' ? e => e.d.score : boardMode === 'fat' ? e => e.d.fat : e => e.d.count;
+      entries.sort((a, b) => metricFn(b) - metricFn(a));
+      const top = entries.slice(0, 25);
+      const maxMetric = top.length ? metricFn(top[0]) : 1;
+
+      const list = document.getElementById('boardList');
+      list.innerHTML = top.map((e, i) => {
+        const d = e.d;
+        const ep = resolveEpisodeForDay(d.yr, d.mo, d.dy);
+        const dateStr = `${MONTH_NAMES[d.mo - 1]} ${d.dy}, ${d.yr}`;
+        const metricVal = metricFn(e);
+        const metricLabel = boardMode === 'score' ? metricVal.toLocaleString() : boardMode === 'fat' ? metricVal.toLocaleString() : metricVal.toLocaleString();
+        const subLabel = boardMode === 'fat' ? `${d.count.toLocaleString()} tracks` : `${d.fat.toLocaleString()} fatalities`;
+        const efBar = EF_ORDER.map(m => {
+          const c = d.mags[m] || 0;
+          if (!c) return '';
+          const pct = (c / d.count) * 100;
+          return `<span style="width:${pct}%;background:${EF_COLORS[m]}"></span>`;
+        }).join('');
+        const key = ep ? ep.key : 'day-' + e.k;
+        return `
+          <div class="board-row" data-key="${key}" data-daykey="${e.k}">
+            <span class="board-rank">${i + 1}</span>
+            <span class="board-date">${dateStr}</span>
+            <div class="board-mid">
+              ${ep ? `<span class="board-tag">${ep.name}</span>` : ''}
+              <div class="mini-ef-bar">${efBar}</div>
+            </div>
+            <span class="board-metric">${metricLabel}</span>
+            <span class="board-sub">${subLabel}</span>
+            <span class="board-arrow">→</span>
+          </div>
+        `;
+      }).join('');
+
+      list.querySelectorAll('.board-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const dk = Number(row.dataset.daykey);
+          const d = DAYS[dk];
+          const ep = resolveEpisodeForDay(d.yr, d.mo, d.dy);
+          if (ep) selectOutbreak(ep.key, ep.start, ep.end, ep.name, ep.blurb, true);
+          else selectOutbreak('day-' + dk, [d.yr, d.mo, d.dy], [d.yr, d.mo, d.dy], null, null, true);
+        });
+      });
+
+      highlightActive();
+    }
+
+    function highlightActive() {
+      document.querySelectorAll('.board-row').forEach(row => row.classList.toggle('is-active', row.dataset.key === selectedKey));
+      document.querySelectorAll('.episode-chip').forEach(chip => chip.classList.toggle('is-active', chip.dataset.key === selectedKey));
+    }
+
+    // ── Outbreak selection / detail view ──
+    let CURRENT = null; // { records, start, end, bounds }
+
+    function selectOutbreak(key, start, end, name, blurb, scrollTo) {
+      selectedKey = key;
+      highlightActive();
+
+      const s = dayKey(...start), e = dayKey(...end);
+      const records = RECORDS.filter(r => {
+        const k = dayKey(r[F.yr], r[F.mo], r[F.dy]);
+        return k >= s && k <= e;
+      }).sort((a, b) => (a[F.yr] - b[F.yr]) || (a[F.mo] - b[F.mo]) || (a[F.dy] - b[F.dy]) || (a[F.min] - b[F.min]));
+
+      const bounds = computeOutbreakBounds(records);
+      CURRENT = { records, start, end, bounds };
+
+      document.getElementById('detailName').textContent = name || fmtRangeShort(start, end);
+      document.getElementById('detailDates').textContent = fmtRangeShort(start, end) + (start[0] !== end[0] || start[1] !== end[1] || start[2] !== end[2] ? ` · ${end[0] - start[0]} day span or less` : ' · single-day outbreak');
+      document.getElementById('detailBlurb').textContent = blurb || '';
+
+      renderDetailStats(records);
+      renderOutbreakMap(records, bounds);
+      renderSequenceChart(records, start, end);
+      renderTrackTable(records);
+
+      if (scrollTo) document.getElementById('detailSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function renderDetailStats(records) {
+      const fat = records.reduce((s, r) => s + r[F.fat], 0);
+      const inj = records.reduce((s, r) => s + r[F.inj], 0);
+      const ef5 = records.filter(r => r[F.mag] === 5).length;
+      const states = new Set(records.map(r => r[F.st])).size;
+      const chips = [
+        { label: 'Tornadoes', value: records.length.toLocaleString() },
+        { label: 'Fatalities', value: fat.toLocaleString() },
+        { label: 'Injuries', value: inj.toLocaleString() },
+        { label: 'EF5 Tornadoes', value: ef5.toLocaleString() },
+        { label: 'States Touched', value: states.toLocaleString() },
+      ];
+      document.getElementById('detailStats').innerHTML = chips.map(c => `
+        <div class="cc-stat-chip">
+          <div class="cc-stat-value">${c.value}</div>
+          <div class="cc-stat-label">${c.label}</div>
+        </div>
+      `).join('');
+    }
+
+    // ── Mini CONUS map, zoomed to the outbreak's extent ──
+    function computeOutbreakBounds(records, padDeg) {
+      padDeg = padDeg || 1.75;
+      let west = null, east = null, north = null, south = null;
+      records.forEach(r => {
+        [r[F.slon], r[F.elon]].forEach(lon => {
+          if (west === null || lon < west) west = lon;
+          if (east === null || lon > east) east = lon;
+        });
+        [r[F.slat], r[F.elat]].forEach(lat => {
+          if (south === null || lat < south) south = lat;
+          if (north === null || lat > north) north = lat;
+        });
+      });
+      if (west === null) return { west: -125.5, east: -66.5, north: 49.8, south: 24.0 };
+      west -= padDeg; east += padDeg; north += padDeg; south -= padDeg;
+      // clamp to CONUS extent so outlying territories/states don't blow out the box
+      west = Math.max(west, -125.5); east = Math.min(east, -66.5);
+      north = Math.min(north, 49.8); south = Math.max(south, 24.0);
+      if (east - west < 6) { const c = (east + west) / 2; west = c - 3; east = c + 3; }
+      if (north - south < 4) { const c = (north + south) / 2; south = c - 2; north = c + 2; }
+      return { west, east, north, south };
+    }
+
+    function renderOutbreakMap(records, bounds) {
+      const canvas = document.getElementById('outbreakMapCanvas');
+      const cssW = canvas.parentElement.clientWidth - 32; // account for card padding
+      const dims = MAP.computeDims(bounds, Math.max(280, cssW));
+      canvas.width = dims.CW;
+      canvas.height = dims.CH;
+      const ctx = canvas.getContext('2d');
+      const project = MAP.makeProjection(bounds, dims);
+
+      ctx.clearRect(0, 0, dims.CW, dims.CH);
+      MAP.renderBase(ctx, GEO, project, dims);
+
+      const groups = {};
+      EF_ORDER.forEach(m => groups[m] = []);
+      records.forEach(r => {
+        const [x1, y1] = project(r[F.slon], r[F.slat]);
+        const [x2, y2] = project(r[F.elon], r[F.elat]);
+        groups[String(r[F.mag])].push([x1, y1, x2, y2]);
+      });
+      EF_ORDER.forEach(mag => {
+        const segs = groups[mag];
+        if (!segs.length) return;
+        ctx.beginPath();
+        segs.forEach(([x1, y1, x2, y2]) => {
+          if (Math.hypot(x2 - x1, y2 - y1) < 0.8) {
+            ctx.moveTo(x1 - 1.6, y1); ctx.lineTo(x1 + 1.6, y1);
+            ctx.moveTo(x1, y1 - 1.6); ctx.lineTo(x1, y1 + 1.6);
+          } else {
+            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+          }
+        });
+        ctx.strokeStyle = EF_COLORS[mag];
+        ctx.lineWidth = mag === '-9' ? 1.2 : 1.4 + Number(mag) * 0.6;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      });
+
+      MAP.drawStamp(ctx, null, dims);
+
+      const counts = {};
+      EF_ORDER.forEach(m => counts[m] = 0);
+      records.forEach(r => counts[String(r[F.mag])]++);
+      document.getElementById('mapLegend').innerHTML = EF_ORDER.filter(m => counts[m] > 0).map(m => `
+        <span class="cc-legend-chip">
+          <span class="cc-legend-dot" style="background:${EF_COLORS[m]}"></span>
+          ${EF_LABELS[m]} · ${counts[m]}
+        </span>
+      `).join('');
+    }
+
+    // ── Sequence chart: hourly (single day) or daily (multi-day) ──
+    function renderSequenceChart(records, start, end) {
+      const canvas = document.getElementById('sequenceCanvas');
+      const multiDay = dayKey(...start) !== dayKey(...end);
+      let buckets, xLabelFn, tipTitleFn;
+
+      if (!multiDay) {
+        buckets = [];
+        for (let h = 0; h < 24; h++) buckets.push({ h, counts: {} });
+        records.forEach(r => {
+          const hr = Math.min(23, Math.max(0, Math.floor(r[F.min] / 60)));
+          const mag = String(r[F.mag]);
+          buckets[hr].counts[mag] = (buckets[hr].counts[mag] || 0) + 1;
+        });
+        xLabelFn = (b, i) => (b.h % 3 === 0 ? formatHour(b.h) : '');
+        tipTitleFn = (b) => formatHour(b.h) + ' local';
+      } else {
+        buckets = [];
+        const s = dayKey(...start), e = dayKey(...end);
+        const byDay = {};
+        records.forEach(r => {
+          const k = dayKey(r[F.yr], r[F.mo], r[F.dy]);
+          if (!byDay[k]) byDay[k] = { yr: r[F.yr], mo: r[F.mo], dy: r[F.dy], counts: {} };
+          const mag = String(r[F.mag]);
+          byDay[k].counts[mag] = (byDay[k].counts[mag] || 0) + 1;
+        });
+        let cursor = s;
+        let guard = 0;
+        while (cursor <= e && guard < 40) {
+          const yr = Math.floor(cursor / 10000), mo = Math.floor((cursor % 10000) / 100), dy = cursor % 100;
+          buckets.push(byDay[cursor] || { yr, mo, dy, counts: {} });
+          // advance one calendar day (handles month/year rollover via Date)
+          const nd = new Date(Date.UTC(yr, mo - 1, dy + 1));
+          cursor = dayKey(nd.getUTCFullYear(), nd.getUTCMonth() + 1, nd.getUTCDate());
+          guard++;
+        }
+        xLabelFn = (b) => `${MONTH_NAMES[b.mo - 1]} ${b.dy}`;
+        tipTitleFn = (b) => `${MONTH_FULL[b.mo - 1]} ${b.dy}, ${b.yr}`;
+      }
+
+      drawStackedChart(canvas, buckets, EF_ORDER, xLabelFn, tipTitleFn);
+    }
+
+    function formatHour(h) {
+      const ap = h >= 12 ? 'PM' : 'AM';
+      let hh = h % 12; if (hh === 0) hh = 12;
+      return `${hh}${ap}`;
+    }
+
+    function drawStackedChart(canvas, buckets, mags, xLabelFn, tipTitleFn) {
+      const cssW = canvas.parentElement.clientWidth - 32;
+      const cssH = 260;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = cssW + 'px'; canvas.style.height = cssH + 'px';
+      canvas.width = cssW * dpr; canvas.height = cssH * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const padL = 40, padR = 8, padT = 10, padB = 26;
+      const plotW = cssW - padL - padR, plotH = cssH - padT - padB;
+      const n = buckets.length;
+
+      const totals = buckets.map(b => mags.reduce((s, m) => s + (b.counts[m] || 0), 0));
+      const yMax = niceMax(Math.max(...totals));
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      const ticks = 4;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMax * i / ticks;
+        const y = padT + plotH - (v / yMax) * plotH;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW - padR, y); ctx.stroke();
+        ctx.fillText(Math.round(v).toLocaleString(), padL - 6, y);
+      }
+
+      const slot = plotW / n;
+      const barW = Math.max(1, slot - (n > 20 ? 2 : 6));
+      const barRects = [];
+
+      buckets.forEach((b, i) => {
+        const x = padL + i * slot + (slot - barW) / 2;
+        let yCursor = padT + plotH;
+        mags.forEach(m => {
+          const v = b.counts[m] || 0;
+          if (!v) return;
+          const h = (v / yMax) * plotH;
+          ctx.fillStyle = EF_COLORS[m];
+          ctx.fillRect(x, yCursor - h, barW, h);
+          yCursor -= h;
+        });
+        barRects.push({ x0: padL + i * slot, x1: padL + (i + 1) * slot, i });
+      });
+
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      buckets.forEach((b, i) => {
+        const label = xLabelFn(b, i);
+        if (label) ctx.fillText(label, padL + i * slot + slot / 2, padT + plotH + 6);
+      });
+
+      canvas.onmousemove = (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = evt.clientX - rect.left;
+        const hit = barRects.find(r => mx >= r.x0 && mx < r.x1);
+        if (!hit) { chartTip.classList.remove('is-visible'); return; }
+        const b = buckets[hit.i];
+        const total = mags.reduce((s, m) => s + (b.counts[m] || 0), 0);
+        const breakdown = mags.filter(m => b.counts[m]).map(m => `${EF_LABELS[m]} ${b.counts[m]}`).join(' · ');
+        chartTip.innerHTML = `<b>${tipTitleFn(b)}</b><br>${total.toLocaleString()} total${breakdown ? '<br>' + breakdown : ''}`;
+        chartTip.style.left = evt.clientX + 'px';
+        chartTip.style.top = evt.clientY + 'px';
+        chartTip.classList.add('is-visible');
+      };
+      canvas.onmouseleave = () => chartTip.classList.remove('is-visible');
+    }
+
+    // ── Track table ──
+    function renderTrackTable(records) {
+      const rows = records.map(r => {
+        const mag = r[F.mag];
+        const color = EF_COLORS[String(mag)];
+        const textColor = EF_BADGE_TEXT[String(mag)];
+        const dateStr = `${MONTH_NAMES[r[F.mo] - 1]} ${r[F.dy]}`;
+        const timeStr = formatTime(r[F.min]);
+        return `
+          <div class="track-row">
+            <span>${dateStr}, ${timeStr}</span>
+            <span>${r[F.st]}</span>
+            <span class="ef-badge" style="background:${color};color:${textColor}">${mag === -9 ? '?' : 'EF' + mag}</span>
+            <span class="num col-len">${r[F.len].toFixed(1)} mi</span>
+            <span class="num col-wid">${r[F.wid].toLocaleString()} yd</span>
+            <span class="num col-inj">${r[F.inj].toLocaleString()}</span>
+            <span class="num">${r[F.fat].toLocaleString()}</span>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('trackTable').innerHTML = `
+        <div class="track-row head">
+          <span>Date, Time</span><span>ST</span><span>Rating</span><span class="col-len">Length</span><span class="col-wid">Width</span><span class="col-inj">Inj.</span><span>Fat.</span>
+        </div>
+        ${rows}
+      `;
+    }
+
+    function formatTime(min) {
+      let h = Math.floor(min / 60), m = min % 60;
+      const ap = h >= 12 ? 'PM' : 'AM';
+      h = h % 12; if (h === 0) h = 12;
+      return `${h}:${String(m).padStart(2, '0')} ${ap}`;
+    }
+
+    // ── PNG export (outbreak map) ──
+    function downloadPNG() {
+      const canvas = document.getElementById('outbreakMapCanvas');
+      const PAD = 24, HDR = 78, FTR = 40;
+      const cw = canvas.width, ch = canvas.height;
+      const ow = PAD * 2 + cw, oh = HDR + ch + FTR;
+
+      const off = document.createElement('canvas');
+      off.width = ow * 2; off.height = oh * 2;
+      const oc = off.getContext('2d');
+      oc.scale(2, 2);
+
+      oc.fillStyle = '#1E2320'; oc.fillRect(0, 0, ow, oh);
+      oc.fillStyle = '#DE7767'; oc.fillRect(0, 0, ow, 3);
+
+      const title = document.getElementById('detailName').textContent;
+      oc.fillStyle = '#E8E4D9';
+      oc.font = 'bold 22px "Zilla Slab", serif';
+      oc.fillText(title, PAD, 34);
+
+      oc.fillStyle = '#A6A499';
+      oc.font = '14px "Public Sans", sans-serif';
+      oc.fillText(document.getElementById('detailDates').textContent, PAD, 56);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '12px "Courier Prime", monospace';
+      oc.textAlign = 'right';
+      oc.fillText('contextclimate.io', ow - PAD, 34);
+      oc.textAlign = 'left';
+
+      oc.drawImage(canvas, PAD, HDR, cw, ch);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '11px "Courier Prime", monospace';
+      oc.fillText('NOAA/NWS Storm Prediction Center severe weather database   ·   contextclimate.io', PAD, oh - 14);
+
+      oc.fillStyle = '#DE7767'; oc.fillRect(0, oh - 2, ow, 2);
+
+      const link = document.createElement('a');
+      link.download = `tornado-outbreak-${title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.png`;
+      link.href = off.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+
+</body>
+</html>
