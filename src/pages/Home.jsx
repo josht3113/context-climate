@@ -436,6 +436,15 @@ const SECTIONS = [
         accentVar:  '--accent-severe',
         thumb:      '/TornadoTrackExplorer_thumbnail.png',
       },
+      {
+        tags:       ['1950–2022', 'ANY CITY'],
+        title:      'Tornado History Near You',
+        description:'Search any U.S. city or airport station to see every tornado on record within a chosen radius — monthly frequency, strength breakdown, and a full nearby-track log.',
+        footerTags: ['Radius Search', 'EF Scale', 'Monthly Frequency'],
+        to:         '/tornado-history-near-you',
+        accentVar:  '--accent-severe',
+        thumb:      '/TornadoHistoryNearYou_thumbnail.png',
+      },
     ],
   },
 ]
