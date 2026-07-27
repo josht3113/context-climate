@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="core-sample-tools.css">
+  <title>U.S. Tornado Climatology — ContextClimate</title>
+
+  <style>
+    /* Tool-specific layout only — shared chrome (colors, type, buttons,
+       panels, gauges, chips, badges, tags) lives in core-sample-tools.css */
+    :root { --tool-accent: #DE7767; } /* Severe Weather section — 5.27:1 on --color-bg, 4.76:1 on --color-surface */
+
+    body { display: flex; flex-direction: column; align-items: center; }
+
+    header { max-width: 1080px; width: 100%; text-align: center; margin-bottom: 2px; }
+    .cc-eyebrow { margin-bottom: 10px; }
+    .cc-title { margin-bottom: 8px; }
+    .instr { max-width: 720px; margin: 0 auto 10px; }
+    .cite-tag { margin-top: 6px; }
+
+    .layout { max-width: 1080px; width: 100%; margin-top: 22px; }
+    .layout .cc-stat-row { margin-bottom: 22px; }
+
+    section.dash-section { margin-top: 30px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+    .section-title { font-family: var(--font-display); font-weight: 700; font-size: 20px; color: var(--color-text-primary); }
+    .section-sub { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
+
+    /* ── Local segmented toggle (self-contained, mirrors ef-chip/month-chip precedent) ── */
+    .seg-toggle { display: inline-flex; background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B); border-radius: var(--radius-md); padding: 3px; gap: 2px; }
+    .seg-btn {
+      font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      color: var(--color-text-muted); background: none; border: none; border-radius: calc(var(--radius-md) - 3px);
+      padding: 7px 12px; cursor: pointer; transition: background 0.15s ease, color 0.15s ease;
+      text-transform: uppercase;
+    }
+    .seg-btn.is-active { background: var(--tool-accent); color: #1E2320; }
+    .seg-btn:not(.is-active):hover { color: var(--color-text-primary); }
+
+    /* ── Chart cards ── */
+    .chart-card { padding: 1.1rem 1.1rem 0.9rem; position: relative; }
+    .chart-card canvas { display: block; width: 100%; cursor: crosshair; }
+    .chart-caveat { font-size: 12px; color: var(--color-text-muted); font-style: italic; line-height: 1.6; margin-top: 12px; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .two-col .chart-card h3 { margin: 0 0 10px; font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--color-text-secondary); }
+
+    .chart-tip {
+      position: fixed; pointer-events: none; z-index: 60;
+      background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B);
+      border-radius: 6px; padding: 8px 11px; font-family: var(--font-mono); font-size: 11px;
+      color: var(--color-text-primary, #E8E4D9); line-height: 1.55; opacity: 0;
+      transition: opacity 0.1s ease; transform: translate(-50%, -112%); white-space: nowrap;
+    }
+    .chart-tip.is-visible { opacity: 1; }
+    .chart-tip b { color: var(--tool-accent); }
+
+    /* ── State rankings ── */
+    .rank-list { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+    .rank-row { display: grid; grid-template-columns: 22px 108px 1fr 78px; align-items: center; gap: 10px; }
+    .rank-num { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); text-align: right; }
+    .rank-name { font-family: var(--font-body); font-size: 13px; color: var(--color-text-primary); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rank-bar-track { height: 14px; background: var(--color-surface-2, #2C322D); border-radius: 3px; overflow: hidden; }
+    .rank-bar-fill { height: 100%; background: var(--tool-accent); border-radius: 3px; transition: width 0.3s ease; }
+    .rank-value { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); text-align: right; white-space: nowrap; }
+    .rank-footnote { font-size: 12px; color: var(--color-text-muted); font-style: italic; margin-top: 14px; line-height: 1.6; }
+
+    @media (max-width: 640px) {
+      .rank-row { grid-template-columns: 18px 84px 1fr 66px; gap: 6px; }
+      .rank-name { font-size: 12px; }
+    }
+
+    /* ── Records & extremes ── */
+    .extreme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .extreme-card { background: var(--color-surface-2, #2C322D); border: 1px solid var(--color-border, #3A413B); border-radius: var(--radius-md); padding: 16px; }
+    .extreme-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tool-accent); margin-bottom: 8px; }
+    .extreme-stat { font-family: var(--font-display); font-weight: 700; font-size: 26px; color: var(--color-text-primary); line-height: 1.1; }
+    .extreme-unit { font-family: var(--font-body); font-weight: 400; font-size: 13px; color: var(--color-text-muted); margin-left: 4px; }
+    .extreme-detail { font-size: 12.5px; color: var(--color-text-secondary); margin-top: 6px; line-height: 1.5; }
+    .extreme-note { font-size: 11.5px; color: var(--color-text-muted); font-style: italic; margin-top: 8px; line-height: 1.55; padding-top: 8px; border-top: 1px solid var(--color-border, #3A413B); }
+
+    .action-row { display: flex; justify-content: center; margin-top: 26px; margin-bottom: 8px; }
+
+    @media (max-width: 720px) {
+      .two-col { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <p class="cc-eyebrow">Severe Weather · Tornado Climatology</p>
+    <h1 class="cc-title">U.S. Tornado Climatology</h1>
+    <p class="cc-subtitle instr">How, when, and where tornadoes strike across the United States — seasonal and daily patterns, state-by-state rankings, and the records that define the historical database.</p>
+    <div class="cc-tag cite-tag" id="citeTag">Loading database…</div>
+  </header>
+
+  <div class="layout">
+
+    <div class="cc-stat-row" id="headlineStats"></div>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Tornadoes per Year</div>
+          <div class="section-sub">1950–2022 · stacked by EF/F rating</div>
+        </div>
+        <div class="seg-toggle" id="annualToggle">
+          <button class="seg-btn is-active" data-mode="all">All Ratings</button>
+          <button class="seg-btn" data-mode="ef1">EF1+ Only</button>
+        </div>
+      </div>
+      <div class="cc-panel chart-card">
+        <canvas id="annualCanvas"></canvas>
+        <div class="cc-legend-row" id="annualLegend"></div>
+        <p class="chart-caveat" id="annualCaveat"></p>
+      </div>
+    </section>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">When Tornadoes Strike</div>
+          <div class="section-sub">National totals, all years combined</div>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="cc-panel chart-card">
+          <h3>By Month</h3>
+          <canvas id="monthCanvas"></canvas>
+        </div>
+        <div class="cc-panel chart-card">
+          <h3>By Hour of Day (Local Time)</h3>
+          <canvas id="hourCanvas"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">State Rankings</div>
+          <div class="section-sub">Top 15 · 1950–2022</div>
+        </div>
+        <div class="seg-toggle" id="rankToggle">
+          <button class="seg-btn is-active" data-mode="count">Total Count</button>
+          <button class="seg-btn" data-mode="density">Per 10,000 mi²</button>
+          <button class="seg-btn" data-mode="fatalities">Fatalities</button>
+        </div>
+      </div>
+      <div class="cc-panel">
+        <div class="rank-list" id="rankList"></div>
+        <p class="rank-footnote">Per-square-mile density excludes Washington D.C. and the U.S. Virgin Islands — their land area is small enough that a handful of tornadoes produces a misleadingly extreme rate.</p>
+      </div>
+    </section>
+
+    <section class="dash-section">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Records &amp; Extremes</div>
+          <div class="section-sub">The outliers of the historical record</div>
+        </div>
+      </div>
+      <div class="cc-panel" style="padding: 1.1rem;">
+        <div class="extreme-grid" id="extremeGrid"></div>
+      </div>
+    </section>
+
+    <div class="action-row">
+      <button class="cc-btn cc-btn-sm" id="pngBtn">↓ PNG (Annual Trend)</button>
+    </div>
+
+    <p class="geo-note" style="margin-top:10px;font-size:13px;color:var(--color-text-muted);text-align:center;font-style:italic;max-width:680px;margin-left:auto;margin-right:auto;line-height:1.65;">
+      Source: NOAA/NWS Storm Prediction Center severe weather database, 1950–2022. Ratings before February 2007 use the original Fujita (F) scale; ratings from 2007 onward use the Enhanced Fujita (EF) scale. Property/crop loss figures are omitted — SPC's own methodology changed in 1996 and the agency cautions the loss data "should be used with caution, if at all."
+    </p>
+
+  </div>
+
+  <div class="chart-tip" id="chartTip"></div>
+
+  <script>
+    // ── EF-scale palette (content-encoded — not a design-system token) ──
+    const EF_COLORS = { '-9': '#8E897D', '0': '#6B9E52', '1': '#B7A83D', '2': '#D68A2E', '3': '#D26F3D', '4': '#B8362E', '5': '#7A3A93' };
+    const EF_LABELS = { '-9': 'Unrated', '0': 'EF0', '1': 'EF1', '2': 'EF2', '3': 'EF3', '4': 'EF4', '5': 'EF5' };
+    const EF_ORDER = ['-9', '0', '1', '2', '3', '4', '5'];
+    const EF1_PLUS = ['1', '2', '3', '4', '5'];
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    // record field order, mirrors tornado-tracks.json's "fields"
+    const F = { om:0, yr:1, mo:2, dy:3, min:4, st:5, mag:6, fc:7, inj:8, fat:9, loss:10, closs:11, slat:12, slon:13, elat:14, elon:15, len:16, wid:17 };
+
+    const STATE_NAMES = { AL:'Alabama', AK:'Alaska', AZ:'Arizona', AR:'Arkansas', CA:'California', CO:'Colorado', CT:'Connecticut', DE:'Delaware', FL:'Florida', GA:'Georgia', HI:'Hawaii', ID:'Idaho', IL:'Illinois', IN:'Indiana', IA:'Iowa', KS:'Kansas', KY:'Kentucky', LA:'Louisiana', ME:'Maine', MD:'Maryland', MA:'Massachusetts', MI:'Michigan', MN:'Minnesota', MS:'Mississippi', MO:'Missouri', MT:'Montana', NE:'Nebraska', NV:'Nevada', NH:'New Hampshire', NJ:'New Jersey', NM:'New Mexico', NY:'New York', NC:'North Carolina', ND:'North Dakota', OH:'Ohio', OK:'Oklahoma', OR:'Oregon', PA:'Pennsylvania', RI:'Rhode Island', SC:'South Carolina', SD:'South Dakota', TN:'Tennessee', TX:'Texas', UT:'Utah', VT:'Vermont', VA:'Virginia', WA:'Washington', WV:'West Virginia', WI:'Wisconsin', WY:'Wyoming', DC:'District of Columbia', PR:'Puerto Rico', VI:'U.S. Virgin Islands' };
+
+    // 2010 Census land-area figures, sq mi
+    const AREA_SQMI = { AL:50645, AK:570641, AZ:113594, AR:52035, CA:155779, CO:103642, CT:4842, DE:1949, FL:53625, GA:57513, HI:6423, ID:82643, IL:55519, IN:35826, IA:55857, KS:81759, KY:39486, LA:43204, ME:30843, MD:9707, MA:7800, MI:56539, MN:79627, MS:46923, MO:68742, MT:145546, NE:76824, NV:109781, NH:8953, NJ:7354, NM:121298, NY:47126, NC:48618, ND:69001, OH:40861, OK:68595, OR:95988, PA:44743, RI:1034, SC:30061, SD:75811, TN:41235, TX:261232, UT:82170, VT:9217, VA:39490, WA:66456, WV:24038, WI:54158, WY:97093, DC:61, PR:3424, VI:133 };
+    const MIN_AREA_FOR_DENSITY = 1000; // excludes DC (61) and VI (133) from per-area ranking
+
+    let DATA = null, RECORDS = null;
+    let YEAR_MIN = 1950, YEAR_MAX = 2022;
+    let ANNUAL = {}, MONTHLY = {}, HOURLY = {}, BY_STATE = {};
+    let EXTREMES = null;
+    let annualMode = 'all';
+    let rankMode = 'count';
+
+    const citeTag = document.getElementById('citeTag');
+    const chartTip = document.getElementById('chartTip');
+
+    fetch('tornado-tracks.json').then(r => r.json()).then(manifest => {
+      DATA = manifest;
+      RECORDS = manifest.records;
+      YEAR_MIN = manifest.coverage_start;
+      YEAR_MAX = manifest.coverage_end;
+      init();
+    }).catch(err => {
+      citeTag.textContent = 'Could not load tornado database — see console for details.';
+      console.error(err);
+    });
+
+    function init() {
+      citeTag.textContent = `${DATA.record_count.toLocaleString()} tracks · ${YEAR_MIN}–${YEAR_MAX} · NOAA/NWS Storm Prediction Center severe weather database`;
+
+      aggregate();
+      computeExtremes();
+
+      renderHeadlineStats();
+      renderAnnualLegend();
+      drawAnnualChart();
+      renderAnnualCaveat();
+      drawMonthChart();
+      drawHourChart();
+      renderRankings();
+      renderExtremes();
+
+      document.getElementById('annualToggle').addEventListener('click', e => {
+        const btn = e.target.closest('.seg-btn'); if (!btn) return;
+        annualMode = btn.dataset.mode;
+        document.querySelectorAll('#annualToggle .seg-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        drawAnnualChart();
+      });
+
+      document.getElementById('rankToggle').addEventListener('click', e => {
+        const btn = e.target.closest('.seg-btn'); if (!btn) return;
+        rankMode = btn.dataset.mode;
+        document.querySelectorAll('#rankToggle .seg-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+        renderRankings();
+      });
+
+      document.getElementById('pngBtn').addEventListener('click', downloadAnnualPNG);
+      window.addEventListener('resize', debounce(() => { drawAnnualChart(); drawMonthChart(); drawHourChart(); }, 200));
+    }
+
+    function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+    // ── One-pass aggregation ──
+    function aggregate() {
+      for (let y = YEAR_MIN; y <= YEAR_MAX; y++) ANNUAL[y] = {};
+      for (let m = 1; m <= 12; m++) MONTHLY[m] = {};
+      for (let h = 0; h < 24; h++) HOURLY[h] = {};
+
+      RECORDS.forEach(r => {
+        const yr = r[F.yr], mo = r[F.mo], mag = String(r[F.mag]), st = r[F.st], fat = r[F.fat];
+        const hr = Math.min(23, Math.max(0, Math.floor(r[F.min] / 60)));
+
+        ANNUAL[yr][mag] = (ANNUAL[yr][mag] || 0) + 1;
+        MONTHLY[mo][mag] = (MONTHLY[mo][mag] || 0) + 1;
+        HOURLY[hr][mag] = (HOURLY[hr][mag] || 0) + 1;
+
+        const s = (BY_STATE[st] || (BY_STATE[st] = { count: 0, fatalities: 0 }));
+        s.count++; s.fatalities += fat;
+      });
+    }
+
+    function computeExtremes() {
+      let deadliest = RECORDS[0], widest = RECORDS[0], longest = RECORDS[0];
+      let ef5Count = 0;
+      const ef5ByYear = {};
+      const byDay = {};
+
+      RECORDS.forEach(r => {
+        if (r[F.fat] > deadliest[F.fat]) deadliest = r;
+        if (r[F.wid] > widest[F.wid]) widest = r;
+        if (r[F.len] > longest[F.len]) longest = r;
+        if (r[F.mag] === 5) { ef5Count++; ef5ByYear[r[F.yr]] = (ef5ByYear[r[F.yr]] || 0) + 1; }
+        const k = `${r[F.yr]}-${r[F.mo]}-${r[F.dy]}`;
+        byDay[k] = (byDay[k] || 0) + r[F.fat];
+      });
+
+      let deadliestDayKey = null, deadliestDayFat = -1;
+      Object.entries(byDay).forEach(([k, v]) => { if (v > deadliestDayFat) { deadliestDayFat = v; deadliestDayKey = k; } });
+      const [ddYr, ddMo, ddDy] = deadliestDayKey.split('-').map(Number);
+
+      let topEf5Year = null, topEf5Count = 0;
+      Object.entries(ef5ByYear).forEach(([y, c]) => { if (c > topEf5Count) { topEf5Count = c; topEf5Year = y; } });
+
+      // decade EF0-share, for the annual-chart caveat
+      const decTotal = {}, decEf0 = {};
+      RECORDS.forEach(r => {
+        const dec = Math.floor(r[F.yr] / 10) * 10;
+        decTotal[dec] = (decTotal[dec] || 0) + 1;
+        if (r[F.mag] === 0) decEf0[dec] = (decEf0[dec] || 0) + 1;
+      });
+      const decades = Object.keys(decTotal).map(Number).sort((a, b) => a - b);
+      const shares = decades.map(dec => ({ dec, share: (decEf0[dec] || 0) / decTotal[dec] }));
+      const firstDecade = shares[0];
+      const peakDecade = shares.reduce((a, b) => (b.share > a.share ? b : a));
+
+      EXTREMES = { deadliest, widest, longest, ef5Count, ddYr, ddMo, ddDy, deadliestDayFat, topEf5Year, topEf5Count, firstDecade, peakDecade };
+    }
+
+    function renderHeadlineStats() {
+      const totalFat = RECORDS.reduce((s, r) => s + r[F.fat], 0);
+      const totalInj = RECORDS.reduce((s, r) => s + r[F.inj], 0);
+      const years = YEAR_MAX - YEAR_MIN + 1;
+      const chips = [
+        { label: 'Total Tracks', value: RECORDS.length.toLocaleString() },
+        { label: 'Avg. per Year', value: Math.round(RECORDS.length / years).toLocaleString() },
+        { label: 'Total Fatalities', value: totalFat.toLocaleString() },
+        { label: 'EF5 Tornadoes', value: EXTREMES ? EXTREMES.ef5Count.toLocaleString() : '—' },
+      ];
+      document.getElementById('headlineStats').innerHTML = chips.map(c => `
+        <div class="cc-stat-chip">
+          <div class="cc-stat-value">${c.value}</div>
+          <div class="cc-stat-label">${c.label}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderAnnualLegend() {
+      document.getElementById('annualLegend').innerHTML = EF_ORDER.map(mag => `
+        <span class="cc-legend-chip">
+          <span class="cc-legend-dot" style="background:${EF_COLORS[mag]}"></span>
+          ${EF_LABELS[mag]}
+        </span>
+      `).join('');
+    }
+
+    function renderAnnualCaveat() {
+      const { firstDecade, peakDecade } = EXTREMES;
+      document.getElementById('annualCaveat').textContent =
+        `Confirmed EF0 tornadoes are far easier to detect today than in the early record — the share of tornadoes rated EF0 rose from ${Math.round(firstDecade.share * 100)}% in the ${firstDecade.dec}s to a peak of ${Math.round(peakDecade.share * 100)}% in the ${peakDecade.dec}s, largely tracking the nationwide rollout of Doppler weather radar (WSR-88D) in the early-to-mid 1990s. The "EF1+ Only" view is less distorted by this detection bias.`;
+    }
+
+    // ── Generic stacked bar chart ──
+    function niceMax(v) {
+      if (v <= 0) return 1;
+      const mag = Math.pow(10, Math.floor(Math.log10(v)));
+      const norm = v / mag;
+      let n;
+      if (norm <= 1) n = 1; else if (norm <= 2) n = 2; else if (norm <= 2.5) n = 2.5; else if (norm <= 5) n = 5; else n = 10;
+      return n * mag;
+    }
+
+    function drawStackedChart(canvas, buckets, mags, xLabelFn, tipTitleFn) {
+      const cssW = canvas.parentElement.clientWidth;
+      const cssH = canvas.dataset.h ? Number(canvas.dataset.h) : 260;
+      canvas.dataset.h = cssH;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const padL = 42, padR = 8, padT = 10, padB = 26;
+      const plotW = cssW - padL - padR, plotH = cssH - padT - padB;
+      const n = buckets.length;
+
+      const totals = buckets.map(b => mags.reduce((s, m) => s + (b.counts[m] || 0), 0));
+      const yMax = niceMax(Math.max(...totals));
+
+      // gridlines + y labels
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      const ticks = 4;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMax * i / ticks;
+        const y = padT + plotH - (v / yMax) * plotH;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(cssW - padR, y); ctx.stroke();
+        ctx.fillText(Math.round(v).toLocaleString(), padL - 6, y);
+      }
+
+      const slot = plotW / n;
+      const barW = Math.max(1, slot - (n > 40 ? 1 : 3));
+      const barRects = [];
+
+      buckets.forEach((b, i) => {
+        const x = padL + i * slot + (slot - barW) / 2;
+        let yCursor = padT + plotH;
+        mags.forEach(m => {
+          const v = b.counts[m] || 0;
+          if (!v) return;
+          const h = (v / yMax) * plotH;
+          ctx.fillStyle = EF_COLORS[m];
+          ctx.fillRect(x, yCursor - h, barW, h);
+          yCursor -= h;
+        });
+        barRects.push({ x0: padL + i * slot, x1: padL + (i + 1) * slot, i });
+      });
+
+      ctx.fillStyle = '#948F82';
+      ctx.font = '10px "Courier Prime", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      buckets.forEach((b, i) => {
+        const label = xLabelFn(b, i);
+        if (label) ctx.fillText(label, padL + i * slot + slot / 2, padT + plotH + 6);
+      });
+
+      // hover tooltip
+      canvas.onmousemove = (evt) => {
+        const rect = canvas.getBoundingClientRect();
+        const mx = evt.clientX - rect.left;
+        const hit = barRects.find(r => mx >= r.x0 && mx < r.x1);
+        if (!hit) { chartTip.classList.remove('is-visible'); return; }
+        const b = buckets[hit.i];
+        const total = mags.reduce((s, m) => s + (b.counts[m] || 0), 0);
+        const breakdown = mags.filter(m => b.counts[m]).map(m => `${EF_LABELS[m]} ${b.counts[m].toLocaleString()}`).join(' · ');
+        chartTip.innerHTML = `<b>${tipTitleFn(b)}</b><br>${total.toLocaleString()} total${breakdown ? '<br>' + breakdown : ''}`;
+        chartTip.style.left = evt.clientX + 'px';
+        chartTip.style.top = evt.clientY + 'px';
+        chartTip.classList.add('is-visible');
+      };
+      canvas.onmouseleave = () => chartTip.classList.remove('is-visible');
+    }
+
+    function drawAnnualChart() {
+      const mags = annualMode === 'ef1' ? EF1_PLUS : EF_ORDER;
+      const buckets = [];
+      for (let y = YEAR_MIN; y <= YEAR_MAX; y++) buckets.push({ y, counts: ANNUAL[y] });
+      drawStackedChart(
+        document.getElementById('annualCanvas'),
+        buckets, mags,
+        (b, i) => (b.y % 10 === 0 ? String(b.y) : ''),
+        (b) => String(b.y)
+      );
+    }
+
+    function drawMonthChart() {
+      const buckets = MONTH_NAMES.map((name, i) => ({ name, counts: MONTHLY[i + 1] }));
+      drawStackedChart(
+        document.getElementById('monthCanvas'),
+        buckets, EF_ORDER,
+        (b) => b.name,
+        (b) => MONTH_FULL[MONTH_NAMES.indexOf(b.name)]
+      );
+    }
+
+    function drawHourChart() {
+      const buckets = [];
+      for (let h = 0; h < 24; h++) buckets.push({ h, counts: HOURLY[h] });
+      drawStackedChart(
+        document.getElementById('hourCanvas'),
+        buckets, EF_ORDER,
+        (b, i) => (b.h % 3 === 0 ? formatHour(b.h) : ''),
+        (b) => formatHour(b.h)
+      );
+    }
+
+    function formatHour(h) {
+      const ap = h >= 12 ? 'PM' : 'AM';
+      let hh = h % 12; if (hh === 0) hh = 12;
+      return `${hh}${ap}`;
+    }
+
+    // ── State rankings ──
+    function renderRankings() {
+      let rows;
+      if (rankMode === 'count') {
+        rows = Object.entries(BY_STATE).map(([st, s]) => ({ st, value: s.count }));
+      } else if (rankMode === 'fatalities') {
+        rows = Object.entries(BY_STATE).map(([st, s]) => ({ st, value: s.fatalities }));
+      } else {
+        rows = Object.entries(BY_STATE)
+          .filter(([st]) => (AREA_SQMI[st] || 0) >= MIN_AREA_FOR_DENSITY)
+          .map(([st, s]) => ({ st, value: (s.count / AREA_SQMI[st]) * 10000 }));
+      }
+      rows.sort((a, b) => b.value - a.value);
+      rows = rows.slice(0, 15);
+      const max = rows.length ? rows[0].value : 1;
+
+      document.getElementById('rankList').innerHTML = rows.map((r, i) => {
+        const pct = Math.max(2, (r.value / max) * 100);
+        const valueStr = rankMode === 'density' ? `${r.value.toFixed(1)} /10k mi²` : Math.round(r.value).toLocaleString();
+        return `
+          <div class="rank-row">
+            <span class="rank-num">${i + 1}</span>
+            <span class="rank-name">${STATE_NAMES[r.st] || r.st}</span>
+            <div class="rank-bar-track"><div class="rank-bar-fill" style="width:${pct}%"></div></div>
+            <span class="rank-value">${valueStr}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ── Records & extremes ──
+    function renderExtremes() {
+      const e = EXTREMES;
+      const d = e.deadliest, w = e.widest, l = e.longest;
+      const deadliestDate = `${MONTH_FULL[d[F.mo] - 1]} ${d[F.dy]}, ${d[F.yr]}`;
+      const dayDate = `${MONTH_FULL[e.ddMo - 1]} ${e.ddDy}, ${e.ddYr}`;
+      const widestDate = `${MONTH_FULL[w[F.mo] - 1]} ${w[F.dy]}, ${w[F.yr]}`;
+      const longestDate = `${MONTH_FULL[l[F.mo] - 1]} ${l[F.dy]}, ${l[F.yr]}`;
+
+      const cards = [
+        {
+          label: 'Deadliest Single Tornado',
+          stat: `${d[F.fat]}<span class="extreme-unit">fatalities</span>`,
+          detail: `${STATE_NAMES[d[F.st]] || d[F.st]} — ${EF_LABELS[String(d[F.mag])]}, ${deadliestDate}`,
+        },
+        {
+          label: 'Deadliest Day',
+          stat: `${e.deadliestDayFat}<span class="extreme-unit">fatalities</span>`,
+          detail: `${dayDate} — the deadliest single day of tornadoes in the modern record`,
+        },
+        {
+          label: 'Widest Track',
+          stat: `${(w[F.wid] / 1760).toFixed(2)}<span class="extreme-unit">miles wide</span>`,
+          detail: `${STATE_NAMES[w[F.st]] || w[F.st]} — ${EF_LABELS[String(w[F.mag])]}, ${widestDate} (${w[F.wid].toLocaleString()} yards)`,
+        },
+        {
+          label: 'Longest Track',
+          stat: `${l[F.len].toFixed(1)}<span class="extreme-unit">miles</span>`,
+          detail: `${STATE_NAMES[l[F.st]] || l[F.st]} — ${EF_LABELS[String(l[F.mag])]}, ${longestDate}`,
+          note: 'Very likely a data-entry artifact combining multiple separate tornadoes from an early damage survey, rather than one continuous track — treat with caution. The best-documented single-tornado record is the 1925 Tri-State Tornado (~219 mi), which predates this database.',
+        },
+        {
+          label: 'Violent Tornadoes (EF5/F5)',
+          stat: `${e.ef5Count}<span class="extreme-unit">on record</span>`,
+          detail: `${e.topEf5Year} had the most in a single year, with ${e.topEf5Count}`,
+        },
+      ];
+
+      document.getElementById('extremeGrid').innerHTML = cards.map(c => `
+        <div class="extreme-card">
+          <div class="extreme-label">${c.label}</div>
+          <div class="extreme-stat">${c.stat}</div>
+          <div class="extreme-detail">${c.detail}</div>
+          ${c.note ? `<div class="extreme-note">${c.note}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    // ── PNG export (annual trend chart) ──
+    function downloadAnnualPNG() {
+      const canvas = document.getElementById('annualCanvas');
+      const PAD = 24, HDR = 78, FTR = 40;
+      const cw = canvas.getBoundingClientRect().width, ch = canvas.getBoundingClientRect().height;
+      const ow = PAD * 2 + cw, oh = HDR + ch + FTR;
+
+      const off = document.createElement('canvas');
+      off.width = ow * 2; off.height = oh * 2;
+      const oc = off.getContext('2d');
+      oc.scale(2, 2);
+
+      oc.fillStyle = '#1E2320'; oc.fillRect(0, 0, ow, oh);
+      oc.fillStyle = '#DE7767'; oc.fillRect(0, 0, ow, 3);
+
+      oc.fillStyle = '#E8E4D9';
+      oc.font = 'bold 24px "Zilla Slab", serif';
+      oc.fillText('U.S. Tornado Climatology — Tornadoes per Year', PAD, 34);
+
+      oc.fillStyle = '#A6A499';
+      oc.font = '14px "Public Sans", sans-serif';
+      oc.fillText(`${YEAR_MIN}–${YEAR_MAX} · ${annualMode === 'ef1' ? 'EF1+ only' : 'all ratings'}`, PAD, 56);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '12px "Courier Prime", monospace';
+      oc.textAlign = 'right';
+      oc.fillText('contextclimate.io', ow - PAD, 34);
+      oc.textAlign = 'left';
+
+      oc.drawImage(canvas, PAD, HDR, cw, ch);
+
+      oc.fillStyle = '#948F82';
+      oc.font = '11px "Courier Prime", monospace';
+      oc.fillText('NOAA/NWS Storm Prediction Center severe weather database   ·   contextclimate.io', PAD, oh - 14);
+
+      oc.fillStyle = '#DE7767'; oc.fillRect(0, oh - 2, ow, 2);
+
+      const link = document.createElement('a');
+      link.download = `us-tornado-climatology-annual-${YEAR_MIN}-${YEAR_MAX}.png`;
+      link.href = off.toDataURL('image/png');
+      link.click();
+    }
+  </script>
+
+</body>
+</html>
