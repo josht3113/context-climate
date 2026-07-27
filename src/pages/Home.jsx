@@ -445,6 +445,15 @@ const SECTIONS = [
         accentVar:  '--accent-severe',
         thumb:      '/TornadoHistoryNearYou_thumbnail.png',
       },
+      {
+        tags:       ['1950–2022', 'NATIONAL DASHBOARD'],
+        title:      'U.S. Tornado Climatology',
+        description:'Annual trends, seasonal and time-of-day patterns, state-by-state rankings, and the records that define the historical database — all in one dashboard.',
+        footerTags: ['Annual Trend', 'State Rankings', 'Records & Extremes'],
+        to:         '/us-tornado-climatology',
+        accentVar:  '--accent-severe',
+        thumb:      '/TornadoClimatology_thumbnail.png',
+      },
     ],
   },
 ]
