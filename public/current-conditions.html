@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Fixed layout width instead of width=device-width: on phones this renders the page
+     at full desktop width and lets the browser zoom-to-fit, so the grid/flex rows
+     (station bar, hero, chart-legend pairs, 5-day strip, etc.) keep their desktop
+     proportions instead of wrapping into a cramped stacked mess. Pinch-zoom still
+     works for reading detail. -->
+<meta name="viewport" content="width=1280">
 <title>Current Conditions — ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -133,6 +138,8 @@
 
 /* ── NWS Forecast (36-hour + 7-day) ────────────────────────────── */
 .rh-forecast { color: var(--color-text-muted); }
+.fc-range-toggle { margin-left: 2px; }
+.fc-range-toggle .cc-segmented-btn { padding: 5px 14px; font-size: 11px; }
 .fc-daily-wrap { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 14px; margin-bottom: 4px; overflow-x: auto; }
 .fc-daily-strip { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: auto auto auto auto; column-gap: 6px; row-gap: 0; }
 .fc-empty { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); padding: 20px; white-space: nowrap; }
@@ -264,7 +271,12 @@
 <div class="fc-daily-wrap"><div class="fc-daily-strip" id="fc-daily-strip"><div class="fc-empty">Loading forecast&hellip;</div></div></div>
 
 <!-- 48-HOUR FORECAST -->
-<div class="row-hdr rh-forecast">48-Hour Forecast</div>
+<div class="row-hdr rh-forecast">48-Hour Forecast
+  <div class="cc-segmented fc-range-toggle" id="fc-range-toggle">
+    <button type="button" class="cc-segmented-btn active" data-offset="0" onclick="setFcRange(0)">Hours 0&ndash;48</button>
+    <button type="button" class="cc-segmented-btn" data-offset="48" onclick="setFcRange(48)">Hours 48&ndash;96</button>
+  </div>
+</div>
 <div class="fc-charts-col">
   <div class="chart-box"><div id="chart-fc-temp"></div></div>
   <div class="chart-box"><div id="chart-fc-wind"></div></div>
@@ -1631,10 +1643,32 @@ function attributionLineForecast(periods){
 }
 
 let fcChartsBuilt=false;
+let fcOffset=0; // 0 = next 48h; 48 = the following 48h window (hours 48-96)
+let lastFcHourly=null,lastFcTz=null;
+// Toggle between the two 48-hour windows using the already-fetched hourly periods
+// (NWS forecastHourly typically returns ~150+ hours, so no refetch is needed).
+function setFcRange(offset){
+  if(fcOffset===offset||!lastFcHourly)return;
+  fcOffset=offset;
+  const toggle=document.getElementById('fc-range-toggle');
+  if(toggle)toggle.querySelectorAll('.cc-segmented-btn').forEach(b=>{b.classList.toggle('active',Number(b.dataset.offset)===offset);});
+  buildForecastCharts(lastFcHourly,lastFcTz);
+}
+function fcRangeUnavailable(){
+  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast not available this far out for this station</div>';
+  });
+}
 function buildForecastCharts(hourlyPeriods,tz){
+  lastFcHourly=hourlyPeriods;lastFcTz=tz;
   const now=Date.now();
-  const periods=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000).slice(0,48);
-  if(!periods.length){forecastError();return;}
+  const upcoming=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000);
+  const periods=upcoming.slice(fcOffset,fcOffset+48);
+  if(!periods.length){fcOffset===0?forecastError():fcRangeUnavailable();return;}
+  const fcLabel=fcOffset>0?`Hours ${fcOffset}\u2013${fcOffset+48} Forecast`:'48-Hour Forecast';
+  CHART_TITLES['chart-fc-temp']=`${fcLabel} \u2014 Temperature & Dewpoint`;
+  CHART_TITLES['chart-fc-wind']=`${fcLabel} \u2014 Wind Speed`;
+  CHART_TITLES['chart-fc-precip']=`${fcLabel} \u2014 Precipitation Chance`;
   const xs=periods.map(p=>new Date(p.startTime));
   const xRange=[new Date(xs[0].getTime()-15*60000),new Date(xs[xs.length-1].getTime()+15*60000)];
   const commonX={type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%a %I%p',hoverformat:'%a %b %d, %H:%M',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true};
