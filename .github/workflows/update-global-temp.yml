@@ -1,0 +1,54 @@
+name: Update Global Temperature Data
+
+# Refreshes public/data/global-temp-daily.json from Climate Reanalyzer's
+# ERA5 daily world 2m temperature feed. Same self-hosted-JSON pattern as
+# the sea-ice / sunspot pipelines: a small Python script writes a static
+# JSON file that the standalone tool fetches at runtime, and this workflow
+# commits the refreshed file whenever the source data changes.
+#
+# NOTE: add "Update Global Temperature Data" to deploy.yml's workflow_run
+# trigger list so a successful data commit here kicks off a Pages redeploy
+# (same as the existing sunspot-data trigger).
+
+on:
+  schedule:
+    # Climate Reanalyzer refreshes this page ~1200 UTC; give it a buffer.
+    - cron: "30 13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-global-temp
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests numpy
+
+      - name: Run update script
+        run: python scripts/update_global_temp.py
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- public/data/global-temp-daily.json; then
+            echo "No change in global-temp-daily.json — skipping commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/data/global-temp-daily.json
+          git commit -m "Update global temperature data ($(date -u +%Y-%m-%d))"
+          git push
