@@ -83,8 +83,15 @@ body { padding: 20px 0 48px; }
 
 /* ── Legend ── */
 .legend-row {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
 }
+.auto-scale-toggle {
+  display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px;
+  font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px;
+  cursor: pointer; user-select: none;
+}
+.auto-scale-toggle input { accent-color: var(--tool-accent-light); cursor: pointer; }
+.legend-scale-group { display: flex; align-items: center; gap: 8px; }
 .legend-end-label {
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   color: var(--color-text-secondary); white-space: nowrap;
@@ -297,9 +304,14 @@ body { padding: 20px 0 48px; }
 
   <!-- Legend -->
   <div class="legend-row">
-    <span class="legend-end-label" id="legend-lo">0%</span>
-    <canvas id="legend-canvas" width="220" height="13"></canvas>
-    <span class="legend-end-label" id="legend-hi">–</span>
+    <label class="auto-scale-toggle" id="auto-scale-toggle-wrap" title="Scale colors to this view's actual max value so low-probability thresholds aren't lost in near-black">
+      <input type="checkbox" id="auto-scale-toggle" checked onchange="toggleAutoScale()"> Auto-scale
+    </label>
+    <div class="legend-scale-group">
+      <span class="legend-end-label" id="legend-lo">0%</span>
+      <canvas id="legend-canvas" width="220" height="13"></canvas>
+      <span class="legend-end-label" id="legend-hi">–</span>
+    </div>
   </div>
 
   <!-- Heatmap -->
@@ -354,10 +366,13 @@ const THRESHOLDS_MPH = [15, 20, 25, 30, 35, 39, 50, 58];
 const THRESH_LABELS  = ['≥ 15 mph', '≥ 20 mph', '≥ 25 mph', '≥ 30 mph',
                         '≥ 35 mph', '≥ 39 mph', '≥ 50 mph', '≥ 58 mph'];
 
-// Per-threshold fixed probability caps (t=1 at this probability).
-// Sustained caps are higher because sustained obs are always present;
-// gust caps are lower because METAR only reports gusts when the wind
-// varies ≥ 10 kt, making gust events inherently sparser in the record.
+// Per-threshold fixed probability caps (t=1 at this probability) — used as
+// the color-scale ceiling when auto-scale is OFF. Sustained caps are higher
+// because sustained obs are always present; gust caps are lower because
+// METAR only reports gusts when the wind varies ≥ 10 kt, making gust events
+// inherently sparser in the record. When auto-scale is ON (default), the
+// ceiling instead stretches to this view's actual max probability — see
+// the scaleMax computation in renderHeatmap().
 const MAX_PROB = {
   sust: [0.60, 0.45, 0.30, 0.20, 0.12, 0.08, 0.030, 0.015],
   gust: [0.20, 0.15, 0.10, 0.07, 0.04, 0.025, 0.010, 0.005],
@@ -479,12 +494,20 @@ function lerpColor(t) {
   ];
 }
 
-function probToRGB(prob) {
-  const cap = MAX_PROB[windType][threshIdx];
-  return lerpColor(Math.min(1, prob / cap));
+// t is already normalized 0..1 against the current scale ceiling — see the
+// scaleMax computation in renderHeatmap() (either the fixed MAX_PROB cap for
+// this threshold/type, or the view's actual max when auto-scale is on).
+function probToRGB(t) {
+  return lerpColor(Math.min(1, t));
 }
 
 function rgb(r, g, b) { return `rgb(${r},${g},${b})`; }
+
+function formatPct(p) {
+  if (p >= 10) return Math.round(p).toString();
+  if (p >= 1)  return p.toFixed(1);
+  return p.toFixed(2);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -506,6 +529,13 @@ let dataCount = null;
 // Single-year grids — max value seen per (doy, hour)
 let singleMaxSped = null;  // Float32Array[366*24], NaN = no obs
 let singleMaxGust = null;  // Float32Array[366*24], NaN = no gust reported
+
+// Auto-scale: stretch the color gradient to this view's actual max probability
+// instead of the fixed per-threshold MAX_PROB cap, so thresholds far from the
+// tuned default (or unusual stations) aren't lost to near-black. Toggle-able
+// from the legend row; on by default.
+let autoScale      = true;
+let currentMaxProb = MAX_PROB.sust[0]; // the max probability found in the current grid (drives legend + color scale)
 
 // ═══════════════════════════════════════════════════════════════
 // DATE UTILITIES
@@ -714,6 +744,27 @@ function renderHeatmap() {
   const minYrs  = Math.ceil(TOTAL_YEARS / 3);
   const [sr, sg, sb] = SINGLE_COLOR[windType];
 
+  // Determine the color-scale ceiling. In climatology mode with auto-scale
+  // on, stretch the gradient to this view's actual max probability so
+  // low-probability thresholds aren't lost to near-black. Fixed to the
+  // hand-tuned per-threshold/type cap otherwise.
+  let scaleMax = MAX_PROB[windType][threshIdx];
+  if (mode === 'climatology') {
+    if (autoScale) {
+      let maxP = 0;
+      for (let doy = 0; doy < 366; doy++) {
+        for (let h = 0; h < 24; h++) {
+          if (dataCount[doy][h] >= minYrs) {
+            const p = getCount(doy, h) / dataCount[doy][h];
+            if (p > maxP) maxP = p;
+          }
+        }
+      }
+      scaleMax = maxP > 0 ? maxP : MAX_PROB[windType][threshIdx];
+    }
+    currentMaxProb = scaleMax;
+  }
+
   for (let doy = 0; doy < 366; doy++) {
     const x0 = Math.round(doy       * cellW * dpr);
     const x1 = Math.round((doy + 1) * cellW * dpr);
@@ -726,7 +777,8 @@ function renderHeatmap() {
       if (mode === 'climatology') {
         const dc   = dataCount[doy][h];
         const prob = dc >= minYrs ? getCount(doy, h) / dc : 0;
-        [r, g, b]  = probToRGB(prob);
+        const t    = scaleMax > 0 ? prob / scaleMax : 0;
+        [r, g, b]  = probToRGB(t);
       } else {
         if (getSingleHas(doy, h)) { r = sr; g = sg; b = sb; }
         else                      { r = 14; g = 17; b = 30; }
@@ -768,9 +820,8 @@ function renderLegend() {
     lx.fillStyle = grad;
     lx.fillRect(0, 0, W, H);
     document.getElementById('legend-lo').textContent = '0%';
-    const cap = MAX_PROB[windType][threshIdx];
-    document.getElementById('legend-hi').textContent =
-      cap >= 0.10 ? `≥ ${Math.round(cap * 100)}%` : `≥ ${(cap * 100).toFixed(1)}%`;
+    const hiPct = autoScale ? currentMaxProb * 100 : MAX_PROB[windType][threshIdx] * 100;
+    document.getElementById('legend-hi').textContent = formatPct(hiPct) + '%';
   } else {
     lx.fillStyle = rgb(14, 17, 30);
     lx.fillRect(0, 0, W / 2, H);
@@ -1070,6 +1121,7 @@ function setMode(m) {
   const showYear = m === 'single';
   document.getElementById('ctrl-label').style.display  = showYear ? 'inline' : 'none';
   document.getElementById('year-select').style.display = showYear ? 'inline' : 'none';
+  document.getElementById('auto-scale-toggle-wrap').style.display = m === 'climatology' ? 'flex' : 'none';
   if (m === 'climatology') loadClimatology();
   else { currentYear = parseInt(document.getElementById('year-select').value); loadSingleYear(currentYear); }
 }
@@ -1101,6 +1153,14 @@ function syncButtons() {
 
   // Update the CSS glow variable so stat chip values match the active type
   document.documentElement.style.setProperty('--type-glow', GLOW[windType]);
+}
+
+function toggleAutoScale() {
+  autoScale = document.getElementById('auto-scale-toggle').checked;
+  if (mode === 'climatology' && sustCount) {
+    renderHeatmap();
+    renderLegend();
+  }
 }
 
 function onYearChange() {

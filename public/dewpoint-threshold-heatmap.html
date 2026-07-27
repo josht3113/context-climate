@@ -70,8 +70,15 @@ body { padding: 20px 0 48px; }
 
 /* ── Legend ── */
 .legend-row {
-  display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-bottom: 6px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
 }
+.auto-scale-toggle {
+  display: flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px;
+  font-weight: 600; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.4px;
+  cursor: pointer; user-select: none;
+}
+.auto-scale-toggle input { accent-color: var(--tool-accent-light); cursor: pointer; }
+.legend-scale-group { display: flex; align-items: center; gap: 8px; }
 .legend-end-label {
   font-family: var(--font-mono); font-size: 13px; font-weight: 600;
   color: var(--color-text-secondary); white-space: nowrap;
@@ -285,9 +292,14 @@ body { padding: 20px 0 48px; }
 
   <!-- Legend -->
   <div class="legend-row">
-    <span class="legend-end-label" id="legend-lo">0%</span>
-    <canvas id="legend-canvas" width="220" height="13"></canvas>
-    <span class="legend-end-label" id="legend-hi">100%</span>
+    <label class="auto-scale-toggle" id="auto-scale-toggle-wrap" title="Scale colors to this view's actual max value so low-probability thresholds (like ≤ −10°F) aren't lost in near-black">
+      <input type="checkbox" id="auto-scale-toggle" checked onchange="toggleAutoScale()"> Auto-scale
+    </label>
+    <div class="legend-scale-group">
+      <span class="legend-end-label" id="legend-lo">0%</span>
+      <canvas id="legend-canvas" width="220" height="13"></canvas>
+      <span class="legend-end-label" id="legend-hi">100%</span>
+    </div>
   </div>
 
   <!-- Heatmap -->
@@ -476,8 +488,6 @@ const SINGLE_COLOR = {
   dry:   [215, 195, 52],
 };
 
-const MAX_PROB = 1.0; // 0–100% scale for all thresholds
-
 function lerpColor(t, dir) {
   const stops = COLOR_STOPS[dir];
   t = Math.max(0, Math.min(1, t));
@@ -493,8 +503,16 @@ function lerpColor(t, dir) {
     Math.round(lo.rgb[2] + f * (hi.rgb[2] - lo.rgb[2])),
   ];
 }
-function probToRGB(prob, dir) { return lerpColor(Math.min(1, prob), dir); }
+// t is already normalized 0..1 against the current scale ceiling — see the
+// scaleMax computation in renderHeatmap().
+function probToRGB(t, dir) { return lerpColor(Math.min(1, t), dir); }
 function rgb(r, g, b) { return `rgb(${r},${g},${b})`; }
+
+function formatPct(p) {
+  if (p >= 10) return Math.round(p).toString();
+  if (p >= 1)  return p.toFixed(1);
+  return p.toFixed(2);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // STATE
@@ -512,6 +530,13 @@ let singleMaxGrid = null;  // Float32Array(366*24), max DP per hour (for humid c
 let humidCount = null;
 let dryCount   = null;
 let dataCount  = null;
+
+// Auto-scale: stretch the color gradient to this view's actual max probability
+// instead of a fixed 0–100% range, so low-probability thresholds (e.g. ≤ −10°F
+// in a mild climate) don't collapse into near-black. Toggle-able from the
+// legend row; on by default.
+let autoScale      = true;
+let currentMaxProb = 1.0; // the max probability found in the current grid (drives legend + color scale)
 
 // ═══════════════════════════════════════════════════════════════
 // DATE UTILITIES
@@ -694,6 +719,27 @@ function renderHeatmap() {
   const data    = imgData.data;
   const dir     = dpDir;
 
+  // Determine the color-scale ceiling. In climatology mode with auto-scale on,
+  // stretch the gradient to this view's actual max probability so rare
+  // thresholds don't collapse into near-black. Fixed 0–100% otherwise.
+  let scaleMax = 1.0;
+  const min = Math.ceil(TOTAL_YEARS / 3);
+  if (mode === 'climatology') {
+    if (autoScale) {
+      let maxP = 0;
+      for (let doy = 0; doy < 366; doy++) {
+        for (let h = 0; h < 24; h++) {
+          if (dataCount[doy][h] >= min) {
+            const p = getCount(doy, h) / dataCount[doy][h];
+            if (p > maxP) maxP = p;
+          }
+        }
+      }
+      scaleMax = maxP > 0 ? maxP : 1.0;
+    }
+    currentMaxProb = scaleMax;
+  }
+
   for (let doy = 0; doy < 366; doy++) {
     const x0 = Math.round(doy       * cellW * dpr);
     const x1 = Math.round((doy + 1) * cellW * dpr);
@@ -705,9 +751,9 @@ function renderHeatmap() {
       let r, g, b;
       if (mode === 'climatology') {
         const dc   = dataCount[doy][h];
-        const min  = Math.ceil(TOTAL_YEARS / 3);
         const prob = (dc >= min) ? getCount(doy, h) / dc : 0;
-        [r, g, b] = probToRGB(prob, dir);
+        const t    = scaleMax > 0 ? prob / scaleMax : 0;
+        [r, g, b] = probToRGB(t, dir);
       } else {
         if (getSingleHas(doy, h)) { [r, g, b] = SINGLE_COLOR[dir]; }
         else                      { [r, g, b] = [5, 8, 16]; }
@@ -754,7 +800,8 @@ function renderLegend() {
     lx.fillStyle = grad;
     lx.fillRect(0, 0, W, H);
     document.getElementById('legend-lo').textContent = '0%';
-    document.getElementById('legend-hi').textContent = '100%';
+    const hiPct = autoScale ? currentMaxProb * 100 : 100;
+    document.getElementById('legend-hi').textContent = formatPct(hiPct) + '%';
   } else {
     lx.fillStyle = rgb(5, 8, 16);
     lx.fillRect(0, 0, W / 2, H);
@@ -1058,6 +1105,7 @@ function setMode(m) {
   const showYear = m === 'single';
   document.getElementById('ctrl-label').style.display  = showYear ? 'inline' : 'none';
   document.getElementById('year-select').style.display = showYear ? 'inline' : 'none';
+  document.getElementById('auto-scale-toggle-wrap').style.display = m === 'climatology' ? 'flex' : 'none';
 
   if (m === 'climatology') loadClimatology();
   else {
@@ -1082,6 +1130,14 @@ function setThresh(dir, idx) {
   renderHeatmap();
   renderLegend();
   updateStats();
+}
+
+function toggleAutoScale() {
+  autoScale = document.getElementById('auto-scale-toggle').checked;
+  if (mode === 'climatology' && humidCount) {
+    renderHeatmap();
+    renderLegend();
+  }
 }
 
 function onYearChange() {
