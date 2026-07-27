@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Global Temperature in Context</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.plot.ly/plotly-2.34.0.min.js"></script>
+<style>
+  :root { --tool-accent: var(--accent-climate); }
+
+  .gtc-wrap { max-width: 1180px; margin: 0 auto; }
+
+  .gtc-header { text-align: center; margin-bottom: 26px; }
+  .gtc-header .cc-title { margin: 8px 0 10px; }
+  .gtc-header .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  .gtc-stat-row {
+    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .gtc-stat-row .cc-stat-chip { min-width: 168px; align-items: center; text-align: center; }
+  .gtc-stat-row .cc-stat-value { font-size: 30px; }
+
+  .gtc-controls {
+    display: flex; gap: 22px; justify-content: center; align-items: center;
+    flex-wrap: wrap; margin-bottom: 18px;
+  }
+  .gtc-control-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+  .gtc-chart-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 18px 14px 10px;
+    margin-bottom: 18px;
+  }
+  .gtc-chart-card.loading, .gtc-chart-card.errored { padding: 60px 20px; text-align: center; }
+  #gtcChart { width: 100%; height: 580px; }
+  @media (max-width: 640px) { #gtcChart { height: 440px; } }
+
+  .gtc-legend-wrap { display: flex; justify-content: center; margin-bottom: 24px; }
+  .cc-legend-chip { cursor: pointer; user-select: none; transition: opacity 0.15s ease, border-color 0.15s ease; }
+  .cc-legend-chip.gtc-off { opacity: 0.4; }
+  .cc-legend-chip:hover { border-color: var(--color-border-hover); }
+
+  .gtc-footer-row {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 10px; margin-top: 6px; margin-bottom: 40px;
+  }
+  .gtc-footer-note { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
+
+  .gtc-showall-row { text-align: center; margin: -8px 0 22px; }
+
+  #gtcExportCanvas { display: none; }
+</style>
+</head>
+<body>
+<div class="gtc-wrap">
+
+  <div class="gtc-header">
+    <div class="cc-eyebrow">CLIMATE &middot; UPDATED DAILY</div>
+    <h1 class="cc-title">Global Temperature in Context</h1>
+    <p class="cc-subtitle">Every day of the ERA5 record, 1940&ndash;present, layered on one calendar so today's reading shows exactly how unusual &mdash; or ordinary &mdash; it is.</p>
+  </div>
+
+  <div class="gtc-stat-row" id="gtcStatRow">
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Latest Data</div>
+      <div class="cc-stat-value" id="gtcStatDate">&mdash;</div>
+      <div class="cc-stat-note" id="gtcStatDateNote">&nbsp;</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label" id="gtcStatAnomLabel">Vs. Baseline</div>
+      <div class="cc-stat-value" id="gtcStatAnom">&mdash;</div>
+      <div class="cc-stat-note" id="gtcStatAnomNote">&nbsp;</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Rank, This Day</div>
+      <div class="cc-stat-value" id="gtcStatRank">&mdash;</div>
+      <div class="cc-stat-note" id="gtcStatRankNote">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="gtc-controls">
+    <div class="gtc-control-group">
+      <div class="cc-btn-row-label">Reference</div>
+      <div class="cc-segmented" id="gtcBaselineToggle">
+        <button class="cc-segmented-btn is-active" data-baseline="1850">1850&ndash;1900</button>
+        <button class="cc-segmented-btn" data-baseline="1991">1991&ndash;2020</button>
+        <button class="cc-segmented-btn" data-baseline="absolute">Absolute</button>
+      </div>
+    </div>
+    <div class="gtc-control-group">
+      <div class="cc-btn-row-label">Smoothing</div>
+      <div class="cc-segmented" id="gtcSmoothToggle">
+        <button class="cc-segmented-btn is-active" data-smooth="1">Raw</button>
+        <button class="cc-segmented-btn" data-smooth="5">5-Day</button>
+        <button class="cc-segmented-btn" data-smooth="31">31-Day</button>
+      </div>
+    </div>
+    <div class="gtc-control-group">
+      <div class="cc-btn-row-label">Units</div>
+      <div class="cc-segmented" id="gtcUnitToggle">
+        <button class="cc-segmented-btn is-active" data-unit="C">&deg;C</button>
+        <button class="cc-segmented-btn" data-unit="F">&deg;F</button>
+      </div>
+    </div>
+    <div class="gtc-control-group">
+      <div class="cc-btn-row-label">Export</div>
+      <button class="cc-btn primary" id="gtcExportBtn">Save PNG</button>
+    </div>
+  </div>
+
+  <div class="gtc-chart-card loading" id="gtcChartCard">
+    <div class="cc-subtitle">Loading ERA5 daily record&hellip;</div>
+  </div>
+
+  <div class="gtc-showall-row">
+    <button class="cc-btn cc-btn-sm" id="gtcShowAllBtn">Show all 86 individual years</button>
+  </div>
+
+  <div class="gtc-legend-wrap">
+    <div class="cc-legend-row" id="gtcLegend">
+      <div class="cc-legend-chip" data-key="current"><span class="cc-legend-dot" style="background:#E8E4D9"></span><span id="gtcLegendCurrentLabel">2026</span></div>
+      <div class="cc-legend-chip" data-key="el_nino"><span class="cc-legend-dot" style="background:#D67E60"></span>El Ni&ntilde;o years</div>
+      <div class="cc-legend-chip" data-key="la_nina"><span class="cc-legend-dot" style="background:#6D96D8"></span>La Ni&ntilde;a years</div>
+      <div class="cc-legend-chip" data-key="neutral"><span class="cc-legend-dot" style="background:#A69630"></span>Neutral years</div>
+      <div class="cc-legend-chip" data-key="band"><span class="cc-legend-dot" style="background:#A6A499"></span>1940&ndash;present range</div>
+    </div>
+  </div>
+
+  <div class="gtc-footer-row">
+    <span class="cc-tag" id="gtcCitation">Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, U. Maine</span>
+    <span class="gtc-footer-note" id="gtcUpdatedNote">&nbsp;</span>
+  </div>
+
+</div>
+
+<canvas id="gtcExportCanvas" width="1600" height="1100"></canvas>
+
+<script>
+(function () {
+  "use strict";
+
+  var ENSO_COLORS = {
+    el_nino: "#D67E60",
+    la_nina: "#6D96D8",
+    neutral: "#A69630",
+    unclassified: "#6B6F68"
+  };
+  var CURRENT_COLOR = "#E8E4D9";
+  var BAND_FILL = "rgba(166,164,153,0.13)";
+  var MEDIAN_COLOR = "#948F82";
+  var SURFACE_HEX = "#262B27";
+  var BORDER_RGBA = "rgba(232,228,217,0.14)";
+  var TEXT_PRIMARY = "#E8E4D9";
+  var TEXT_SECONDARY = "#A6A499";
+  var TEXT_MUTED = "#948F82";
+
+  var state = {
+    data: null,
+    baseline: "1850",   // "1850" | "1991" | "absolute"
+    smooth: 1,           // 1 | 5 | 31
+    unit: "C",            // "C" | "F"
+    showAll: false,
+    hidden: {}            // legend key -> true if hidden
+  };
+
+  var chartCard = document.getElementById("gtcChartCard");
+  var chartDivId = "gtcChart";
+
+  fetch("./data/global-temp-daily.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (json) {
+      state.data = json;
+      chartCard.classList.remove("loading");
+      chartCard.innerHTML = '<div id="' + chartDivId + '"></div>';
+      document.getElementById("gtcLegendCurrentLabel").textContent = json.current_year;
+      document.getElementById("gtcShowAllBtn").textContent =
+        "Show all " + Object.keys(json.years).length + " individual years";
+      wireControls();
+      render();
+    })
+    .catch(function (err) {
+      chartCard.classList.remove("loading");
+      chartCard.classList.add("errored");
+      chartCard.innerHTML =
+        '<div class="cc-subtitle">Couldn’t load the temperature data (' + err.message + ').<br>' +
+        'If you’re previewing this file locally, serve the folder over HTTP ' +
+        '(e.g. <code>python -m http.server</code>) rather than opening it directly — ' +
+        'browsers block local JSON fetches from a bare <code>file://</code> page.</div>';
+    });
+
+  function cToF(c) { return c * 9 / 5 + 32; }
+  function convertDelta(c) { return state.unit === "F" ? c * 9 / 5 : c; }
+  function convertAbs(c) { return state.unit === "F" ? cToF(c) : c; }
+  function unitSuffix() { return state.unit === "F" ? "°F" : "°C"; }
+
+  // Circular moving average over the 366-slot day-of-year template so
+  // smoothing wraps cleanly across the Dec→Jan boundary.
+  function smoothCircular(arr, window) {
+    if (window <= 1) return arr.slice();
+    var n = arr.length, half = Math.floor(window / 2), out = new Array(n);
+    for (var i = 0; i < n; i++) {
+      var sum = 0, count = 0;
+      for (var k = -half; k <= half; k++) {
+        var idx = ((i + k) % n + n) % n;
+        var v = arr[idx];
+        if (v !== null && v !== undefined && !isNaN(v)) { sum += v; count++; }
+      }
+      out[i] = count > 0 ? sum / count : null;
+    }
+    return out;
+  }
+
+  function baselineArray() {
+    var d = state.data;
+    if (state.baseline === "1850") return d.baseline_1850_1900;
+    if (state.baseline === "1991") return d.baseline_1991_2020;
+    return null; // absolute — no baseline subtraction
+  }
+
+  // Transform a raw 366-slot temp array into the currently selected view
+  // (absolute or anomaly), THEN smooth — so smoothing always acts on the
+  // quantity actually being plotted.
+  function transformSeries(rawTemps) {
+    var baseline = baselineArray();
+    var metric = rawTemps.map(function (v, i) {
+      if (v === null || v === undefined) return null;
+      if (baseline === null) return v;
+      var b = baseline[i];
+      if (b === null || b === undefined) return null;
+      return v - b;
+    });
+    var smoothed = smoothCircular(metric, state.smooth);
+    return smoothed.map(function (v) {
+      if (v === null) return null;
+      return baseline === null ? convertAbs(v) : convertDelta(v);
+    });
+  }
+
+  function yAxisTitle() {
+    if (state.baseline === "absolute") return "2m air temperature (" + unitSuffix() + ")";
+    var ref = state.baseline === "1850" ? "1850–1900" : "1991–2020";
+    return "Anomaly vs. " + ref + " (" + unitSuffix() + ")";
+  }
+
+  function fmtVal(v, decimals) {
+    if (v === null || v === undefined || isNaN(v)) return "—";
+    var s = v.toFixed(decimals === undefined ? 1 : decimals);
+    if (state.baseline !== "absolute" && v > 0) s = "+" + s;
+    return s + unitSuffix();
+  }
+
+  function buildTraces() {
+    var d = state.data;
+    var traces = [];
+    var x = d.x_dates;
+
+    // Historical range band (10th–90th percentile)
+    if (!state.hidden.band) {
+      var p10 = transformSeries(d.percentile_10);
+      var p90 = transformSeries(d.percentile_90);
+      var median = transformSeries(d.median);
+      traces.push({
+        x: x, y: p90, name: "90th pct", mode: "lines",
+        line: { width: 0 }, hoverinfo: "skip", showlegend: false
+      });
+      traces.push({
+        x: x, y: p10, name: "1940–present range", mode: "lines",
+        line: { width: 0 }, fill: "tonexty", fillcolor: BAND_FILL,
+        hoverinfo: "skip", showlegend: false
+      });
+      traces.push({
+        x: x, y: median, name: "Median (all years)", mode: "lines",
+        line: { color: MEDIAN_COLOR, width: 1.5, dash: "dot" },
+        hovertemplate: "Median: %{y:.1f}<extra></extra>"
+      });
+    }
+
+    if (state.showAll) {
+      Object.keys(d.years).forEach(function (y) {
+        if (y === d.current_year) return;
+        var enso = d.years[y].enso;
+        traces.push({
+          x: x, y: transformSeries(d.years[y].t), name: y, mode: "lines",
+          line: { color: ENSO_COLORS[enso] || ENSO_COLORS.unclassified, width: 0.6 },
+          opacity: 0.28, hovertemplate: y + ": %{y:.1f}<extra></extra>", showlegend: false
+        });
+      });
+    } else {
+      d.notable_years.forEach(function (y) {
+        if (y === d.current_year) return;
+        var enso = d.years[y].enso;
+        if (state.hidden[enso]) return;
+        traces.push({
+          x: x, y: transformSeries(d.years[y].t), name: y, mode: "lines",
+          line: { color: ENSO_COLORS[enso] || ENSO_COLORS.unclassified, width: 1.8 },
+          hovertemplate: y + " (" + enso.replace("_", " ") + "): %{y:.1f}<extra></extra>"
+        });
+      });
+    }
+
+    // Current year on top
+    if (!state.hidden.current) {
+      var cy = d.current_year;
+      traces.push({
+        x: x, y: transformSeries(d.years[cy].t), name: cy, mode: "lines",
+        line: { color: CURRENT_COLOR, width: 3.2 },
+        hovertemplate: cy + " (current): %{y:.1f}<extra></extra>"
+      });
+    }
+
+    return traces;
+  }
+
+  function buildShapes() {
+    if (state.baseline !== "1850") return { shapes: [], annotations: [] };
+    var shapes = [], annotations = [];
+    [
+      { c: 1.5, label: "+1.5°C · Paris limit", color: "rgba(214,126,96,0.55)" },
+      { c: 2.0, label: "+2.0°C", color: "rgba(191,86,86,0.6)" }
+    ].forEach(function (t) {
+      var y = convertDelta(t.c);
+      shapes.push({
+        type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: y, y1: y,
+        line: { color: t.color, width: 1.3, dash: "dash" }
+      });
+      annotations.push({
+        xref: "paper", x: 1, xanchor: "left", yref: "y", y: y, yanchor: "bottom",
+        text: t.label, showarrow: false,
+        font: { family: "Courier Prime, monospace", size: 11, color: t.color }
+      });
+    });
+    return { shapes: shapes, annotations: annotations };
+  }
+
+  function render() {
+    var traces = buildTraces();
+    var sa = buildShapes();
+
+    var layout = {
+      paper_bgcolor: SURFACE_HEX,
+      plot_bgcolor: SURFACE_HEX,
+      margin: { l: 60, r: 90, t: 16, b: 40 },
+      font: { family: "Public Sans, sans-serif", size: 13, color: TEXT_SECONDARY },
+      xaxis: {
+        type: "date", tickformat: "%b", dtick: "M1",
+        gridcolor: "rgba(232,228,217,0.06)", zeroline: false,
+        tickfont: { size: 12, color: TEXT_SECONDARY },
+        hoverformat: "%b %d"
+      },
+      yaxis: {
+        title: { text: yAxisTitle(), font: { size: 12, color: TEXT_SECONDARY } },
+        gridcolor: "rgba(232,228,217,0.08)",
+        zeroline: state.baseline !== "absolute",
+        zerolinecolor: "rgba(232,228,217,0.25)",
+        tickfont: { size: 12, color: TEXT_SECONDARY }
+      },
+      shapes: sa.shapes,
+      annotations: sa.annotations,
+      hovermode: "closest",
+      showlegend: false
+    };
+
+    Plotly.react(chartDivId, traces, layout, {
+      responsive: true, displaylogo: false,
+      modeBarButtonsToRemove: ["lasso2d", "select2d"]
+    });
+
+    renderStats();
+    updateLegendUI();
+  }
+
+  function dateLabel(dateStr) {
+    // dateStr like "2026-07-25" -> "Jul 25"
+    var parts = dateStr.split("-");
+    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
+  }
+
+  function dayOfYearIndex(dateStr) {
+    var parts = dateStr.split("-");
+    var template = "2024-" + parts[1] + "-" + parts[2];
+    return state.data.x_dates.indexOf(template);
+  }
+
+  function renderStats() {
+    var d = state.data;
+    var cy = d.current_year;
+    var idx = null;
+    if (d.data_through) idx = dayOfYearIndex(d.data_through);
+
+    document.getElementById("gtcStatDate").textContent = d.data_through ? dateLabel(d.data_through) : "—";
+    document.getElementById("gtcStatDateNote").textContent =
+      d.data_through ? ("Day " + (idx + 1) + " of " + cy + (d.lag_days != null ? " · " + d.lag_days + "d lag" : "")) : "—";
+
+    var anomLabel = state.baseline === "absolute" ? "Today’s Reading" :
+      (state.baseline === "1850" ? "Vs. Preindustrial" : "Vs. 1991–2020");
+    document.getElementById("gtcStatAnomLabel").textContent = anomLabel;
+
+    if (idx === null) {
+      document.getElementById("gtcStatAnom").textContent = "—";
+      document.getElementById("gtcStatAnomNote").textContent = " ";
+    } else {
+      var rawT = d.years[cy].t[idx];
+      var baseline = baselineArray();
+      var val = baseline === null ? convertAbs(rawT) : convertDelta(rawT - baseline[idx]);
+      document.getElementById("gtcStatAnom").textContent = fmtVal(val, 2);
+      document.getElementById("gtcStatAnomNote").textContent =
+        state.baseline === "absolute" ? "Raw ERA5 daily mean" : "1.5°C Paris limit reference";
+    }
+
+    // Rank among all years for this exact day-of-year, using RAW unsmoothed
+    // values regardless of the smoothing toggle, so the rank claim always
+    // reflects actually-observed daily means.
+    if (idx === null) {
+      document.getElementById("gtcStatRank").textContent = "—";
+      document.getElementById("gtcStatRankNote").textContent = " ";
+    } else {
+      var todayRaw = d.years[cy].t[idx];
+      var comparableYears = 0, warmerCount = 0;
+      Object.keys(d.years).forEach(function (y) {
+        var v = d.years[y].t[idx];
+        if (v === null || v === undefined) return;
+        comparableYears++;
+        if (y !== cy && v > todayRaw) warmerCount++;
+      });
+      var rank = warmerCount + 1;
+      document.getElementById("gtcStatRank").textContent = ordinal(rank);
+      document.getElementById("gtcStatRankNote").textContent =
+        "warmest " + dateLabel(d.data_through) + " of " + comparableYears + " years";
+    }
+
+    document.getElementById("gtcUpdatedNote").textContent =
+      "Generated " + (d.generated_utc || "").replace("T", " ").replace("Z", " UTC");
+  }
+
+  function ordinal(n) {
+    var s = ["th", "st", "nd", "rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function updateLegendUI() {
+    document.querySelectorAll("#gtcLegend .cc-legend-chip").forEach(function (chip) {
+      var key = chip.getAttribute("data-key");
+      chip.classList.toggle("gtc-off", !!state.hidden[key]);
+    });
+  }
+
+  function wireControls() {
+    document.querySelectorAll("#gtcBaselineToggle .cc-segmented-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setActive("#gtcBaselineToggle", btn);
+        state.baseline = btn.getAttribute("data-baseline");
+        render();
+      });
+    });
+    document.querySelectorAll("#gtcSmoothToggle .cc-segmented-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setActive("#gtcSmoothToggle", btn);
+        state.smooth = parseInt(btn.getAttribute("data-smooth"), 10);
+        render();
+      });
+    });
+    document.querySelectorAll("#gtcUnitToggle .cc-segmented-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setActive("#gtcUnitToggle", btn);
+        state.unit = btn.getAttribute("data-unit");
+        render();
+      });
+    });
+    document.getElementById("gtcShowAllBtn").addEventListener("click", function () {
+      state.showAll = !state.showAll;
+      this.classList.toggle("is-active", state.showAll);
+      this.textContent = (state.showAll ? "Hide" : "Show all") +
+        " " + Object.keys(state.data.years).length + " individual years";
+      render();
+    });
+    document.querySelectorAll("#gtcLegend .cc-legend-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        var key = chip.getAttribute("data-key");
+        state.hidden[key] = !state.hidden[key];
+        render();
+      });
+    });
+    document.getElementById("gtcExportBtn").addEventListener("click", exportPNG);
+  }
+
+  function setActive(groupSel, activeBtn) {
+    document.querySelectorAll(groupSel + " .cc-segmented-btn").forEach(function (b) {
+      b.classList.toggle("is-active", b === activeBtn);
+    });
+  }
+
+  function exportPNG() {
+    var gd = document.getElementById(chartDivId);
+    Plotly.toImage(gd, { format: "png", width: 1500, height: 760, scale: 2 }).then(function (dataUrl) {
+      var img = new Image();
+      img.onload = function () { composeExport(img); };
+      img.src = dataUrl;
+    });
+  }
+
+  function composeExport(chartImg) {
+    var canvas = document.getElementById("gtcExportCanvas");
+    var scale = 2;
+    var W = 1500 * scale, H = (760 + 340) * scale;
+    canvas.width = W; canvas.height = H;
+    var ctx = canvas.getContext("2d");
+
+    ctx.fillStyle = "#1E2320";
+    ctx.fillRect(0, 0, W, H);
+
+    var pad = 40 * scale;
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = (12 * scale) + "px 'Courier Prime', monospace";
+    ctx.textBaseline = "top";
+    ctx.fillText("CONTEXTCLIMATE  ·  CLIMATE", pad, pad);
+
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = "700 " + (34 * scale) + "px 'Zilla Slab', serif";
+    ctx.fillText("Global Temperature in Context", pad, pad + 26 * scale);
+
+    var d = state.data;
+    var idx = d.data_through ? dayOfYearIndex(d.data_through) : null;
+    var contextLine = d.data_through ?
+      (dateLabel(d.data_through) + ", " + d.current_year + "  ·  " + yAxisTitle().replace(/\(.*?\)/, "").trim()) :
+      "";
+    ctx.fillStyle = TEXT_SECONDARY;
+    ctx.font = (16 * scale) + "px 'Public Sans', sans-serif";
+    ctx.fillText(contextLine, pad, pad + 70 * scale);
+
+    var chartY = pad + 100 * scale;
+    var drawW = W - pad * 2;
+    var drawH = drawW * (760 / 1500);
+    ctx.drawImage(chartImg, pad, chartY, drawW, drawH);
+
+    var statY = chartY + drawH + 30 * scale;
+    if (idx !== null) {
+      var rawT = d.years[d.current_year].t[idx];
+      var baseline = baselineArray();
+      var val = baseline === null ? convertAbs(rawT) : convertDelta(rawT - baseline[idx]);
+      var stats = [
+        ["LATEST DATA", dateLabel(d.data_through)],
+        [document.getElementById("gtcStatAnomLabel").textContent.toUpperCase(), fmtVal(val, 2)],
+        ["RANK, THIS DAY", document.getElementById("gtcStatRank").textContent]
+      ];
+      var chipW = drawW / 3;
+      stats.forEach(function (s, i) {
+        var x = pad + i * chipW;
+        ctx.fillStyle = TEXT_MUTED;
+        ctx.font = (12 * scale) + "px 'Courier Prime', monospace";
+        ctx.fillText(s[0], x, statY);
+        ctx.fillStyle = TEXT_PRIMARY;
+        ctx.font = "700 " + (26 * scale) + "px 'Zilla Slab', serif";
+        ctx.fillText(s[1], x, statY + 20 * scale);
+      });
+    }
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = (11 * scale) + "px 'Courier Prime', monospace";
+    ctx.fillText(
+      "Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, U. Maine  ·  contextclimate.io",
+      pad, H - pad + 4 * scale
+    );
+
+    var link = document.createElement("a");
+    link.download = "global-temperature-context-" + (state.data.data_through || "export") + ".png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.catch(function () {});
+  }
+})();
+</script>
+</body>
+</html>
