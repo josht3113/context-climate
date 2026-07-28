@@ -122,6 +122,7 @@ const SECTIONS = [
         footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
         to:         '/streak-tracker',
         accentVar:  '--accent-hourly',
+        thumb:      '/StreakTracker_thumbnail.png',
       },
       {
         tags:       ['US Cities', 'Fog'],
