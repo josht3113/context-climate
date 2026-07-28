@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="core-sample-tools.css">
+<title>Greenhouse Gas Tracker — ContextClimate</title>
+
+<style>
+  /* Tool-specific layout only — shared chrome (colors, type, buttons, panels,
+     tabs, chips, stat rows) lives in core-sample-tools.css */
+  :root { --tool-accent: var(--accent-climate); }
+
+  body { display: flex; flex-direction: column; align-items: center; }
+
+  header { max-width: 900px; width: 100%; text-align: center; margin-bottom: 8px; }
+  .cc-eyebrow { margin-bottom: 10px; }
+  .cc-title { margin-bottom: 10px; }
+  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  .wrap { width: 100%; max-width: 1100px; }
+
+  /* ── Headline stat row ── */
+  .stat-section { margin-top: 30px; }
+  .stat-row { justify-content: center; }
+  .cc-stat-chip { min-width: 168px; flex: 1 1 168px; }
+  .stat-delta { font-family: var(--font-mono); font-size: 12px; margin-top: 2px; }
+  .stat-delta.up { color: #E2A33E; }
+  .stat-delta.down { color: #6D96D8; }
+
+  /* ── Section headers ── */
+  .section-block { width: 100%; margin-top: 40px; }
+  .section-head { text-align: center; margin-bottom: 18px; }
+  .section-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 21px;
+    color: var(--color-text-primary);
+    margin-bottom: 5px;
+  }
+  .section-desc {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    max-width: 640px;
+    margin: 0 auto;
+    line-height: 1.55;
+  }
+
+  /* ── Controls ── */
+  .controls-panel { padding: 20px 22px 22px; }
+  .control-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 18px; margin-bottom: 18px; }
+  .control-row:last-child { margin-bottom: 0; }
+  .control-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  .gas-group { margin-bottom: 16px; }
+  .gas-group:last-child { margin-bottom: 0; }
+  .gas-group-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 9px; }
+  .gas-group-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-primary);
+  }
+  .gas-group-note { font-size: 12.5px; color: var(--color-text-muted); }
+
+  .gas-btn { opacity: 0.5; padding: 7px 13px; }
+  .gas-btn.is-active { opacity: 1; }
+  .gas-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--dot-color, #999);
+    margin-right: 7px;
+    vertical-align: middle;
+  }
+
+  /* ── Chart panels ── */
+  .chart-box { padding: 18px 18px 8px; }
+  .chart-box .plot-el { width: 100%; }
+  .chart-foot { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 10px 0 4px; }
+
+  /* ── Growth-rate mini section ── */
+  .growth-controls { display: flex; justify-content: center; margin-bottom: 14px; }
+
+  /* ── Forcing narrative callout ── */
+  .forcing-callout {
+    font-size: 15px;
+    color: var(--color-text-secondary);
+    line-height: 1.7;
+    padding: 15px 18px;
+    background: var(--color-surface-2);
+    border-radius: var(--radius-md);
+    border-left: 2px solid var(--tool-accent);
+    margin: 18px auto 0;
+    max-width: 780px;
+  }
+
+  /* ── Footer / citation ── */
+  .cite-block {
+    width: 100%;
+    max-width: 900px;
+    margin-top: 44px;
+    padding-top: 22px;
+    border-top: 0.5px solid var(--color-border);
+    text-align: center;
+  }
+  .cite-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  .cite-note {
+    font-size: 12.5px;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 640px) {
+    .cc-stat-chip { min-width: 44%; }
+    .control-row { gap: 10px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="cc-eyebrow">Climate · Atmospheric Composition</p>
+  <h1 class="cc-title">Greenhouse Gas Tracker</h1>
+  <p class="cc-subtitle">Forty-six years of direct atmospheric measurement — the 22 long-lived gases that set Earth's radiative balance, from NOAA's Global Monitoring Laboratory reference network.</p>
+</header>
+
+<div class="wrap stat-section">
+  <div class="cc-stat-row stat-row" id="statRow"></div>
+</div>
+
+<div class="wrap section-block">
+  <div class="section-head">
+    <p class="section-title">Concentration Over Time</p>
+    <p class="section-desc">Pick any combination of gases below. Units span parts-per-million to parts-per-trillion — use the scale toggle to compare trends fairly across that range.</p>
+  </div>
+
+  <div class="cc-panel controls-panel">
+    <div class="control-row">
+      <span class="control-label">Scale</span>
+      <div class="cc-segmented" id="scaleToggle">
+        <button class="cc-segmented-btn is-active" data-scale="concentration">Concentration</button>
+        <button class="cc-segmented-btn" data-scale="log">Log Scale</button>
+        <button class="cc-segmented-btn" data-scale="indexed">Indexed (1979 = 100)</button>
+      </div>
+    </div>
+    <div id="gasGroups"></div>
+  </div>
+
+  <div class="cc-panel chart-box" style="margin-top:16px;">
+    <div id="mainChart" class="plot-el" style="height:480px;"></div>
+  </div>
+  <div class="chart-foot">
+    <button class="cc-btn cc-btn-sm" id="pngMain">↓ PNG</button>
+  </div>
+</div>
+
+<div class="wrap section-block">
+  <div class="section-head">
+    <p class="section-title">CO₂'s Accelerating Growth Rate</p>
+    <p class="section-desc">The concentration curve isn't just rising — the <em>rate</em> of rise is itself increasing. Annual growth averaged ~1.5 ppm/yr in the 1990s and over 2.6 ppm/yr in the last decade.</p>
+  </div>
+  <div class="growth-controls">
+    <div class="cc-segmented" id="growthToggle">
+      <button class="cc-segmented-btn is-active" data-gas="CO2">CO₂</button>
+      <button class="cc-segmented-btn" data-gas="CH4">CH₄</button>
+      <button class="cc-segmented-btn" data-gas="N2O">N₂O</button>
+    </div>
+  </div>
+  <div class="cc-panel chart-box">
+    <div id="growthChart" class="plot-el" style="height:280px;"></div>
+  </div>
+</div>
+
+<div class="wrap section-block">
+  <div class="section-head">
+    <p class="section-title">Radiative Forcing &amp; the Greenhouse Gas Index</p>
+    <p class="section-desc">NOAA's AGGI converts every measured gas into its warming contribution (W/m²), then indexes the total to 1990 — the Kyoto Protocol baseline year.</p>
+  </div>
+  <div class="cc-panel chart-box">
+    <div id="forcingChart" class="plot-el" style="height:480px;"></div>
+  </div>
+  <div class="chart-foot">
+    <button class="cc-btn cc-btn-sm" id="pngForcing">↓ PNG</button>
+  </div>
+  <p class="forcing-callout" id="forcingCallout"></p>
+</div>
+
+<div class="cite-block">
+  <div class="cite-row">
+    <span class="cc-tag">Lan, Tans &amp; Thoning — NOAA GML, CO₂/CH₄/N₂O/SF6 trends</span>
+    <span class="cc-tag">Dutton et al. — NOAA GML Halocarbons Network</span>
+    <span class="cc-tag">Montzka et al. — NOAA Annual GHG Index (AGGI)</span>
+  </div>
+  <p class="cite-note">Annual global-mean dry-air mole fractions and AGGI radiative forcing, NOAA Global Monitoring Laboratory (gml.noaa.gov). Data span 1979–2024 and are updated once yearly each fall following the AGGI release — this page reflects the 2024 update. "nd" (not determined) years before a gas's measurement record began render as gaps, not zeros.</p>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════════════════════════
+// DATA — annual global-mean dry-air mole fractions (NOAA GML) +
+// AGGI radiative forcing table. Re-embed fresh copies each fall when
+// NOAA publishes the new AGGI update: https://gml.noaa.gov/aggi/aggi.html
+// ══════════════════════════════════════════════════════════════════════
+const MOLE = {"years":[1979,1980,1981,1982,1983,1984,1985,1986,1987,1988,1989,1990,1991,1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024],"gases":{"CO2":{"unit":"ppm","values":[336.9,338.9,340.1,340.9,342.5,344.1,345.5,347.0,348.7,351.2,352.8,354.1,355.4,356.1,356.8,358.3,360.2,361.9,363.1,365.7,367.8,369.0,370.6,372.6,375.2,377.0,379.0,381.1,382.9,385.0,386.5,388.8,390.6,392.7,395.4,397.3,399.7,403.1,405.2,407.6,410.1,412.4,414.7,417.1,419.4,422.8],"growth":[null,2.0,1.2,0.8,1.6,1.6,1.4,1.5,1.7,2.5,1.6,1.3,1.3,0.7,0.7,1.5,1.9,1.7,1.2,2.6,2.1,1.2,1.6,2.0,2.6,1.8,2.0,2.1,1.8,2.1,1.5,2.3,1.8,2.1,2.7,1.9,2.4,3.4,2.1,2.4,2.5,2.3,2.3,2.4,2.3,3.4]},"CH4":{"unit":"ppb","values":[1577.6,1594.7,1611.9,1629.2,1636.9,1644.7,1657.3,1670.1,1682.7,1693.1,1704.5,1714.4,1724.8,1735.5,1736.5,1742.1,1748.9,1751.3,1754.5,1765.5,1772.4,1773.3,1771.3,1772.7,1777.3,1777.1,1774.2,1775.0,1781.4,1787.0,1793.5,1798.9,1803.1,1808.1,1813.4,1822.6,1834.2,1843.1,1849.7,1857.3,1866.6,1878.7,1894.7,1910.9,1921.6,1930.0]},"N2O":{"unit":"ppb","values":[300.9,301.1,302.0,303.2,303.8,304.7,305.3,306.4,306.1,306.7,307.9,308.7,309.3,309.8,310.2,310.7,310.8,311.4,312.4,313.3,314.3,315.5,316.2,316.9,317.5,318.1,318.9,319.9,320.5,321.4,322.2,323.1,324.2,325.0,325.9,327.0,328.1,328.9,329.8,330.9,331.9,333.1,334.3,335.6,336.7,337.8]},"HCFC22":{"unit":"ppt","values":[38.6,42.4,46.2,50.0,54.2,58.5,62.9,67.4,72.4,78.2,84.3,90.4,96.7,101.9,105.6,111.4,116.2,121.5,126.1,131.4,136.7,141.5,147.4,152.9,157.9,162.1,168.2,174.8,182.8,190.8,198.4,205.8,212.6,218.0,223.6,228.7,233.0,237.4,240.8,244.1,246.8,247.8,248.8,248.8,247.5,245.3]},"CFC113":{"unit":"ppt","values":[18.8,21.5,24.4,27.6,31.0,35.4,40.0,44.3,50.5,57.9,64.5,70.3,76.0,80.2,82.2,83.7,83.9,83.9,83.5,82.9,82.5,82.0,81.5,80.9,80.1,79.4,78.8,78.2,77.3,76.5,75.9,75.3,74.6,73.9,73.2,72.6,72.0,71.5,70.8,70.3,69.6,69.0,68.3,67.8,67.2,66.6]},"CFC11":{"unit":"ppt","values":[159.0,167.9,175.9,184.0,193.0,201.5,212.9,223.1,233.9,244.8,253.4,259.5,264.0,266.7,268.0,267.9,266.2,265.2,264.1,262.5,261.2,259.4,257.6,255.8,253.3,251.3,249.3,247.2,245.0,242.9,241.1,239.3,237.2,235.2,233.5,232.2,231.0,230.0,229.0,228.2,226.5,224.0,221.7,219.5,217.1,214.5]},"HCFC141b":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,0.35,0.71,1.94,3.48,5.41,7.36,9.07,10.91,12.62,14.10,15.45,16.58,17.19,17.56,18.09,18.75,19.26,19.84,20.41,21.33,22.27,23.24,23.79,24.22,24.53,24.50,24.37,24.38,24.50,24.61,24.61,24.52,24.42]},"CCl4":{"unit":"ppt","values":[92.6,94.0,94.9,95.9,97.3,98.8,99.9,101.1,102.4,103.5,104.5,105.6,105.7,107.6,106.8,105.8,105.0,104.0,103.1,102.2,101.1,99.8,98.7,97.6,96.5,95.5,94.5,93.3,92.2,90.7,89.3,88.4,87.0,85.9,84.8,83.7,82.4,81.3,80.3,79.2,78.3,77.0,75.8,74.7,73.8,73.0]},"CFC12":{"unit":"ppt","values":[286.4,301.8,319.2,335.3,352.6,367.5,383.6,402.6,423.4,447.7,466.8,481.8,493.8,505.9,512.0,516.7,523.8,529.7,533.7,536.6,539.4,541.6,542.4,543.2,542.8,542.4,541.5,540.1,537.9,535.5,533.0,529.4,526.7,524.1,520.7,518.1,515.2,512.1,508.5,505.6,501.3,497.2,493.3,489.6,485.4,481.5]},"HCFC142b":{"unit":"ppt","values":[0.3,0.3,0.3,0.4,0.4,0.5,0.5,0.6,0.8,1.0,1.2,1.7,2.4,3.2,4.4,5.7,6.6,7.7,8.7,9.6,10.7,11.7,12.6,13.3,14.0,14.5,15.2,16.1,17.3,18.5,19.4,20.1,20.9,21.4,21.8,21.9,21.8,22.0,22.1,22.0,22.0,21.7,21.5,21.2,21.0,20.7]},"CH3CCl3":{"unit":"ppt","values":[78.7,85.9,92.2,96.3,100.7,105.7,109.6,112.1,116.3,121.7,124.5,127.9,130.9,135.2,128.9,118.6,105.9,92.4,78.7,65.9,54.9,45.8,38.0,31.7,26.5,22.0,18.4,15.4,12.9,10.8,9.1,7.6,6.3,5.3,4.4,3.7,3.1,2.6,2.2,1.9,1.6,1.4,1.2,1.1,1.0,0.9]},"H1211":{"unit":"ppt","values":[0.39,0.48,0.58,0.70,0.83,0.98,1.15,1.35,1.59,1.87,2.16,2.45,2.71,2.89,3.06,3.29,3.45,3.61,3.77,3.89,4.01,4.11,4.18,4.23,4.27,4.30,4.31,4.30,4.26,4.20,4.13,4.07,4.00,3.92,3.81,3.71,3.61,3.51,3.41,3.31,3.22,3.11,3.03,2.93,2.84,2.75]},"H1301":{"unit":"ppt","values":[0.21,0.28,0.35,0.44,0.55,0.67,0.81,0.97,1.16,1.36,1.56,1.75,1.91,2.17,2.32,2.55,2.56,2.62,2.63,2.70,2.78,2.81,2.80,2.82,2.85,2.99,3.02,3.05,3.08,3.12,3.13,3.17,3.18,3.21,3.25,3.26,3.27,3.28,3.28,3.29,3.29,3.28,3.29,3.29,3.29,3.28]},"H2402":{"unit":"ppt","values":[0.10,0.11,0.13,0.15,0.17,0.19,0.21,0.23,0.25,0.28,0.30,0.33,0.35,0.36,0.39,0.43,0.46,0.47,0.47,0.48,0.49,0.49,0.49,0.49,0.49,0.48,0.48,0.48,0.47,0.47,0.46,0.46,0.45,0.45,0.44,0.43,0.43,0.42,0.41,0.41,0.40,0.40,0.40,0.40,0.40,0.39]},"HFC134a":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,0.27,0.48,0.88,1.67,3.04,5.19,7.64,10.64,13.94,17.48,21.35,25.50,29.65,34.41,38.82,43.24,47.60,52.24,57.28,62.65,67.51,72.47,77.71,83.35,89.51,95.73,101.96,107.77,113.08,118.90,124.48,129.48,134.70]},"HFC152a":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,0.42,0.50,0.59,0.69,0.82,0.96,1.13,1.34,1.57,1.82,2.18,2.59,3.00,3.63,4.23,4.93,5.57,5.84,6.04,6.47,6.65,6.65,6.46,6.56,6.61,6.77,6.94,7.12,6.99,7.19,7.34,7.35,7.72]},"HFC143a":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,0.56,0.63,0.71,0.85,1.06,1.35,1.69,2.07,2.48,2.91,3.42,4.04,4.76,5.59,6.53,7.51,8.65,9.80,10.85,12.05,13.34,14.67,16.01,17.58,19.08,20.72,22.33,23.93,25.38,27.05,29.04,30.70,32.44]},"HFC125":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,0.14,0.17,0.19,0.26,0.39,0.56,0.78,1.07,1.41,1.80,2.24,2.75,3.29,3.86,4.49,5.43,6.45,7.55,8.75,10.24,11.85,13.73,15.66,17.88,20.29,23.10,26.00,29.13,32.39,35.71,39.68,43.52,47.58]},"HFC365mfc":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0.01,0.03,0.06,0.13,0.20,0.28,0.35,0.42,0.46,0.50,0.55,0.61,0.67,0.72,0.79,0.87,0.92,0.97,1.01,1.02,1.05,1.07,1.07,1.03]},"HFC227ea":{"unit":"ppt","values":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,0.06,0.13,0.20,0.27,0.34,0.41,0.48,0.57,0.64,0.72,0.80,0.88,0.98,1.07,1.17,1.29,1.42,1.56,1.70,1.87,2.04,2.20,2.39]},"HFC23":{"unit":"ppt","values":[2.80,3.12,3.45,3.79,4.13,4.51,4.90,5.31,5.75,6.22,6.77,7.36,7.98,8.64,9.33,10.02,10.69,11.37,12.02,12.62,13.25,13.94,14.64,15.32,15.97,16.67,17.45,18.39,19.72,21.89,22.58,23.22,24.06,24.94,25.98,27.06,28.08,28.92,29.93,31.17,32.48,33.73,34.92,35.85,36.78,37.71]},"SF6":{"unit":"ppt","values":[0.75,0.85,0.96,1.06,1.19,1.31,1.46,1.61,1.78,1.95,2.14,2.33,2.54,2.75,2.98,3.20,3.46,3.70,3.96,4.19,4.38,4.58,4.79,5.00,5.23,5.45,5.67,5.91,6.18,6.47,6.75,7.04,7.32,7.61,7.92,8.26,8.59,8.92,9.26,9.61,9.95,10.28,10.65,11.04,11.42,11.83]}}};
+
+const AGGI = {"years":[1979,1980,1981,1982,1983,1984,1985,1986,1987,1988,1989,1990,1991,1992,1993,1994,1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024],
+"CO2":[1.054,1.088,1.107,1.119,1.147,1.172,1.195,1.219,1.246,1.286,1.311,1.332,1.353,1.364,1.375,1.399,1.427,1.455,1.472,1.513,1.545,1.563,1.587,1.617,1.656,1.683,1.713,1.745,1.771,1.802,1.824,1.857,1.884,1.913,1.953,1.980,2.013,2.062,2.092,2.125,2.159,2.192,2.223,2.256,2.287,2.333],
+"CH4":[0.432,0.439,0.446,0.453,0.456,0.459,0.464,0.469,0.474,0.478,0.483,0.487,0.491,0.495,0.495,0.497,0.500,0.501,0.502,0.506,0.509,0.509,0.509,0.509,0.511,0.511,0.510,0.510,0.512,0.514,0.517,0.519,0.520,0.522,0.524,0.528,0.532,0.535,0.538,0.541,0.544,0.549,0.554,0.560,0.564,0.567],
+"N2O":[0.108,0.108,0.111,0.115,0.117,0.120,0.122,0.126,0.125,0.127,0.131,0.133,0.135,0.137,0.138,0.140,0.140,0.142,0.145,0.148,0.152,0.155,0.158,0.160,0.162,0.164,0.166,0.170,0.172,0.175,0.177,0.180,0.183,0.186,0.189,0.193,0.196,0.199,0.201,0.205,0.208,0.211,0.215,0.219,0.223,0.226],
+"CFCs":[0.194,0.204,0.215,0.226,0.237,0.248,0.260,0.273,0.287,0.304,0.317,0.327,0.335,0.343,0.346,0.348,0.349,0.350,0.350,0.350,0.350,0.349,0.348,0.347,0.345,0.344,0.342,0.340,0.338,0.336,0.334,0.331,0.329,0.327,0.324,0.322,0.320,0.318,0.316,0.314,0.312,0.309,0.306,0.303,0.301,0.298],
+"HCFCs":[0.008,0.009,0.010,0.011,0.012,0.013,0.014,0.015,0.016,0.017,0.018,0.020,0.021,0.022,0.024,0.025,0.027,0.028,0.030,0.031,0.033,0.035,0.036,0.038,0.039,0.040,0.042,0.043,0.045,0.048,0.049,0.051,0.053,0.054,0.056,0.057,0.058,0.059,0.060,0.060,0.061,0.061,0.061,0.061,0.061,0.060],
+"HFCs":[0.001,0.001,0.001,0.001,0.001,0.002,0.002,0.002,0.002,0.002,0.003,0.003,0.003,0.003,0.004,0.004,0.005,0.005,0.006,0.007,0.008,0.008,0.010,0.011,0.012,0.013,0.015,0.016,0.018,0.020,0.021,0.023,0.025,0.026,0.028,0.030,0.032,0.035,0.037,0.040,0.042,0.044,0.047,0.050,0.052,0.055],
+"Total":[1.796,1.849,1.890,1.925,1.970,2.013,2.057,2.103,2.150,2.213,2.262,2.301,2.338,2.364,2.382,2.413,2.448,2.481,2.505,2.555,2.596,2.619,2.647,2.682,2.725,2.755,2.788,2.825,2.856,2.894,2.922,2.961,2.994,3.029,3.074,3.110,3.152,3.208,3.244,3.285,3.326,3.366,3.407,3.450,3.487,3.539],
+"CO2eq":[389,393,396,399,402,405,409,412,416,421,425,428,431,433,434,437,440,443,445,449,452,454,456,459,463,466,469,472,475,478,481,484,487,490,494,498,502,507,510,514,518,522,526,530,534,539],
+"AGGI":[0.780,0.803,0.822,0.837,0.856,0.875,0.894,0.914,0.934,0.962,0.983,1.000,1.016,1.028,1.035,1.049,1.064,1.078,1.089,1.111,1.128,1.138,1.150,1.166,1.184,1.197,1.212,1.228,1.241,1.258,1.270,1.287,1.301,1.316,1.336,1.352,1.370,1.394,1.410,1.428,1.446,1.463,1.481,1.499,1.516,1.538]};
+
+// Derive "indexed to first measured year = 100" for every gas (done at load
+// time so the file stays a single flat data block above).
+Object.keys(MOLE.gases).forEach(k => {
+  const g = MOLE.gases[k];
+  const first = g.values.find(v => v !== null);
+  g.indexed = g.values.map(v => v === null ? null : Math.round((v / first) * 1000) / 10);
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// GAS METADATA — display name, color, unit family, Montreal/Kigali group
+// ══════════════════════════════════════════════════════════════════════
+const GAS_META = {
+  CO2:       { name:'CO₂',            group:'major', color:'#E15A45' },
+  CH4:       { name:'CH₄',            group:'major', color:'#E2A33E' },
+  N2O:       { name:'N₂O',            group:'major', color:'#D4C15A' },
+  CFC11:     { name:'CFC-11',         group:'cfc',   color:'#6D96D8' },
+  CFC12:     { name:'CFC-12',         group:'cfc',   color:'#5580C9' },
+  CFC113:    { name:'CFC-113',        group:'cfc',   color:'#4A6BA6' },
+  CCl4:      { name:'CCl₄',           group:'cfc',   color:'#7FA8D9' },
+  CH3CCl3:   { name:'Methyl chloroform', group:'cfc', color:'#3D5A8C' },
+  H1211:     { name:'Halon-1211',     group:'cfc',   color:'#8FB8E0' },
+  H1301:     { name:'Halon-1301',     group:'cfc',   color:'#5589B3' },
+  H2402:     { name:'Halon-2402',     group:'cfc',   color:'#6699BB' },
+  HCFC22:    { name:'HCFC-22',        group:'hcfc',  color:'#D67E60' },
+  HCFC141b:  { name:'HCFC-141b',      group:'hcfc',  color:'#C96B4D' },
+  HCFC142b:  { name:'HCFC-142b',      group:'hcfc',  color:'#E0916F' },
+  HFC134a:   { name:'HFC-134a',       group:'hfc',   color:'#A08CC6' },
+  HFC23:     { name:'HFC-23',         group:'hfc',   color:'#C67FA8' },
+  HFC125:    { name:'HFC-125',        group:'hfc',   color:'#B589CC' },
+  HFC143a:   { name:'HFC-143a',       group:'hfc',   color:'#9B6FBF' },
+  HFC152a:   { name:'HFC-152a',       group:'hfc',   color:'#D68FC2' },
+  HFC365mfc: { name:'HFC-365mfc',     group:'hfc',   color:'#8A5FA6' },
+  HFC227ea:  { name:'HFC-227ea',      group:'hfc',   color:'#C9A0DC' },
+  SF6:       { name:'SF₆',            group:'hfc',   color:'#A67FC9' }
+};
+
+const GROUPS = [
+  { key:'major', label:'Major Greenhouse Gases', note:'CO₂, methane, nitrous oxide — the primary drivers of warming', defaultOn:true },
+  { key:'cfc',   label:'CFCs & Halons', note:'Ozone-depleting, regulated since the 1987 Montreal Protocol — mostly declining', defaultOn:false },
+  { key:'hcfc',  label:'HCFCs', note:'First-generation CFC substitutes — now peaking and declining', defaultOn:false },
+  { key:'hfc',   label:'HFCs & SF₆', note:'Second-generation substitutes — still rising, subject to the 2016 Kigali Amendment', defaultOn:false }
+];
+
+const EVENTS = [
+  { year: 1987, label: 'Montreal Protocol' },
+  { year: 1990, label: 'AGGI baseline (1990=1)' },
+  { year: 2019, label: 'Kigali HFC phase-down begins' }
+];
+
+// ══════════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════════
+const state = {
+  selected: new Set(['CO2', 'CH4', 'N2O']),
+  scale: 'concentration', // concentration | log | indexed
+  growthGas: 'CO2'
+};
+
+// ══════════════════════════════════════════════════════════════════════
+// PLOTLY SHARED THEME — literal hex (canvas/SVG libs can't resolve
+// CSS var()); wrapped in an opaque .chart-box card per core-sample-tools.css.
+// ══════════════════════════════════════════════════════════════════════
+const PAPER = '#262B27';
+const GRID = 'rgba(232,228,217,0.10)';
+const TXT_PRIMARY = '#E8E4D9';
+const TXT_SECONDARY = '#A6A499';
+
+function baseLayout(extra) {
+  return Object.assign({
+    paper_bgcolor: PAPER,
+    plot_bgcolor: PAPER,
+    font: { family: 'Public Sans, sans-serif', color: TXT_SECONDARY, size: 12 },
+    margin: { l: 64, r: 64, t: 20, b: 44 },
+    hovermode: 'x unified',
+    legend: { orientation: 'h', y: -0.16, font: { color: TXT_SECONDARY, size: 11.5 } },
+    xaxis: { gridcolor: GRID, zeroline: false, tickfont: { color: TXT_SECONDARY } }
+  }, extra);
+}
+const PLOTLY_CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ['lasso2d','select2d'] };
+
+function eventShapes(fromYear, toYear) {
+  const shapes = [], annos = [];
+  EVENTS.forEach(ev => {
+    if (ev.year < fromYear || ev.year > toYear) return;
+    shapes.push({ type:'line', xref:'x', yref:'paper', x0:ev.year, x1:ev.year, y0:0, y1:1,
+      line:{ color:'rgba(232,228,217,0.35)', width:1, dash:'dot' } });
+    annos.push({ x:ev.year, y:1.045, xref:'x', yref:'paper', text:ev.label, showarrow:false,
+      font:{ size:10.5, color:TXT_SECONDARY, family:'Courier Prime, monospace' }, textangle:0 });
+  });
+  return { shapes, annos };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GAS PICKER — build once
+// ══════════════════════════════════════════════════════════════════════
+function buildGasPicker() {
+  const root = document.getElementById('gasGroups');
+  GROUPS.forEach(grp => {
+    const wrap = document.createElement('div');
+    wrap.className = 'gas-group';
+    const head = document.createElement('div');
+    head.className = 'gas-group-head';
+    head.innerHTML = `<span class="gas-group-label">${grp.label}</span><span class="gas-group-note">${grp.note}</span>`;
+    const row = document.createElement('div');
+    row.className = 'cc-btn-row';
+    Object.keys(GAS_META).filter(k => GAS_META[k].group === grp.key).forEach(key => {
+      const meta = GAS_META[key];
+      const btn = document.createElement('button');
+      btn.className = 'cc-btn gas-btn' + (state.selected.has(key) ? ' is-active' : '');
+      btn.style.setProperty('--dot-color', meta.color);
+      btn.dataset.gas = key;
+      btn.innerHTML = `<span class="gas-dot"></span>${meta.name}`;
+      btn.addEventListener('click', () => {
+        if (state.selected.has(key)) state.selected.delete(key); else state.selected.add(key);
+        btn.classList.toggle('is-active');
+        renderMainChart();
+        renderStats();
+      });
+      row.appendChild(btn);
+    });
+    wrap.appendChild(head);
+    wrap.appendChild(row);
+    root.appendChild(wrap);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// MAIN CONCENTRATION CHART
+// ══════════════════════════════════════════════════════════════════════
+function renderMainChart() {
+  const years = MOLE.years;
+  const selected = Object.keys(GAS_META).filter(k => state.selected.has(k));
+  const isIndexed = state.scale === 'indexed';
+  const isLog = state.scale === 'log';
+
+  const hasMinor = !isIndexed && selected.some(k => MOLE.gases[k].unit === 'ppt');
+  const hasMajor = selected.some(k => GAS_META[k].group === 'major');
+
+  const traces = selected.map(key => {
+    const g = MOLE.gases[key];
+    const meta = GAS_META[key];
+    const y = isIndexed ? g.indexed : g.values;
+    const useY2 = !isIndexed && g.unit === 'ppt';
+    return {
+      x: years, y, type: 'scatter', mode: 'lines', name: meta.name,
+      line: { color: meta.color, width: 2.2 },
+      yaxis: useY2 ? 'y2' : 'y',
+      connectgaps: false,
+      hovertemplate: `%{y}${isIndexed ? '%' : ' ' + g.unit}<extra>${meta.name}</extra>`
+    };
+  });
+
+  const { shapes, annos } = eventShapes(years[0], years[years.length-1]);
+
+  const yTitle = isIndexed ? '% of first measured year' : (hasMajor ? 'ppm (CO₂) · ppb (CH₄, N₂O)' : '');
+  const layout = baseLayout({
+    shapes, annotations: annos,
+    xaxis: { gridcolor: GRID, zeroline:false, tickfont:{color:TXT_SECONDARY}, rangeslider:{ visible:true, bgcolor:PAPER, bordercolor:GRID, thickness:0.07 }, range:[years[0]-0.5, years[years.length-1]+0.5] },
+    yaxis: { title: yTitle, gridcolor: GRID, zeroline:false, tickfont:{color:TXT_SECONDARY}, type: isLog ? 'log' : 'linear' },
+  });
+  if (hasMinor) {
+    layout.yaxis2 = { title:'ppt (halocarbons)', overlaying:'y', side:'right', gridcolor:'transparent', tickfont:{color:TXT_SECONDARY}, type: isLog ? 'log' : 'linear' };
+    layout.margin.r = 78;
+  }
+
+  Plotly.react('mainChart', traces, layout, PLOTLY_CONFIG);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// GROWTH-RATE MINI CHART
+// ══════════════════════════════════════════════════════════════════════
+function renderGrowthChart() {
+  const g = MOLE.gases[state.growthGas];
+  const meta = GAS_META[state.growthGas];
+  const years = MOLE.years;
+  const trace = {
+    x: years, y: g.growth, type: 'bar',
+    marker: { color: meta.color, opacity: 0.88 },
+    hovertemplate: `%{y} ${g.unit}/yr<extra></extra>`
+  };
+  const layout = baseLayout({
+    showlegend: false,
+    yaxis: { title: `${meta.name} growth (${g.unit}/yr)`, gridcolor: GRID, zeroline:true, zerolinecolor:GRID, tickfont:{color:TXT_SECONDARY} },
+    xaxis: { gridcolor: GRID, zeroline:false, tickfont:{color:TXT_SECONDARY} },
+    margin: { l: 64, r: 24, t: 12, b: 40 }
+  });
+  Plotly.react('growthChart', [trace], layout, PLOTLY_CONFIG);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// RADIATIVE FORCING + AGGI CHART
+// ══════════════════════════════════════════════════════════════════════
+function renderForcingChart() {
+  const years = AGGI.years;
+  const stackOrder = [
+    { key:'CO2',   name:'CO₂',        color:'#E15A45' },
+    { key:'CH4',   name:'CH₄',        color:'#E2A33E' },
+    { key:'N2O',   name:'N₂O',        color:'#D4C15A' },
+    { key:'CFCs',  name:'CFCs*',      color:'#6D96D8' },
+    { key:'HCFCs', name:'HCFCs',      color:'#D67E60' },
+    { key:'HFCs',  name:'HFCs* & SF₆',color:'#A08CC6' }
+  ];
+  const traces = stackOrder.map(s => ({
+    x: years, y: AGGI[s.key], type:'scatter', mode:'lines', name:s.name,
+    stackgroup:'one', fillcolor: s.color, line:{ color:s.color, width:0.5 },
+    hovertemplate:`%{y} W/m²<extra>${s.name}</extra>`
+  }));
+  traces.push({
+    x: years, y: AGGI.AGGI, type:'scatter', mode:'lines', name:'AGGI (right axis)',
+    line:{ color:TXT_PRIMARY, width:2.6 }, yaxis:'y2',
+    hovertemplate:'AGGI %{y}<extra></extra>'
+  });
+
+  const { shapes, annos } = eventShapes(years[0], years[years.length-1]);
+  shapes.push({ type:'line', xref:'paper', yref:'y2', x0:0, x1:1, y0:1, y1:1,
+    line:{ color:'rgba(232,228,217,0.25)', width:1, dash:'dash' } });
+
+  const layout = baseLayout({
+    shapes, annotations: annos,
+    xaxis: { gridcolor: GRID, zeroline:false, tickfont:{color:TXT_SECONDARY} },
+    yaxis: { title:'Radiative forcing (W/m²)', gridcolor: GRID, zeroline:false, tickfont:{color:TXT_SECONDARY} },
+    yaxis2: { title:'AGGI (1990 = 1)', overlaying:'y', side:'right', gridcolor:'transparent', tickfont:{color:TXT_SECONDARY} },
+    margin: { l: 64, r: 70, t: 20, b: 44 }
+  });
+  Plotly.react('forcingChart', traces, layout, PLOTLY_CONFIG);
+
+  const lastAggi = AGGI.AGGI[AGGI.AGGI.length-1];
+  const pct = Math.round((lastAggi - 1) * 100);
+  document.getElementById('forcingCallout').textContent =
+    `In ${years[years.length-1]}, total effective radiative forcing from these 22 gases was ${pct}% higher than in 1990 (AGGI ${lastAggi.toFixed(3)}). CO₂ alone accounts for roughly 81% of the increase in warming influence since that baseline year — methane and nitrous oxide trail well behind, and the CFC group's forcing has been declining since the mid-2000s even as HFCs continue to climb.`;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// HEADLINE STATS
+// ══════════════════════════════════════════════════════════════════════
+function statChip(label, value, delta, deltaClass) {
+  return `<div class="cc-stat-chip">
+    <span class="cc-stat-label">${label}</span>
+    <span class="cc-stat-value">${value}</span>
+    ${delta ? `<span class="stat-delta ${deltaClass}">${delta}</span>` : ''}
+  </div>`;
+}
+
+function renderStats() {
+  const n = MOLE.years.length;
+  const co2 = MOLE.gases.CO2.values, ch4 = MOLE.gases.CH4.values, n2o = MOLE.gases.N2O.values;
+  const co2Now = co2[n-1], co2Prev = co2[n-2];
+  const ch4Now = ch4[n-1], ch4Prev = ch4[n-2];
+  const n2oNow = n2o[n-1], n2oPrev = n2o[n-2];
+  const aggiNow = AGGI.AGGI[AGGI.AGGI.length-1];
+  const year = MOLE.years[n-1];
+
+  const html = [
+    statChip('CO₂ · ' + year, co2Now.toFixed(1) + ' ppm', '+' + (co2Now-co2Prev).toFixed(1) + ' ppm vs prior yr', 'up'),
+    statChip('CH₄ · ' + year, ch4Now.toFixed(1) + ' ppb', '+' + (ch4Now-ch4Prev).toFixed(1) + ' ppb vs prior yr', 'up'),
+    statChip('N₂O · ' + year, n2oNow.toFixed(1) + ' ppb', '+' + (n2oNow-n2oPrev).toFixed(1) + ' ppb vs prior yr', 'up'),
+    statChip('AGGI · ' + year, aggiNow.toFixed(3), '+' + Math.round((aggiNow-1)*100) + '% forcing since 1990', 'up'),
+    statChip('Gases Tracked', '22', '1979 – ' + year, '')
+  ].join('');
+  document.getElementById('statRow').innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// PNG EXPORT — composited image: header bar, subtitle, chart, footer.
+// Mirrors the rest of the Core Sample tool suite's export pattern.
+// ══════════════════════════════════════════════════════════════════════
+async function exportChartPNG(divId, title, subtitle, filename) {
+  const gd = document.getElementById(divId);
+  const rect = gd.getBoundingClientRect();
+  const CW = Math.round(rect.width), CH = Math.round(rect.height);
+
+  const dataUrl = await Plotly.toImage(gd, { format:'png', width:CW, height:CH, scale:2 });
+  const img = new Image();
+  await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = dataUrl; });
+
+  const PAD = 24, HDR = 84, FTR = 34;
+  const ow = PAD * 2 + CW, oh = HDR + CH + FTR;
+  const off = document.createElement('canvas');
+  off.width = ow * 2; off.height = oh * 2;
+  const oc = off.getContext('2d');
+  oc.scale(2, 2);
+
+  oc.fillStyle = '#1E2320';
+  oc.fillRect(0, 0, ow, oh);
+  oc.fillStyle = '#D08425';
+  oc.fillRect(0, 0, ow, 3);
+
+  oc.fillStyle = '#E8E4D9';
+  oc.font = 'bold 24px "Zilla Slab", serif';
+  oc.fillText(title, PAD, 36);
+
+  oc.fillStyle = '#A6A499';
+  oc.font = '15px "Public Sans", sans-serif';
+  oc.fillText(subtitle, PAD, 60);
+
+  oc.fillStyle = '#948F82';
+  oc.font = '12px "Courier Prime", monospace';
+  oc.textAlign = 'right';
+  oc.fillText('contextclimate.io', ow - PAD, 36);
+  oc.textAlign = 'left';
+
+  oc.drawImage(img, PAD, HDR, CW, CH);
+
+  oc.fillStyle = '#948F82';
+  oc.font = '11px "Courier Prime", monospace';
+  oc.fillText('NOAA Global Monitoring Laboratory (gml.noaa.gov)   ·   contextclimate.io', PAD, oh - 12);
+
+  oc.fillStyle = '#D08425';
+  oc.fillRect(0, oh - 2, ow, 2);
+
+  const link = document.createElement('a');
+  link.download = filename;
+  link.href = off.toDataURL('image/png');
+  link.click();
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// WIRING
+// ══════════════════════════════════════════════════════════════════════
+document.getElementById('scaleToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cc-segmented-btn');
+  if (!btn) return;
+  document.querySelectorAll('#scaleToggle .cc-segmented-btn').forEach(b => b.classList.remove('is-active'));
+  btn.classList.add('is-active');
+  state.scale = btn.dataset.scale;
+  renderMainChart();
+});
+
+document.getElementById('growthToggle').addEventListener('click', (e) => {
+  const btn = e.target.closest('.cc-segmented-btn');
+  if (!btn) return;
+  document.querySelectorAll('#growthToggle .cc-segmented-btn').forEach(b => b.classList.remove('is-active'));
+  btn.classList.add('is-active');
+  state.growthGas = btn.dataset.gas;
+  renderGrowthChart();
+});
+
+document.getElementById('pngMain').addEventListener('click', () => {
+  const year = MOLE.years[MOLE.years.length-1];
+  exportChartPNG('mainChart', 'Greenhouse Gas Tracker', `Atmospheric concentration, 1979–${year} · NOAA GML`, `ghg-concentration-${year}.png`);
+});
+document.getElementById('pngForcing').addEventListener('click', () => {
+  const year = AGGI.years[AGGI.years.length-1];
+  exportChartPNG('forcingChart', 'Radiative Forcing & the AGGI', `22 long-lived gases, 1979–${year} · NOAA GML`, `ghg-radiative-forcing-${year}.png`);
+});
+
+// ── Init ──
+buildGasPicker();
+renderStats();
+renderMainChart();
+renderGrowthChart();
+renderForcingChart();
+</script>
+
+</body>
+</html>
