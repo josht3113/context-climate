@@ -66,6 +66,10 @@ body { padding: 20px 0 48px; }
 .threshold-summary { font-family: var(--font-mono); font-size: 13px; color: var(--tool-accent); letter-spacing: .02em; margin-top: 2px; }
 .hourly-temp-note { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); font-style: italic; margin-top: 8px; display: none; }
 .hourly-temp-note.show { display: block; }
+.season-row { border-top: 1px dashed var(--color-border); padding-top: 12px; margin-top: 4px; }
+.month-grid { display: none; grid-template-columns: repeat(6, auto); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-border); }
+.month-grid.open { display: grid; }
+.month-btn { min-width: 46px; text-align: center; }
 
 /* ── Headline panel ── */
 .headline-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 16px; }
@@ -130,7 +134,7 @@ body { padding: 20px 0 48px; }
     <span>Streak Tracker</span>
     <button class="cc-btn cc-btn-sm" onclick="exportPNG()" title="Download PNG">&darr; PNG</button>
   </div>
-  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, or dry — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive.</p>
+  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, or dry — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive. Optionally restrict the whole analysis to a single season.</p>
 
   <!-- STATION BAR -->
   <div class="station-bar">
@@ -201,6 +205,14 @@ body { padding: 20px 0 48px; }
     </div>
     <div class="threshold-summary" id="threshold-summary">Dewpoint &ge; 65&deg;F, hourly</div>
     <div class="hourly-temp-note" id="hourly-temp-note">Note: hourly temperature streaks are naturally short — the daily heating/cooling cycle usually breaks them by evening. Daily max/min streaks are typically more meaningful for temperature; dewpoint is the more interesting hourly signal since humidity swings far less through the day.</div>
+    <div class="ctrl-row season-row">
+      <span class="ctrl-label">Season</span>
+      <div class="preset-row" id="season-preset-row"></div>
+      <div class="custom-toggle-row">
+        <button class="cc-btn cc-btn-sm" id="season-custom-toggle-btn" onclick="toggleMonthGrid()">Custom Months &#9662;</button>
+      </div>
+    </div>
+    <div class="month-grid" id="month-grid"></div>
   </div>
 
   <!-- HEADLINE -->
@@ -232,6 +244,7 @@ body { padding: 20px 0 48px; }
         <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-record)"></span>Record streak</span>
         <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-current)"></span>Current streak</span>
         <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--color-surface-2)"></span>No data</span>
+        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:rgba(166,164,153,0.5)"></span>Outside season</span>
       </div>
     </div>
     <div class="strip-wrap" id="strip-wrap">
@@ -370,10 +383,25 @@ const PRESETS = {
 const DEFAULT_AGG = {temp:'daily', dewpoint:'hourly'};
 
 // ================================================================
+// SEASON / MONTH-RESTRICTION PRESETS
+// ================================================================
+const SEASON_PRESETS = [
+  {id:'all', label:'All Months',        months:[1,2,3,4,5,6,7,8,9,10,11,12]},
+  {id:'djf', label:'Winter (Dec–Feb)', months:[12,1,2]},
+  {id:'mam', label:'Spring (Mar–May)', months:[3,4,5]},
+  {id:'jja', label:'Summer (Jun–Aug)', months:[6,7,8]},
+  {id:'son', label:'Fall (Sep–Nov)',   months:[9,10,11]}
+];
+const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ================================================================
 // STATE
 // ================================================================
 let curStation=null, rawHourly=[], hourlyMap=new Map(), dailyMap=new Map(), sortedDates=[];
-let state = {variable:'dewpoint', aggregation:'hourly', metric:'max', op:'gte', value:65, activePreset:'d-muggy65'};
+let state = {
+  variable:'dewpoint', aggregation:'hourly', metric:'max', op:'gte', value:65, activePreset:'d-muggy65',
+  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]), seasonId:'all', seasonLabel:'All Months'
+};
 let lastGrid=null, lastStreaks=null, lastStats=null;
 let stripDPR = window.devicePixelRatio || 1;
 
@@ -475,6 +503,7 @@ function utcToYmd(ms){const dt=new Date(ms);return `${dt.getUTCFullYear()}-${pad
 function addDaysYmd(ymd,n){return utcToYmd(ymdToUTC(ymd)+n*86400000);}
 function dayOfYear(ymd){const[y,m,d]=ymd.split('-').map(Number);return Math.floor((Date.UTC(y,m-1,d)-Date.UTC(y,0,0))/86400000);}
 function yearOf(ymd){return parseInt(ymd.slice(0,4),10);}
+function monthOf(ymd){return parseInt(ymd.slice(5,7),10);}
 function isLeap(y){return (y%4===0&&y%100!==0)||y%400===0;}
 function fmtDateLong(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}, ${y}`;}
 function fmtDateShort(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}`;}
@@ -485,7 +514,7 @@ function fmtDateShort(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Ja
 const MIN_HOURS_COMPLETE = 18;
 
 function activeCfg(){
-  return {variable:state.variable, aggregation:state.aggregation, metric:state.metric, op:state.op, value:state.value};
+  return {variable:state.variable, aggregation:state.aggregation, metric:state.metric, op:state.op, value:state.value, months:state.months};
 }
 
 function metricValue(day, cfg){
@@ -498,7 +527,8 @@ function buildDailyGrid(cfg){
   const start=sortedDates[0], end=sortedDates[sortedDates.length-1];
   const grid=[]; let cur=start;
   while(true){
-    const day=dailyMap.get(cur);
+    const inSeason = cfg.months.has(monthOf(cur));
+    const day = inSeason ? dailyMap.get(cur) : null;
     const isLast=(cur===end);
     let ok=false, missing=true;
     if(day){
@@ -509,7 +539,7 @@ function buildDailyGrid(cfg){
         if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
       }
     }
-    grid.push({key:cur,date:cur,qualifies:ok,missing});
+    grid.push({key:cur,date:cur,qualifies:ok,missing,excluded:!inSeason});
     if(cur===end) break;
     cur=addDaysYmd(cur,1);
   }
@@ -525,13 +555,14 @@ function buildHourlyGrid(cfg){
   while(guard<400000){
     guard++;
     const key=`${curDate} ${pad2(curHour)}`;
-    const rec=hourlyMap.get(key);
+    const inSeason = cfg.months.has(monthOf(curDate));
+    const rec = inSeason ? hourlyMap.get(key) : null;
     let ok=false, missing=true;
     if(rec){
       const val=cfg.variable==='temp'?rec.t:rec.dp;
       if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
     }
-    grid.push({key,date:curDate,hour:curHour,qualifies:ok,missing});
+    grid.push({key,date:curDate,hour:curHour,qualifies:ok,missing,excluded:!inSeason});
     if(curDate===endDate && curHour===endHour) break;
     curHour++; if(curHour>23){curHour=0;curDate=addDaysYmd(curDate,1);}
   }
@@ -591,12 +622,13 @@ function computeStats(grid, streaks, cfg){
   return stats;
 }
 
-function rarityMessage(length, yearlyMax, unitLabel){
+function rarityMessage(length, yearlyMax, seasonLabel){
   const vals=[...yearlyMax.values()];
   const fewer = vals.filter(v=>v<length).length;
   const total = vals.length;
   if(total===0) return '';
-  return `Longer than ${fewer} of the last ${total} years' single longest streak at this threshold.`;
+  const noun = (!seasonLabel || seasonLabel==='All Months') ? 'years' : `${seasonLabel} seasons`;
+  return `Longer than ${fewer} of the last ${total} ${noun}' single longest streak at this threshold.`;
 }
 
 // ================================================================
@@ -649,18 +681,19 @@ function renderHeadline(grid, streaks, stats, cfg){
     hlLabel.textContent = 'Not Currently Active';
     badge.textContent = 'ENDED';
     badge.className = 'cc-badge badge-ended';
-    hlNote.innerHTML = `Last streak ran ${fmtDateLong(startDate)}&ndash;${fmtDateLong(endDate)} (${formatLength(s.length,cfg)}), ending ${daysSince>0?`about ${daysSince} ${cfg.aggregation==='daily'?'day':'day'}${daysSince===1?'':'s'} before the most recent data`:'right at the most recent data'}.`;
+    const outOfSeasonNote = (state.seasonLabel!=='All Months' && grid[grid.length-1].excluded) ? ` The most recent data falls outside your selected season (${state.seasonLabel}).` : '';
+    hlNote.innerHTML = `Last streak ran ${fmtDateLong(startDate)}&ndash;${fmtDateLong(endDate)} (${formatLength(s.length,cfg)}), ending ${daysSince>0?`about ${daysSince} ${cfg.aggregation==='daily'?'day':'day'}${daysSince===1?'':'s'} before the most recent data`:'right at the most recent data'}.${outOfSeasonNote}`;
   } else {
     hlValue.textContent='0';
     hlUnit.textContent='';
     hlLabel.textContent='No Qualifying Streaks';
     badge.textContent='N/A';
     badge.className='cc-badge badge-ended';
-    hlNote.textContent = `${thresholdDescription(cfg).replace(/&ge;|&le;|&deg;/g,m=>({'&ge;':'≥','&le;':'≤','&deg;':'°'}[m]))} has never been met at this station in the period of record.`;
+    hlNote.textContent = `${thresholdDescription(cfg).replace(/&ge;|&le;|&deg;/g,m=>({'&ge;':'≥','&le;':'≤','&deg;':'°'}[m]))} has never been met at this station in the period of record${state.seasonLabel!=='All Months'?` within ${state.seasonLabel}`:''}.`;
   }
 
   if(stats.recordStreak){
-    rarityLine.textContent = rarityMessage(stats.currentStreak?stats.currentStreak.length:(stats.lastEndedStreak?stats.lastEndedStreak.length:0), stats.yearlyMax, cfg.aggregation);
+    rarityLine.textContent = rarityMessage(stats.currentStreak?stats.currentStreak.length:(stats.lastEndedStreak?stats.lastEndedStreak.length:0), stats.yearlyMax, state.seasonLabel);
   } else {
     rarityLine.textContent='';
   }
@@ -672,9 +705,10 @@ function renderHeadline(grid, streaks, stats, cfg){
   document.getElementById('sv-thisyear').textContent = formatLength(stats.thisYearQualifying,cfg);
   document.getElementById('sv-period').textContent = `${stats.startYear}–${stats.endYear}`;
 
-  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg);
+  const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
+  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
   document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
-  document.getElementById('strip-mode-note').textContent = cfg.aggregation==='daily' ? 'daily condition met' : 'any qualifying hour per day';
+  document.getElementById('strip-mode-note').textContent = (cfg.aggregation==='daily' ? 'daily condition met' : 'any qualifying hour per day') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel} only` : '');
 
   checkJeopardy(curStation, cfg, stats, grid);
 }
@@ -789,20 +823,22 @@ function drawStrip(ctx, W, H, grid, streaks, stats, cfg, opts){
   const coolColor = getComputedStyle(document.documentElement).getPropertyValue('--streak-cool').trim()||'#5B9BD8';
   const baseColor = cfg.op==='gte'?warmColor:coolColor;
   const noDataColor = '#2C322D';
-  const missColor = 'rgba(232,228,217,0.05)';
+  const missColor = 'rgba(232,228,217,0.035)';
+  const excludedColor = 'rgba(166,164,153,0.12)';
 
   // pre-compute per-year, per-doy status by scanning grid once
   // build map date -> {qualifies, idx} using either daily grid directly, or OR-reduced hourly->daily
-  let dayStatus; // Map ymd -> {q:bool, idxSample:number, recordHit:bool, currentHit:bool}
+  let dayStatus; // Map ymd -> {q:bool, idxSample:number, recordHit:bool, currentHit:bool, excl:bool}
   if(cfg.aggregation==='daily'){
     dayStatus=new Map();
-    grid.forEach((g,i)=>{dayStatus.set(g.date,{q:g.qualifies&&!g.missing, present:!g.missing, idx:i, rec:recordIdx&&recordIdx.has(i), cur:currentIdx&&currentIdx.has(i)});});
+    grid.forEach((g,i)=>{dayStatus.set(g.date,{q:g.qualifies&&!g.missing, present:!g.missing, idx:i, rec:recordIdx&&recordIdx.has(i), cur:currentIdx&&currentIdx.has(i), excl:!!g.excluded});});
   } else {
     dayStatus=new Map();
     grid.forEach((g,i)=>{
       let e=dayStatus.get(g.date);
-      if(!e){e={q:false,present:false,idx:i,rec:false,cur:false};dayStatus.set(g.date,e);}
+      if(!e){e={q:false,present:false,idx:i,rec:false,cur:false,excl:false};dayStatus.set(g.date,e);}
       if(!g.missing){e.present=true; if(g.qualifies) e.q=true;}
+      if(g.excluded) e.excl=true;
       if(recordIdx&&recordIdx.has(i)) e.rec=true;
       if(currentIdx&&currentIdx.has(i)) e.cur=true;
     });
@@ -817,7 +853,8 @@ function drawStrip(ctx, W, H, grid, streaks, stats, cfg, opts){
       const st = dayStatus.get(ymd);
       let color = noDataColor;
       if(st){
-        color = st.present ? (st.q?baseColor:'rgba(166,164,153,0.10)') : missColor;
+        if(st.excl) color = excludedColor;
+        else color = st.present ? (st.q?baseColor:'rgba(166,164,153,0.10)') : missColor;
       }
       ctx.fillStyle=color;
       ctx.fillRect(LEFT_PAD+doy*cellW, rowY, Math.max(cellW-0.4,0.6), ROW_H);
@@ -988,6 +1025,54 @@ function rebuildPresetRow(){
   });
 }
 
+function rebuildSeasonRow(){
+  const row=document.getElementById('season-preset-row');
+  row.innerHTML = SEASON_PRESETS.map(p=>
+    `<button class="cc-btn cc-btn-sm${p.id===state.seasonId?' is-active':''}" data-season="${p.id}">${p.label}</button>`
+  ).join('');
+  row.querySelectorAll('button[data-season]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = SEASON_PRESETS.find(x=>x.id===btn.dataset.season);
+      if(!p) return;
+      state.months = new Set(p.months);
+      state.seasonId = p.id;
+      state.seasonLabel = p.label;
+      row.querySelectorAll('button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===p.id));
+      syncMonthGrid();
+      recomputeAndRender();
+    });
+  });
+}
+
+function toggleMonthGrid(){ document.getElementById('month-grid').classList.toggle('open'); }
+
+function customSeasonLabel(){
+  const arr=[...state.months].sort((a,b)=>a-b);
+  if(arr.length===12) return 'All Months';
+  if(arr.length===0) return 'No Months Selected';
+  return arr.map(m=>MONTH_NAMES[m-1]).join('/');
+}
+
+function syncMonthGrid(){
+  const grid=document.getElementById('month-grid');
+  grid.innerHTML = MONTH_NAMES.map((name,i)=>{
+    const m=i+1;
+    const on = state.months.has(m);
+    return `<button class="cc-btn cc-btn-sm month-btn${on?' is-active':''}" data-month="${m}">${name}</button>`;
+  }).join('');
+  grid.querySelectorAll('button[data-month]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m=parseInt(btn.dataset.month,10);
+      if(state.months.has(m)){ if(state.months.size>1) state.months.delete(m); }
+      else state.months.add(m);
+      btn.classList.toggle('is-active', state.months.has(m));
+      state.seasonId='custom'; state.seasonLabel=customSeasonLabel();
+      document.querySelectorAll('#season-preset-row button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===state.seasonId));
+      recomputeAndRender();
+    });
+  });
+}
+
 function syncCustomControls(){
   document.getElementById('metric-select').value = state.metric;
   document.querySelectorAll('#seg-op .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active', b.dataset.op===state.op));
@@ -1064,7 +1149,7 @@ function exportPNG(){
   oc.fillStyle='#E8E4D9'; oc.font='bold '+(22*scale)+'px "Zilla Slab", serif';
   oc.fillText(`${name}`, PAD, 56*scale);
   oc.fillStyle='#E0824A'; oc.font='bold '+(15*scale)+'px "Courier Prime", monospace';
-  const plainThresh = thresholdDescription(cfg).replace(/&ge;/g,'≥').replace(/&le;/g,'≤').replace(/&deg;/g,'°');
+  const plainThresh = thresholdDescription(cfg).replace(/&ge;/g,'≥').replace(/&le;/g,'≤').replace(/&deg;/g,'°') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel}` : '');
   oc.fillText(plainThresh, PAD, 80*scale);
 
   const stat = lastStats.currentStreak
@@ -1115,6 +1200,8 @@ function init(){
   initSearch();
   initControls();
   syncCustomControls();
+  rebuildSeasonRow();
+  syncMonthGrid();
   const def = STATIONS.find(s=>s[0]==='KISP') || STATIONS[0];
   loadStation(def);
 }
