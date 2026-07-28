@@ -116,6 +116,14 @@ const SECTIONS = [
         thumb:      '/TempThresholdHeatmap_thumbnail.png',
       },
       {
+        tags:       ['US Cities', 'STREAKS'],
+        title:      'Streak Tracker',
+        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
+        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
+        to:         '/streak-tracker',
+        accentVar:  '--accent-hourly',
+      },
+      {
         tags:       ['US Cities', 'Fog'],
         title:      'Fog Climatology Heatmap',
         description:'Monthly and seasonal frequency of fog events at various US cities.',
