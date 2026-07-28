@@ -204,10 +204,7 @@ footer a:hover{color:var(--color-text-primary);}
     <div class="cc-panel" id="calCard">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
         <div class="card-title" id="calTitle" style="margin-bottom:0;">Season Calendar</div>
-        <button class="cc-btn cc-btn-sm" id="copyCalBtn" onclick="copyCalendar()">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" stroke-width="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2H3.5A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-          Copy
-        </button>
+        <button class="cc-btn cc-btn-sm" id="calPngBtn" onclick="exportCalendarPNG()" title="Download this calendar as a PNG with title, station and source attribution">&#8595; PNG</button>
       </div>
       <div class="cal-outer" id="calWrap"></div>
       <div class="cal-credit">contextclimate.io</div>
@@ -1307,46 +1304,46 @@ async function exportProbabilityPNG(){
   setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2000);
 }
 
-// ─── COPY CALENDAR ─────────────────────────────────────────
-async function copyCalendar(){
-  const btn=document.getElementById('copyCalBtn');
+// ─── CALENDAR PNG EXPORT ────────────────────────────────────
+// Same branded-composite convention as exportChartPNG/exportProbabilityPNG
+// above: title + station/source context baked into the image itself, not a
+// bare clipboard copy. Captures just the grid (#calWrap), not the whole card,
+// so the page's own on-card "contextclimate.io" credit line isn't duplicated
+// alongside the frame's footer attribution.
+async function exportCalendarPNG(){
+  const btn=document.getElementById('calPngBtn');
+  const grid=document.getElementById('calWrap');
+  if(!grid)return;
   const orig=btn.innerHTML;
-  btn.innerHTML='\u23f3 Capturing\u2026';
+  btn.innerHTML='\u23f3 Rendering\u2026';
   btn.disabled=true;
   try{
-    const card=document.getElementById('calCard');
-    const canvas=await html2canvas(card,{
-      backgroundColor:'#262B27',
-      scale:2,
-      useCORS:true,
-      logging:false,
-      onclone:(doc)=>{
-        const credit=doc.getElementById('calCard').querySelector('.cal-credit');
-        if(credit) credit.style.color='rgba(232,228,217,.25)';
-      }
-    });
-    canvas.toBlob(async blob=>{
-      let copied=false;
-      try{
-        await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
-        copied=true;
-      }catch(e){}
-      if(copied){
-        btn.innerHTML='\u2713 Copied!';
-      } else {
-        const a=document.createElement('a');
-        a.href=URL.createObjectURL(blob);
-        a.download=`season-calendar-${activeStation.short}-${calClimo?'climo':calSY}.png`;
-        a.click();
-        btn.innerHTML='\u2713 Downloaded!';
-      }
-      setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2200);
-    },'image/png');
+    const snap=await html2canvas(grid,{backgroundColor:'#262B27',scale:2,useCORS:true,logging:false});
+    const title=calClimo?'Season Calendar \u2014 Climatology':`Season Calendar \u2014 ${SYL(calSY)}`;
+    const attrib=chartAttribution();
+    const chartW=grid.offsetWidth,chartH=grid.offsetHeight;
+    const PAD=28,HDR=112,FTR=42;
+    const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
+    const off=document.createElement('canvas');
+    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    const oc=off.getContext('2d');
+    oc.scale(2,2);
+    drawPngHeaderFooter(oc,ow,oh,PAD,HDR,title,attrib);
+    oc.fillStyle='#262B27';
+    oc.fillRect(PAD,HDR,chartW,chartH);
+    oc.drawImage(snap,PAD,HDR,chartW,chartH);
+
+    const slug=(activeStation.short||activeStation.id||'station').toLowerCase();
+    const link=document.createElement('a');
+    link.download=`${slug}_season-calendar-${calClimo?'climo':calSY}_${new Date().toISOString().slice(0,10)}.png`;
+    link.href=off.toDataURL('image/png');
+    link.click();
+    btn.innerHTML='\u2713 Downloaded!';
   }catch(e){
-    console.error('copyCalendar:',e);
+    console.error('exportCalendarPNG:',e);
     btn.innerHTML='Error';
-    setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2000);
   }
+  setTimeout(()=>{btn.innerHTML=orig;btn.disabled=false;},2000);
 }
 
 // ─── INIT ──────────────────────────────────────────────────
