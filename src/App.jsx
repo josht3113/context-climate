@@ -96,6 +96,7 @@ import TornadoHistoryNearYou       from './pages/TornadoHistoryNearYou'
 import TornadoClimatology          from './pages/TornadoClimatology'
 import OutbreakExplorer            from './pages/OutbreakExplorer'
 import GlobalTemperatureContext    from './pages/GlobalTemperatureContext'
+import GreenhouseGasTracker        from './pages/GreenhouseGasTracker'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -218,6 +219,7 @@ export default function App() {
           <Route path="/us-tornado-climatology"                    element={<TornadoClimatology />}        />
           <Route path="/tornado-outbreak-explorer"                 element={<OutbreakExplorer />}          />
           <Route path="/global-temperature-context"                element={<GlobalTemperatureContext />}  />
+          <Route path="/greenhouse-gas-tracker"                     element={<GreenhouseGasTracker />}       />
         </Routes>
       </main>
       <footer style={{
