@@ -337,6 +337,15 @@ const SECTIONS = [
         accentVar:  '--accent-climate',
         thumb:      '/GlobalTemperatureContext_thumbnail.png',
       },
+      {
+        tags:       ['NOAA GML', '1979–PRESENT'],
+        title:      'Greenhouse Gas Tracker',
+        description:'Forty-six years of measured atmospheric composition — 22 long-lived gases from CO₂ to HFCs, plotted alongside NOAA’s Annual Greenhouse Gas Index and its radiative-forcing breakdown.',
+        footerTags: ['22 Gases', 'AGGI', 'Radiative Forcing'],
+        to:         '/greenhouse-gas-tracker',
+        accentVar:  '--accent-climate',
+        thumb:      '/GreenhouseGasExplorer_thumbnail.png',
+      },
     ],
   },
   {
