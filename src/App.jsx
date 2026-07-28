@@ -24,7 +24,7 @@ import EarthAndSpace               from './pages/EarthAndSpace'
 import Bowens                      from './pages/Bowens'
 import Metamorphic                 from './pages/Metamorphic'
 import StreamTransport             from './pages/StreamTransport'
-import BowensGoldich               from './pages/BowensGoldich'
+import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
@@ -48,6 +48,7 @@ import SnowFrequency               from './pages/SnowFrequency'
 import UsPrecipYears               from './pages/UsPrecipYears'
 import UsSnowSeasons               from './pages/UsSnowSeasons'
 import TempThresholdHeatmap        from './pages/TempThresholdHeatmap'
+import StreakTracker               from './pages/StreakTracker'
 import SlpHeatmap                  from './pages/SlpHeatmap'
 import WindThresholdHeatmap        from './pages/WindThresholdHeatmap'
 import TempHeatmapMonthly          from './pages/TempHeatmapMonthly'
@@ -171,6 +172,7 @@ export default function App() {
           <Route path="/temperature-climatology"             element={<TemperatureClimatology />}  />
           <Route path="/dewpoint-climatology"                element={<DewpointClimatology />}     />
           <Route path="/temp-threshold-heatmap"              element={<TempThresholdHeatmap />}    />
+          <Route path="/streak-tracker"                      element={<StreakTracker />}           />
           <Route path="/slp-heatmap"                         element={<SlpHeatmap />}              />
           <Route path="/wind-threshold-heatmap"              element={<WindThresholdHeatmap />}    />
           <Route path="/temp-heatmap-monthly"                element={<TempHeatmapMonthly />}      />
