@@ -79,6 +79,9 @@
 
 .controls { display: flex; align-items: center; gap: 12px; margin: 28px 0 7px; flex-wrap: wrap; }
 .ctrl-lbl { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; font-weight: 600; color: var(--tool-accent); }
+.charts-group-png-btn { margin-left: auto; opacity: .82; }
+.charts-group-png-btn:hover { opacity: 1; }
+.charts-group-png-btn:disabled { opacity: .5; pointer-events: none; }
 .charts-grid { display: grid; grid-template-columns: 175px 1fr; gap: 4px; }
 .cg-side { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .ctrl-sep { width: 1px; height: 20px; background: var(--color-border); }
@@ -299,6 +302,7 @@
     <button class="cc-btn cc-btn-sm range-btn" data-days="10" onclick="selectRange(10)">10D</button>
     <button class="cc-btn cc-btn-sm range-btn active" data-days="30" onclick="selectRange(30)">30D</button>
   </div>
+  <button class="cc-btn cc-btn-sm charts-group-png-btn" id="charts-group-png-btn" onclick="exportChartsGroupPNG()" title="Download Temperature, Dewpoint, Wind, Precip and Pressure as one combined image">&#8595; PNG (All Charts)</button>
 </div>
 
 <!-- CHARTS: each row pairs its own color legend with a time-aligned panel (shared grid column = perfect alignment) -->
@@ -2129,6 +2133,115 @@ function exportSkyPlotPNG(kind){
   };
   img.onerror=(e)=>console.warn('Sky plot PNG export failed:',e);
   img.src=svgUrl;
+}
+
+// ================================================================
+// CHARTS GROUP PNG EXPORT — captures the whole Recent Weather grid
+// (Temp/Dewpoint/Wind/Precip/Pressure) as a single tall image, one row
+// per panel, each paired with its own color-legend strip drawn from the
+// same SCALES data that drives the on-page cg-side gradients. Same
+// branded-header/footer convention as exportChartPNG, so a shared export
+// never needs the surrounding page for context either.
+// ================================================================
+const CHARTS_GROUP=[
+  {id:'chart-temp',  title:'Temperature',       scale:SCALES.temp,   fmt:v=>v+'°',           cap:'Temp (°F)'},
+  {id:'chart-dew',   title:'Dewpoint',          scale:SCALES.td,     fmt:v=>v+'°',           cap:'Dewpt (°F)'},
+  {id:'chart-wind',  title:'Wind Speed & Gusts',scale:SCALES.wind,   fmt:v=>Math.round(v)+' mph', cap:'Wind (mph)'},
+  {id:'chart-precip',title:'Precipitation Rate',scale:SCALES.precip, fmt:v=>v.toFixed(2)+'"',     cap:'Precip (in/hr)'},
+  {id:'chart-lower', title:'Sea-Level Pressure',scale:null,          fmt:null,                    cap:null}
+];
+
+function exportChartsGroupPNG(){
+  if(!window.Plotly)return;
+  const btn=document.getElementById('charts-group-png-btn');
+  const rows=CHARTS_GROUP.map(r=>{
+    const gd=document.getElementById(r.id);
+    if(!gd)return null;
+    return{...r,gd,w:gd.offsetWidth||900,h:gd.offsetHeight||200};
+  }).filter(Boolean);
+  if(!rows.length)return;
+
+  if(btn){btn.disabled=true;btn.textContent='Rendering…';}
+
+  const loadImg=src=>new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;});
+  const overlaySrcFor=gd=>{
+    const ov=gd.parentElement&&gd.parentElement.querySelector('svg.wind-barb-overlay');
+    return ov?('data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(ov))))):null;
+  };
+
+  Promise.all(rows.map(r=>Promise.all([
+    Plotly.toImage(r.gd,{format:'png',width:r.w,height:r.h,scale:1}).then(loadImg),
+    (()=>{const src=overlaySrcFor(r.gd);return src?loadImg(src):Promise.resolve(null);})()
+  ]))).then(imgs=>{
+    const attrib=chartAttrib['chart-temp']||{context:'',source:'Data: NOAA ASOS via Iowa Environmental Mesonet (IEM)'};
+    const PAD=28,HDR=112,FTR=42,GAP=8,LEG=88,TRACKW=14;
+    const chartW=Math.max(...rows.map(r=>r.w));
+    const ow=LEG+chartW+PAD*2;
+    const oh=HDR+rows.reduce((s,r)=>s+r.h+GAP,0)-GAP+FTR;
+
+    const off=document.createElement('canvas');
+    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    const oc=off.getContext('2d');
+    oc.scale(2,2);
+
+    oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
+    oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
+
+    oc.textBaseline='alphabetic';
+    oc.fillStyle='#948F82';oc.font='600 12px "Courier Prime", monospace';
+    oc.fillText('CONTEXTCLIMATE · CURRENT CONDITIONS',PAD,30);
+    oc.textAlign='right';
+    oc.fillText(new Date().toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}),ow-PAD,30);
+    oc.textAlign='left';
+
+    oc.fillStyle='#E8E4D9';oc.font='bold 28px "Zilla Slab", serif';
+    oc.fillText('Recent Weather',PAD,64);
+
+    oc.fillStyle='#A6A499';oc.font='16px "Public Sans", sans-serif';
+    oc.fillText(attrib.context,PAD,90);
+
+    let y=HDR;
+    const chartX=PAD+LEG;
+    rows.forEach((r,i)=>{
+      const[chartImg,barbImg]=imgs[i];
+
+      if(r.scale){
+        const lo=r.scale.vals[0],hi=r.scale.vals[r.scale.vals.length-1],span=hi-lo;
+        const trackX=PAD+(LEG-TRACKW)/2,trackTop=y+34,trackBottom=y+r.h-24,trackH=trackBottom-trackTop;
+        const grad=oc.createLinearGradient(0,trackBottom,0,trackTop);
+        r.scale.cols.forEach((c,ci)=>grad.addColorStop((r.scale.vals[ci]-lo)/span,c));
+        oc.textAlign='center';
+        oc.fillStyle='#948F82';oc.font='10px "Courier Prime", monospace';
+        oc.fillText(r.cap,PAD+LEG/2,y+13);
+        oc.fillStyle='#948F82';oc.font='11px "Courier Prime", monospace';
+        oc.fillText(r.fmt(hi),PAD+LEG/2,trackTop-6);
+        oc.fillText(r.fmt(lo),PAD+LEG/2,trackBottom+16);
+        oc.fillStyle=grad;
+        oc.fillRect(trackX,trackTop,TRACKW,trackH);
+        oc.strokeStyle='rgba(255,255,255,.15)';oc.strokeRect(trackX,trackTop,TRACKW,trackH);
+        oc.textAlign='left';
+      }
+
+      oc.fillStyle='#262B27';
+      oc.fillRect(chartX,y,r.w,r.h);
+      oc.drawImage(chartImg,chartX,y,r.w,r.h);
+      if(barbImg)oc.drawImage(barbImg,chartX,y,r.w,r.h);
+
+      y+=r.h+GAP;
+    });
+
+    oc.fillStyle='#948F82';oc.font='12px "Courier Prime", monospace';
+    oc.fillText(`${attrib.source}  ·  ContextClimate  ·  contextclimate.io`,PAD,oh-16);
+
+    oc.fillStyle='#2AA87E';oc.fillRect(0,oh-3,ow,3);
+
+    const icao=curStation?curStation[0]:'station';
+    const link=document.createElement('a');
+    link.download=`${icao}_recent-weather-all_${new Date().toISOString().slice(0,10)}.png`;
+    link.href=off.toDataURL('image/png');
+    link.click();
+  }).catch(e=>console.warn('Charts group PNG export failed:',e))
+  .finally(()=>{if(btn){btn.disabled=false;btn.textContent='↓ PNG (All Charts)';}});
 }
 
 // Bars are sized from the data's own median spacing (not Plotly's gap-from-min-spacing
