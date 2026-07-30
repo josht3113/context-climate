@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1180">
+<title>Climographs — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+
+:root { --tool-accent: var(--accent-climate); } /* Climate section */
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px 56px; }
+
+/* ── Header ────────────────────────────────────────────────────── */
+.climo-header { padding: 20px 0 16px; border-bottom: 1px solid var(--color-border); margin-bottom: 20px; }
+.header-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.header-id { min-width: 260px; }
+.city-title { font-family: var(--font-display); font-size: 42px; font-weight: 700; letter-spacing: -.5px; line-height: 1.1; color: var(--color-text-primary); }
+.city-meta { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); letter-spacing: .03em; margin-top: 7px; }
+.compare-line { font-family: var(--font-body); font-size: 15px; color: var(--accent-hourly); margin-top: 5px; }
+.compare-line .vs-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent-hourly); margin-right:7px; vertical-align:1px; }
+.koppen-wrap { display: none; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.koppen-badge { font-family: var(--font-mono); font-size: 18px; font-weight: 700; letter-spacing: .04em; padding: 6px 16px; border-radius: var(--radius-md); background: var(--color-surface-2); border: 1px solid var(--tool-accent); color: var(--tool-accent); }
+.koppen-name { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); text-align: right; max-width: 220px; }
+
+.search-row { display: flex; align-items: center; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.finder-group { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); transition: border-color .15s; }
+.finder-group:focus-within { border-color: var(--tool-accent); }
+.finder-group .search-icon { position: static; display: flex; align-items: center; padding-left: 12px; color: var(--color-text-muted); font-size: 15px; pointer-events: none; }
+.finder-group .search-input { width: 240px; background: transparent; border: none; border-radius: 0; padding: 9px 10px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; outline: none; }
+.finder-group .search-input::placeholder { color: var(--color-text-muted); }
+.dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 272px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 10px 32px rgba(0,0,0,.6); }
+.dropdown.open { display: block; }
+.d-item { padding: 8px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 14px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); transition: background .1s; }
+.d-item:last-child { border-bottom: none; }
+.d-item:hover, .d-item.hi { background: rgba(208,132,37,.18); }
+.d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 46px; flex-shrink: 0; }
+.d-item .d-name { color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-item .d-st { color: var(--color-text-muted); font-size: 13px; width: 24px; text-align: right; }
+.d-item .d-nodata { color: var(--color-text-muted); font-size: 10px; letter-spacing:.06em; text-transform:uppercase; border:1px solid var(--color-border); border-radius:3px; padding:1px 5px; flex-shrink:0; }
+.sw2-wrap { display: none; align-items: center; gap: 10px; }
+.compare-remove-btn { color: var(--accent-seasons); }
+
+.units-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+
+/* ── Banner note (compare-city missing data, etc.) ───────────────── */
+.banner-note { display:none; align-items:center; gap:10px; background: rgba(208,132,37,.08); border: 1px solid rgba(208,132,37,.3); border-radius: var(--radius-md); padding: 9px 14px; font-family: var(--font-body); font-size: 13.5px; color: var(--color-text-secondary); margin-bottom: 16px; }
+.banner-note.show { display: flex; }
+.banner-note .b-icon { color: var(--tool-accent); font-size: 15px; flex-shrink: 0; }
+
+/* ── Stat chips ───────────────────────────────────────────────── */
+.stat-block { margin-bottom: 18px; }
+.stat-block-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 7px; }
+.stat-block-label .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cc-stat-chip { min-width: 148px; }
+.cc-stat-value { font-size: 24px; }
+
+/* ── Chart panel ──────────────────────────────────────────────── */
+.section-hdr { display: flex; align-items: center; justify-content: space-between; margin: 30px 0 10px; gap: 10px; flex-wrap: wrap; }
+.section-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--color-text-primary); }
+.chart-box { position: relative; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 14px 8px 8px; }
+.chart-png-btn { position: absolute; top: 12px; right: 12px; z-index: 6; opacity: .85; }
+.chart-png-btn:hover { opacity: 1; }
+#climo-chart { height: 460px; }
+.chart-empty-note { text-align:center; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); padding: 4px 0 2px; }
+.legend-band { display:flex; justify-content:center; margin-top: 10px; }
+
+/* ── Empty state ──────────────────────────────────────────────── */
+.empty-state { background: var(--color-surface); border: 1px dashed var(--color-border-hover); border-radius: var(--radius-lg); padding: 46px 30px; text-align: center; }
+.empty-state .es-icon { font-size: 34px; margin-bottom: 12px; opacity: .7; }
+.empty-state .es-title { font-family: var(--font-display); font-size: 21px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 8px; }
+.empty-state .es-body { font-family: var(--font-body); font-size: 14.5px; color: var(--color-text-secondary); max-width: 460px; margin: 0 auto; line-height: 1.6; }
+.empty-state code { font-family: var(--font-mono); background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: 3px; padding: 1px 6px; color: var(--tool-accent); }
+.load-error { background: var(--color-surface); border: 1px solid rgba(214,126,96,.4); border-radius: var(--radius-lg); padding: 30px; text-align:center; font-family: var(--font-body); color: var(--color-text-secondary); }
+.load-error strong { color: var(--accent-seasons); }
+
+/* ── Tables ───────────────────────────────────────────────────── */
+.tables-wrap { display: flex; flex-direction: column; gap: 26px; margin-top: 6px; }
+.city-table-group { }
+.city-table-group-hdr { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-secondary); margin-bottom: 10px; display:flex; align-items:center; gap:8px; }
+.city-table-group-hdr .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink:0; }
+.tables-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 860px) { .tables-grid { grid-template-columns: 1fr; } }
+.table-panel { position: relative; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 14px; overflow-x: auto; }
+.table-panel-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
+.table-panel-title { font-family: var(--font-body); font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.data-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12.5px; min-width: 430px; }
+.data-table th { text-align: right; padding: 7px 9px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .06em; font-size: 10.5px; font-weight: 600; border-bottom: 1px solid var(--color-border); background: var(--color-surface-2); white-space: nowrap; }
+.data-table th:first-child, .data-table td:first-child { text-align: left; }
+.data-table td { padding: 6px 9px; text-align: right; color: var(--color-text-primary); border-bottom: 1px solid rgba(232,228,217,.06); white-space: nowrap; }
+.data-table tbody tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+.data-table tbody tr:hover td { background: rgba(208,132,37,.07); }
+.data-table td.dim { color: var(--color-text-muted); }
+.data-table tfoot td { font-weight: 700; color: var(--color-text-primary); border-top: 1px solid var(--color-border-hover); border-bottom: none; background: var(--color-surface-2); }
+
+/* ── Footer ───────────────────────────────────────────────────── */
+.tool-footer { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--color-border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+@media (max-width: 700px) {
+  .city-title { font-size: 32px; }
+  #climo-chart { height: 380px; }
+  .header-top { flex-direction: column; }
+  .koppen-wrap { align-items: flex-start; }
+  .koppen-name { text-align: left; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="climo-header">
+    <div class="header-top">
+      <div class="header-id">
+        <div class="cc-eyebrow">CLIMOGRAPHS &middot; 1991&ndash;2020 NOAA CLIMATE NORMALS</div>
+        <div class="city-title" id="city-title">Loading&hellip;</div>
+        <div class="city-meta" id="city-meta">&nbsp;</div>
+        <div class="compare-line" id="compare-line" style="display:none"></div>
+      </div>
+      <div class="koppen-wrap" id="koppen-wrap">
+        <div class="koppen-badge" id="koppen-badge">&mdash;</div>
+        <div class="koppen-name" id="koppen-name"></div>
+      </div>
+    </div>
+
+    <div class="search-row">
+      <div class="finder-group" id="sw1">
+        <span class="search-icon">&#128269;</span>
+        <input type="text" class="search-input" id="si1" placeholder="Search city or station ID..." autocomplete="off" spellcheck="false">
+        <div class="dropdown" id="dd1"></div>
+      </div>
+      <button class="cc-btn cc-btn-sm" id="compare-toggle-btn" type="button">+ Compare City</button>
+      <div class="sw2-wrap" id="sw2-wrap">
+        <div class="finder-group" id="sw2">
+          <span class="search-icon">&#128269;</span>
+          <input type="text" class="search-input" id="si2" placeholder="Search second city..." autocomplete="off" spellcheck="false">
+          <div class="dropdown" id="dd2"></div>
+        </div>
+        <button class="cc-btn cc-btn-sm compare-remove-btn" id="compare-remove-btn" type="button" title="Remove comparison">&#10005; Remove</button>
+      </div>
+    </div>
+
+    <div class="units-row">
+      <span class="cc-btn-row-label">UNITS</span>
+      <div class="cc-segmented" id="temp-unit-toggle">
+        <button class="cc-segmented-btn on" data-unit="f" type="button">&deg;F</button>
+        <button class="cc-segmented-btn" data-unit="c" type="button">&deg;C</button>
+      </div>
+      <div class="cc-segmented" id="precip-unit-toggle">
+        <button class="cc-segmented-btn on" data-unit="in" type="button">IN</button>
+        <button class="cc-segmented-btn" data-unit="mm" type="button">MM</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="banner-note" id="banner-note"><span class="b-icon">&#9888;</span><span id="banner-note-text"></span></div>
+
+  <!-- STAT CHIPS -->
+  <div id="stats-container"></div>
+
+  <!-- CHART -->
+  <div class="section-hdr">
+    <div class="section-title">Climograph</div>
+  </div>
+  <div id="chart-section">
+    <div class="chart-box">
+      <button class="cc-btn cc-btn-sm chart-png-btn" id="chart-png-btn" type="button">&darr; PNG</button>
+      <div id="climo-chart"></div>
+    </div>
+    <div class="legend-band cc-legend-row" id="chart-legend"></div>
+  </div>
+
+  <!-- TABLES -->
+  <div class="section-hdr">
+    <div class="section-title">Monthly Normals</div>
+  </div>
+  <div class="tables-wrap" id="tables-container"></div>
+
+  <div class="tool-footer">
+    <span class="cc-tag">Source: NOAA NCEI 1991&ndash;2020 U.S. Climate Normals</span>
+    <span class="cc-tag">ContextClimate &middot; contextclimate.io</span>
+  </div>
+
+</div>
+<script>
+"use strict";
+
+// ================================================================
+// STATIC DATA
+// ================================================================
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Full 372-city search roster. Coordinates/elevation are static station
+// metadata (available for every city); full monthly normals only exist for
+// the 11 starter cities embedded in climo_data.json until climo_build.py is
+// run — see hasClimoData()/renderEmptyState() below for how that's handled.
+const STATIONS = [{"icao":"PANC","name":"Anchorage Ted Stevens International Airport","state":"AK","lat":61.1692,"lon":-150.0277,"elev_ft":125},{"icao":"PABR","name":"Barrow Airport","state":"AK","lat":71.287,"lon":-156.7394,"elev_ft":27},{"icao":"PABE","name":"Bethel Airport","state":"AK","lat":60.785,"lon":-161.8293,"elev_ft":107},{"icao":"PADU","name":"Dutch Harbor","state":"AK","lat":53.895,"lon":-166.5433,"elev_ft":10},{"icao":"PAFA","name":"Fairbanks Intl Airport","state":"AK","lat":64.8031,"lon":-147.876,"elev_ft":430},{"icao":"PAHO","name":"Homer Airport","state":"AK","lat":59.642,"lon":-151.491,"elev_ft":63},{"icao":"PAJN","name":"Juneau Airport","state":"AK","lat":58.354,"lon":-134.5561,"elev_ft":19},{"icao":"PAEN","name":"Kenai Airport","state":"AK","lat":60.5791,"lon":-151.2415,"elev_ft":99},{"icao":"PAKT","name":"Ketchikan Airport","state":"AK","lat":55.3586,"lon":-131.7219,"elev_ft":84},{"icao":"PADQ","name":"Kodiak Airport","state":"AK","lat":57.7507,"lon":-152.4881,"elev_ft":16},{"icao":"KBHM","name":"Birmingham Airport","state":"AL","lat":33.5654,"lon":-86.7449,"elev_ft":616},{"icao":"KHSV","name":"Huntsville Intnl Airport","state":"AL","lat":34.6441,"lon":-86.7862,"elev_ft":623},{"icao":"KMOB","name":"Mobile Regional Airport","state":"AL","lat":30.6882,"lon":-88.246,"elev_ft":215},{"icao":"KMGM","name":"Montgomery Airport","state":"AL","lat":32.2997,"lon":-86.4074,"elev_ft":217},{"icao":"KFYV","name":"Fayetteville Drake Field","state":"AR","lat":36.0103,"lon":-94.1682,"elev_ft":1237},{"icao":"KXNA","name":"Fayetteville Springdale Nw Ar Regl Airport","state":"AR","lat":36.2897,"lon":-94.3115,"elev_ft":1278},{"icao":"KFSM","name":"Fort Smith Regional Airport","state":"AR","lat":35.3335,"lon":-94.3653,"elev_ft":448},{"icao":"KHOT","name":"Hot Springs Asos","state":"AR","lat":34.4755,"lon":-93.1041,"elev_ft":505},{"icao":"KLIT","name":"Little Rock Airport Adams Field","state":"AR","lat":34.7273,"lon":-92.2358,"elev_ft":251},{"icao":"KTXK","name":"Texarkana Webb Field","state":"AR","lat":33.4561,"lon":-93.9878,"elev_ft":380},{"icao":"KFLG","name":"Flagstaff Airport","state":"AZ","lat":35.1443,"lon":-111.6664,"elev_ft":6999},{"icao":"KGCN","name":"Grand Canyon National Park Airport","state":"AZ","lat":35.9458,"lon":-112.1554,"elev_ft":6540},{"icao":"KIFP","name":"Laughlin Bullhead Intl Airport","state":"AZ","lat":35.1572,"lon":-114.5594,"elev_ft":695},{"icao":"KPHX","name":"Phoenix Airport","state":"AZ","lat":33.4278,"lon":-112.0036,"elev_ft":1113},{"icao":"KPRC","name":"Prescott Love Field","state":"AZ","lat":34.6491,"lon":-112.4223,"elev_ft":5013},{"icao":"KSDL","name":"Scottsdale Municipal Airport","state":"AZ","lat":33.6123,"lon":-111.9232,"elev_ft":1431},{"icao":"KTUS","name":"Tucson International Airport","state":"AZ","lat":32.1315,"lon":-110.9564,"elev_ft":2551},{"icao":"KYUM","name":"Yuma Intl Airport","state":"AZ","lat":32.6667,"lon":-114.6,"elev_ft":206},{"icao":"KACV","name":"Arcata Eureka Airport","state":"CA","lat":40.9784,"lon":-124.1048,"elev_ft":211},{"icao":"KBFL","name":"Bakersfield Airport","state":"CA","lat":35.4342,"lon":-119.0552,"elev_ft":490},{"icao":"KBUR","name":"Burbank Glendale Pasadena Airport","state":"CA","lat":34.1997,"lon":-118.3654,"elev_ft":731},{"icao":"KCRQ","name":"Carlsbad Mcclellan Palomar Airport","state":"CA","lat":33.1299,"lon":-117.2765,"elev_ft":313},{"icao":"KCIC","name":"Chico Army Flying Sch","state":"CA","lat":39.8,"lon":-121.85,"elev_ft":272},{"icao":"KFAT","name":"Fresno Yosemite Int'l","state":"CA","lat":36.78,"lon":-119.7202,"elev_ft":334},{"icao":"KLGB","name":"Long Beach Daugherty Airport","state":"CA","lat":33.8118,"lon":-118.1472,"elev_ft":34},{"icao":"KLAX","name":"Los Angeles Intl Airport","state":"CA","lat":33.9382,"lon":-118.3866,"elev_ft":97},{"icao":"KMRY","name":"Monterey Peninsul Airport","state":"CA","lat":36.5904,"lon":-121.8488,"elev_ft":160},{"icao":"KOAK","name":"Oakland International Airport","state":"CA","lat":37.7178,"lon":-122.233,"elev_ft":5},{"icao":"KONT","name":"Ontario Intl Airport","state":"CA","lat":34.0531,"lon":-117.5769,"elev_ft":924},{"icao":"KPSP","name":"Palm Springs Asos","state":"CA","lat":33.8222,"lon":-116.5043,"elev_ft":409},{"icao":"KRDD","name":"Redding Airport","state":"CA","lat":40.5146,"lon":-122.2977,"elev_ft":501},{"icao":"KSMF","name":"Sacramento Metropolitan Airport","state":"CA","lat":38.7007,"lon":-121.5948,"elev_ft":24},{"icao":"KSAN","name":"San Diego International Airport","state":"CA","lat":32.7336,"lon":-117.1831,"elev_ft":15},{"icao":"KSFO","name":"San Francisco International Airport","state":"CA","lat":37.6196,"lon":-122.3656,"elev_ft":10},{"icao":"KSJC","name":"San Jose","state":"CA","lat":37.3594,"lon":-121.9244,"elev_ft":49},{"icao":"KSNA","name":"Santa Ana John Wayne Airport","state":"CA","lat":33.6797,"lon":-117.8675,"elev_ft":43},{"icao":"KSBA","name":"Santa Barbara Muni Airport","state":"CA","lat":34.4241,"lon":-119.8425,"elev_ft":8},{"icao":"KSTS","name":"Santa Rosa Sonoma Co Airport","state":"CA","lat":38.5037,"lon":-122.811,"elev_ft":119},{"icao":"KALS","name":"Alamosa-Bergman Field","state":"CO","lat":37.4393,"lon":-105.8618,"elev_ft":7537},{"icao":"KASE","name":"Aspen Pitkin County Airport Sardy Field","state":"CO","lat":39.2299,"lon":-106.8705,"elev_ft":7677},{"icao":"KCOS","name":"Colorado Springs Municipal Airport","state":"CO","lat":38.8095,"lon":-104.6887,"elev_ft":6182},{"icao":"KDEN","name":"Denver Intl Airport","state":"CO","lat":39.8466,"lon":-104.6562,"elev_ft":5404},{"icao":"KEGE","name":"Eagle County Airport","state":"CO","lat":39.65,"lon":-106.9167,"elev_ft":6497},{"icao":"KGJT","name":"Grand Junction Walker Field","state":"CO","lat":39.1344,"lon":-108.5408,"elev_ft":4824},{"icao":"KMTJ","name":"Montrose Regional Airport","state":"CO","lat":38.5054,"lon":-107.8981,"elev_ft":5707},{"icao":"KPUB","name":"Pueblo Memorial Airport","state":"CO","lat":38.2887,"lon":-104.5057,"elev_ft":4674},{"icao":"KDXR","name":"Danbury Municipal Airport","state":"CT","lat":41.3721,"lon":-73.4834,"elev_ft":453},{"icao":"KGON","name":"Groton New London Airport","state":"CT","lat":41.3279,"lon":-72.0489,"elev_ft":8},{"icao":"KBDL","name":"Hartford-Bradley International Airport","state":"CT","lat":41.9374,"lon":-72.682,"elev_ft":169},{"icao":"KHFD","name":"Hartford-Brainard Airport","state":"CT","lat":41.7352,"lon":-72.6512,"elev_ft":13},{"icao":"KBDR","name":"Igor I Sikorsky Memorial Airport","state":"CT","lat":41.1642,"lon":-73.1266,"elev_ft":6},{"icao":"KHVN","name":"New Haven Tweed Airport","state":"CT","lat":41.259,"lon":-72.8891,"elev_ft":6},{"icao":"KDOV","name":"Dover AFB","state":"DE","lat":39.1333,"lon":-75.4667,"elev_ft":28},{"icao":"KGED","name":"Georgetown-Delaware Coastal Airport","state":"DE","lat":38.6897,"lon":-75.3625,"elev_ft":50},{"icao":"KILG","name":"Wilmington Airport","state":"DE","lat":39.6744,"lon":-75.6057,"elev_ft":74},{"icao":"KFLL","name":"Fort Lauderdale International Airport","state":"FL","lat":26.0787,"lon":-80.1622,"elev_ft":3},{"icao":"KRSW","name":"Fort Myers Sw Florida Regional Airport","state":"FL","lat":26.538,"lon":-81.7567,"elev_ft":27},{"icao":"KGNV","name":"Gainesville Regional Airport","state":"FL","lat":29.6917,"lon":-82.276,"elev_ft":133},{"icao":"KJAX","name":"Jacksonville Intl Airport","state":"FL","lat":30.4953,"lon":-81.6937,"elev_ft":24},{"icao":"KEYW","name":"Key West Intl Airport","state":"FL","lat":24.5571,"lon":-81.7554,"elev_ft":1},{"icao":"KMIA","name":"Miami International Airport","state":"FL","lat":25.788,"lon":-80.3169,"elev_ft":5},{"icao":"KMCO","name":"Orlando Intl Airport","state":"FL","lat":28.4182,"lon":-81.3241,"elev_ft":89},{"icao":"KPNS","name":"Pensacola Regional Airport","state":"FL","lat":30.4761,"lon":-87.1857,"elev_ft":118},{"icao":"KTLH","name":"Tallahassee Regional Airport","state":"FL","lat":30.3935,"lon":-84.3514,"elev_ft":56},{"icao":"KTPA","name":"Tampa Intl Airport","state":"FL","lat":27.9633,"lon":-82.54,"elev_ft":6},{"icao":"KATL","name":"Atlanta Hartsfield-Jackson International Airport","state":"GA","lat":33.6297,"lon":-84.4422,"elev_ft":1011},{"icao":"KAGS","name":"Augusta Bush Field Airport","state":"GA","lat":33.3652,"lon":-81.9635,"elev_ft":134},{"icao":"KCSG","name":"Columbus Metropolitan Airport","state":"GA","lat":32.5162,"lon":-84.9422,"elev_ft":394},{"icao":"KSAV","name":"Savannah/Hilton Head Intl Airport","state":"GA","lat":32.1313,"lon":-81.2023,"elev_ft":29},{"icao":"KVLD","name":"Valdosta Regional Airport","state":"GA","lat":30.7763,"lon":-83.2739,"elev_ft":193},{"icao":"PHTO","name":"Hilo International Airport 87","state":"HI","lat":19.7191,"lon":-155.049,"elev_ft":29},{"icao":"PHNL","name":"Honolulu Intl Airport","state":"HI","lat":21.324,"lon":-157.9394,"elev_ft":6},{"icao":"PHOG","name":"Kahului Airport","state":"HI","lat":20.8887,"lon":-156.4345,"elev_ft":46},{"icao":"PHKO","name":"Kailua Kona Ke-Ahole Airport","state":"HI","lat":19.7378,"lon":-156.0479,"elev_ft":37},{"icao":"KCID","name":"Cedar Rapids Municipal Airport","state":"IA","lat":41.8829,"lon":-91.7246,"elev_ft":840},{"icao":"KDVN","name":"Davenport Municipal Airport","state":"IA","lat":41.6133,"lon":-90.5948,"elev_ft":746},{"icao":"KDSM","name":"Des Moines Intl Airport","state":"IA","lat":41.5339,"lon":-93.6531,"elev_ft":939},{"icao":"KDBQ","name":"Dubuque Regional Airport","state":"IA","lat":42.3983,"lon":-90.7091,"elev_ft":1040},{"icao":"KSUX","name":"Sioux City Airport","state":"IA","lat":42.3917,"lon":-96.3795,"elev_ft":1092},{"icao":"KALO","name":"Waterloo Municipal Airport","state":"IA","lat":42.5544,"lon":-92.4013,"elev_ft":867},{"icao":"KBOI","name":"Boise Air Terminal","state":"ID","lat":43.5671,"lon":-116.2406,"elev_ft":2823},{"icao":"KCOE","name":"Coeur D Alene Air Terminal","state":"ID","lat":47.7667,"lon":-116.8167,"elev_ft":2307},{"icao":"KSUN","name":"Hailey Friedman Memorial Airport","state":"ID","lat":43.5,"lon":-114.3,"elev_ft":5306},{"icao":"KIDA","name":"Idaho Falls Faa Airport","state":"ID","lat":43.5204,"lon":-112.0675,"elev_ft":4733},{"icao":"KLWS","name":"Lewiston Airport","state":"ID","lat":46.3746,"lon":-117.0153,"elev_ft":1430},{"icao":"KMYL","name":"Mccall Airport","state":"ID","lat":44.8942,"lon":-116.0998,"elev_ft":5023},{"icao":"KMUO","name":"Mountain Home AFB","state":"ID","lat":43.05,"lon":-115.8667,"elev_ft":2996},{"icao":"KPIH","name":"Pocatello Regional Airport","state":"ID","lat":42.9197,"lon":-112.5723,"elev_ft":4451},{"icao":"KTWF","name":"Twin Falls Sun Valley Regional Airport","state":"ID","lat":42.4785,"lon":-114.4774,"elev_ft":4166},{"icao":"KBMI","name":"Bloomington Normal Airport","state":"IL","lat":40.4833,"lon":-88.95,"elev_ft":865},{"icao":"KCMI","name":"Champaign Urbana Willard Airport","state":"IL","lat":40.0324,"lon":-88.2755,"elev_ft":743},{"icao":"KMDW","name":"Chicago Midway Airport","state":"IL","lat":41.7841,"lon":-87.7551,"elev_ft":610},{"icao":"KORD","name":"Chicago Ohare Intl Airport","state":"IL","lat":41.9602,"lon":-87.9316,"elev_ft":672},{"icao":"KDEC","name":"Decatur Airport","state":"IL","lat":39.8308,"lon":-88.8719,"elev_ft":673},{"icao":"KPIA","name":"General Wayne A. Downing International Airport","state":"IL","lat":40.6675,"lon":-89.6842,"elev_ft":655},{"icao":"KMLI","name":"Moline Quad City Intl Airport","state":"IL","lat":41.4482,"lon":-90.5237,"elev_ft":576},{"icao":"KRFD","name":"Rockford Greater Rockford Airport","state":"IL","lat":42.1932,"lon":-89.0934,"elev_ft":725},{"icao":"KSPI","name":"Springfield Abraham Lincoln Capital Airport","state":"IL","lat":39.8453,"lon":-89.684,"elev_ft":590},{"icao":"KEVV","name":"Evansville Regional Airport","state":"IN","lat":38.0502,"lon":-87.5147,"elev_ft":402},{"icao":"KFWA","name":"Fort Wayne Intl Airport","state":"IN","lat":40.9725,"lon":-85.2064,"elev_ft":797},{"icao":"KIND","name":"Indianapolis Intl Airport","state":"IN","lat":39.7251,"lon":-86.2816,"elev_ft":792},{"icao":"KMIE","name":"Muncie Delaware County Airport","state":"IN","lat":40.2345,"lon":-85.3936,"elev_ft":936},{"icao":"KSBN","name":"South Bend Airport","state":"IN","lat":41.7072,"lon":-86.3163,"elev_ft":772},{"icao":"KHUF","name":"Terre Haute Hulman Regional Airport","state":"IN","lat":39.4429,"lon":-87.3221,"elev_ft":567},{"icao":"KDDC","name":"Dodge City Regional Airport","state":"KS","lat":37.7711,"lon":-99.9691,"elev_ft":2577},{"icao":"KGCK","name":"Garden City Regional Airport","state":"KS","lat":37.9221,"lon":-100.7243,"elev_ft":2878},{"icao":"KMHK","name":"Manhattan Asos","state":"KS","lat":39.1346,"lon":-96.6789,"elev_ft":1048},{"icao":"KSLN","name":"Salina Municipal Airport","state":"KS","lat":38.78,"lon":-97.6444,"elev_ft":1263},{"icao":"KTOP","name":"Topeka Asos","state":"KS","lat":39.0725,"lon":-95.626,"elev_ft":880},{"icao":"KICT","name":"Wichita Dwight D. Eisenhower National Airport","state":"KS","lat":37.6475,"lon":-97.43,"elev_ft":1318},{"icao":"KCVG","name":"Cincinnati/Northern Kentucky International Airport","state":"KY","lat":39.0444,"lon":-84.6724,"elev_ft":861},{"icao":"KHOP","name":"Fort Campbell Aaf","state":"KY","lat":36.6667,"lon":-87.4833,"elev_ft":573},{"icao":"KFFT","name":"Frankfort Capital City Airport","state":"KY","lat":38.1846,"lon":-84.9039,"elev_ft":777},{"icao":"KLEX","name":"Lexington Bluegrass Airport","state":"KY","lat":38.0339,"lon":-84.6114,"elev_ft":962},{"icao":"KSDF","name":"Louisville Intl Airport","state":"KY","lat":38.1774,"lon":-85.7308,"elev_ft":480},{"icao":"KPAH","name":"Paducah Barkley Regional Airport","state":"KY","lat":37.0564,"lon":-88.7742,"elev_ft":407},{"icao":"KAEX","name":"Alexandria Intl Airport","state":"LA","lat":31.3346,"lon":-92.5585,"elev_ft":82},{"icao":"KBTR","name":"Baton Rouge Metro Airport","state":"LA","lat":30.5378,"lon":-91.1468,"elev_ft":67},{"icao":"KLFT","name":"Lafayette Regional Airport","state":"LA","lat":30.1986,"lon":-91.9896,"elev_ft":35},{"icao":"KLCH","name":"Lake Charles Regional Airport","state":"LA","lat":30.1255,"lon":-93.2277,"elev_ft":7},{"icao":"KMLU","name":"Monroe Regional Airport","state":"LA","lat":32.5155,"lon":-92.0299,"elev_ft":73},{"icao":"KMSY","name":"New Orleans Airport","state":"LA","lat":29.9976,"lon":-90.2777,"elev_ft":-3},{"icao":"KSHV","name":"Shreveport Airport","state":"LA","lat":32.4473,"lon":-93.8244,"elev_ft":228},{"icao":"KBED","name":"Bedford Hanscom Field","state":"MA","lat":42.4681,"lon":-71.2946,"elev_ft":128},{"icao":"KBOS","name":"Boston Logan International Airport","state":"MA","lat":42.3606,"lon":-71.0097,"elev_ft":11},{"icao":"KHYA","name":"Hyannis Barnstable Municipal Airport","state":"MA","lat":41.6719,"lon":-70.2697,"elev_ft":37},{"icao":"KACK","name":"Nantucket Memorial Airport","state":"MA","lat":41.2541,"lon":-70.0589,"elev_ft":37},{"icao":"KEWB","name":"New Bedford Municipal Airport","state":"MA","lat":41.6791,"lon":-70.9591,"elev_ft":74},{"icao":"KMVY","name":"Vineyard Haven Marthas Vineyard Airport","state":"MA","lat":41.393,"lon":-70.6159,"elev_ft":59},{"icao":"KORH","name":"Worcester Regional Airport","state":"MA","lat":42.2706,"lon":-71.8731,"elev_ft":1002},{"icao":"KBWI","name":"Baltimore-Washington International Airport","state":"MD","lat":39.1733,"lon":-76.6841,"elev_ft":138},{"icao":"KADW","name":"Camp Springs Andrews AFB","state":"MD","lat":38.8167,"lon":-76.8667,"elev_ft":282},{"icao":"KHGR","name":"Hagerstown Regional Airport","state":"MD","lat":39.7062,"lon":-77.7304,"elev_ft":687},{"icao":"KSBY","name":"Salisbury-Wicomico Regional Airport","state":"MD","lat":38.3409,"lon":-75.5132,"elev_ft":47},{"icao":"KLEW","name":"Auburn Lewiston","state":"ME","lat":44.05,"lon":-70.2833,"elev_ft":288},{"icao":"KAUG","name":"Augusta State Airport","state":"ME","lat":44.3161,"lon":-69.797,"elev_ft":349},{"icao":"KBGR","name":"Bangor International Airport","state":"ME","lat":44.7979,"lon":-68.8185,"elev_ft":147},{"icao":"KBHB","name":"Bar Harbor Airport","state":"ME","lat":44.45,"lon":-68.3667,"elev_ft":88},{"icao":"KCAR","name":"Caribou Wfo","state":"ME","lat":46.8705,"lon":-68.0172,"elev_ft":619},{"icao":"KPWM","name":"Portland Jetport","state":"ME","lat":43.6424,"lon":-70.3044,"elev_ft":44},{"icao":"KPQI","name":"Presque Isle Municipal Airport","state":"ME","lat":46.6833,"lon":-68.05,"elev_ft":534},{"icao":"KRKD","name":"Rockland Knox County Regional Airport","state":"ME","lat":44.0667,"lon":-69.1,"elev_ft":47},{"icao":"KAPN","name":"Alpena County Regional Airport","state":"MI","lat":45.0716,"lon":-83.5645,"elev_ft":683},{"icao":"KDTW","name":"Detroit Metro Airport","state":"MI","lat":42.2311,"lon":-83.3312,"elev_ft":630},{"icao":"KFNT","name":"Flint Fcwos","state":"MI","lat":42.9668,"lon":-83.75,"elev_ft":770},{"icao":"KGRR","name":"Grand Rapids Gerald R Ford Intl Airport","state":"MI","lat":42.8821,"lon":-85.523,"elev_ft":788},{"icao":"KSAW","name":"Gwinn K I Sawyer AFB","state":"MI","lat":46.35,"lon":-87.4,"elev_ft":1221},{"icao":"KLAN","name":"Lansing Capital City Airport","state":"MI","lat":42.7761,"lon":-84.5997,"elev_ft":857},{"icao":"KMBS","name":"Saginaw Mbs Intl Airport","state":"MI","lat":43.5281,"lon":-84.0813,"elev_ft":662},{"icao":"KTVC","name":"Traverse City Cherry Capital Airport","state":"MI","lat":44.739,"lon":-85.5679,"elev_ft":608},{"icao":"KBJI","name":"Bemidji Municipal Airport","state":"MN","lat":47.5,"lon":-94.9333,"elev_ft":1392},{"icao":"KDLH","name":"Duluth Intl Airport","state":"MN","lat":46.8436,"lon":-92.1866,"elev_ft":1422},{"icao":"KHIB","name":"Hibbing Chisholm Hibbing Airport","state":"MN","lat":47.3804,"lon":-92.8325,"elev_ft":1339},{"icao":"KMSP","name":"Minneapolis-St. Paul International Airport","state":"MN","lat":44.8852,"lon":-93.2313,"elev_ft":835},{"icao":"KRST","name":"Rochester International Airport","state":"MN","lat":43.904,"lon":-92.4921,"elev_ft":1306},{"icao":"KSTC","name":"St. Cloud Regional Airport","state":"MN","lat":45.5442,"lon":-94.0516,"elev_ft":1018},{"icao":"KSTP","name":"St. Paul Downtown Airport","state":"MN","lat":44.9323,"lon":-93.0559,"elev_ft":700},{"icao":"KCOU","name":"Columbia Regional Airport","state":"MO","lat":38.817,"lon":-92.2147,"elev_ft":893},{"icao":"KJLN","name":"Joplin Regional Airport","state":"MO","lat":37.1522,"lon":-94.4952,"elev_ft":972},{"icao":"KMCI","name":"Kansas City Intl Airport","state":"MO","lat":39.2975,"lon":-94.7309,"elev_ft":1008},{"icao":"KSGF","name":"Springfield Wso Airport","state":"MO","lat":37.2398,"lon":-93.3899,"elev_ft":1262},{"icao":"KSTJ","name":"St Joseph Rosecrans Memorial Airport","state":"MO","lat":39.7683,"lon":-94.9095,"elev_ft":807},{"icao":"KSTL","name":"St Louis Lambert Intl Airport","state":"MO","lat":38.7525,"lon":-90.3734,"elev_ft":531},{"icao":"KBIX","name":"Biloxi Keesler AFB","state":"MS","lat":30.4167,"lon":-88.9167,"elev_ft":33},{"icao":"KGPT","name":"Gulfport - Biloxi Airport","state":"MS","lat":30.4121,"lon":-89.0809,"elev_ft":16},{"icao":"KHBG","name":"Hattiesburg Chain Municipal Airport","state":"MS","lat":31.2695,"lon":-89.2561,"elev_ft":147},{"icao":"KJAN","name":"Jackson Intl Airport","state":"MS","lat":32.3198,"lon":-90.0778,"elev_ft":296},{"icao":"KMEI","name":"Meridian Key Field","state":"MS","lat":32.3348,"lon":-88.7507,"elev_ft":289},{"icao":"KTUP","name":"Tupelo Regional Airport","state":"MS","lat":34.2622,"lon":-88.7713,"elev_ft":340},{"icao":"KBIL","name":"Billings International Airport","state":"MT","lat":45.8072,"lon":-108.5462,"elev_ft":3590},{"icao":"KBZN","name":"Bozeman Gallatin Field Airport","state":"MT","lat":45.7876,"lon":-111.1615,"elev_ft":4431},{"icao":"KBTM","name":"Butte Bert Mooney Airport","state":"MT","lat":45.9644,"lon":-112.5015,"elev_ft":5505},{"icao":"KGGW","name":"Glasgow International Airport","state":"MT","lat":48.2142,"lon":-106.6214,"elev_ft":2289},{"icao":"KGTF","name":"Great Falls Airport","state":"MT","lat":47.4733,"lon":-111.3828,"elev_ft":3667},{"icao":"KHVR","name":"Havre Airport Asos","state":"MT","lat":48.5425,"lon":-109.7644,"elev_ft":2586},{"icao":"KHLN","name":"Helena Airport Asos","state":"MT","lat":46.6044,"lon":-111.9892,"elev_ft":3865},{"icao":"KLWT","name":"Lewistown Airport","state":"MT","lat":47.0544,"lon":-109.4565,"elev_ft":4125},{"icao":"KMLS","name":"Miles City Airport","state":"MT","lat":46.4265,"lon":-105.8833,"elev_ft":2625},{"icao":"KMSO","name":"Missoula International Airport","state":"MT","lat":46.9208,"lon":-114.0938,"elev_ft":3195},{"icao":"KSDY","name":"Sidney Richland Municipal Airport","state":"MT","lat":47.7167,"lon":-104.1833,"elev_ft":1980},{"icao":"KAVL","name":"Asheville Regional Airport","state":"NC","lat":35.4318,"lon":-82.5379,"elev_ft":2118},{"icao":"KCLT","name":"Charlotte Douglas Airport","state":"NC","lat":35.2225,"lon":-80.9543,"elev_ft":730},{"icao":"KFAY","name":"Fayetteville Regional Airport Grannis Field","state":"NC","lat":34.9895,"lon":-78.88,"elev_ft":186},{"icao":"KFBG","name":"Fort Bragg Simmons Aaf","state":"NC","lat":35.1333,"lon":-78.9333,"elev_ft":244},{"icao":"KGSO","name":"Greensboro/Piedmont Triad International Airport","state":"NC","lat":36.0969,"lon":-79.9432,"elev_ft":902},{"icao":"KEWN","name":"New Bern - Coastal Carolina Regional Airport","state":"NC","lat":35.0684,"lon":-77.0478,"elev_ft":11},{"icao":"KRDU","name":"Raleigh-Durham International Airport","state":"NC","lat":35.8923,"lon":-78.7819,"elev_ft":395},{"icao":"KILM","name":"Wilmington Int'l Airport","state":"NC","lat":34.2668,"lon":-77.8999,"elev_ft":23},{"icao":"KBIS","name":"Bismarck Municipal Airport","state":"ND","lat":46.7823,"lon":-100.7575,"elev_ft":1651},{"icao":"KDIK","name":"Dickinson Theodore Roosevelt Regional Airport","state":"ND","lat":46.7997,"lon":-102.7972,"elev_ft":2583},{"icao":"KFAR","name":"Fargo Hector Intl Airport","state":"ND","lat":46.9242,"lon":-96.8119,"elev_ft":895},{"icao":"KGFK","name":"Grand Forks Intl Airport","state":"ND","lat":47.9428,"lon":-97.1829,"elev_ft":838},{"icao":"KMOT","name":"Minot Intl Airport","state":"ND","lat":48.252,"lon":-101.2689,"elev_ft":1657},{"icao":"KOFF","name":"Bellevue Offutt AFB","state":"NE","lat":41.1167,"lon":-95.9167,"elev_ft":1047},{"icao":"KGRI","name":"Grand Island Central Ne Regional Airport","state":"NE","lat":40.9615,"lon":-98.313,"elev_ft":1843},{"icao":"KEAR","name":"Kearney Municipal Airport","state":"NE","lat":40.7333,"lon":-99.0,"elev_ft":2130},{"icao":"KLNK","name":"Lincoln Airport","state":"NE","lat":40.8478,"lon":-96.7647,"elev_ft":1170},{"icao":"KLBF","name":"North Platte Regional Airport","state":"NE","lat":41.122,"lon":-100.6689,"elev_ft":2762},{"icao":"KOMA","name":"Omaha Eppley Airfield","state":"NE","lat":41.3119,"lon":-95.9019,"elev_ft":980},{"icao":"KBFF","name":"Scottsbluff W B Heilig Field Airport","state":"NE","lat":41.8747,"lon":-103.6011,"elev_ft":3957},{"icao":"KCON","name":"Concord Municipal Airport","state":"NH","lat":43.2049,"lon":-71.5026,"elev_ft":338},{"icao":"KLEB","name":"Lebanon Municipal Airport","state":"NH","lat":43.6271,"lon":-72.3054,"elev_ft":554},{"icao":"KMHT","name":"Manchester Airport","state":"NH","lat":42.9296,"lon":-71.4356,"elev_ft":229},{"icao":"KASH","name":"Nashua Boire Field","state":"NH","lat":42.7833,"lon":-71.5167,"elev_ft":200},{"icao":"KPSM","name":"Portsmouth Pease AFB","state":"NH","lat":43.0833,"lon":-70.8167,"elev_ft":100},{"icao":"KACY","name":"Atlantic City Intl Airport","state":"NJ","lat":39.452,"lon":-74.567,"elev_ft":58},{"icao":"KMMU","name":"Morristown","state":"NJ","lat":40.8,"lon":-74.4167,"elev_ft":187},{"icao":"KEWR","name":"Newark Liberty Intl Airport","state":"NJ","lat":40.6827,"lon":-74.1693,"elev_ft":6},{"icao":"KTEB","name":"Teterboro Airport","state":"NJ","lat":40.859,"lon":-74.0562,"elev_ft":3},{"icao":"KTTN","name":"Trenton-Mercer Airport","state":"NJ","lat":40.2768,"lon":-74.8159,"elev_ft":190},{"icao":"KABQ","name":"Albuquerque Intl Airport","state":"NM","lat":35.0419,"lon":-106.6154,"elev_ft":5310},{"icao":"KCNM","name":"Cavern City Airport","state":"NM","lat":32.3336,"lon":-104.2585,"elev_ft":3250},{"icao":"KFMN","name":"Farmington Four Corners Regional Airport","state":"NM","lat":36.7435,"lon":-108.2293,"elev_ft":5499},{"icao":"KHOB","name":"Hobbs Faa","state":"NM","lat":32.6933,"lon":-103.2125,"elev_ft":3655},{"icao":"KLRU","name":"Las Cruces Municipal Airport","state":"NM","lat":32.2833,"lon":-106.9167,"elev_ft":4454},{"icao":"KROW","name":"Roswell Industrial Air Park","state":"NM","lat":33.3073,"lon":-104.5082,"elev_ft":3624},{"icao":"KSAF","name":"Santa Fe County Municipal Airport","state":"NM","lat":35.611,"lon":-106.0957,"elev_ft":6287},{"icao":"KSVC","name":"Silver City Grant County Airport","state":"NM","lat":32.6333,"lon":-108.1667,"elev_ft":5373},{"icao":"KCXP","name":"Carson Airport","state":"NV","lat":39.183,"lon":-119.733,"elev_ft":4699},{"icao":"KEKO","name":"Elko Regional Airport","state":"NV","lat":40.824,"lon":-115.7863,"elev_ft":5054},{"icao":"KELY","name":"Ely Airport","state":"NV","lat":39.2954,"lon":-114.8467,"elev_ft":6250},{"icao":"KLAS","name":"Harry Reid Intl Airport","state":"NV","lat":36.0719,"lon":-115.1634,"elev_ft":2175},{"icao":"KVGT","name":"Las Vegas Air Terminal","state":"NV","lat":36.212,"lon":-115.1939,"elev_ft":2189},{"icao":"KRNO","name":"Reno Airport","state":"NV","lat":39.5077,"lon":-119.7683,"elev_ft":4405},{"icao":"KWMC","name":"Winnemucca Airport","state":"NV","lat":40.9018,"lon":-117.8081,"elev_ft":4300},{"icao":"KALB","name":"Albany International Airport","state":"NY","lat":42.7472,"lon":-73.7991,"elev_ft":280},{"icao":"KBGM","name":"Binghamton (Greater Airport)","state":"NY","lat":42.2068,"lon":-75.9799,"elev_ft":1593},{"icao":"KBUF","name":"Buffalo Niagara International Airpor","state":"NY","lat":42.94,"lon":-78.7361,"elev_ft":709},{"icao":"KELM","name":"Elmira Corning Regional Airport","state":"NY","lat":42.1566,"lon":-76.9029,"elev_ft":936},{"icao":"KROC","name":"Frederick Douglass Greater Rochester International Airport","state":"NY","lat":43.1172,"lon":-77.6754,"elev_ft":540},{"icao":"KISP","name":"Islip-Li Macarthur Airport","state":"NY","lat":40.7939,"lon":-73.1018,"elev_ft":83},{"icao":"KJFK","name":"Jfk International Airport","state":"NY","lat":40.6392,"lon":-73.7639,"elev_ft":9},{"icao":"KLGA","name":"Laguardia Airport","state":"NY","lat":40.7794,"lon":-73.8803,"elev_ft":10},{"icao":"KIAG","name":"Niagara Falls Intl Airport","state":"NY","lat":43.1083,"lon":-78.9382,"elev_ft":585},{"icao":"KPOU","name":"Poughkeepsie/Hudson Valley Regional Airport","state":"NY","lat":41.6257,"lon":-73.8816,"elev_ft":153},{"icao":"KSWF","name":"Stewart Field","state":"NY","lat":41.5,"lon":-74.1,"elev_ft":491},{"icao":"KSYR","name":"Syracuse Hancock Intl Airport","state":"NY","lat":43.1111,"lon":-76.1038,"elev_ft":410},{"icao":"KCAK","name":"Akron Canton Airport","state":"OH","lat":40.9181,"lon":-81.4434,"elev_ft":1210},{"icao":"KCLE","name":"Cleveland-Hopkins Intl Airport","state":"OH","lat":41.4057,"lon":-81.8519,"elev_ft":777},{"icao":"KLCK","name":"Columbus Rickenbacker","state":"OH","lat":39.8167,"lon":-82.9333,"elev_ft":744},{"icao":"KDAY","name":"Dayton International Airport","state":"OH","lat":39.9064,"lon":-84.2185,"elev_ft":993},{"icao":"KFFO","name":"Dayton Wright Patterson AFB","state":"OH","lat":39.8333,"lon":-84.05,"elev_ft":823},{"icao":"KCMH","name":"John Glenn International Airport","state":"OH","lat":39.9907,"lon":-82.877,"elev_ft":810},{"icao":"KMFD","name":"Mansfield Lahm Rgnl Airport","state":"OH","lat":40.8204,"lon":-82.5177,"elev_ft":1289},{"icao":"KTOL","name":"Toledo Express Airport","state":"OH","lat":41.587,"lon":-83.8054,"elev_ft":674},{"icao":"KYNG","name":"Youngstown-Warren Rgnl Airport","state":"OH","lat":41.2548,"lon":-80.6736,"elev_ft":1167},{"icao":"KADM","name":"Ardmore Municipal Airport","state":"OK","lat":34.3,"lon":-97.0167,"elev_ft":725},{"icao":"KEND","name":"Enid Vance AFB","state":"OK","lat":36.3333,"lon":-97.9167,"elev_ft":1306},{"icao":"KWDG","name":"Enid Woodring Airport","state":"OK","lat":36.3833,"lon":-97.8,"elev_ft":1167},{"icao":"KLAW","name":"Lawton Municipal Airport","state":"OK","lat":34.5577,"lon":-98.4172,"elev_ft":1070},{"icao":"KOKC","name":"Oklahoma City Will Rogers World Airport","state":"OK","lat":35.3884,"lon":-97.6004,"elev_ft":1279},{"icao":"KTUL","name":"Tulsa Intl Airport","state":"OK","lat":36.1985,"lon":-95.8782,"elev_ft":639},{"icao":"KAST","name":"Astoria Airport (Port of)","state":"OR","lat":46.1569,"lon":-123.8833,"elev_ft":11},{"icao":"KEUG","name":"Eugene-Mahlon Sweet Field","state":"OR","lat":44.1331,"lon":-123.2156,"elev_ft":358},{"icao":"KMFR","name":"Medford Intl Airport","state":"OR","lat":42.375,"lon":-122.877,"elev_ft":1313},{"icao":"KOTH","name":"North Bend Southwest Oregon Regional Airport","state":"OR","lat":43.4133,"lon":-124.2436,"elev_ft":17},{"icao":"KPDT","name":"Pendleton E Or Rgnl Airport","state":"OR","lat":45.6975,"lon":-118.8345,"elev_ft":1485},{"icao":"KPDX","name":"Portland Intl Airport","state":"OR","lat":45.5958,"lon":-122.6092,"elev_ft":22},{"icao":"KRDM","name":"Redmond Airport","state":"OR","lat":44.2558,"lon":-121.1407,"elev_ft":3049},{"icao":"KSLE","name":"Salem Airport (Mcnary Field)","state":"OR","lat":44.9049,"lon":-123.001,"elev_ft":208},{"icao":"KABE","name":"Allentown Lehigh Valley International Airport","state":"PA","lat":40.6498,"lon":-75.4477,"elev_ft":385},{"icao":"KAOO","name":"Altoona Blair County Airport","state":"PA","lat":40.2999,"lon":-78.3168,"elev_ft":1465},{"icao":"KERI","name":"Erie Intl Airport","state":"PA","lat":42.0803,"lon":-80.1824,"elev_ft":729},{"icao":"KLNS","name":"Lancaster Airport","state":"PA","lat":40.1206,"lon":-76.2945,"elev_ft":397},{"icao":"KMDT","name":"Middletown Harrisburg Int'l Airport","state":"PA","lat":40.1962,"lon":-76.7725,"elev_ft":299},{"icao":"KPHL","name":"Philadelphia Intl Airport","state":"PA","lat":39.8733,"lon":-75.2268,"elev_ft":7},{"icao":"KPIT","name":"Pittsburgh International Airport","state":"PA","lat":40.4846,"lon":-80.2145,"elev_ft":1119},{"icao":"KAVP","name":"Wilkes-Barre/Scranton International Airport","state":"PA","lat":41.3335,"lon":-75.7227,"elev_ft":951},{"icao":"KIPT","name":"Williamsport Regional Airport","state":"PA","lat":41.243,"lon":-76.9217,"elev_ft":524},{"icao":"TJSJ","name":"San Juan L M Marin Intl Airport","state":"PR","lat":18.4326,"lon":-66.0106,"elev_ft":10},{"icao":"KUUU","name":"Newport State Airport","state":"RI","lat":41.5299,"lon":-71.2833,"elev_ft":148},{"icao":"KOQU","name":"North Kingstown Quonset State Airport","state":"RI","lat":41.5971,"lon":-71.4121,"elev_ft":19},{"icao":"KPVD","name":"Rhode Island T.F. Green International Airport","state":"RI","lat":41.7225,"lon":-71.4325,"elev_ft":51},{"icao":"KAND","name":"Anderson Regional Airport","state":"SC","lat":34.498,"lon":-82.7092,"elev_ft":767},{"icao":"KCHS","name":"Charleston Intl. Airport","state":"SC","lat":32.8995,"lon":-80.0407,"elev_ft":39},{"icao":"KCAE","name":"Columbia Metropolitan Airport","state":"SC","lat":33.9423,"lon":-81.118,"elev_ft":224},{"icao":"KFLO","name":"Florence Regional Airport","state":"SC","lat":34.1877,"lon":-79.7308,"elev_ft":141},{"icao":"KGSP","name":"Grnvl Spart Intl Airport","state":"SC","lat":34.9061,"lon":-82.2125,"elev_ft":966},{"icao":"KMYR","name":"Myrtle Beach AFB","state":"SC","lat":33.6833,"lon":-78.9333,"elev_ft":25},{"icao":"KABR","name":"Aberdeen Regional Airport","state":"SD","lat":45.4436,"lon":-98.4138,"elev_ft":1298},{"icao":"KHON","name":"Huron Regional Airport","state":"SD","lat":44.3792,"lon":-98.2228,"elev_ft":1282},{"icao":"KMHE","name":"Mitchell Airport","state":"SD","lat":43.7743,"lon":-98.0384,"elev_ft":1301},{"icao":"KRAP","name":"Rapid City Regional Airport","state":"SD","lat":44.0458,"lon":-103.0544,"elev_ft":3162},{"icao":"KFSD","name":"Sioux Falls Foss Field","state":"SD","lat":43.5775,"lon":-96.7539,"elev_ft":1419},{"icao":"KATY","name":"Watertown Regional Airport","state":"SD","lat":44.9045,"lon":-97.1496,"elev_ft":1741},{"icao":"KTRI","name":"Bristol Airport","state":"TN","lat":36.4796,"lon":-82.3989,"elev_ft":1496},{"icao":"KCHA","name":"Chattanooga Airport","state":"TN","lat":35.0336,"lon":-85.2004,"elev_ft":669},{"icao":"KTYS","name":"Knoxville Airport","state":"TN","lat":35.818,"lon":-83.9857,"elev_ft":971},{"icao":"KMRC","name":"Maury County Airport","state":"TN","lat":35.5544,"lon":-87.1791,"elev_ft":682},{"icao":"KMEM","name":"Memphis International Airport","state":"TN","lat":35.0564,"lon":-89.9864,"elev_ft":251},{"icao":"KBNA","name":"Nashville Intl Airport","state":"TN","lat":36.1105,"lon":-86.6881,"elev_ft":587},{"icao":"KABI","name":"Abilene Regional Airport","state":"TX","lat":32.4106,"lon":-99.6821,"elev_ft":1787},{"icao":"KAMA","name":"Amarillo Airport","state":"TX","lat":35.2203,"lon":-101.7173,"elev_ft":3607},{"icao":"KBSM","name":"Austin Bergstrom Intl Airport","state":"TX","lat":30.1831,"lon":-97.6799,"elev_ft":481},{"icao":"KBRO","name":"Brownsville S Padre Island Intl Airport","state":"TX","lat":25.9146,"lon":-97.4231,"elev_ft":19},{"icao":"KBMQ","name":"Burnet Municipal Airport","state":"TX","lat":30.7407,"lon":-98.2354,"elev_ft":1267},{"icao":"KCRP","name":"Corpus Christi Intl Airport","state":"TX","lat":27.7734,"lon":-97.513,"elev_ft":41},{"icao":"KDFW","name":"Dal-Ftw Wscmo Airport","state":"TX","lat":32.8974,"lon":-97.022,"elev_ft":544},{"icao":"KDHT","name":"Dalhart Faa Airport","state":"TX","lat":36.0252,"lon":-102.5487,"elev_ft":3988},{"icao":"KDAL","name":"Dallas Faa Airport","state":"TX","lat":32.8384,"lon":-96.8358,"elev_ft":484},{"icao":"KEBG","name":"Edinburg International Airport","state":"TX","lat":26.4419,"lon":-98.1294,"elev_ft":80},{"icao":"KELP","name":"El Paso Intl Airport","state":"TX","lat":31.8123,"lon":-106.3774,"elev_ft":3944},{"icao":"KFST","name":"Fort Stockton Pecos County Airport","state":"TX","lat":30.9119,"lon":-102.9171,"elev_ft":3011},{"icao":"KATA","name":"Hall Miller Muni","state":"TX","lat":33.1018,"lon":-94.1953,"elev_ft":280},{"icao":"KIAH","name":"Houston Intercontinental Airport","state":"TX","lat":29.9844,"lon":-95.3607,"elev_ft":90},{"icao":"KHOU","name":"Houston William P Hobby Airport","state":"TX","lat":29.6459,"lon":-95.2821,"elev_ft":43},{"icao":"KLRD","name":"Laredo Intl Airport","state":"TX","lat":27.5333,"lon":-99.4667,"elev_ft":494},{"icao":"KGGG","name":"Longview E Tx Rgnl Airport","state":"TX","lat":32.3909,"lon":-94.714,"elev_ft":352},{"icao":"KMAF","name":"Midland International Airport","state":"TX","lat":31.9475,"lon":-102.2086,"elev_ft":2862},{"icao":"KSAT","name":"San Antonio Intl Airport","state":"TX","lat":29.5443,"lon":-98.4839,"elev_ft":799},{"icao":"KACT","name":"Waco Regional Airport","state":"TX","lat":31.618,"lon":-97.2283,"elev_ft":498},{"icao":"KSPS","name":"Wichita Falls Municipal Airport","state":"TX","lat":33.9785,"lon":-98.493,"elev_ft":1013},{"icao":"KCDC","name":"Cedar City Airport","state":"UT","lat":37.7067,"lon":-113.097,"elev_ft":5590},{"icao":"KOGD","name":"Ogden Hinkley Airport","state":"UT","lat":41.1941,"lon":-112.0168,"elev_ft":4449},{"icao":"KPVU","name":"Provo Airport","state":"UT","lat":40.2189,"lon":-111.7233,"elev_ft":4497},{"icao":"KSLC","name":"Salt Lake City Intl Arpt","state":"UT","lat":40.7707,"lon":-111.965,"elev_ft":4227},{"icao":"KSGU","name":"St George Municipal Airport","state":"UT","lat":37.0451,"lon":-113.5056,"elev_ft":2936},{"icao":"KVEL","name":"Vernal Municipal Airport","state":"UT","lat":40.4429,"lon":-109.5128,"elev_ft":5266},{"icao":"KCHO","name":"Charlottesville Albemarle Airport","state":"VA","lat":38.1374,"lon":-78.4551,"elev_ft":631},{"icao":"KDAN","name":"Danville Regional Airport","state":"VA","lat":36.5729,"lon":-79.335,"elev_ft":552},{"icao":"KLYH","name":"Lynchburg Regional Airport","state":"VA","lat":37.3213,"lon":-79.2065,"elev_ft":902},{"icao":"KPHF","name":"Newport News Intl Airport","state":"VA","lat":37.1322,"lon":-76.494,"elev_ft":36},{"icao":"KORF","name":"Norfolk Intl Airport","state":"VA","lat":36.9037,"lon":-76.1927,"elev_ft":11},{"icao":"KRIC","name":"Richmond International Airport","state":"VA","lat":37.5115,"lon":-77.3234,"elev_ft":166},{"icao":"KROA","name":"Roanoke-Blacksburg Rgnl Airport","state":"VA","lat":37.3172,"lon":-79.9737,"elev_ft":1138},{"icao":"KIAD","name":"Washington Dulles Intl Airport","state":"VA","lat":38.9348,"lon":-77.4473,"elev_ft":294},{"icao":"KDCA","name":"Washington Reagan National Airport","state":"VA","lat":38.8472,"lon":-77.0345,"elev_ft":13},{"icao":"KBTV","name":"Burlington International Airport","state":"VT","lat":44.4682,"lon":-73.1499,"elev_ft":332},{"icao":"KMPV","name":"Montpelier - Edward F. Knapp State Airport","state":"VT","lat":44.205,"lon":-72.5654,"elev_ft":1105},{"icao":"KEFK","name":"Newport State Airport","state":"VT","lat":44.8833,"lon":-72.2333,"elev_ft":915},{"icao":"KRUT","name":"Rutland State Airport","state":"VT","lat":43.5333,"lon":-72.95,"elev_ft":784},{"icao":"KBLI","name":"Bellingham Intl Airport","state":"WA","lat":48.7991,"lon":-122.5407,"elev_ft":150},{"icao":"KPAE","name":"Everett Snohomish County Airport","state":"WA","lat":47.9232,"lon":-122.2831,"elev_ft":548},{"icao":"KMWH","name":"Moses Lake Grant County Airport","state":"WA","lat":47.193,"lon":-119.3146,"elev_ft":1169},{"icao":"KOLM","name":"Olympia Airport","state":"WA","lat":46.9737,"lon":-122.9049,"elev_ft":200},{"icao":"KPSC","name":"Pasco Tri Cities Airport","state":"WA","lat":46.2695,"lon":-119.1182,"elev_ft":400},{"icao":"KSEA","name":"Seattle Tacoma Airport","state":"WA","lat":47.4447,"lon":-122.3144,"elev_ft":369},{"icao":"KGEG","name":"Spokane International Airport","state":"WA","lat":47.6217,"lon":-117.528,"elev_ft":2355},{"icao":"KEAT","name":"Wenatchee Pangborn Memorial Airport","state":"WA","lat":47.3975,"lon":-120.2012,"elev_ft":1238},{"icao":"KYKM","name":"Yakima Airport","state":"WA","lat":46.564,"lon":-120.5349,"elev_ft":1053},{"icao":"KATW","name":"Appleton Outagamie County Airport","state":"WI","lat":44.2667,"lon":-88.5167,"elev_ft":917},{"icao":"KEAU","name":"Chippewa Valley Regional Airport","state":"WI","lat":44.8665,"lon":-91.4881,"elev_ft":884},{"icao":"KGRB","name":"Green Bay A S Intl Airport","state":"WI","lat":44.4796,"lon":-88.1371,"elev_ft":684},{"icao":"KLSE","name":"La Crosse Regional Airport","state":"WI","lat":43.8792,"lon":-91.253,"elev_ft":650},{"icao":"KMSN","name":"Madison Dane County Regional Airport","state":"WI","lat":43.1407,"lon":-89.3452,"elev_ft":859},{"icao":"KMKE","name":"Milwaukee Mitchell Airport","state":"WI","lat":42.9549,"lon":-87.9045,"elev_ft":667},{"icao":"KCWA","name":"Mosinee","state":"WI","lat":44.7833,"lon":-89.6667,"elev_ft":1277},{"icao":"KRHI","name":"Rhinelander Oneida County Airport","state":"WI","lat":45.6314,"lon":-89.4824,"elev_ft":1648},{"icao":"KBKW","name":"Beckley Raleigh County Airport","state":"WV","lat":37.7836,"lon":-81.1228,"elev_ft":2494},{"icao":"KCRW","name":"Charleston - West Virginia International Yeager Airport","state":"WV","lat":38.3795,"lon":-81.5911,"elev_ft":912},{"icao":"KCKB","name":"Clarksburg Benedum Airport","state":"WV","lat":39.3022,"lon":-80.2239,"elev_ft":1205},{"icao":"KEKN","name":"Elkins- Randolph County Airport","state":"WV","lat":38.8899,"lon":-79.8554,"elev_ft":1955},{"icao":"KHTS","name":"Huntington Tri-State Airport","state":"WV","lat":38.3653,"lon":-82.5548,"elev_ft":824},{"icao":"KCPR","name":"Casper-Natrona County Airport","state":"WY","lat":42.8978,"lon":-106.4736,"elev_ft":5319},{"icao":"KCYS","name":"Cheyenne Wsfo Airport","state":"WY","lat":41.1579,"lon":-104.8081,"elev_ft":6118},{"icao":"KCOD","name":"Cody Municipal Airport","state":"WY","lat":44.5167,"lon":-109.0167,"elev_ft":5092},{"icao":"KGCC","name":"Gillette Campbell County Airport","state":"WY","lat":44.3398,"lon":-105.5416,"elev_ft":4364},{"icao":"KJAC","name":"Jackson Hole Airport","state":"WY","lat":43.6,"lon":-110.7333,"elev_ft":6419},{"icao":"KLAR","name":"Laramie Airport","state":"WY","lat":41.3165,"lon":-105.6729,"elev_ft":7273},{"icao":"KRIW","name":"Riverton Regional Airport","state":"WY","lat":43.0622,"lon":-108.4471,"elev_ft":5447},{"icao":"KRKS","name":"Rock Springs Airport","state":"WY","lat":41.5947,"lon":-109.0529,"elev_ft":6758},{"icao":"KSHR","name":"Sheridan Airport","state":"WY","lat":44.7603,"lon":-106.9741,"elev_ft":3971}];
+const STATIONS_BY_ICAO = {};
+STATIONS.forEach(s => STATIONS_BY_ICAO[s.icao] = s);
+
+// ================================================================
+// COLOR SCALES — reused convention from current-conditions.html
+// ================================================================
+const SCALES = {
+  temp: { vals:[-60,-40,-20,-5,25,50,75,102,113,119,130], cols:['#2A0440','#7C18C0','#D42070','#FFB3C6','#A8D4F0','#5DBF6A','#FFE033','#D41A1A','#FF5555','#FFFFFF','#FFC0D0'] },
+  // Recalibrated for MONTHLY precip totals (inches), not hourly rate — 0 to
+  // 12" spans the realistic US range (Honolulu/Miami wet months run 8-10"+).
+  // Same dark->green->yellow-green story as the site-wide precip ramp.
+  precipMonthly: { vals:[0,0.25,1.5,3.5,6,12], cols:['#232323','#0d2812','#1c7020','#40c030','#b0d820','#e4d800'] },
+};
+function hexToRGB(hex){ return [parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]; }
+function getColorRGB(val,scale){
+  if (val==null||isNaN(val)) return [30,35,32];
+  const {vals,cols} = scale;
+  if (val<=vals[0]) return hexToRGB(cols[0]);
+  if (val>=vals[vals.length-1]) return hexToRGB(cols[cols.length-1]);
+  for (let i=0;i<vals.length-1;i++){
+    if (val>=vals[i] && val<=vals[i+1]){
+      const t=(val-vals[i])/(vals[i+1]-vals[i]);
+      const a=hexToRGB(cols[i]), b=hexToRGB(cols[i+1]);
+      return [Math.round(a[0]+t*(b[0]-a[0])),Math.round(a[1]+t*(b[1]-a[1])),Math.round(a[2]+t*(b[2]-a[2]))];
+    }
+  }
+  return hexToRGB(cols[cols.length-1]);
+}
+function tempColorRGBA(fVal,alpha){ const [r,g,b]=getColorRGB(fVal,SCALES.temp); return `rgba(${r},${g},${b},${alpha==null?1:alpha})`; }
+function precipColorRGBA(inVal,alpha){ const [r,g,b]=getColorRGB(inVal,SCALES.precipMonthly); return `rgba(${r},${g},${b},${alpha==null?1:alpha})`; }
+
+const ACCENT_A = '#D08425';       // city A — tool accent (climate)
+const ACCENT_B = '#6D96D8';       // city B — hourly accent, per spec
+
+// ================================================================
+// PLOTLY BASE (opaque card, monospace font, no drag/zoom)
+// ================================================================
+const PLOTLY_BASE = { paper_bgcolor:'#262B27', plot_bgcolor:'#262B27', font:{family:'Courier Prime, monospace', color:'rgba(232,228,217,.6)', size:13}, hoverlabel:{bgcolor:'#2C322D', bordercolor:'rgba(232,228,217,.2)', font:{family:'Courier Prime, monospace', size:13}}, dragmode:false };
+function chartConfig(){ return { responsive:true, displayModeBar:false, scrollZoom:false }; }
+
+// ================================================================
+// STATE
+// ================================================================
+const state = {
+  cityA: null,
+  cityB: null,
+  compare: false,
+  tempUnit: 'f',   // 'f' | 'c'
+  precipUnit: 'in',// 'in' | 'mm'
+  climoData: null, // fetched climo_data.json
+  dataError: false,
+};
+
+// ================================================================
+// UNIT CONVERSION — canonical storage stays °F / inches; conversion is
+// display-only, applied at render time in every consumer (chart, tables,
+// stat chips, PNG exports).
+// ================================================================
+function fmtTemp(f){
+  if (f==null||isNaN(f)) return '—';
+  const v = state.tempUnit==='c' ? (f-32)*5/9 : f;
+  return v.toFixed(1) + '°' + state.tempUnit.toUpperCase();
+}
+function tempVal(f){ if (f==null||isNaN(f)) return null; return state.tempUnit==='c' ? (f-32)*5/9 : f; }
+function precipVal(inches){ if (inches==null||isNaN(inches)) return null; return state.precipUnit==='mm' ? inches*25.4 : inches; }
+function fmtPrecip(inches){
+  if (inches==null||isNaN(inches)) return '—';
+  const v = precipVal(inches);
+  return (state.precipUnit==='mm' ? v.toFixed(0) : v.toFixed(2)) + ' ' + state.precipUnit;
+}
+function tempAxisLabel(){ return 'Temperature (°' + state.tempUnit.toUpperCase() + ')'; }
+function precipAxisLabel(){ return 'Precipitation (' + state.precipUnit + ')'; }
+function elevLabel(ft){ return ft==null ? '—' : Math.round(ft).toLocaleString('en-US') + ' ft'; }
+function coordLabel(lat, lon){
+  const ns = lat>=0 ? 'N' : 'S', ew = lon>=0 ? 'E' : 'W';
+  return `${Math.abs(lat).toFixed(4)}°${ns}, ${Math.abs(lon).toFixed(4)}°${ew}`;
+}
+
+// ================================================================
+// DATA HELPERS
+// ================================================================
+function hasClimoData(icao){ return !!(icao && state.climoData && state.climoData[icao]); }
+function cityMeta(icao){ return icao ? STATIONS_BY_ICAO[icao] : null; }
+function cityClimo(icao){ return hasClimoData(icao) ? state.climoData[icao] : null; }
+function cityDisplayName(icao){
+  const climo = cityClimo(icao);
+  if (climo) return `${climo.name}, ${climo.state}`;
+  const meta = cityMeta(icao);
+  return meta ? `${meta.name}, ${meta.state}` : icao;
+}
+
+function monthArray(climo, field){ return climo.months.map(m => m[field]); }
+
+function statsFor(climo){
+  const tavg = monthArray(climo,'tavg'), prcp = monthArray(climo,'prcp');
+  const argmax = arr => arr.reduce((best,v,i)=> (v!=null && (best.v==null||v>best.v)) ? {i,v} : best, {i:-1,v:null});
+  const argmin = arr => arr.reduce((best,v,i)=> (v!=null && (best.v==null||v<best.v)) ? {i,v} : best, {i:-1,v:null});
+  const warm = argmax(tavg), cold = argmin(tavg), wet = argmax(prcp), dry = argmin(prcp);
+  return { warm, cold, wet, dry };
+}
+
+// ================================================================
+// SIMPLIFIED KÖPPEN-GEIGER CLASSIFICATION
+// Standard decision rules (Peel, Finlay & McMahon 2007 simplification),
+// computed from the loaded station's monthly tavg (°F) / prcp (in). This is
+// an approximation from normals data, not an authoritative Köppen source —
+// labeled as such in the UI tooltip.
+// ================================================================
+const KOPPEN_NAMES = {
+  Af:'Tropical Rainforest', Am:'Tropical Monsoon', Aw:'Tropical Savanna', As:'Tropical Savanna (dry summer)',
+  BWh:'Hot Desert', BWk:'Cold Desert', BSh:'Hot Semi-Arid', BSk:'Cold Semi-Arid',
+  Csa:'Hot-Summer Mediterranean', Csb:'Warm-Summer Mediterranean', Csc:'Cold-Summer Mediterranean',
+  Cwa:'Humid Subtropical (dry winter)', Cwb:'Subtropical Highland', Cwc:'Cold Subtropical Highland',
+  Cfa:'Humid Subtropical', Cfb:'Oceanic', Cfc:'Subpolar Oceanic',
+  Dsa:'Hot-Summer Mediterranean Continental', Dsb:'Warm-Summer Mediterranean Continental', Dsc:'Dry-Summer Subarctic', Dsd:'Dry-Summer Very Cold Subarctic',
+  Dwa:'Hot-Summer Humid Continental (dry winter)', Dwb:'Warm-Summer Humid Continental (dry winter)', Dwc:'Subarctic (dry winter)', Dwd:'Very Cold Subarctic (dry winter)',
+  Dfa:'Hot-Summer Humid Continental', Dfb:'Warm-Summer Humid Continental', Dfc:'Subarctic', Dfd:'Very Cold Subarctic',
+  ET:'Tundra', EF:'Ice Cap',
+};
+function classifyKoppen(climo){
+  const tavgF = monthArray(climo,'tavg'), prcpIn = monthArray(climo,'prcp');
+  if (tavgF.some(v=>v==null) || prcpIn.some(v=>v==null)) return null;
+  const tC = tavgF.map(f => (f-32)*5/9);
+  const pMm = prcpIn.map(i => i*25.4);
+  const Tann = tC.reduce((a,b)=>a+b,0)/12;
+  const Pann = pMm.reduce((a,b)=>a+b,0);
+  const Tcold = Math.min(...tC), Twarm = Math.max(...tC);
+  const summerIdx=[3,4,5,6,7,8], winterIdx=[9,10,11,0,1,2]; // NH: Apr-Sep / Oct-Mar
+  const Psummer = summerIdx.reduce((s,i)=>s+pMm[i],0), Pwinter = winterIdx.reduce((s,i)=>s+pMm[i],0);
+  const summerFrac = Psummer/Pann, winterFrac = Pwinter/Pann;
+
+  let Pthreshold;
+  if (summerFrac>=0.7) Pthreshold = 20*Tann+280;
+  else if (winterFrac>=0.7) Pthreshold = 20*Tann;
+  else Pthreshold = 20*Tann+140;
+
+  const monthsAbove10 = tC.filter(v=>v>=10).length;
+  const thirdLetterMid = () => Twarm>=22 ? 'a' : (monthsAbove10>=4 ? 'b' : 'c');
+  const secondLetterCD = () => {
+    const PdriestSummer = Math.min(...summerIdx.map(i=>pMm[i]));
+    const PwettestSummer = Math.max(...summerIdx.map(i=>pMm[i]));
+    const PdriestWinter = Math.min(...winterIdx.map(i=>pMm[i]));
+    const PwettestWinter = Math.max(...winterIdx.map(i=>pMm[i]));
+    if (PdriestSummer<40 && PdriestSummer<PwettestWinter/3) return 's';
+    if (PdriestWinter<PwettestSummer/10) return 'w';
+    return 'f';
+  };
+
+  let code;
+  if (Pann < Pthreshold) {
+    const w = Pann < Pthreshold/2 ? 'W' : 'S';
+    const sub = Tann>=18 ? 'h' : 'k';
+    code = 'B'+w+sub;
+  } else if (Tcold >= 18) {
+    const Pdriest = Math.min(...pMm);
+    if (Pdriest>=60) code='Af';
+    else if (Pdriest >= 100-Pann/25) code='Am';
+    else code='Aw';
+  } else if (Tcold > -3) {
+    code = 'C'+secondLetterCD()+thirdLetterMid();
+  } else if (Twarm >= 10) {
+    const third = Twarm>=22 ? 'a' : (monthsAbove10>=4 ? 'b' : (Tcold>-38 ? 'c' : 'd'));
+    code = 'D'+secondLetterCD()+third;
+  } else {
+    code = Twarm>0 ? 'ET' : 'EF';
+  }
+  return { code, name: KOPPEN_NAMES[code] || 'Unclassified' };
+}
+
+// ================================================================
+// SEARCH / AUTOCOMPLETE — site-wide convention (current-conditions.html)
+// ================================================================
+function initSearch(inputId, ddId, onPick){
+  const inp = document.getElementById(inputId), dd = document.getElementById(ddId);
+  let ddIdx = -1;
+  inp.addEventListener('input', () => {
+    ddIdx = -1;
+    const q = inp.value.trim().toLowerCase();
+    if (!q) { dd.classList.remove('open'); return; }
+    const matches = STATIONS.filter(s =>
+      s.icao.toLowerCase().startsWith(q) ||
+      s.icao.slice(1).toLowerCase().startsWith(q) ||
+      s.name.toLowerCase().includes(q) ||
+      (s.state && s.state.toLowerCase()===q)
+    ).slice(0,18);
+    renderDD(matches);
+  });
+  inp.addEventListener('keydown', e => {
+    const items = dd.querySelectorAll('.d-item');
+    if (e.key==='ArrowDown'){ e.preventDefault(); ddIdx=Math.min(ddIdx+1,items.length-1); highlight(items); }
+    else if (e.key==='ArrowUp'){ e.preventDefault(); ddIdx=Math.max(ddIdx-1,0); highlight(items); }
+    else if (e.key==='Enter'){ e.preventDefault(); if (ddIdx>=0 && items[ddIdx]) items[ddIdx].click(); }
+    else if (e.key==='Escape'){ dd.classList.remove('open'); }
+  });
+  document.addEventListener('click', e => { if (!inp.closest('.finder-group').contains(e.target)) dd.classList.remove('open'); });
+  function highlight(items){ items.forEach((el,i)=>{ el.classList.toggle('hi', i===ddIdx); if (i===ddIdx) el.scrollIntoView({block:'nearest'}); }); }
+  function renderDD(matches){
+    if (!matches.length){ dd.innerHTML=''; dd.classList.remove('open'); return; }
+    dd.innerHTML = matches.map(s => `<div class="d-item"><span class="d-id">${s.icao}</span><span class="d-name">${s.name}, ${s.state}</span>${hasClimoData(s.icao)?'':'<span class="d-nodata">no data</span>'}</div>`).join('');
+    dd.querySelectorAll('.d-item').forEach((el,i)=>el.addEventListener('click', () => { inp.value=''; dd.classList.remove('open'); onPick(matches[i]); }));
+    dd.classList.add('open');
+  }
+}
+
+// ================================================================
+// HEADER
+// ================================================================
+function renderHeader(){
+  const metaA = cityMeta(state.cityA);
+  const climoA = cityClimo(state.cityA);
+  document.getElementById('city-title').textContent = metaA ? `${(climoA?climoA.name:metaA.name)}, ${metaA.state}` : 'Select a city';
+  const metaLine = metaA ? `${coordLabel(metaA.lat, metaA.lon)} · ${elevLabel(metaA.elev_ft)} elevation` : '';
+  document.getElementById('city-meta').textContent = metaLine;
+
+  const compareLine = document.getElementById('compare-line');
+  if (state.compare && state.cityB) {
+    compareLine.style.display = 'block';
+    compareLine.innerHTML = `<span class="vs-dot"></span>vs. ${cityDisplayName(state.cityB)}`;
+  } else {
+    compareLine.style.display = 'none';
+  }
+
+  const kWrap = document.getElementById('koppen-wrap');
+  if (climoA) {
+    const k = classifyKoppen(climoA);
+    if (k) {
+      kWrap.style.display = 'flex';
+      document.getElementById('koppen-badge').textContent = k.code;
+      document.getElementById('koppen-badge').title = 'Simplified Köppen–Geiger classification, estimated from 1991–2020 monthly normals';
+      document.getElementById('koppen-name').textContent = k.name;
+    } else { kWrap.style.display = 'none'; }
+  } else { kWrap.style.display = 'none'; }
+}
+
+// ================================================================
+// BANNER (compare city has no loaded normals yet)
+// ================================================================
+function renderBanner(){
+  const banner = document.getElementById('banner-note');
+  const text = document.getElementById('banner-note-text');
+  if (state.compare && state.cityB && !hasClimoData(state.cityB)) {
+    banner.classList.add('show');
+    text.innerHTML = `Climate normals for <strong>${cityDisplayName(state.cityB)}</strong> haven't been loaded into this tool yet — showing ${state.cityA?cityDisplayName(state.cityA):'the primary city'} only. Run <code>climo_build.py</code> to unlock all 372 cities.`;
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ================================================================
+// STAT CHIPS
+// ================================================================
+function statChipHTML(label, monthIdx, valueText, noteText){
+  const month = monthIdx>=0 ? MONTHS_FULL[monthIdx] : '—';
+  return `<div class="cc-stat-chip"><div class="cc-stat-label">${label}</div><div class="cc-stat-value">${month}</div><div class="cc-stat-note">${valueText}${noteText?(' · '+noteText):''}</div></div>`;
+}
+function renderStatsBlock(climo, accentColor, label){
+  if (!climo) return '';
+  const s = statsFor(climo);
+  const chips = [
+    statChipHTML('Warmest Month', s.warm.i, fmtTemp(s.warm.v), 'avg'),
+    statChipHTML('Coldest Month', s.cold.i, fmtTemp(s.cold.v), 'avg'),
+    statChipHTML('Wettest Month', s.wet.i, fmtPrecip(s.wet.v), 'avg'),
+    statChipHTML('Driest Month', s.dry.i, fmtPrecip(s.dry.v), 'avg'),
+  ].join('');
+  const labelHTML = label ? `<div class="stat-block-label"><span class="dot" style="background:${accentColor}"></span>${label}</div>` : '';
+  return `<div class="stat-block">${labelHTML}<div class="cc-stat-row">${chips}</div></div>`;
+}
+function renderStats(){
+  const climoA = cityClimo(state.cityA), climoB = (state.compare && hasClimoData(state.cityB)) ? cityClimo(state.cityB) : null;
+  let html = '';
+  if (climoA) html += renderStatsBlock(climoA, ACCENT_A, climoB ? cityDisplayName(state.cityA) : null);
+  if (climoB) html += renderStatsBlock(climoB, ACCENT_B, cityDisplayName(state.cityB));
+  document.getElementById('stats-container').innerHTML = html;
+}
+
+// ================================================================
+// CHART
+// ================================================================
+function renderChart(){
+  const chartSection = document.getElementById('chart-section');
+  const climoA = cityClimo(state.cityA);
+
+  if (!climoA) {
+    chartSection.innerHTML = emptyStateHTML();
+    document.getElementById('chart-legend').innerHTML = '';
+    return;
+  }
+  // Restore chart markup if a previous render replaced it with the empty state.
+  if (!document.getElementById('climo-chart')) {
+    chartSection.innerHTML = `<div class="chart-box"><button class="cc-btn cc-btn-sm chart-png-btn" id="chart-png-btn" type="button">&darr; PNG</button><div id="climo-chart"></div></div><div class="legend-band cc-legend-row" id="chart-legend"></div>`;
+    document.getElementById('chart-png-btn').addEventListener('click', () => exportChartPNG());
+  }
+
+  const climoB = (state.compare && hasClimoData(state.cityB)) ? cityClimo(state.cityB) : null;
+
+  const tavgA = monthArray(climoA,'tavg'), tmaxA = monthArray(climoA,'tmax'), tminA = monthArray(climoA,'tmin'), prcpA = monthArray(climoA,'prcp');
+  const tavgAd = tavgA.map(tempVal), tmaxAd = tmaxA.map(tempVal), tminAd = tminA.map(tempVal), prcpAd = prcpA.map(precipVal);
+
+  const traces = [];
+
+  // City A shaded tmin–tmax band
+  traces.push({ x: MONTHS.concat(MONTHS.slice().reverse()), y: tmaxAd.concat(tminAd.slice().reverse()),
+    fill:'toself', fillcolor:'rgba(208,132,37,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines' });
+
+  // City A temp line — markers colored by value on the shared temp scale
+  traces.push({ x: MONTHS, y: tavgAd, name: (climoB?cityDisplayName(state.cityA):'Avg Temp'), type:'scatter', mode:'lines+markers',
+    line:{color:ACCENT_A, width:3}, marker:{size:8, color: tavgA.map(v=>tempColorRGBA(v,1)), line:{color:ACCENT_A,width:1}},
+    yaxis:'y', hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
+
+  // City A precip bars — colored by value on the monthly precip scale
+  traces.push({ x: MONTHS, y: prcpAd, name: (climoB?cityDisplayName(state.cityA)+' Precip':'Precipitation'), type:'bar',
+    marker:{color: prcpA.map(v=>precipColorRGBA(v,.88)), line:{color:'rgba(232,228,217,.15)',width:1}},
+    yaxis:'y2', hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
+
+  let allTempVals = tmaxAd.concat(tminAd);
+  let allPrecipVals = prcpAd.slice();
+
+  if (climoB) {
+    const tavgB = monthArray(climoB,'tavg'), tmaxB = monthArray(climoB,'tmax'), tminB = monthArray(climoB,'tmin'), prcpB = monthArray(climoB,'prcp');
+    const tavgBd = tavgB.map(tempVal), tmaxBd = tmaxB.map(tempVal), tminBd = tminB.map(tempVal), prcpBd = prcpB.map(precipVal);
+
+    traces.push({ x: MONTHS.concat(MONTHS.slice().reverse()), y: tmaxBd.concat(tminBd.slice().reverse()),
+      fill:'toself', fillcolor:'rgba(109,150,216,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines' });
+
+    traces.push({ x: MONTHS, y: tavgBd, name: cityDisplayName(state.cityB), type:'scatter', mode:'lines+markers',
+      line:{color:ACCENT_B, width:3, dash:'dash'}, marker:{size:7, color:ACCENT_B, symbol:'diamond'},
+      yaxis:'y', hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
+
+    traces.push({ x: MONTHS, y: prcpBd, name: cityDisplayName(state.cityB)+' Precip', type:'bar',
+      marker:{color: 'rgba(109,150,216,.55)', line:{color:ACCENT_B,width:1}},
+      yaxis:'y2', hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
+
+    allTempVals = allTempVals.concat(tmaxBd, tminBd);
+    allPrecipVals = allPrecipVals.concat(prcpBd);
+  }
+
+  const tMin = Math.min(...allTempVals), tMax = Math.max(...allTempVals);
+  const tRange = (tMax-tMin) || 10;
+  // Extra headroom below pushes the temperature line into the chart's upper
+  // ~60%, leaving the lower band clear for precipitation bars — the classic
+  // climograph layout convention.
+  const yRange = [tMin - tRange*0.55, tMax + tRange*0.14];
+  const pMax = Math.max(...allPrecipVals, 0.1);
+  const y2Range = [0, pMax*2.35];
+
+  const axisFont = {family:'Courier Prime, monospace', color:'rgba(232,228,217,.6)', size:12};
+  const layout = {
+    ...PLOTLY_BASE,
+    barmode: climoB ? 'group' : 'overlay',
+    margin: {l:56, r:58, t:14, b:40},
+    xaxis: { tickfont:axisFont, gridcolor:'rgba(232,228,217,.05)', zeroline:false },
+    yaxis: { title:{text:tempAxisLabel(),font:axisFont}, tickfont:axisFont, range:yRange, gridcolor:'rgba(232,228,217,.08)', zeroline:false },
+    yaxis2: { title:{text:precipAxisLabel(),font:axisFont}, tickfont:axisFont, overlaying:'y', side:'right', range:y2Range, showgrid:false, zeroline:false },
+    legend: { orientation:'h', y:1.14, x:0.5, xanchor:'center', font:axisFont },
+    showlegend: !!climoB,
+  };
+
+  Plotly.newPlot('climo-chart', traces, layout, chartConfig());
+
+  renderChartLegend(climoA, climoB);
+}
+
+function legendChip(color, label, dashed){
+  const dashStyle = dashed ? 'border-style:dashed;' : '';
+  return `<span class="cc-legend-chip"><span class="cc-legend-dot" style="background:${color}"></span>${label}</span>`;
+}
+function renderChartLegend(climoA, climoB){
+  const el = document.getElementById('chart-legend');
+  if (!climoA) { el.innerHTML=''; return; }
+  let html = legendChip(ACCENT_A, (climoB?cityDisplayName(state.cityA)+' — ':'')+'Avg Temp (solid)') + legendChip('rgba(208,132,37,.5)', 'Precip');
+  if (climoB) html += legendChip(ACCENT_B, cityDisplayName(state.cityB)+' — Avg Temp (dashed)') + legendChip('rgba(109,150,216,.7)', cityDisplayName(state.cityB)+' Precip');
+  el.innerHTML = html;
+}
+
+function emptyStateHTML(){
+  const meta = cityMeta(state.cityA);
+  const name = meta ? `${meta.name}, ${meta.state}` : 'this city';
+  return `<div class="empty-state">
+    <div class="es-icon">&#127777;&#65039;</div>
+    <div class="es-title">Climate normals not loaded yet</div>
+    <div class="es-body">Climate normals for <strong>${name}</strong> haven't been loaded into this tool yet. This starter build ships with 11 cities. Run <code>climo_build.py</code> to generate the full 372-city dataset and unlock every station in the search box.</div>
+  </div>`;
+}
+
+// ================================================================
+// TABLES
+// ================================================================
+function buildTempTableRows(climo){
+  return climo.months.map((m,i) => [
+    MONTHS[i],
+    fmtTemp(m.tmax), fmtTemp(m.tmin), fmtTemp(m.tavg),
+    m.record_high==null ? '—' : fmtTemp(m.record_high),
+    m.record_low==null ? '—' : fmtTemp(m.record_low),
+  ]);
+}
+function buildPrecipTableRows(climo){
+  return climo.months.map((m,i) => [
+    MONTHS[i],
+    fmtPrecip(m.prcp), fmtPrecip(m.prcp_med),
+    m.extreme_prcp==null ? '—' : fmtPrecip(m.extreme_prcp),
+    m.extreme_prcp_year==null ? '—' : String(m.extreme_prcp_year),
+    m.snow==null ? '—' : fmtPrecip(m.snow),
+  ]);
+}
+function annualTempRow(climo){
+  const tmax = monthArray(climo,'tmax'), tmin = monthArray(climo,'tmin'), tavg = monthArray(climo,'tavg');
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  return ['Annual', fmtTemp(avg(tmax)), fmtTemp(avg(tmin)), fmtTemp(avg(tavg)), '—', '—'];
+}
+function annualPrecipRow(climo){
+  const prcp = monthArray(climo,'prcp'), snow = monthArray(climo,'snow');
+  const sum = arr => arr.some(v=>v==null) ? null : arr.reduce((a,b)=>a+b,0);
+  return ['Annual', fmtPrecip(sum(prcp)), '—', '—', '—', snow.some(v=>v==null) ? '—' : fmtPrecip(sum(snow))];
+}
+function tableHTML(id, headers, rows, footRow){
+  const thead = `<thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>`;
+  const tbody = `<tbody>${rows.map(r=>`<tr>${r.map((c,i)=>`<td${c==='—'?' class="dim"':''}>${c}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  const tfoot = footRow ? `<tfoot><tr>${footRow.map(c=>`<td>${c}</td>`).join('')}</tr></tfoot>` : '';
+  return `<table class="data-table" id="${id}">${thead}${tbody}${tfoot}</table>`;
+}
+function cityTablesBlockHTML(climo, icao, accentColor, groupLabel, idx){
+  const tTempId = `tbl-temp-${idx}`, tPrecipId = `tbl-precip-${idx}`;
+  const tempRows = buildTempTableRows(climo); tempRows.push(annualTempRow(climo));
+  const precipRows = buildPrecipTableRows(climo); precipRows.push(annualPrecipRow(climo));
+  const tempTable = tableHTML(tTempId, ['Month','Daily Max','Daily Min','Mean','Record High','Record Low'], buildTempTableRows(climo), annualTempRow(climo));
+  const precipTable = tableHTML(tPrecipId, ['Month','Mean','Median','Extreme','Year','Snow'], buildPrecipTableRows(climo), annualPrecipRow(climo));
+  const label = groupLabel ? `<div class="city-table-group-hdr"><span class="dot" style="background:${accentColor}"></span>${groupLabel}</div>` : '';
+  return `<div class="city-table-group">
+    ${label}
+    <div class="tables-grid">
+      <div class="table-panel">
+        <div class="table-panel-hdr"><span class="table-panel-title">Temperature (°${state.tempUnit.toUpperCase()})</span><button class="cc-btn cc-btn-sm" type="button" onclick="exportTablePNGFor('${tTempId}','${icao}','temp')">&darr; PNG</button></div>
+        ${tempTable}
+      </div>
+      <div class="table-panel">
+        <div class="table-panel-hdr"><span class="table-panel-title">Precipitation (${state.precipUnit})</span><button class="cc-btn cc-btn-sm" type="button" onclick="exportTablePNGFor('${tPrecipId}','${icao}','precip')">&darr; PNG</button></div>
+        ${precipTable}
+      </div>
+    </div>
+  </div>`;
+}
+function renderTables(){
+  const climoA = cityClimo(state.cityA), climoB = (state.compare && hasClimoData(state.cityB)) ? cityClimo(state.cityB) : null;
+  const container = document.getElementById('tables-container');
+  if (!climoA) { container.innerHTML = ''; return; }
+  let html = cityTablesBlockHTML(climoA, state.cityA, ACCENT_A, climoB ? cityDisplayName(state.cityA) : null, 'a');
+  if (climoB) html += cityTablesBlockHTML(climoB, state.cityB, ACCENT_B, cityDisplayName(state.cityB), 'b');
+  container.innerHTML = html;
+}
+
+// ================================================================
+// PNG EXPORT — site-wide standard: branded header (title, context line),
+// the surface itself, footer citation, top/bottom accent stripe, 2x scale.
+// ================================================================
+function exportChartPNG(){
+  const gd = document.getElementById('climo-chart');
+  if (!gd || !window.Plotly) return;
+  const climoA = cityClimo(state.cityA);
+  if (!climoA) return;
+  const climoB = (state.compare && hasClimoData(state.cityB)) ? cityClimo(state.cityB) : null;
+  const title = climoB ? `Climograph — ${cityDisplayName(state.cityA)} vs. ${cityDisplayName(state.cityB)}` : `Climograph — ${cityDisplayName(state.cityA)}`;
+  const metaA = cityMeta(state.cityA);
+  const contextLine = `${coordLabel(metaA.lat,metaA.lon)} · ${elevLabel(metaA.elev_ft)} elevation · 1991–2020 Climate Normals`;
+  const sourceLine = 'Source: NOAA NCEI 1991–2020 U.S. Climate Normals';
+
+  const chartW = gd.offsetWidth||900, chartH = gd.offsetHeight||400;
+  Plotly.toImage(gd, {format:'png', width:chartW, height:chartH, scale:1}).then(src => {
+    const img = new Image();
+    img.onload = () => {
+      const PAD=28, HDR=112, FTR=42;
+      const ow=chartW+PAD*2, oh=HDR+chartH+FTR;
+      const off = document.createElement('canvas');
+      off.width = Math.round(ow*2); off.height = Math.round(oh*2);
+      const oc = off.getContext('2d'); oc.scale(2,2);
+      oc.fillStyle='#1E2320'; oc.fillRect(0,0,ow,oh);
+      oc.fillStyle='#D08425'; oc.fillRect(0,0,ow,4);
+      oc.textBaseline='alphabetic';
+      oc.fillStyle='#948F82'; oc.font='600 12px "Courier Prime", monospace';
+      oc.textAlign='left'; oc.fillText('CONTEXTCLIMATE · CLIMOGRAPHS', PAD, 30);
+      oc.textAlign='right'; oc.fillText(new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), ow-PAD, 30);
+      oc.textAlign='left';
+      oc.fillStyle='#E8E4D9'; oc.font='bold 27px "Zilla Slab", serif'; oc.fillText(title, PAD, 64);
+      oc.fillStyle='#A6A499'; oc.font='15px "Public Sans", sans-serif'; oc.fillText(contextLine, PAD, 90);
+      oc.fillStyle='#262B27'; oc.fillRect(PAD,HDR,chartW,chartH);
+      oc.drawImage(img, PAD, HDR, chartW, chartH);
+      oc.fillStyle='#948F82'; oc.font='12px "Courier Prime", monospace';
+      oc.fillText(`${sourceLine}  ·  ContextClimate  ·  contextclimate.io`, PAD, oh-16);
+      oc.fillStyle='#D08425'; oc.fillRect(0,oh-3,ow,3);
+      const link = document.createElement('a');
+      link.download = `climograph_${state.cityA}${climoB?'_vs_'+state.cityB:''}_${new Date().toISOString().slice(0,10)}.png`;
+      link.href = off.toDataURL('image/png');
+      link.click();
+    };
+    img.src = src;
+  }).catch(e => console.warn('PNG export failed:', e));
+}
+
+function exportTablePNGFor(tableId, icao, kind){
+  const climo = cityClimo(icao);
+  const meta = cityMeta(icao);
+  if (!climo || !meta) return;
+  const title = (kind==='temp' ? 'Temperature Normals — ' : 'Precipitation Normals — ') + cityDisplayName(icao);
+  const contextLine = `${coordLabel(meta.lat,meta.lon)} · ${elevLabel(meta.elev_ft)} elevation · 1991–2020 Climate Normals`;
+  const sourceLine = 'Source: NOAA NCEI 1991–2020 U.S. Climate Normals';
+  exportTablePNG(tableId, title, contextLine, sourceLine);
+}
+
+function exportTablePNG(tableId, title, contextLine, sourceLine){
+  const table = document.getElementById(tableId);
+  if (!table) return;
+  const rows = Array.from(table.querySelectorAll('tr')).map(tr => Array.from(tr.children).map(td => td.textContent.trim()));
+  if (!rows.length) return;
+  const cols = rows[0].length;
+  const PAD=28, HDR=112, FTR=42, ROWH=27, CELLPAD=14;
+  const measure = document.createElement('canvas').getContext('2d');
+  const colW = new Array(cols).fill(0);
+  rows.forEach((r,ri) => {
+    measure.font = ri===0 ? '700 11px "Courier Prime", monospace' : '13px "Courier Prime", monospace';
+    r.forEach((cell,ci) => { colW[ci] = Math.max(colW[ci], measure.measureText(cell).width + CELLPAD*2); });
+  });
+  const tableW = colW.reduce((a,b)=>a+b,0);
+  const tableH = rows.length*ROWH;
+  const ow = tableW+PAD*2, oh = HDR+tableH+FTR;
+  const off = document.createElement('canvas');
+  off.width = Math.round(ow*2); off.height = Math.round(oh*2);
+  const oc = off.getContext('2d'); oc.scale(2,2);
+  oc.fillStyle='#1E2320'; oc.fillRect(0,0,ow,oh);
+  oc.fillStyle='#D08425'; oc.fillRect(0,0,ow,4);
+  oc.textBaseline='alphabetic';
+  oc.fillStyle='#948F82'; oc.font='600 12px "Courier Prime", monospace';
+  oc.textAlign='left'; oc.fillText('CONTEXTCLIMATE · CLIMOGRAPHS', PAD, 30);
+  oc.textAlign='right'; oc.fillText(new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}), ow-PAD, 30);
+  oc.textAlign='left';
+  oc.fillStyle='#E8E4D9'; oc.font='bold 25px "Zilla Slab", serif'; oc.fillText(title, PAD, 64);
+  oc.fillStyle='#A6A499'; oc.font='14px "Public Sans", sans-serif'; oc.fillText(contextLine, PAD, 90);
+  oc.fillStyle='#262B27'; oc.fillRect(PAD,HDR,tableW,tableH);
+  let y = HDR;
+  rows.forEach((r,ri) => {
+    const isHeader = ri===0, isLast = ri===rows.length-1;
+    if (isHeader) { oc.fillStyle='#2C322D'; oc.fillRect(PAD,y,tableW,ROWH); }
+    else if (isLast) { oc.fillStyle='#2C322D'; oc.fillRect(PAD,y,tableW,ROWH); }
+    else if (ri%2===0) { oc.fillStyle='rgba(255,255,255,.03)'; oc.fillRect(PAD,y,tableW,ROWH); }
+    let x = PAD;
+    r.forEach((cell,ci) => {
+      oc.fillStyle = isHeader ? '#A6A499' : (isLast ? '#E8E4D9' : '#E8E4D9');
+      oc.font = isHeader ? '700 10.5px "Courier Prime", monospace' : (isLast ? '700 13px "Courier Prime", monospace' : '13px "Courier Prime", monospace');
+      const align = ci===0 ? 'left' : 'right';
+      oc.textAlign = align;
+      const tx = align==='left' ? x+CELLPAD : x+colW[ci]-CELLPAD;
+      oc.fillText(isHeader ? cell.toUpperCase() : cell, tx, y+ROWH/2+4);
+      x += colW[ci];
+    });
+    y += ROWH;
+    oc.strokeStyle='rgba(232,228,217,.08)'; oc.beginPath(); oc.moveTo(PAD,y); oc.lineTo(PAD+tableW,y); oc.stroke();
+  });
+  oc.textAlign='left';
+  oc.fillStyle='#948F82'; oc.font='12px "Courier Prime", monospace';
+  oc.fillText(`${sourceLine}  ·  ContextClimate  ·  contextclimate.io`, PAD, oh-16);
+  oc.fillStyle='#D08425'; oc.fillRect(0,oh-3,ow,3);
+  const link = document.createElement('a');
+  link.download = `${tableId}_${new Date().toISOString().slice(0,10)}.png`;
+  link.href = off.toDataURL('image/png');
+  link.click();
+}
+
+// ================================================================
+// PERMALINK — reflects city / compare / units in the URL query string via
+// history.replaceState (no reload); read back on load so a shared link
+// reproduces the view.
+// ================================================================
+function updateURL(){
+  const params = new URLSearchParams();
+  if (state.cityA) params.set('city', state.cityA);
+  if (state.compare && state.cityB) params.set('compare', state.cityB);
+  params.set('units', state.tempUnit==='c' ? 'c' : 'f');
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? ('?'+qs) : location.pathname);
+}
+function readURL(){
+  const params = new URLSearchParams(location.search);
+  const city = params.get('city');
+  const compare = params.get('compare');
+  const units = params.get('units');
+  if (city && STATIONS_BY_ICAO[city]) state.cityA = city;
+  if (compare && STATIONS_BY_ICAO[compare]) { state.cityB = compare; state.compare = true; }
+  if (units === 'c') { state.tempUnit='c'; state.precipUnit='mm'; }
+}
+
+// ================================================================
+// MASTER RENDER
+// ================================================================
+function render(){
+  renderHeader();
+  renderBanner();
+  renderStats();
+  renderChart();
+  renderTables();
+}
+
+// ================================================================
+// EVENT WIRING
+// ================================================================
+function wireUnitToggle(id, key, onChange){
+  const wrap = document.getElementById(id);
+  wrap.querySelectorAll('.cc-segmented-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      wrap.querySelectorAll('.cc-segmented-btn').forEach(b=>b.classList.remove('on'));
+      btn.classList.add('on');
+      state[key] = btn.dataset.unit;
+      onChange();
+      render();
+      updateURL();
+    });
+  });
+}
+
+function syncUnitToggleUI(){
+  document.querySelectorAll('#temp-unit-toggle .cc-segmented-btn').forEach(b=>b.classList.toggle('on', b.dataset.unit===state.tempUnit));
+  document.querySelectorAll('#precip-unit-toggle .cc-segmented-btn').forEach(b=>b.classList.toggle('on', b.dataset.unit===state.precipUnit));
+}
+
+function setCompare(on){
+  state.compare = on;
+  document.getElementById('sw2-wrap').style.display = on ? 'flex' : 'none';
+  document.getElementById('compare-toggle-btn').classList.toggle('on', on);
+  document.getElementById('compare-toggle-btn').textContent = on ? '− Compare City' : '+ Compare City';
+  if (!on) state.cityB = null;
+}
+
+function init(){
+  readURL();
+  if (!state.cityA) state.cityA = 'KATL'; // sensible default: four-season humid subtropical, in starter set
+
+  initSearch('si1','dd1', s => { state.cityA = s.icao; render(); updateURL(); });
+  initSearch('si2','dd2', s => { state.cityB = s.icao; render(); updateURL(); });
+
+  document.getElementById('compare-toggle-btn').addEventListener('click', () => {
+    setCompare(!state.compare);
+    render(); updateURL();
+    if (state.compare) document.getElementById('si2').focus();
+  });
+  document.getElementById('compare-remove-btn').addEventListener('click', () => { setCompare(false); render(); updateURL(); });
+
+  wireUnitToggle('temp-unit-toggle','tempUnit', () => {});
+  wireUnitToggle('precip-unit-toggle','precipUnit', () => {});
+
+  document.getElementById('chart-png-btn').addEventListener('click', () => exportChartPNG());
+
+  if (state.compare) setCompare(true);
+  syncUnitToggleUI();
+
+  fetch('climo_data.json')
+    .then(r => { if (!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+    .then(data => {
+      state.climoData = data;
+      render();
+    })
+    .catch(err => {
+      console.error('Failed to load climo_data.json:', err);
+      state.dataError = true;
+      document.getElementById('city-title').textContent = 'Data failed to load';
+      document.getElementById('city-meta').textContent = '';
+      document.getElementById('stats-container').innerHTML = '';
+      document.getElementById('chart-section').innerHTML = `<div class="load-error"><strong>Could not load climo_data.json.</strong><br><br>
+        This tool fetches its dataset at runtime from <code>climo_data.json</code> in the same folder as this HTML file. If you opened this file directly from disk (a <code>file://</code> URL), most browsers block that fetch for local files — serve the folder over HTTP instead, e.g.:<br><br>
+        <code>python3 -m http.server</code><br><br>
+        then open <code>http://localhost:8000/climograph-tool.html</code>. On the live site this works automatically once both files are uploaded together.</div>`;
+      document.getElementById('tables-container').innerHTML = '';
+    });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
