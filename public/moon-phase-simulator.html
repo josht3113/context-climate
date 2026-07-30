@@ -36,6 +36,12 @@
     text-transform: none; letter-spacing: 0; font-size: 13px; font-family: var(--font-body);
   }
 
+  .cc-btn.labOn {
+    background: var(--tool-accent);
+    color: #12140f;
+    border-color: var(--tool-accent);
+  }
+
   #orbitCanvas, #phaseCanvas, #horizonCanvas { width: 100%; height: auto; }
   #orbitCanvas { cursor: grab; }
   #orbitCanvas.dragging { cursor: grabbing; }
@@ -144,7 +150,7 @@
   <div class="layout-grid">
     <div class="leftcol">
       <div class="cc-panel">
-        <p class="panel-label">Orbit View <span class="hint">drag Moon or Earth</span></p>
+        <p class="panel-label">Orbit View <span class="hint" id="orbitHint">drag Moon or Earth</span></p>
         <canvas id="orbitCanvas" class="cc-canvas-frame" width="620" height="560"></canvas>
         <div class="cc-legend-row" style="margin-top:14px;">
           <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:#ffd27a"></span>Sun</span>
@@ -161,6 +167,7 @@
             <button class="cc-btn primary" id="playBtn">▶ Play</button>
             <button class="cc-btn" id="resetBtn">↺ Reset</button>
             <button class="cc-btn" id="todayBtn">🌍 Sync to Today</button>
+            <button class="cc-btn" id="labBtn">🔬 Lab Mode</button>
           </div>
 
           <div class="ctrl-group">
@@ -261,8 +268,24 @@
     showAngle: true,
     showLandmark: false,
     showNames: true,
+    labMode: false,
     simDay: 0
   };
+
+  // The 8 canonical teaching positions around the orbit (0 = New Moon),
+  // moving the same direction as the live Moon: New -> Waxing Crescent ->
+  // First Quarter -> Waxing Gibbous -> Full -> Waning Gibbous -> Third
+  // Quarter -> Waning Crescent. Matches the standard classroom diagram.
+  var LAB_POSITIONS = [
+    {theta: 0,               label: "New Moon"},
+    {theta: Math.PI/4,       label: "Waxing Crescent"},
+    {theta: Math.PI/2,       label: "First Quarter"},
+    {theta: 3*Math.PI/4,     label: "Waxing Gibbous"},
+    {theta: Math.PI,         label: "Full Moon"},
+    {theta: 5*Math.PI/4,     label: "Waning Gibbous"},
+    {theta: 3*Math.PI/2,     label: "Third Quarter"},
+    {theta: 7*Math.PI/4,     label: "Waning Crescent"}
+  ];
 
   /* ---------- Helpers: phase math ---------- */
   function illumFraction(theta){
@@ -548,11 +571,54 @@
     ctx.restore();
   }
 
+  // Faint reference "ghost" moons at the 8 canonical teaching positions,
+  // each rendered as the actual phase silhouette (not the sunlit top-down
+  // view) so it matches the classic classroom diagram students are shown.
+  function drawLabGhosts(ctx){
+    if(!state.labMode) return;
+    var ghostR = moonIconR * 0.78;
+    var labelR = orbitR + ghostR + 18;
+    ctx.save();
+    for(var i=0;i<LAB_POSITIONS.length;i++){
+      var pos = LAB_POSITIONS[i];
+      var p = moonPos(pos.theta);
+      var dx = p.x-ocx, dy = p.y-ocy, d = Math.sqrt(dx*dx+dy*dy) || 1;
+      var ux = dx/d, uy = dy/d;
+
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      drawSmallMoonIcon(ctx, p.x, p.y, ghostR, pos.theta, false);
+      ctx.restore();
+
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      ctx.setLineDash([2,3]);
+      ctx.strokeStyle = "rgba(190,205,255,0.7)";
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(p.x,p.y,ghostR+3,0,TWO_PI); ctx.stroke();
+      ctx.restore();
+
+      if(state.showNames){
+        var lx = ocx + ux*labelR, ly = ocy + uy*labelR;
+        ctx.save();
+        ctx.globalAlpha = 0.62;
+        ctx.font = LABEL_FONT_SM;
+        ctx.fillStyle = "rgba(222,227,248,0.9)";
+        ctx.textAlign = Math.abs(ux) < 0.35 ? "center" : (ux > 0 ? "left" : "right");
+        ctx.textBaseline = Math.abs(uy) < 0.35 ? "middle" : (uy > 0 ? "top" : "bottom");
+        ctx.fillText(pos.label, lx, ly);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
   function drawOrbit(){
     var ctx = getCtx(orbitCanvas);
     ctx.clearRect(0,0,orbitW,orbitH);
 
     drawDashedOrbit(ctx);
+    drawLabGhosts(ctx);
 
     drawSun(ctx, sunPos.x, sunPos.y, 30);
     if(state.showNames){
@@ -863,6 +929,18 @@
     renderAll();
   });
 
+  var labBtn = document.getElementById("labBtn");
+  var orbitHint = document.getElementById("orbitHint");
+  labBtn.addEventListener("click", function(){
+    state.labMode = !state.labMode;
+    labBtn.classList.toggle("labOn", state.labMode);
+    labBtn.innerHTML = state.labMode ? "🔬 Lab Mode: ON" : "🔬 Lab Mode";
+    orbitHint.textContent = state.labMode
+      ? "drag Moon or Earth · 8 key positions shown"
+      : "drag Moon or Earth";
+    renderAll();
+  });
+
   var speedSlider = document.getElementById("speed");
   var speedVal = document.getElementById("speedVal");
   speedSlider.addEventListener("input", function(){
@@ -933,7 +1011,22 @@
     renderAll();
     evt.preventDefault();
   }
+  // Snap to the nearest key position when a lab-mode drag ends close to one —
+  // makes it easy for students to land exactly on a target phase.
+  var SNAP_THRESHOLD = 6 * Math.PI/180;
   function pointerUp(){
+    if(dragMode === "moon" && state.labMode){
+      var best = null, bestDiff = Infinity;
+      for(var i=0;i<LAB_POSITIONS.length;i++){
+        var diff = Math.abs(state.theta - LAB_POSITIONS[i].theta);
+        diff = Math.min(diff, TWO_PI-diff);
+        if(diff < bestDiff){ bestDiff = diff; best = LAB_POSITIONS[i]; }
+      }
+      if(best && bestDiff <= SNAP_THRESHOLD){
+        state.theta = best.theta;
+        renderAll();
+      }
+    }
     dragMode = null;
     orbitCanvas.classList.remove("dragging");
   }
