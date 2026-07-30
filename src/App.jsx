@@ -41,7 +41,6 @@ import Flapstronaut               from './pages/Flapstronaut'
 import DewpointThresholdHeatmap    from './pages/DewpointThresholdHeatmap'
 import FogHeatmap                  from './pages/FogHeatmap'
 import ThunderstormHeatmap         from './pages/ThunderstormHeatmap'
-import SmokeHeatmap                from './pages/SmokeHeatmap'
 import WinterPrecipHeatmap         from './pages/WinterPrecipHeatmap'
 import SnowfallSeasonWindow        from './pages/SnowfallSeasonWindow'
 import SnowFrequency               from './pages/SnowFrequency'
@@ -97,6 +96,7 @@ import TornadoClimatology          from './pages/TornadoClimatology'
 import OutbreakExplorer            from './pages/OutbreakExplorer'
 import GlobalTemperatureContext    from './pages/GlobalTemperatureContext'
 import GreenhouseGasTracker        from './pages/GreenhouseGasTracker'
+import Climographs                 from './pages/Climographs'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -164,7 +164,6 @@ export default function App() {
           <Route path="/dewpoint-threshold-heatmap"          element={<DewpointThresholdHeatmap />} />
           <Route path="/fog-heatmap"                         element={<FogHeatmap />}              />
           <Route path="/thunderstorm-heatmap"                element={<ThunderstormHeatmap />}     />
-          <Route path="/smoke-heatmap"                       element={<SmokeHeatmap />}            />
           <Route path="/winter-precip-heatmap"               element={<WinterPrecipHeatmap />}     />
           <Route path="/snowfall-season-window"              element={<SnowfallSeasonWindow />}    />
           <Route path="/snow-frequency"                      element={<SnowFrequency />}           />
@@ -220,6 +219,7 @@ export default function App() {
           <Route path="/tornado-outbreak-explorer"                 element={<OutbreakExplorer />}          />
           <Route path="/global-temperature-context"                element={<GlobalTemperatureContext />}  />
           <Route path="/greenhouse-gas-tracker"                     element={<GreenhouseGasTracker />}       />
+          <Route path="/climographs"                                element={<Climographs />}                />
         </Routes>
       </main>
       <footer style={{
