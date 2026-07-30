@@ -703,12 +703,72 @@ function skyToNum(s) {
   return SKY_NUM[s] ?? null;
 }
 
+// -- Spike QC ---------------------------------------------------------
+// A handful of raw ASOS readings in the archive are single-hour sensor/
+// telemetry glitches: temp or dewpoint jumps >=12F from BOTH neighboring
+// hours and then jumps straight back, all inside one hour. Confirmed by
+// pulling the raw IEM feed directly (e.g. KISP 2011-12-15 14:56 local:
+// 71.6F between two 54F readings; KISP 2012-12-17 15:56: 60.8F between
+// 43F and 44F) -- a coastal station's air temp does not round-trip that
+// far in an hour, so this is a bad reading, not real weather. Wind is left
+// alone since a real gust can legitimately spike and calm within an hour;
+// clouds is a categorical code, not a continuous quantity a spike test
+// applies to.
+const SPIKE_FIELDS    = ['temp', 'td'];
+const SPIKE_THRESHOLD = 12; // degF
+
+function isSpike(prev, cur, next) {
+  const d1 = cur - prev, d2 = cur - next;
+  return (d1 >= SPIKE_THRESHOLD && d2 >= SPIKE_THRESHOLD) ||
+         (d1 <= -SPIKE_THRESHOLD && d2 <= -SPIKE_THRESHOLD);
+}
+
+function despikeGrid(grid) {
+  for (const f of SPIKE_FIELDS) {
+    const arr = grid[f];
+    for (let i = 1; i < GRID_SIZE - 1; i++) {
+      const prev = arr[i-1], cur = arr[i], next = arr[i+1];
+      if (!isNaN(cur) && !isNaN(prev) && !isNaN(next) && isSpike(prev, cur, next)) {
+        arr[i] = NaN;
+      }
+    }
+  }
+}
+
+function makeYearGrid() {
+  const g = {};
+  for (const f of BASE_FIELDS) g[f] = new Float32Array(GRID_SIZE).fill(NaN);
+  return g;
+}
+
 function parseCSVInto(text, y1, y2, single, accum) {
   // single: makeSingleData() or null (climo mode)
   // accum:  makeClimoAccum() or null (single mode)
   const lines = text.split('\n');
   let tmpfI=2, dwpfI=3, skntI=4, skyc1I=5, skyc2I=6, skyc3I=7;
   let inData = false;
+
+  // Climatology folds many years into one running sum, so a per-year
+  // scratch buffer is despiked BEFORE it's added in -- otherwise a single
+  // bad hour would still bias the mean, and would hit the std-dev even
+  // harder (sum2 squares it).
+  let yearBuf = null, yearBufYr = null;
+  function flushYearBuf() {
+    if (!yearBuf) return;
+    despikeGrid(yearBuf);
+    for (const f of BASE_FIELDS) {
+      const arr = yearBuf[f];
+      for (let i = 0; i < GRID_SIZE; i++) {
+        const v = arr[i];
+        if (!isNaN(v)) {
+          accum[f].sum[i]  += v;
+          accum[f].sum2[i] += v*v;
+          accum[f].cnt[i]++;
+        }
+      }
+    }
+    yearBuf = null;
+  }
 
   for (let li=0; li<lines.length; li++) {
     const line = lines[li].trim();
@@ -776,16 +836,15 @@ function parseCSVInto(text, y1, y2, single, accum) {
       }
     }
     if (accum) {
+      if (yearBufYr !== yr) { flushYearBuf(); yearBuf = makeYearGrid(); yearBufYr = yr; }
       for (const f of BASE_FIELDS) {
         const v = vals[f];
-        if (v != null) {
-          accum[f].sum[idx]  += v;
-          accum[f].sum2[idx] += v*v;
-          accum[f].cnt[idx]++;
-        }
+        if (v != null) yearBuf[f][idx] = v;
       }
     }
   }
+  flushYearBuf();
+  if (single) despikeGrid(single);
 }
 
 // ═══════════════════════════════════════════════════════════
