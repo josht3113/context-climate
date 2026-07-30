@@ -65,6 +65,11 @@
 #climo-chart { height: 460px; }
 .chart-empty-note { text-align:center; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); padding: 4px 0 2px; }
 .legend-band { display:flex; justify-content:center; margin-top: 10px; }
+.chart-note { text-align:center; font-family: var(--font-mono); font-size: 11.5px; letter-spacing:.02em; color: var(--color-text-muted); margin-top: 8px; }
+.cc-legend-chip.clickable { cursor: pointer; user-select: none; transition: opacity .15s ease, border-color .15s ease; }
+.cc-legend-chip.clickable:hover { border-color: var(--tool-accent); }
+.cc-legend-chip.off { opacity: .38; }
+.cc-legend-chip.off .cc-legend-dot { background: var(--color-text-muted) !important; }
 
 /* ── Empty state ──────────────────────────────────────────────── */
 .empty-state { background: var(--color-surface); border: 1px dashed var(--color-border-hover); border-radius: var(--radius-lg); padding: 46px 30px; text-align: center; }
@@ -169,6 +174,7 @@
       <div id="climo-chart"></div>
     </div>
     <div class="legend-band cc-legend-row" id="chart-legend"></div>
+    <div class="chart-note" id="chart-note">Shaded band = each month's average daily high&ndash;low spread, not year-to-year variability.</div>
   </div>
 
   <!-- TABLES -->
@@ -231,6 +237,16 @@ function precipColorRGBA(inVal,alpha){ const [r,g,b]=getColorRGB(inVal,SCALES.pr
 const ACCENT_A = '#D08425';       // city A — tool accent (climate)
 const ACCENT_B = '#6D96D8';       // city B — hourly accent, per spec
 
+// Fixed climograph axis bounds (canonical °F / inches — converted for
+// display via tempVal()/precipVal() same as everything else). Chosen to
+// comfortably span the station roster's full climate diversity — Arctic
+// Alaska winters (Barrow/Fairbanks normal lows near -20°F) through Desert
+// Southwest summers (Phoenix/Yuma normal highs ~107°F), plus the wettest
+// Gulf Coast/Hawaii monthly precip totals — without ever rescaling per
+// city. See renderChart() for why a fixed scale matters here.
+const TEMP_AXIS_MIN_F = -30, TEMP_AXIS_MAX_F = 120;
+const PRECIP_AXIS_MAX_IN = 20;
+
 // ================================================================
 // PLOTLY BASE (opaque card, monospace font, no drag/zoom)
 // ================================================================
@@ -248,6 +264,8 @@ const state = {
   precipUnit: 'in',// 'in' | 'mm'
   climoData: null, // fetched climo_data.json
   dataError: false,
+  // Legend click-to-toggle: which trace groups are shown per city slot.
+  vis: { tempA: true, precipA: true, tempB: true, precipB: true },
 };
 
 // ================================================================
@@ -486,7 +504,7 @@ function renderChart(){
   }
   // Restore chart markup if a previous render replaced it with the empty state.
   if (!document.getElementById('climo-chart')) {
-    chartSection.innerHTML = `<div class="chart-box"><button class="cc-btn cc-btn-sm chart-png-btn" id="chart-png-btn" type="button">&darr; PNG</button><div id="climo-chart"></div></div><div class="legend-band cc-legend-row" id="chart-legend"></div>`;
+    chartSection.innerHTML = `<div class="chart-box"><button class="cc-btn cc-btn-sm chart-png-btn" id="chart-png-btn" type="button">&darr; PNG</button><div id="climo-chart"></div></div><div class="legend-band cc-legend-row" id="chart-legend"></div><div class="chart-note" id="chart-note">Shaded band = each month's average daily high&ndash;low spread, not year-to-year variability.</div>`;
     document.getElementById('chart-png-btn').addEventListener('click', () => exportChartPNG());
   }
 
@@ -499,48 +517,47 @@ function renderChart(){
 
   // City A shaded tmin–tmax band
   traces.push({ x: MONTHS.concat(MONTHS.slice().reverse()), y: tmaxAd.concat(tminAd.slice().reverse()),
-    fill:'toself', fillcolor:'rgba(208,132,37,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines' });
+    fill:'toself', fillcolor:'rgba(208,132,37,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines',
+    visible: state.vis.tempA });
 
   // City A temp line — markers colored by value on the shared temp scale
   traces.push({ x: MONTHS, y: tavgAd, name: (climoB?cityDisplayName(state.cityA):'Avg Temp'), type:'scatter', mode:'lines+markers',
     line:{color:ACCENT_A, width:3}, marker:{size:8, color: tavgA.map(v=>tempColorRGBA(v,1)), line:{color:ACCENT_A,width:1}},
-    yaxis:'y', hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
+    yaxis:'y', visible: state.vis.tempA,
+    hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
 
   // City A precip bars — colored by value on the monthly precip scale
   traces.push({ x: MONTHS, y: prcpAd, name: (climoB?cityDisplayName(state.cityA)+' Precip':'Precipitation'), type:'bar',
     marker:{color: prcpA.map(v=>precipColorRGBA(v,.88)), line:{color:'rgba(232,228,217,.15)',width:1}},
-    yaxis:'y2', hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
-
-  let allTempVals = tmaxAd.concat(tminAd);
-  let allPrecipVals = prcpAd.slice();
+    yaxis:'y2', visible: state.vis.precipA,
+    hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityA)+'</extra>' });
 
   if (climoB) {
     const tavgB = monthArray(climoB,'tavg'), tmaxB = monthArray(climoB,'tmax'), tminB = monthArray(climoB,'tmin'), prcpB = monthArray(climoB,'prcp');
     const tavgBd = tavgB.map(tempVal), tmaxBd = tmaxB.map(tempVal), tminBd = tminB.map(tempVal), prcpBd = prcpB.map(precipVal);
 
     traces.push({ x: MONTHS.concat(MONTHS.slice().reverse()), y: tmaxBd.concat(tminBd.slice().reverse()),
-      fill:'toself', fillcolor:'rgba(109,150,216,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines' });
+      fill:'toself', fillcolor:'rgba(109,150,216,.13)', line:{width:0}, showlegend:false, hoverinfo:'skip', yaxis:'y', type:'scatter', mode:'lines',
+      visible: state.vis.tempB });
 
     traces.push({ x: MONTHS, y: tavgBd, name: cityDisplayName(state.cityB), type:'scatter', mode:'lines+markers',
       line:{color:ACCENT_B, width:3, dash:'dash'}, marker:{size:7, color:ACCENT_B, symbol:'diamond'},
-      yaxis:'y', hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
+      yaxis:'y', visible: state.vis.tempB,
+      hovertemplate:'%{x}: %{y:.1f}°'+state.tempUnit.toUpperCase()+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
 
     traces.push({ x: MONTHS, y: prcpBd, name: cityDisplayName(state.cityB)+' Precip', type:'bar',
       marker:{color: 'rgba(109,150,216,.55)', line:{color:ACCENT_B,width:1}},
-      yaxis:'y2', hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
-
-    allTempVals = allTempVals.concat(tmaxBd, tminBd);
-    allPrecipVals = allPrecipVals.concat(prcpBd);
+      yaxis:'y2', visible: state.vis.precipB,
+      hovertemplate:'%{x}: %{y:.2f} '+state.precipUnit+'<extra>'+cityDisplayName(state.cityB)+'</extra>' });
   }
 
-  const tMin = Math.min(...allTempVals), tMax = Math.max(...allTempVals);
-  const tRange = (tMax-tMin) || 10;
-  // Extra headroom below pushes the temperature line into the chart's upper
-  // ~60%, leaving the lower band clear for precipitation bars — the classic
-  // climograph layout convention.
-  const yRange = [tMin - tRange*0.55, tMax + tRange*0.14];
-  const pMax = Math.max(...allPrecipVals, 0.1);
-  const y2Range = [0, pMax*2.35];
+  // Fixed axis scale (see TEMP_AXIS_MIN_F/MAX_F, PRECIP_AXIS_MAX_IN above) —
+  // deliberately NOT computed from this city's data. A dynamic per-city
+  // range stretches every climograph to fill the same box, which erases the
+  // very thing this chart exists to show: comparing temperature swing
+  // (slope) and precip amount (bar height) across different places.
+  const yRange = [tempVal(TEMP_AXIS_MIN_F), tempVal(TEMP_AXIS_MAX_F)];
+  const y2Range = [0, precipVal(PRECIP_AXIS_MAX_IN)];
 
   const axisFont = {family:'Courier Prime, monospace', color:'rgba(232,228,217,.6)', size:12};
   const layout = {
@@ -559,16 +576,22 @@ function renderChart(){
   renderChartLegend(climoA, climoB);
 }
 
-function legendChip(color, label, dashed){
-  const dashStyle = dashed ? 'border-style:dashed;' : '';
-  return `<span class="cc-legend-chip"><span class="cc-legend-dot" style="background:${color}"></span>${label}</span>`;
+function legendChip(color, label, key, isOn){
+  return `<span class="cc-legend-chip clickable${isOn?'':' off'}" data-vis-key="${key}" role="button" tabindex="0" title="Click to show/hide"><span class="cc-legend-dot" style="background:${color}"></span>${label}</span>`;
 }
 function renderChartLegend(climoA, climoB){
   const el = document.getElementById('chart-legend');
   if (!climoA) { el.innerHTML=''; return; }
-  let html = legendChip(ACCENT_A, (climoB?cityDisplayName(state.cityA)+' — ':'')+'Avg Temp (solid)') + legendChip('rgba(208,132,37,.5)', 'Precip');
-  if (climoB) html += legendChip(ACCENT_B, cityDisplayName(state.cityB)+' — Avg Temp (dashed)') + legendChip('rgba(109,150,216,.7)', cityDisplayName(state.cityB)+' Precip');
+  let html = legendChip(ACCENT_A, (climoB?cityDisplayName(state.cityA)+' — ':'')+'Avg Temp (solid)', 'tempA', state.vis.tempA)
+           + legendChip('rgba(208,132,37,.5)', 'Precip', 'precipA', state.vis.precipA);
+  if (climoB) html += legendChip(ACCENT_B, cityDisplayName(state.cityB)+' — Avg Temp (dashed)', 'tempB', state.vis.tempB)
+                     + legendChip('rgba(109,150,216,.7)', cityDisplayName(state.cityB)+' Precip', 'precipB', state.vis.precipB);
   el.innerHTML = html;
+  el.querySelectorAll('.cc-legend-chip.clickable').forEach(chip => {
+    const toggle = () => { state.vis[chip.dataset.visKey] = !state.vis[chip.dataset.visKey]; renderChart(); };
+    chip.addEventListener('click', toggle);
+    chip.addEventListener('keydown', e => { if (e.key==='Enter' || e.key===' ') { e.preventDefault(); toggle(); } });
+  });
 }
 
 function emptyStateHTML(){
@@ -663,7 +686,10 @@ function exportChartPNG(){
   const sourceLine = 'Source: NOAA NCEI 1991–2020 U.S. Climate Normals';
 
   const chartW = gd.offsetWidth||900, chartH = gd.offsetHeight||400;
-  Plotly.toImage(gd, {format:'png', width:chartW, height:chartH, scale:1}).then(src => {
+  // scale:2 — matches the 2x-scaled composite canvas below. At scale:1 the
+  // chart was rendered at native CSS size then stretched 2x into the final
+  // canvas, blurring it; rendering it at 2x natively keeps it crisp.
+  Plotly.toImage(gd, {format:'png', width:chartW, height:chartH, scale:2}).then(src => {
     const img = new Image();
     img.onload = () => {
       const PAD=28, HDR=112, FTR=42;
@@ -823,7 +849,7 @@ function setCompare(on){
   document.getElementById('sw2-wrap').style.display = on ? 'flex' : 'none';
   document.getElementById('compare-toggle-btn').classList.toggle('on', on);
   document.getElementById('compare-toggle-btn').textContent = on ? '− Compare City' : '+ Compare City';
-  if (!on) state.cityB = null;
+  if (!on) { state.cityB = null; state.vis.tempB = true; state.vis.precipB = true; }
 }
 
 function init(){
@@ -831,7 +857,7 @@ function init(){
   if (!state.cityA) state.cityA = 'KATL'; // sensible default: four-season humid subtropical, in starter set
 
   initSearch('si1','dd1', s => { state.cityA = s.icao; render(); updateURL(); });
-  initSearch('si2','dd2', s => { state.cityB = s.icao; render(); updateURL(); });
+  initSearch('si2','dd2', s => { state.cityB = s.icao; state.vis.tempB = true; state.vis.precipB = true; render(); updateURL(); });
 
   document.getElementById('compare-toggle-btn').addEventListener('click', () => {
     setCompare(!state.compare);
