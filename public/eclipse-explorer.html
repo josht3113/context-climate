@@ -137,6 +137,11 @@
   .cc-checkbox-row{ display:flex; align-items:center; gap:8px; font-size:13px; color: var(--color-text-secondary); cursor:pointer; }
   .saros-detail{ border:1px solid var(--tool-accent); border-radius: var(--radius-md); padding:10px; font-size:12px; color: var(--color-text-secondary); display:flex; flex-direction:column; gap:6px; }
   .saros-detail .cc-btn-row{ margin-top:2px; }
+
+  /* Sky View split panels */
+  .sky-split{ display:flex; gap:24px; width:100%; justify-content:center; align-items:flex-start; flex-wrap:wrap; }
+  .sky-split-col{ display:flex; flex-direction:column; align-items:center; gap:8px; flex:1 1 380px; max-width:640px; }
+  .sky-split-label{ font-family: var(--font-mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase; color: var(--color-text-muted); }
 </style>
 </head>
 <body>
@@ -221,7 +226,7 @@
     <!-- ══════════════════ SKY VIEW ══════════════════ -->
     <section class="view-panel" data-view="sky">
       <div class="view-sidebar cc-panel">
-        <p class="fact-line">This panel is linked to the Orbital Geometry tab — it shows what an observer positioned directly under the shadow track would actually see in the sky, using real angular sizes for the Sun and Moon.</p>
+        <p class="fact-line">Same Moon, same moment, two views: on the left, the top-down orbital picture (drag the sliders back on Orbital Geometry to change it); on the right, what that actually looks like from the ground, using real angular sizes for the Sun and Moon.</p>
         <div class="control-block">
           <div class="control-block-label">Current alignment</div>
           <div class="control-readout" id="skyStateReadout">—</div>
@@ -233,9 +238,18 @@
         </div>
       </div>
       <div class="view-main">
-        <span class="eclipse-badge" id="skyBadge"><span class="dot"></span><span id="skyBadgeText">—</span></span>
-        <canvas id="skyCanvas" class="cc-canvas-frame" width="480" height="420"></canvas>
-        <div class="fact-line" id="skyCaption" style="text-align:center;max-width:520px;"></div>
+        <div class="sky-split">
+          <div class="sky-split-col">
+            <div class="sky-split-label">Orbital view — top-down</div>
+            <canvas id="skyOrbitalCanvas" class="cc-canvas-frame" width="640" height="420"></canvas>
+          </div>
+          <div class="sky-split-col">
+            <span class="eclipse-badge" id="skyBadge"><span class="dot"></span><span id="skyBadgeText">—</span></span>
+            <div class="sky-split-label">What an observer on Earth sees</div>
+            <canvas id="skyCanvas" class="cc-canvas-frame" width="480" height="420"></canvas>
+          </div>
+        </div>
+        <div class="fact-line" id="skyCaption" style="text-align:center;max-width:640px;"></div>
       </div>
     </section>
 
@@ -456,7 +470,7 @@
 
   /* ══════════════════════ ORBITAL CANVAS RENDER ══════════════════════ */
   const oc = document.getElementById('orbitalCanvas');
-  const octx = oc.getContext('2d');
+  let octx = oc.getContext('2d');
   const PX_PER_KM = 150 / MEAN_DIST; // along-orbit (X) scale: real distance, 1px ~= 2400km
 
   // Cross-track (Y) scale: body radii, the beta offset, and shadow-cone widths all share this
@@ -469,7 +483,19 @@
   const bodyMoonR = Rm * Y_SCALE;       // ~6.5px, falls out of the real Re/Rm ratio
 
   function drawOrbital(){
-    const W = oc.width, H = oc.height;
+    const off = drawOrbitalScene(octx, oc.width, oc.height);
+    updateOrbitalBadgeAndStats(off);
+    drawNodeInset();
+  }
+
+  // The actual scene-drawing routine, factored out so the Sky View tab can render the SAME
+  // top-down diagram (at the same absolute pixel scale, just displayed smaller via CSS) right
+  // next to "what an observer sees" — otherwise Sky View has no visible link back to where the
+  // Moon actually is. octx is temporarily pointed at whichever canvas is being drawn so
+  // drawSolarCones/drawLunarCones (which read the closure variable) target the right one.
+  function drawOrbitalScene(ctx, W, H){
+    const prevCtx = octx;
+    octx = ctx;
     octx.clearRect(0,0,W,H);
     octx.fillStyle = '#15181a'; octx.fillRect(0,0,W,H);
 
@@ -539,8 +565,8 @@
     octx.fillText('Moon', moonX, moonY - bodyMoonR - 8);
     octx.textAlign='left';
 
-    updateOrbitalBadgeAndStats(off);
-    drawNodeInset();
+    octx = prevCtx;
+    return off;
   }
 
   // Solar-eclipse shadow cones: the umbra is a straight-sided cone tangent to the Moon's own
@@ -805,6 +831,8 @@
   /* ══════════════════════ SKY VIEW ══════════════════════ */
   const skc = document.getElementById('skyCanvas');
   const skctx = skc.getContext('2d');
+  const skoc = document.getElementById('skyOrbitalCanvas');
+  const skoctx = skoc.getContext('2d');
   const PX_PER_DEG = 210; // angular scale for the sky view
 
   function circleOverlapFraction(r, R, d){
@@ -818,6 +846,8 @@
   }
 
   function renderSky(){
+    drawOrbitalScene(skoctx, skoc.width, skoc.height); // keep the linked top-down view in sync
+
     const W = skc.width, H = skc.height;
     skctx.clearRect(0,0,W,H);
     skctx.fillStyle = '#0d1a26'; skctx.fillRect(0,0,W,H);
