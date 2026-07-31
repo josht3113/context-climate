@@ -156,6 +156,13 @@ body { padding: 20px 0 48px; }
   <!-- CONTROLS -->
   <div class="controls-panel">
     <div class="ctrl-row">
+      <span class="ctrl-label">Mode</span>
+      <div class="cc-segmented" id="seg-mode">
+        <button class="cc-segmented-btn is-active" data-mode="streaks">Streaks</button>
+        <button class="cc-segmented-btn" data-mode="totals">Totals</button>
+      </div>
+    </div>
+    <div class="ctrl-row">
       <span class="ctrl-label">Variable</span>
       <div class="cc-segmented" id="seg-variable">
         <button class="cc-segmented-btn is-active" data-variable="dewpoint">Dewpoint</button>
@@ -215,6 +222,8 @@ body { padding: 20px 0 48px; }
     <div class="month-grid" id="month-grid"></div>
   </div>
 
+  <div id="streaks-view">
+
   <!-- HEADLINE -->
   <div class="headline-panel">
     <div class="headline-top">
@@ -262,6 +271,29 @@ body { padding: 20px 0 48px; }
         <table class="ranked-table">
           <thead><tr><th>Rank</th><th>Dates</th><th class="r">Length</th><th></th></tr></thead>
           <tbody id="ranked-tbody"><tr><td colspan="4" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see records</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  </div>
+  <!-- /streaks-view -->
+
+  <!-- TOTALS -->
+  <div id="totals-view" style="display:none">
+    <div class="ranked-panel">
+      <div class="ranked-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <span id="totals-hdr-label">Total Time Above Threshold</span>
+        <div class="cc-segmented" id="seg-totals-group">
+          <button class="cc-segmented-btn is-active" data-group="year">By Year</button>
+          <button class="cc-segmented-btn" data-group="month">By Month (Avg)</button>
+        </div>
+      </div>
+      <div id="totals-chart" style="height:360px;margin-top:6px;"></div>
+      <div class="ranked-table-box" style="max-height:320px;margin-top:14px;width:100%;">
+        <table class="ranked-table">
+          <thead id="totals-thead"><tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr></thead>
+          <tbody id="totals-tbody"><tr><td colspan="3" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see totals</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -400,7 +432,8 @@ const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','
 let curStation=null, rawHourly=[], hourlyMap=new Map(), dailyMap=new Map(), sortedDates=[];
 let state = {
   variable:'dewpoint', aggregation:'hourly', metric:'max', op:'gte', value:65, activePreset:'d-muggy65',
-  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]), seasonId:'all', seasonLabel:'All Months'
+  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]), seasonId:'all', seasonLabel:'All Months',
+  mode:'streaks', totalsGroupBy:'year'
 };
 let lastGrid=null, lastStreaks=null, lastStats=null;
 let stripDPR = window.devicePixelRatio || 1;
@@ -650,6 +683,15 @@ function thresholdDescription(cfg){
 // ================================================================
 // RENDER: HEADLINE
 // ================================================================
+// ================================================================
+// SHARED: THRESHOLD SUMMARY (updates regardless of active mode)
+// ================================================================
+function updateThresholdSummary(cfg){
+  const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
+  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
+  document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
+}
+
 function renderHeadline(grid, streaks, stats, cfg){
   const isWarmDir = cfg.op==='gte';
   const badge=document.getElementById('hl-badge');
@@ -705,9 +747,6 @@ function renderHeadline(grid, streaks, stats, cfg){
   document.getElementById('sv-thisyear').textContent = formatLength(stats.thisYearQualifying,cfg);
   document.getElementById('sv-period').textContent = `${stats.startYear}–${stats.endYear}`;
 
-  const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
-  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
-  document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
   document.getElementById('strip-mode-note').textContent = (cfg.aggregation==='daily' ? 'daily condition met' : 'any qualifying hour per day') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel} only` : '');
 
   checkJeopardy(curStation, cfg, stats, grid);
@@ -955,6 +994,120 @@ function renderRanked(grid, streaks, stats, cfg){
 }
 
 // ================================================================
+// TOTALS MODE: COMPUTATION
+// ================================================================
+function computeYearlyTotals(grid, cfg){
+  // "possible" = in-season grid cells that exist for that year (regardless of missing readings).
+  // Comparing each year's possible-count against the record's max reveals edge years that are
+  // cut short (record starts mid-year, or the current year hasn't finished yet) -- the grid simply
+  // doesn't contain future days at all, so this is the only reliable way to flag them as partial.
+  const map = new Map(); // year -> {qual, present, possible}
+  for(const g of grid){
+    if(g.excluded) continue;
+    const y = yearOf(g.date);
+    let e = map.get(y);
+    if(!e){ e={qual:0, present:0, possible:0}; map.set(y,e); }
+    e.possible++;
+    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
+  }
+  const years = [...map.keys()].filter(y=>map.get(y).possible>0).sort((a,b)=>a-b);
+  const maxPossible = years.reduce((mx,y)=>Math.max(mx, map.get(y).possible), 0);
+  return years.map(y=>{
+    const e = map.get(y);
+    const partial = maxPossible>0 && e.possible < maxPossible*0.9;
+    return { key:String(y), label:String(y), qual:e.qual, present:e.present, possible:e.possible, partial };
+  });
+}
+
+function computeMonthlyTotals(grid, cfg){
+  // Climatology: average per-year total for each calendar month. A given year's contribution to a
+  // month is excluded from the average if that year's coverage of the month is well below the
+  // record's typical coverage for it (e.g. the current, still-in-progress month, or a record that
+  // starts/ends mid-month) -- otherwise a partial month would silently drag the average down.
+  const byMonth = new Map(); // month -> Map(year -> {qual, present, possible})
+  for(const g of grid){
+    if(g.excluded) continue;
+    const m = monthOf(g.date), y = yearOf(g.date);
+    let yearsMap = byMonth.get(m);
+    if(!yearsMap){ yearsMap=new Map(); byMonth.set(m,yearsMap); }
+    let e = yearsMap.get(y);
+    if(!e){ e={qual:0, present:0, possible:0}; yearsMap.set(y,e); }
+    e.possible++;
+    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
+  }
+  const months = [...byMonth.keys()].sort((a,b)=>a-b);
+  return months.map(m=>{
+    const yearsMap = byMonth.get(m);
+    const entries = [...yearsMap.values()];
+    const maxPossible = entries.reduce((mx,e)=>Math.max(mx,e.possible),0);
+    const complete = entries.filter(e=> maxPossible===0 || e.possible >= maxPossible*0.9);
+    const totalQual = complete.reduce((s,e)=>s+e.qual,0);
+    const yrCount = complete.length || 1;
+    return { key:String(m), label:MONTH_NAMES[m-1], qual: totalQual, yearsCount: complete.length, avgQual: totalQual/yrCount };
+  });
+}
+
+function formatTotal(n, cfg){
+  const r = Math.round(n*10)/10;
+  if(cfg.aggregation==='daily') return `${r} day${r===1?'':'s'}`;
+  if(r>=24) return `${r} hrs (${(r/24).toFixed(1)}d)`;
+  return `${r} hr${r===1?'':'s'}`;
+}
+
+// ================================================================
+// TOTALS MODE: RENDER
+// ================================================================
+function renderTotals(grid, cfg){
+  document.getElementById('totals-hdr-label').textContent = cfg.op==='gte' ? 'Total Time At/Above Threshold' : 'Total Time At/Below Threshold';
+  const groupBy = state.totalsGroupBy;
+  const rows = groupBy==='year' ? computeYearlyTotals(grid, cfg) : computeMonthlyTotals(grid, cfg);
+  const baseColor = cfg.op==='gte' ? '#E0824A' : '#5B9BD8';
+  const unitWord = cfg.aggregation==='daily' ? 'days' : 'hours';
+
+  const labels = rows.map(r=>r.label);
+  const values = rows.map(r=> groupBy==='year' ? r.qual : r.avgQual);
+  const opacities = rows.map(r=> (groupBy==='year' && r.partial) ? 0.45 : 1);
+
+  const trace = {
+    type:'bar', x:labels, y:values,
+    marker:{color:baseColor, opacity:opacities},
+    hovertemplate:'%{y:.1f} ' + unitWord + '<extra></extra>'
+  };
+  const yAxisTitle = groupBy==='year'
+    ? (cfg.aggregation==='daily'?'Days':'Hours')
+    : (cfg.aggregation==='daily'?'Avg Days / Year':'Avg Hours / Year');
+  const layout = {
+    paper_bgcolor:'#262B27', plot_bgcolor:'#262B27',
+    margin:{l:56,r:20,t:10,b:40},
+    font:{family:'Courier Prime, monospace', color:'#A6A499', size:11},
+    xaxis:{type:'category', gridcolor:'rgba(232,228,217,0.08)'},
+    yaxis:{gridcolor:'rgba(232,228,217,0.08)', title:yAxisTitle, rangemode:'tozero'}
+  };
+  Plotly.newPlot('totals-chart', [trace], layout, {responsive:true,displayModeBar:false});
+
+  const thead = document.getElementById('totals-thead');
+  const tbody = document.getElementById('totals-tbody');
+  if(!rows.length){
+    thead.innerHTML = '<tr><th>&ndash;</th></tr>';
+    tbody.innerHTML = '<tr><td style="text-align:center;padding:20px;color:var(--color-text-muted)">No data for this selection</td></tr>';
+    return;
+  }
+  if(groupBy==='year'){
+    thead.innerHTML = '<tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr>';
+    tbody.innerHTML = rows.slice().reverse().map(r=>{
+      const cov = r.possible ? Math.round(r.present/r.possible*100) : 0;
+      const partialTag = r.partial ? ' <span style="color:var(--color-text-muted)">(partial)</span>' : '';
+      return `<tr><td>${r.label}${partialTag}</td><td class="r">${formatTotal(r.qual,cfg)}</td><td class="r">${cov}%</td></tr>`;
+    }).join('');
+  } else {
+    thead.innerHTML = '<tr><th>Month</th><th class="r">Avg / Year</th><th class="r">Years of Data</th></tr>';
+    tbody.innerHTML = rows.map(r=>{
+      return `<tr><td>${r.label}</td><td class="r">${formatTotal(r.avgQual,cfg)}</td><td class="r">${r.yearsCount}</td></tr>`;
+    }).join('');
+  }
+}
+
+// ================================================================
 // LOAD STATION
 // ================================================================
 async function loadStation(station){
@@ -992,9 +1145,15 @@ function recomputeAndRender(){
   if(!sortedDates.length) return;
   const cfg = activeCfg();
   const grid = buildGrid(cfg);
+  lastGrid = grid;
+  updateThresholdSummary(cfg);
+  if(state.mode==='totals'){
+    renderTotals(grid, cfg);
+    return;
+  }
   const streaks = extractStreaks(grid);
   const stats = computeStats(grid, streaks, cfg);
-  lastGrid=grid; lastStreaks=streaks; lastStats=stats;
+  lastStreaks=streaks; lastStats=stats;
   renderHeadline(grid, streaks, stats, cfg);
   renderStrip(grid, streaks, stats, cfg);
   renderRanked(grid, streaks, stats, cfg);
@@ -1097,6 +1256,23 @@ function applyCustom(){
 }
 
 function initControls(){
+  document.getElementById('seg-mode').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(state.mode===btn.dataset.mode) return;
+      state.mode = btn.dataset.mode;
+      document.getElementById('seg-mode').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      document.getElementById('streaks-view').style.display = state.mode==='streaks' ? '' : 'none';
+      document.getElementById('totals-view').style.display = state.mode==='totals' ? '' : 'none';
+      recomputeAndRender();
+    });
+  });
+  document.getElementById('seg-totals-group').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.totalsGroupBy = btn.dataset.group;
+      document.getElementById('seg-totals-group').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      if(lastGrid) renderTotals(lastGrid, activeCfg());
+    });
+  });
   document.getElementById('seg-variable').querySelectorAll('button').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       state.variable = btn.dataset.variable;
@@ -1123,7 +1299,7 @@ function initControls(){
   const numInput=document.getElementById('custom-num'), rangeInput=document.getElementById('custom-range');
   numInput.addEventListener('input', ()=>{ rangeInput.value = numInput.value; });
   rangeInput.addEventListener('input', ()=>{ numInput.value = rangeInput.value; });
-  window.addEventListener('resize', ()=>{ if(lastGrid) renderStrip(lastGrid, lastStreaks, lastStats, activeCfg()); });
+  window.addEventListener('resize', ()=>{ if(state.mode==='streaks' && lastGrid && lastStats) renderStrip(lastGrid, lastStreaks, lastStats, activeCfg()); });
 }
 
 // ================================================================
