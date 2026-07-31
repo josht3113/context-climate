@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Streak Tracker | ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --tool-accent: var(--accent-hourly);
+  --streak-warm: #E0824A;   /* threshold crossed from ABOVE (>=) — content-encoded, not remapped */
+  --streak-cool: #5B9BD8;   /* threshold crossed from BELOW (<=) — content-encoded, not remapped */
+  --streak-record: #D9A94F; /* record-streak highlight */
+  --streak-current: #F1EEE4;/* current-streak highlight */
+}
+
+body { padding: 20px 0 48px; }
+.container { max-width: 1320px; margin: 0 auto; padding: 0 28px; }
+
+/* ── Header ── */
+.page-eyebrow { margin-bottom: 6px; }
+.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.title-sep { color: var(--color-text-muted); font-weight: 400; }
+.page-subtitle { margin-bottom: 16px; max-width: 900px; }
+
+/* ── Station bar (reused pattern from current-conditions.html) ── */
+.station-bar { padding: 14px 0; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--color-border); margin-bottom: 16px; flex-wrap: wrap; }
+.search-wrap { position: relative; flex: 0 0 340px; }
+.search-input { width: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 9px 12px 9px 34px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; outline: none; transition: border-color .15s; }
+.search-input:focus { border-color: var(--tool-accent); }
+.search-input::placeholder { color: var(--color-text-muted); }
+.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 17px; pointer-events: none; }
+.dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 272px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 10px 32px rgba(0,0,0,.6); }
+.dropdown.open { display: block; }
+.d-item { padding: 8px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 14px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); transition: background .1s; }
+.d-item:last-child { border-bottom: none; }
+.d-item:hover, .d-item.hi { background: rgba(109,150,216,.18); }
+.d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 46px; flex-shrink: 0; }
+.d-item .d-name { color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-item .d-st { color: var(--color-text-muted); font-size: 13px; width: 22px; text-align: right; }
+.stn-info { flex: 1; min-width: 160px; }
+.stn-name { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
+.stn-meta { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); letter-spacing: .04em; margin-top: 2px; }
+.meta-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ts-label { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
+
+/* ── Controls ── */
+.controls-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px; }
+.ctrl-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
+.ctrl-row:last-child { margin-bottom: 0; }
+.ctrl-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); white-space: nowrap; }
+.preset-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.preset-group { display: flex; align-items: center; gap: 6px; padding-right: 12px; margin-right: 4px; border-right: 1px solid var(--color-border); }
+.preset-group:last-child { border-right: none; }
+.preset-group-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin-right: 2px; }
+.custom-toggle-row { display: flex; align-items: center; gap: 10px; }
+.custom-panel { display: none; grid-template-columns: repeat(4, auto) 1fr; gap: 10px 16px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-border); }
+.custom-panel.open { display: grid; }
+.custom-field { display: flex; flex-direction: column; gap: 4px; }
+.custom-field label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.num-input { width: 76px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; padding: 6px 8px; }
+.range-input { width: 140px; accent-color: var(--tool-accent); }
+.threshold-summary { font-family: var(--font-mono); font-size: 13px; color: var(--tool-accent); letter-spacing: .02em; margin-top: 2px; }
+.hourly-temp-note { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); font-style: italic; margin-top: 8px; display: none; }
+.hourly-temp-note.show { display: block; }
+.season-row { border-top: 1px dashed var(--color-border); padding-top: 12px; margin-top: 4px; }
+.month-grid { display: none; grid-template-columns: repeat(6, auto); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-border); }
+.month-grid.open { display: grid; }
+.month-btn { min-width: 46px; text-align: center; }
+
+/* ── Headline panel ── */
+.headline-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 16px; }
+.headline-top { display: flex; align-items: flex-start; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
+.headline-main { flex: 1; min-width: 260px; }
+.headline-value { font-family: var(--font-display); font-weight: 700; font-size: 52px; line-height: 1; color: var(--color-text-primary); display: flex; align-items: baseline; gap: 10px; }
+.headline-value .unit { font-size: 20px; font-weight: 400; color: var(--color-text-secondary); }
+.headline-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-muted); margin-top: 6px; }
+.headline-note { font-family: var(--font-body); font-size: 15px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.55; max-width: 560px; }
+.headline-note strong { color: var(--color-text-primary); }
+.jeopardy-line { font-family: var(--font-body); font-size: 14px; color: var(--color-text-secondary); margin-top: 8px; }
+.jeopardy-line strong { color: var(--tool-accent); }
+.rarity-line { font-family: var(--font-body); font-size: 14px; color: var(--color-text-secondary); margin-top: 4px; }
+.badge-active { background: rgba(224,130,74,.18); color: var(--streak-warm); border: 1px solid rgba(224,130,74,.4); }
+.badge-active.cool { background: rgba(91,155,216,.18); color: var(--streak-cool); border-color: rgba(91,155,216,.4); }
+.badge-ended { background: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+
+/* ── Year strip ── */
+.strip-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 16px; }
+.strip-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
+.strip-title { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.strip-wrap { position: relative; }
+#strip-canvas { display: block; width: 100%; cursor: crosshair; }
+.strip-tooltip { position: absolute; pointer-events: none; background: var(--color-surface-2); border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); padding: 8px 12px; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; z-index: 20; white-space: nowrap; }
+
+/* ── Ranked section ── */
+.ranked-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 16px; }
+.ranked-hdr { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+.ranked-grid { display: flex; gap: 22px; flex-wrap: wrap; }
+.ranked-chart-box { flex: 1 1 480px; min-width: 320px; height: 380px; }
+.ranked-table-box { flex: 1 1 380px; min-width: 300px; max-height: 380px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.ranked-table { width: 100%; border-collapse: collapse; }
+.ranked-table th { position: sticky; top: 0; background: var(--color-surface-2); padding: 7px 10px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); text-align: left; border-bottom: 1px solid var(--color-border-hover); }
+.ranked-table th.r, .ranked-table td.r { text-align: right; }
+.ranked-table td { padding: 6px 10px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; }
+.ranked-table tr:last-child td { border-bottom: none; }
+.ranked-table tr.is-current td { background: rgba(241,238,228,.06); color: var(--color-text-primary); }
+.ranked-table tr.is-record td { color: var(--streak-record); }
+.rank-tag { font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); letter-spacing: .06em; text-transform: uppercase; }
+
+/* ── Footer ── */
+.footer-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; flex-wrap: wrap; gap: 8px; }
+.footer-note { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
+
+/* ── Loading overlay ── */
+.loading-overlay { position: fixed; inset: 0; background: rgba(30,35,32,.88); display: none; align-items: center; justify-content: center; z-index: 500; flex-direction: column; gap: 12px; }
+.loading-overlay.show { display: flex; }
+.loading-text { font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-secondary); }
+.spinner { width: 34px; height: 34px; border: 3px solid var(--color-border); border-top-color: var(--tool-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+::-webkit-scrollbar { width: 5px; height: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(232,228,217,.15); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <p class="cc-eyebrow page-eyebrow">Hourly Data</p>
+  <div class="page-title">
+    <span id="title-station">Islip, NY</span>
+    <span class="title-sep">|</span>
+    <span>Streak Tracker</span>
+    <button class="cc-btn cc-btn-sm" onclick="exportPNG()" title="Download PNG">&darr; PNG</button>
+  </div>
+  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, or dry — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive. Optionally restrict the whole analysis to a single season.</p>
+
+  <!-- STATION BAR -->
+  <div class="station-bar">
+    <div class="search-wrap" id="sw">
+      <span class="search-icon">&#9906;</span>
+      <input type="text" class="search-input" id="si" placeholder="Search station ID or city..." autocomplete="off" spellcheck="false">
+      <div class="dropdown" id="dd"></div>
+    </div>
+    <div class="stn-info">
+      <div class="stn-name" id="stn-name">Islip MacArthur Airport</div>
+      <div class="stn-meta" id="stn-meta">KISP &middot; Islip, NY &middot; Record: &ndash;</div>
+    </div>
+    <div class="meta-right">
+      <div class="ts-label" id="ts-lbl">Loading...</div>
+      <button class="cc-btn cc-btn-sm" onclick="refreshData()">&#8635; Refresh</button>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="controls-panel">
+    <div class="ctrl-row">
+      <span class="ctrl-label">Mode</span>
+      <div class="cc-segmented" id="seg-mode">
+        <button class="cc-segmented-btn is-active" data-mode="streaks">Streaks</button>
+        <button class="cc-segmented-btn" data-mode="totals">Totals</button>
+      </div>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">Variable</span>
+      <div class="cc-segmented" id="seg-variable">
+        <button class="cc-segmented-btn is-active" data-variable="dewpoint">Dewpoint</button>
+        <button class="cc-segmented-btn" data-variable="temp">Temperature</button>
+      </div>
+      <span class="ctrl-label">Track By</span>
+      <div class="cc-segmented" id="seg-agg">
+        <button class="cc-segmented-btn is-active" data-agg="hourly">Hourly</button>
+        <button class="cc-segmented-btn" data-agg="daily">Daily</button>
+      </div>
+    </div>
+    <div class="ctrl-row">
+      <span class="ctrl-label">Threshold</span>
+      <div class="preset-row" id="preset-row"></div>
+      <div class="custom-toggle-row">
+        <button class="cc-btn cc-btn-sm" id="custom-toggle-btn" onclick="toggleCustomPanel()">Custom &#9662;</button>
+      </div>
+    </div>
+    <div class="custom-panel" id="custom-panel">
+      <div class="custom-field" id="metric-field">
+        <label>Daily Metric</label>
+        <select class="cc-select" id="metric-select">
+          <option value="max">Max</option>
+          <option value="min">Min</option>
+          <option value="mean">Mean</option>
+        </select>
+      </div>
+      <div class="custom-field">
+        <label>Direction</label>
+        <div class="cc-segmented" id="seg-op">
+          <button class="cc-segmented-btn is-active" data-op="gte">&ge; At/Above</button>
+          <button class="cc-segmented-btn" data-op="lte">&le; At/Below</button>
+        </div>
+      </div>
+      <div class="custom-field">
+        <label>Value (&deg;F)</label>
+        <input type="number" class="num-input" id="custom-num" value="65">
+      </div>
+      <div class="custom-field">
+        <label>&nbsp;</label>
+        <input type="range" class="range-input" id="custom-range" min="-30" max="110" value="65">
+      </div>
+      <div class="custom-field">
+        <label>&nbsp;</label>
+        <button class="cc-btn cc-btn-sm primary" onclick="applyCustom()">Apply</button>
+      </div>
+    </div>
+    <div class="threshold-summary" id="threshold-summary">Dewpoint &ge; 65&deg;F, hourly</div>
+    <div class="hourly-temp-note" id="hourly-temp-note">Note: hourly temperature streaks are naturally short — the daily heating/cooling cycle usually breaks them by evening. Daily max/min streaks are typically more meaningful for temperature; dewpoint is the more interesting hourly signal since humidity swings far less through the day.</div>
+    <div class="ctrl-row season-row">
+      <span class="ctrl-label">Season</span>
+      <div class="preset-row" id="season-preset-row"></div>
+      <div class="custom-toggle-row">
+        <button class="cc-btn cc-btn-sm" id="season-custom-toggle-btn" onclick="toggleMonthGrid()">Custom Months &#9662;</button>
+      </div>
+    </div>
+    <div class="month-grid" id="month-grid"></div>
+  </div>
+
+  <div id="streaks-view">
+
+  <!-- HEADLINE -->
+  <div class="headline-panel">
+    <div class="headline-top">
+      <div class="headline-main">
+        <div class="headline-value"><span id="hl-value">&ndash;</span><span class="unit" id="hl-unit"></span><span class="cc-badge badge-ended" id="hl-badge">&ndash;</span></div>
+        <div class="headline-label" id="hl-label">Current Streak</div>
+        <div class="headline-note" id="hl-note">Load a station to see current conditions.</div>
+        <div class="jeopardy-line" id="jeopardy-line"></div>
+        <div class="rarity-line" id="rarity-line"></div>
+      </div>
+      <div class="cc-stat-row" id="stat-chip-row" style="align-self: flex-start;">
+        <div class="cc-stat-chip"><span class="cc-stat-label">Record</span><span class="cc-stat-value" id="sv-record">&ndash;</span></div>
+        <div class="cc-stat-chip"><span class="cc-stat-label">Total Streaks</span><span class="cc-stat-value" id="sv-total">&ndash;</span></div>
+        <div class="cc-stat-chip"><span class="cc-stat-label">Avg Length</span><span class="cc-stat-value" id="sv-avg">&ndash;</span></div>
+        <div class="cc-stat-chip"><span class="cc-stat-label" id="sl-thisyear">This Year</span><span class="cc-stat-value" id="sv-thisyear">&ndash;</span></div>
+        <div class="cc-stat-chip"><span class="cc-stat-label">Period of Record</span><span class="cc-stat-value" id="sv-period">&ndash;</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- YEAR STRIP -->
+  <div class="strip-panel">
+    <div class="strip-hdr">
+      <span class="strip-title">Year-by-Year Calendar &middot; <span id="strip-mode-note">any qualifying hour per day</span></span>
+      <div class="cc-legend-row">
+        <span class="cc-legend-chip"><span class="cc-legend-dot" id="leg-dot-qual" style="background:var(--streak-warm)"></span>Qualifying day</span>
+        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-record)"></span>Record streak</span>
+        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-current)"></span>Current streak</span>
+        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--color-surface-2)"></span>No data</span>
+        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:rgba(166,164,153,0.5)"></span>Outside season</span>
+      </div>
+    </div>
+    <div class="strip-wrap" id="strip-wrap">
+      <canvas id="strip-canvas" class="cc-canvas-frame"></canvas>
+      <div class="strip-tooltip" id="strip-tooltip"></div>
+    </div>
+  </div>
+
+  <!-- RANKED -->
+  <div class="ranked-panel">
+    <div class="ranked-hdr">Longest Streaks on Record</div>
+    <div class="ranked-grid">
+      <div class="ranked-chart-box" id="ranked-chart"></div>
+      <div class="ranked-table-box">
+        <table class="ranked-table">
+          <thead><tr><th>Rank</th><th>Dates</th><th class="r">Length</th><th></th></tr></thead>
+          <tbody id="ranked-tbody"><tr><td colspan="4" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see records</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  </div>
+  <!-- /streaks-view -->
+
+  <!-- TOTALS -->
+  <div id="totals-view" style="display:none">
+    <div class="ranked-panel">
+      <div class="ranked-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <span id="totals-hdr-label">Total Time Above Threshold</span>
+        <div class="cc-segmented" id="seg-totals-group">
+          <button class="cc-segmented-btn is-active" data-group="year">By Year</button>
+          <button class="cc-segmented-btn" data-group="month">By Month (Avg)</button>
+        </div>
+      </div>
+      <div id="totals-chart" style="height:360px;margin-top:6px;"></div>
+      <div class="ranked-table-box" style="max-height:320px;margin-top:14px;width:100%;">
+        <table class="ranked-table">
+          <thead id="totals-thead"><tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr></thead>
+          <tbody id="totals-tbody"><tr><td colspan="3" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see totals</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-row">
+    <span class="cc-tag" id="footer-tag">Data: IEM ASOS &middot; contextclimate.io</span>
+  </div>
+
+</div>
+
+<div class="loading-overlay" id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Fetching station history&hellip;</div>
+</div>
+
+<script>
+// ================================================================
+// STATION DATA  [ICAO, "Name", "ST", lat, lon, "TZ"]
+// ================================================================
+const STATIONS=[
+["KBHM","Birmingham Intl","AL",33.563,-86.735,"CT"],["KMGM","Montgomery Dannelly","AL",32.300,-86.394,"CT"],
+["KHSV","Huntsville Intl","AL",34.641,-86.775,"CT"],["KMOB","Mobile Regional","AL",30.692,-88.247,"CT"],
+["PANC","Anchorage Intl","AK",61.174,-149.996,"AK"],["PAFA","Fairbanks Intl","AK",64.815,-147.876,"AK"],
+["PAJN","Juneau Intl","AK",58.355,-134.576,"AK"],["PAKT","Ketchikan Intl","AK",55.356,-131.714,"AK"],["PADQ","Kodiak Airport","AK",57.749,-152.494,"AK"],
+["KPHX","Phoenix Sky Harbor","AZ",33.437,-112.008,"AZ"],["KTUS","Tucson Intl","AZ",32.116,-110.941,"AZ"],
+["KFLG","Flagstaff Pulliam","AZ",35.138,-111.670,"AZ"],["KYUM","Yuma Intl","AZ",32.657,-114.605,"AZ"],["KPRC","Prescott Municipal","AZ",34.648,-112.420,"AZ"],
+["KLIT","Little Rock Clinton","AR",34.729,-92.224,"CT"],["KFSM","Fort Smith Regional","AR",35.337,-94.368,"CT"],["KFYV","Fayetteville Drake Field","AR",36.004,-94.170,"CT"],
+["KLAX","Los Angeles Intl","CA",33.942,-118.408,"PT"],["KSFO","San Francisco Intl","CA",37.619,-122.375,"PT"],
+["KSAN","San Diego Intl","CA",32.733,-117.190,"PT"],["KSMF","Sacramento Intl","CA",38.696,-121.591,"PT"],
+["KFAT","Fresno Yosemite Intl","CA",36.777,-119.719,"PT"],["KSJC","San Jose Intl","CA",37.362,-121.929,"PT"],
+["KOAK","Oakland Intl","CA",37.721,-122.221,"PT"],["KBFL","Bakersfield Meadows","CA",35.434,-119.057,"PT"],
+["KRDD","Redding Municipal","CA",40.509,-122.294,"PT"],["KBUR","Burbank Hollywood","CA",34.201,-118.359,"PT"],
+["KLGB","Long Beach Airport","CA",33.818,-118.152,"PT"],["KSNA","John Wayne Orange County","CA",33.676,-117.868,"PT"],
+["KMRY","Monterey Regional","CA",36.587,-121.843,"PT"],["KSTS","Santa Rosa","CA",38.509,-122.813,"PT"],["KSBA","Santa Barbara Municipal","CA",34.426,-119.840,"PT"],
+["KDEN","Denver Intl","CO",39.859,-104.668,"MT"],["KCOS","Colorado Springs","CO",38.806,-104.701,"MT"],
+["KGJT","Grand Junction Walker Field","CO",39.122,-108.527,"MT"],["KPUB","Pueblo Memorial","CO",38.289,-104.497,"MT"],["KEGE","Eagle County Regional","CO",39.643,-106.918,"MT"],
+["KBDL","Bradley Intl","CT",41.939,-72.683,"ET"],["KHVN","Tweed New Haven","CT",41.265,-72.887,"ET"],["KGON","Groton New London","CT",41.330,-71.995,"ET"],["KBDR","Bridgeport Sikorsky","CT",41.163,-73.127,"ET"],
+["KILG","Wilmington Airport","DE",39.679,-75.607,"ET"],
+["KMIA","Miami Intl","FL",25.796,-80.287,"ET"],["KTPA","Tampa Intl","FL",27.976,-82.534,"ET"],
+["KMCO","Orlando Intl","FL",28.429,-81.309,"ET"],["KJAX","Jacksonville Intl","FL",30.494,-81.688,"ET"],
+["KFLL","Fort Lauderdale Intl","FL",26.073,-80.153,"ET"],["KRSW","SW Florida Intl","FL",26.536,-81.755,"ET"],
+["KTLH","Tallahassee Intl","FL",30.397,-84.347,"ET"],["KPNS","Pensacola Intl","FL",30.473,-87.189,"CT"],
+["KGNV","Gainesville Regional","FL",29.691,-82.271,"ET"],["KEYW","Key West Intl","FL",24.556,-81.759,"ET"],
+["KATL","Atlanta Hartsfield-Jackson","GA",33.641,-84.427,"ET"],["KSAV","Savannah Hilton Head Intl","GA",32.128,-81.202,"ET"],
+["KAGS","Augusta Regional","GA",33.370,-81.965,"ET"],["KCSG","Columbus Airport","GA",32.519,-84.941,"ET"],["KVLD","Valdosta Regional","GA",30.782,-83.277,"ET"],
+["PHNL","Honolulu Intl","HI",21.332,-157.921,"HI"],["PHOG","Kahului Airport Maui","HI",20.898,-156.430,"HI"],["PHKO","Kona Intl","HI",19.739,-156.046,"HI"],["PHTO","Hilo Intl","HI",19.720,-155.048,"HI"],
+["KBOI","Boise Airport","ID",43.564,-116.223,"MT"],["KTWF","Twin Falls Magic Valley","ID",42.482,-114.488,"MT"],["KLWS","Lewiston Nez Perce County","ID",46.375,-117.015,"PT"],["KPIH","Pocatello Regional","ID",42.910,-112.596,"MT"],
+["KORD","Chicago O'Hare Intl","IL",41.978,-87.908,"CT"],["KMDW","Chicago Midway","IL",41.786,-87.752,"CT"],
+["KSPI","Springfield Abraham Lincoln","IL",39.844,-89.678,"CT"],["KMLI","Quad City Intl","IL",41.448,-90.513,"CT"],
+["KPIA","Greater Peoria Regional","IL",40.664,-89.693,"CT"],["KRFD","Chicago Rockford Intl","IL",42.195,-89.097,"CT"],["KCMI","Champaign Willard","IL",40.040,-88.278,"CT"],
+["KIND","Indianapolis Intl","IN",39.717,-86.295,"ET"],["KSBN","South Bend Intl","IN",41.708,-86.316,"CT"],["KFWA","Fort Wayne Intl","IN",40.978,-85.196,"ET"],["KEVV","Evansville Regional","IN",37.999,-87.531,"CT"],
+["KDSM","Des Moines Intl","IA",41.534,-93.663,"CT"],["KCID","Cedar Rapids CRB","IA",41.885,-91.711,"CT"],["KDVN","Davenport Airport","IA",41.612,-90.588,"CT"],["KSUX","Sioux Gateway","IA",42.402,-96.384,"CT"],
+["KICT","Wichita Dwight D. Eisenhower","KS",37.650,-97.433,"CT"],["KMHK","Manhattan Regional","KS",39.141,-96.671,"CT"],["KTOP","Topeka Forbes Field","KS",39.068,-95.622,"CT"],["KGCK","Garden City Regional","KS",37.928,-100.725,"CT"],
+["KSDF","Louisville Intl","KY",38.174,-85.736,"ET"],["KCVG","Cincinnati Northern Kentucky","KY",39.046,-84.668,"ET"],["KLEX","Lexington Blue Grass","KY",38.036,-84.606,"ET"],["KPAH","Barkley Regional","KY",37.061,-88.774,"CT"],
+["KMSY","New Orleans Louis Armstrong","LA",29.994,-90.258,"CT"],["KBTR","Baton Rouge Metro","LA",30.533,-91.150,"CT"],["KSHV","Shreveport Regional","LA",32.447,-93.826,"CT"],["KLFT","Lafayette Regional","LA",30.205,-91.988,"CT"],["KLCH","Lake Charles Regional","LA",30.126,-93.226,"CT"],
+["KPWM","Portland Intl Jetport","ME",43.645,-70.309,"ET"],["KBGR","Bangor Intl","ME",44.808,-68.828,"ET"],["KAUG","Augusta State Airport","ME",44.321,-69.797,"ET"],["KCAR","Caribou Municipal","ME",46.871,-68.019,"ET"],
+["KBWI","Baltimore Washington Intl","MD",39.178,-76.669,"ET"],["KSBY","Salisbury Ocean City Regional","MD",38.340,-75.513,"ET"],
+["KBOS","Boston Logan Intl","MA",42.363,-71.006,"ET"],["KORH","Worcester Regional","MA",42.268,-71.876,"ET"],["KACK","Nantucket Memorial","MA",41.253,-70.061,"ET"],["KBED","Hanscom Field","MA",42.470,-71.289,"ET"],["KHYA","Barnstable Municipal","MA",41.669,-70.280,"ET"],
+["KDTW","Detroit Metro Wayne County","MI",42.212,-83.353,"ET"],["KGRR","Gerald R. Ford Intl","MI",42.881,-85.523,"ET"],["KLAN","Lansing Capital City","MI",42.779,-84.588,"ET"],["KTVC","Cherry Capital Airport","MI",44.742,-85.582,"ET"],["KFNT","Flint Bishop Intl","MI",42.966,-83.744,"ET"],["KSAW","Sawyer Intl","MI",46.351,-87.399,"ET"],
+["KMSP","Minneapolis-St. Paul Intl","MN",44.883,-93.228,"CT"],["KDLH","Duluth Intl","MN",46.843,-92.194,"CT"],["KRST","Rochester Intl","MN",43.908,-92.500,"CT"],["KSTC","St. Cloud Regional","MN",45.547,-94.059,"CT"],["KHIB","Chisholm-Hibbing Airport","MN",47.386,-92.839,"CT"],
+["KJAN","Jackson-Medgar Wiley Evers","MS",32.311,-90.076,"CT"],["KGPT","Gulfport-Biloxi Intl","MS",30.408,-89.070,"CT"],["KTUP","Tupelo Regional","MS",34.268,-88.769,"CT"],["KMEI","Key Field Meridian","MS",32.332,-88.752,"CT"],
+["KSTL","St. Louis Lambert Intl","MO",38.749,-90.370,"CT"],["KMCI","Kansas City Intl","MO",39.297,-94.714,"CT"],["KSGF","Springfield-Branson National","MO",37.246,-93.389,"CT"],["KCOU","Columbia Regional","MO",38.818,-92.220,"CT"],
+["KBIL","Billings Logan Intl","MT",45.807,-108.543,"MT"],["KGTF","Great Falls Intl","MT",47.482,-111.371,"MT"],["KMSO","Missoula Montana","MT",46.916,-114.091,"MT"],["KBZN","Bozeman Yellowstone Intl","MT",45.778,-111.160,"MT"],["KHLN","Helena Regional","MT",46.607,-111.983,"MT"],["KGGW","Glasgow Intl","MT",48.212,-106.615,"MT"],
+["KOMA","Omaha Eppley Airfield","NE",41.303,-95.894,"CT"],["KLNK","Lincoln Airport","NE",40.851,-96.759,"CT"],["KGRI","Central Nebraska Regional","NE",40.967,-98.309,"CT"],["KEAR","Kearney Regional","NE",40.727,-99.007,"CT"],["KBFF","Western Nebraska Regional","NE",41.875,-103.597,"MT"],
+["KLAS","Las Vegas Harry Reid Intl","NV",36.080,-115.152,"PT"],["KRNO","Reno-Tahoe Intl","NV",39.499,-119.768,"PT"],["KELKO","Elko Regional","NV",40.825,-115.792,"PT"],
+["KMHT","Manchester Boston Regional","NH",42.933,-71.436,"ET"],["KCON","Concord Municipal","NH",43.202,-71.502,"ET"],["KLEB","Lebanon Municipal","NH",43.627,-72.304,"ET"],
+["KEWR","Newark Liberty Intl","NJ",40.693,-74.177,"ET"],["KTEB","Teterboro Airport","NJ",40.850,-74.061,"ET"],["KACY","Atlantic City Intl","NJ",39.458,-74.577,"ET"],
+["KABQ","Albuquerque Intl Sunport","NM",35.040,-106.610,"MT"],["KROW","Roswell Intl Air Center","NM",33.301,-104.531,"MT"],["KSAF","Santa Fe Municipal","NM",35.617,-106.088,"MT"],
+["KJFK","New York JFK Intl","NY",40.640,-73.779,"ET"],["KLGA","New York LaGuardia","NY",40.778,-73.877,"ET"],
+["KBUF","Buffalo Niagara Intl","NY",42.941,-78.733,"ET"],["KSYR","Syracuse Hancock Intl","NY",43.111,-76.107,"ET"],
+["KALB","Albany Intl","NY",42.748,-73.801,"ET"],["KISP","Islip MacArthur","NY",40.795,-73.100,"ET"],
+["KBGM","Binghamton Regional","NY",42.209,-75.980,"ET"],["KROC","Rochester Intl","NY",43.120,-77.672,"ET"],
+["KPOU","Hudson Valley Regional","NY",41.627,-73.884,"ET"],["KELM","Elmira Corning Regional","NY",42.160,-76.892,"ET"],["KSWF","Stewart Intl","NY",41.504,-74.105,"ET"],
+["KRDU","Raleigh-Durham Intl","NC",35.878,-78.787,"ET"],["KCLT","Charlotte Douglas Intl","NC",35.214,-80.941,"ET"],["KAVL","Asheville Regional","NC",35.436,-82.542,"ET"],["KILM","Wilmington Intl","NC",34.271,-77.903,"ET"],["KGSO","Piedmont Triad Intl","NC",36.098,-79.937,"ET"],["KEWN","Coastal Carolina Regional","NC",35.073,-77.044,"ET"],
+["KBIS","Bismarck Municipal","ND",46.773,-100.747,"CT"],["KFAR","Hector Intl Fargo","ND",46.921,-96.815,"CT"],["KGFK","Grand Forks Intl","ND",47.950,-97.176,"CT"],["KMIN","Minot Intl","ND",48.414,-101.358,"CT"],
+["KCLE","Cleveland Hopkins Intl","OH",41.413,-81.855,"ET"],["KCMH","Columbus John Glenn Intl","OH",39.999,-82.887,"ET"],["KDAY","Dayton Intl","OH",39.902,-84.219,"ET"],["KTOL","Toledo Express","OH",41.587,-83.808,"ET"],["KYNG","Youngstown-Warren Regional","OH",41.261,-80.679,"ET"],["KCAK","Akron-Canton Regional","OH",40.917,-81.442,"ET"],
+["KOKC","Will Rogers World OKC","OK",35.394,-97.601,"CT"],["KTUL","Tulsa Intl","OK",36.198,-95.888,"CT"],["KLAW","Lawton-Fort Sill Regional","OK",34.567,-98.416,"CT"],["KWDG","Woodward Airport","OK",36.380,-97.791,"CT"],
+["KPDX","Portland Intl","OR",45.589,-122.598,"PT"],["KEUG","Eugene Airport","OR",44.125,-123.219,"PT"],["KMFR","Medford Rogue Valley Intl","OR",42.374,-122.873,"PT"],["KRDM","Roberts Field Redmond","OR",44.254,-121.150,"PT"],["KAST","Astoria Regional","OR",46.158,-123.879,"PT"],["KOTH","North Bend Municipal","OR",43.417,-124.246,"PT"],
+["KPHL","Philadelphia Intl","PA",39.872,-75.241,"ET"],["KPIT","Pittsburgh Intl","PA",40.491,-80.233,"ET"],["KABE","Lehigh Valley Intl","PA",40.652,-75.441,"ET"],["KAOO","Johnstown Airport","PA",40.296,-78.319,"ET"],["KIPT","Williamsport Regional","PA",41.242,-76.921,"ET"],["KERI","Erie Intl","PA",42.083,-80.174,"ET"],["KAVP","Scranton Wilkes-Barre Intl","PA",41.338,-75.724,"ET"],
+["KPVD","Providence T.F. Green Intl","RI",41.724,-71.434,"ET"],
+["KCHS","Charleston Intl","SC",32.899,-80.041,"ET"],["KCAE","Columbia Metropolitan","SC",33.939,-81.120,"ET"],["KGSP","Greenville-Spartanburg Intl","SC",34.896,-82.219,"ET"],["KMYR","Myrtle Beach Intl","SC",33.680,-78.928,"ET"],
+["KRAP","Rapid City Regional","SD",44.045,-103.057,"MT"],["KFSD","Sioux Falls Regional","SD",43.582,-96.742,"CT"],["KABR","Aberdeen Regional","SD",45.449,-98.421,"CT"],
+["KBNA","Nashville Intl","TN",36.126,-86.679,"CT"],["KMEM","Memphis Intl","TN",35.042,-89.977,"CT"],["KTYS","McGhee Tyson Knoxville","TN",35.812,-83.994,"ET"],["KCHA","Chattanooga Metropolitan","TN",35.035,-85.203,"ET"],
+["KIAH","Houston George Bush Intl","TX",29.980,-95.338,"CT"],["KHOU","Houston William Hobby","TX",29.645,-95.279,"CT"],["KDFW","Dallas-Fort Worth Intl","TX",32.896,-97.038,"CT"],["KDAL","Dallas Love Field","TX",32.847,-96.851,"CT"],["KSAT","San Antonio Intl","TX",29.533,-98.470,"CT"],["KAUS","Austin-Bergstrom Intl","TX",30.194,-97.670,"CT"],["KELP","El Paso Intl","TX",31.807,-106.378,"MT"],["KAMA","Amarillo Rick Husband Intl","TX",35.220,-101.706,"CT"],["KABI","Abilene Regional","TX",32.411,-99.682,"CT"],["KMAF","Midland Intl Air and Space","TX",31.943,-102.202,"CT"],["KBRO","Brownsville South Padre Island","TX",25.906,-97.426,"CT"],["KCRP","Corpus Christi Intl","TX",27.770,-97.502,"CT"],["KGGG","East Texas Regional","TX",32.384,-94.712,"CT"],["KLRD","Laredo Intl","TX",27.544,-99.462,"CT"],["KACT","Waco Regional","TX",31.611,-97.229,"CT"],["KSPS","Wichita Falls Regional","TX",33.989,-98.492,"CT"],
+["KSLC","Salt Lake City Intl","UT",40.788,-111.979,"MT"],["KOGD","Ogden Hinckley","UT",41.196,-112.012,"MT"],["KCDC","Cedar City Regional","UT",37.701,-113.099,"MT"],["KPVU","Provo Municipal","UT",40.219,-111.726,"MT"],
+["KBTV","Burlington Intl","VT",44.472,-73.153,"ET"],["KMPV","Montpelier Edward F. Knapp","VT",44.204,-72.562,"ET"],
+["KIAD","Washington Dulles Intl","VA",38.944,-77.456,"ET"],["KRIC","Richmond Intl","VA",37.505,-77.320,"ET"],["KROA","Roanoke-Blacksburg Regional","VA",37.325,-79.975,"ET"],["KCHO","Charlottesville-Albemarle","VA",38.139,-78.453,"ET"],["KORF","Norfolk Intl","VA",36.898,-76.013,"ET"],["KPHF","Newport News Williamsburg","VA",37.132,-76.493,"ET"],
+["KSEA","Seattle-Tacoma Intl","WA",47.449,-122.309,"PT"],["KGEG","Spokane Intl","WA",47.620,-117.534,"PT"],["KOLM","Olympia Regional","WA",46.974,-122.903,"PT"],["KPAE","Paine Field Everett","WA",47.906,-122.281,"PT"],["KYKM","Yakima Air Terminal","WA",46.568,-120.544,"PT"],["KEAT","Pangborn Memorial Wenatchee","WA",47.399,-120.207,"PT"],["KBLI","Bellingham Intl","WA",48.793,-122.538,"PT"],
+["KCRW","Yeager Airport Charleston","WV",38.374,-81.593,"ET"],["KHTS","Tri-State Airport","WV",38.365,-82.558,"ET"],["KCKB","North Central WV Airport","WV",39.296,-80.228,"ET"],
+["KMKE","Milwaukee Mitchell Intl","WI",42.947,-87.897,"CT"],["KMSN","Dane County Regional","WI",43.140,-89.338,"CT"],["KGRB","Green Bay Austin Straubel","WI",44.485,-88.130,"CT"],["KLSE","La Crosse Regional","WI",43.879,-91.257,"CT"],["KEAU","Eau Claire Chippewa Valley","WI",44.865,-91.483,"CT"],["KRHI","Rhinelander-Oneida County","WI",45.631,-89.467,"CT"],
+["KCYS","Cheyenne Regional","WY",41.156,-104.812,"MT"],["KLAR","Laramie Regional","WY",41.311,-105.675,"MT"],["KRKS","Rock Springs Sweetwater County","WY",41.595,-109.065,"MT"],["KCOD","Yellowstone Regional Cody","WY",44.520,-109.024,"MT"],
+["KDCA","Ronald Reagan Washington National","DC",38.851,-77.037,"ET"],
+["TJSJ","Luis Munoz Marin Intl","PR",18.440,-66.005,"ET"]
+];
+const TZ_IANA={ET:'America/New_York',CT:'America/Chicago',MT:'America/Denver',PT:'America/Los_Angeles',AK:'America/Anchorage',HI:'Pacific/Honolulu',AZ:'America/Phoenix'};
+
+// ================================================================
+// THRESHOLD PRESETS
+// ================================================================
+const PRESETS = {
+  temp: [
+    {id:'t-hot90',  label:'Hot Days &ge;90&deg;',   group:'Heat',      metric:'max', op:'gte', value:90},
+    {id:'t-hot100', label:'Extreme Heat &ge;100&deg;', group:'Heat',   metric:'max', op:'gte', value:100},
+    {id:'t-ice32',  label:'Ice Days &le;32&deg;',   group:'Cold',      metric:'max', op:'lte', value:32},
+    {id:'t-frz20',  label:'Hard Freeze &le;20&deg;', group:'Cold',     metric:'min', op:'lte', value:20},
+    {id:'t-warmnight', label:'Warm Nights &ge;75&deg;', group:'No Relief', metric:'min', op:'gte', value:75},
+    {id:'t-freefree', label:'Freeze-Free &ge;33&deg;', group:'Growing Season', metric:'min', op:'gte', value:33}
+  ],
+  dewpoint: [
+    {id:'d-muggy65', label:'Muggy &ge;65&deg;',   group:'Humid', metric:'max', op:'gte', value:65},
+    {id:'d-humid70', label:'Humid &ge;70&deg;',   group:'Humid', metric:'max', op:'gte', value:70},
+    {id:'d-trop75',  label:'Oppressive &ge;75&deg;', group:'Humid', metric:'max', op:'gte', value:75},
+    {id:'d-dry32',   label:'Dry &le;32&deg;',     group:'Dry',   metric:'max', op:'lte', value:32},
+    {id:'d-bonedry20', label:'Bone-Dry &le;20&deg;', group:'Dry', metric:'max', op:'lte', value:20},
+    {id:'d-muggynight', label:'Muggy Nights &ge;70&deg;', group:'No Relief', metric:'min', op:'gte', value:70}
+  ]
+};
+const DEFAULT_AGG = {temp:'daily', dewpoint:'hourly'};
+
+// ================================================================
+// SEASON / MONTH-RESTRICTION PRESETS
+// ================================================================
+const SEASON_PRESETS = [
+  {id:'all', label:'All Months',        months:[1,2,3,4,5,6,7,8,9,10,11,12]},
+  {id:'djf', label:'Winter (Dec–Feb)', months:[12,1,2]},
+  {id:'mam', label:'Spring (Mar–May)', months:[3,4,5]},
+  {id:'jja', label:'Summer (Jun–Aug)', months:[6,7,8]},
+  {id:'son', label:'Fall (Sep–Nov)',   months:[9,10,11]}
+];
+const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// ================================================================
+// STATE
+// ================================================================
+let curStation=null, rawHourly=[], hourlyMap=new Map(), dailyMap=new Map(), sortedDates=[];
+let state = {
+  variable:'dewpoint', aggregation:'hourly', metric:'max', op:'gte', value:65, activePreset:'d-muggy65',
+  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]), seasonId:'all', seasonLabel:'All Months',
+  mode:'streaks', totalsGroupBy:'year'
+};
+let lastGrid=null, lastStreaks=null, lastStats=null;
+let stripDPR = window.devicePixelRatio || 1;
+
+function pad2(n){return String(n).padStart(2,'0');}
+
+// ================================================================
+// SEARCH / AUTOCOMPLETE  (reused pattern from current-conditions.html)
+// ================================================================
+let ddIdx=-1;
+function initSearch(){
+  const inp=document.getElementById('si'),dd=document.getElementById('dd');
+  inp.addEventListener('input',()=>{
+    ddIdx=-1;const q=inp.value.trim().toLowerCase();
+    if(!q){dd.classList.remove('open');return;}
+    const matches=STATIONS.filter(s=>s[0].toLowerCase().startsWith(q)||s[0].slice(1).toLowerCase().startsWith(q)||s[1].toLowerCase().includes(q)||(s[2]&&s[2].toLowerCase()===q)).slice(0,18);
+    renderDD(matches);
+  });
+  inp.addEventListener('keydown',e=>{
+    const items=dd.querySelectorAll('.d-item');
+    if(e.key==='ArrowDown'){e.preventDefault();ddIdx=Math.min(ddIdx+1,items.length-1);highlightDD(items);}
+    else if(e.key==='ArrowUp'){e.preventDefault();ddIdx=Math.max(ddIdx-1,0);highlightDD(items);}
+    else if(e.key==='Enter'){e.preventDefault();if(ddIdx>=0&&items[ddIdx])items[ddIdx].click();}
+    else if(e.key==='Escape'){dd.classList.remove('open');}
+  });
+  document.addEventListener('click',e=>{if(!document.getElementById('sw').contains(e.target))dd.classList.remove('open');});
+}
+function highlightDD(items){items.forEach((el,i)=>{el.classList.toggle('hi',i===ddIdx);if(i===ddIdx)el.scrollIntoView({block:'nearest'});});}
+function renderDD(matches){
+  const dd=document.getElementById('dd');
+  if(!matches.length){dd.classList.remove('open');return;}
+  dd.innerHTML=matches.map((s,i)=>`<div class="d-item" data-idx="${i}"><span class="d-id">${s[0]}</span><span class="d-name">${s[1]}</span><span class="d-st">${s[2]}</span></div>`).join('');
+  dd.querySelectorAll('.d-item').forEach((el,i)=>el.addEventListener('click',()=>{document.getElementById('si').value='';dd.classList.remove('open');loadStation(matches[i]);}));
+  dd.classList.add('open');
+}
+
+// ================================================================
+// IEM ASOS FETCH + PARSE
+// ================================================================
+function buildIEMUrl(icao, tzIana, y1, y2){
+  return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${icao}&data=tmpf&data=dwpf` +
+    `&year1=${y1}&month1=1&day1=1&year2=${y2}&month2=12&day2=31` +
+    `&tz=${encodeURIComponent(tzIana)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
+}
+
+function parseIEM(text){
+  const lines=text.split('\n');
+  let tIdx=-1, dIdx=-1, vIdx=1, inData=false;
+  const out=[];
+  for(const raw of lines){
+    const l=raw.trim(); if(!l) continue;
+    if(l.startsWith('station,')){
+      const h=l.split(',');
+      tIdx=h.indexOf('tmpf'); dIdx=h.indexOf('dwpf'); vIdx=h.indexOf('valid');
+      inData=true; continue;
+    }
+    if(!inData) continue;
+    const parts=l.split(',');
+    if(parts.length<=Math.max(tIdx,dIdx,vIdx)) continue;
+    const valid=(parts[vIdx]||'').trim();
+    const sp=valid.indexOf(' '); if(sp<1) continue;
+    const dpart=valid.substring(0,sp);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(dpart)) continue;
+    const hh=parseInt(valid.substring(sp+1,sp+3),10);
+    if(isNaN(hh)||hh<0||hh>23) continue;
+    const tStr=(parts[tIdx]||'').trim(), dStr=(parts[dIdx]||'').trim();
+    const t=(tStr&&tStr!=='M')?parseFloat(tStr):null;
+    const dp=(dStr&&dStr!=='M')?parseFloat(dStr):null;
+    out.push({d:dpart, h:hh, t:(t==null||isNaN(t))?null:t, dp:(dp==null||isNaN(dp))?null:dp});
+  }
+  return out;
+}
+
+function buildMaps(hourlyArr){
+  const hMap=new Map(), dMap=new Map();
+  for(const r of hourlyArr){
+    const key=`${r.d} ${pad2(r.h)}`;
+    hMap.set(key,{t:r.t,dp:r.dp});
+    let day=dMap.get(r.d);
+    if(!day){day={maxT:-Infinity,minT:Infinity,sumT:0,cntT:0,maxD:-Infinity,minD:Infinity,sumD:0,cntD:0,hours:new Set()};dMap.set(r.d,day);}
+    day.hours.add(r.h);
+    if(r.t!=null){day.maxT=Math.max(day.maxT,r.t);day.minT=Math.min(day.minT,r.t);day.sumT+=r.t;day.cntT++;}
+    if(r.dp!=null){day.maxD=Math.max(day.maxD,r.dp);day.minD=Math.min(day.minD,r.dp);day.sumD+=r.dp;day.cntD++;}
+  }
+  for(const day of dMap.values()){
+    day.hourCount=day.hours.size;
+    day.meanT=day.cntT?day.sumT/day.cntT:null;
+    day.meanD=day.cntD?day.sumD/day.cntD:null;
+    if(day.cntT===0){day.maxT=null;day.minT=null;}
+    if(day.cntD===0){day.maxD=null;day.minD=null;}
+  }
+  return {hMap,dMap};
+}
+
+// ================================================================
+// DATE HELPERS
+// ================================================================
+function ymdToUTC(ymd){const[y,m,d]=ymd.split('-').map(Number);return Date.UTC(y,m-1,d);}
+function utcToYmd(ms){const dt=new Date(ms);return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth()+1)}-${pad2(dt.getUTCDate())}`;}
+function addDaysYmd(ymd,n){return utcToYmd(ymdToUTC(ymd)+n*86400000);}
+function dayOfYear(ymd){const[y,m,d]=ymd.split('-').map(Number);return Math.floor((Date.UTC(y,m-1,d)-Date.UTC(y,0,0))/86400000);}
+function yearOf(ymd){return parseInt(ymd.slice(0,4),10);}
+function monthOf(ymd){return parseInt(ymd.slice(5,7),10);}
+function isLeap(y){return (y%4===0&&y%100!==0)||y%400===0;}
+function fmtDateLong(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}, ${y}`;}
+function fmtDateShort(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}`;}
+
+// ================================================================
+// GRID BUILDERS
+// ================================================================
+const MIN_HOURS_COMPLETE = 18;
+
+function activeCfg(){
+  return {variable:state.variable, aggregation:state.aggregation, metric:state.metric, op:state.op, value:state.value, months:state.months};
+}
+
+function metricValue(day, cfg){
+  if(cfg.variable==='temp') return cfg.metric==='max'?day.maxT:cfg.metric==='min'?day.minT:day.meanT;
+  return cfg.metric==='max'?day.maxD:cfg.metric==='min'?day.minD:day.meanD;
+}
+
+function buildDailyGrid(cfg){
+  if(!sortedDates.length) return [];
+  const start=sortedDates[0], end=sortedDates[sortedDates.length-1];
+  const grid=[]; let cur=start;
+  while(true){
+    const inSeason = cfg.months.has(monthOf(cur));
+    const day = inSeason ? dailyMap.get(cur) : null;
+    const isLast=(cur===end);
+    let ok=false, missing=true;
+    if(day){
+      const cnt=cfg.variable==='temp'?day.cntT:day.cntD;
+      const complete=(day.hourCount>=MIN_HOURS_COMPLETE)||isLast;
+      if(complete && cnt>0){
+        const val=metricValue(day,cfg);
+        if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
+      }
+    }
+    grid.push({key:cur,date:cur,qualifies:ok,missing,excluded:!inSeason});
+    if(cur===end) break;
+    cur=addDaysYmd(cur,1);
+  }
+  return grid;
+}
+
+function buildHourlyGrid(cfg){
+  if(!rawHourly.length) return [];
+  const first=rawHourly[0], last=rawHourly[rawHourly.length-1];
+  const grid=[]; let curDate=first.d, curHour=first.h;
+  const endDate=last.d, endHour=last.h;
+  let guard=0;
+  while(guard<400000){
+    guard++;
+    const key=`${curDate} ${pad2(curHour)}`;
+    const inSeason = cfg.months.has(monthOf(curDate));
+    const rec = inSeason ? hourlyMap.get(key) : null;
+    let ok=false, missing=true;
+    if(rec){
+      const val=cfg.variable==='temp'?rec.t:rec.dp;
+      if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
+    }
+    grid.push({key,date:curDate,hour:curHour,qualifies:ok,missing,excluded:!inSeason});
+    if(curDate===endDate && curHour===endHour) break;
+    curHour++; if(curHour>23){curHour=0;curDate=addDaysYmd(curDate,1);}
+  }
+  return grid;
+}
+
+function buildGrid(cfg){
+  return cfg.aggregation==='daily' ? buildDailyGrid(cfg) : buildHourlyGrid(cfg);
+}
+
+// ================================================================
+// STREAK EXTRACTION + STATS
+// ================================================================
+function extractStreaks(grid){
+  const streaks=[]; let curStart=null;
+  for(let i=0;i<grid.length;i++){
+    if(grid[i].qualifies && !grid[i].missing){
+      if(curStart===null) curStart=i;
+    } else {
+      if(curStart!==null){streaks.push({startIdx:curStart,endIdx:i-1,length:i-curStart});curStart=null;}
+    }
+  }
+  if(curStart!==null) streaks.push({startIdx:curStart,endIdx:grid.length-1,length:grid.length-curStart});
+  return streaks;
+}
+
+function computeStats(grid, streaks, cfg){
+  const n=grid.length;
+  const stats={};
+  stats.currentStreak = (streaks.length && streaks[streaks.length-1].endIdx===n-1) ? streaks[streaks.length-1] : null;
+  stats.lastEndedStreak = (!stats.currentStreak && streaks.length) ? streaks[streaks.length-1] : null;
+  stats.recordStreak = streaks.reduce((best,s)=> (!best||s.length>best.length)?s:best, null);
+  stats.recordTies = stats.recordStreak ? streaks.filter(s=>s.length===stats.recordStreak.length).length : 0;
+  stats.totalStreaks = streaks.length;
+  stats.avgLength = streaks.length ? streaks.reduce((a,s)=>a+s.length,0)/streaks.length : 0;
+
+  const startYear = yearOf(grid[0].date);
+  const endYear = yearOf(grid[n-1].date);
+  const yearlyMax = new Map();
+  for(let y=startYear;y<=endYear;y++) yearlyMax.set(y,0);
+  for(const s of streaks){
+    const y=yearOf(grid[s.startIdx].date);
+    yearlyMax.set(y, Math.max(yearlyMax.get(y)||0, s.length));
+  }
+  stats.yearlyMax = yearlyMax;
+  stats.startYear = startYear; stats.endYear = endYear;
+
+  const curYear = endYear;
+  stats.thisYearQualifying = grid.filter(g=>g.qualifies && !g.missing && yearOf(g.date)===curYear).length;
+
+  const sortedDesc = streaks.slice().sort((a,b)=>b.length-a.length);
+  stats.sortedDesc = sortedDesc;
+  stats.currentRank = stats.currentStreak ? sortedDesc.indexOf(stats.currentStreak)+1 : null;
+
+  stats.effectiveStart = grid[0].date;
+  stats.effectiveEnd = grid[n-1].date;
+  return stats;
+}
+
+function rarityMessage(length, yearlyMax, seasonLabel){
+  const vals=[...yearlyMax.values()];
+  const fewer = vals.filter(v=>v<length).length;
+  const total = vals.length;
+  if(total===0) return '';
+  const noun = (!seasonLabel || seasonLabel==='All Months') ? 'years' : `${seasonLabel} seasons`;
+  return `Longer than ${fewer} of the last ${total} ${noun}' single longest streak at this threshold.`;
+}
+
+// ================================================================
+// FORMAT HELPERS
+// ================================================================
+function formatLength(n, cfg){
+  if(cfg.aggregation==='daily') return `${n} day${n===1?'':'s'}`;
+  const days=(n/24);
+  if(n>=24) return `${n} hrs (${days.toFixed(1)}d)`;
+  return `${n} hr${n===1?'':'s'}`;
+}
+function thresholdDescription(cfg){
+  const varLabel = cfg.variable==='temp'?'Temperature':'Dewpoint';
+  const opLabel = cfg.op==='gte'?'&ge;':'&le;';
+  const metricLabel = cfg.aggregation==='daily' ? ` (daily ${cfg.metric})` : ' (hourly)';
+  return `${varLabel} ${opLabel} ${cfg.value}&deg;F${metricLabel}`;
+}
+
+// ================================================================
+// RENDER: HEADLINE
+// ================================================================
+// ================================================================
+// SHARED: THRESHOLD SUMMARY (updates regardless of active mode)
+// ================================================================
+function updateThresholdSummary(cfg){
+  const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
+  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
+  document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
+}
+
+function renderHeadline(grid, streaks, stats, cfg){
+  const isWarmDir = cfg.op==='gte';
+  const badge=document.getElementById('hl-badge');
+  const hlValue=document.getElementById('hl-value');
+  const hlUnit=document.getElementById('hl-unit');
+  const hlLabel=document.getElementById('hl-label');
+  const hlNote=document.getElementById('hl-note');
+  const rarityLine=document.getElementById('rarity-line');
+
+  if(stats.currentStreak){
+    const s=stats.currentStreak;
+    const startDate=grid[s.startIdx].date;
+    hlValue.textContent = cfg.aggregation==='daily' ? s.length : s.length;
+    hlUnit.textContent = cfg.aggregation==='daily' ? (s.length===1?'day':'days') : (s.length===1?'hour':'hours');
+    hlLabel.textContent = 'Current Streak — Active';
+    badge.textContent = 'ACTIVE';
+    badge.className = 'cc-badge badge-active' + (isWarmDir?'':' cool');
+    const rankNote = stats.currentRank ? ` This ranks #${stats.currentRank} of ${stats.totalStreaks} all-time.` : '';
+    hlNote.innerHTML = `<strong>${thresholdDescription(cfg)}</strong> has held continuously since <strong>${fmtDateLong(startDate)}</strong>.${rankNote}`;
+    if(stats.recordStreak && s.length===stats.recordStreak.length){
+      hlNote.innerHTML += ` This ties the all-time record${stats.recordTies>1?` (${stats.recordTies}-way tie)`:''}.`;
+    }
+  } else if(stats.lastEndedStreak){
+    const s=stats.lastEndedStreak;
+    const startDate=grid[s.startIdx].date, endDate=grid[s.endIdx].date;
+    const daysSince = cfg.aggregation==='daily' ? (grid.length-1-s.endIdx) : Math.round((grid.length-1-s.endIdx)/24);
+    hlValue.textContent = '0';
+    hlUnit.textContent = cfg.aggregation==='daily'?'days':'hours';
+    hlLabel.textContent = 'Not Currently Active';
+    badge.textContent = 'ENDED';
+    badge.className = 'cc-badge badge-ended';
+    const outOfSeasonNote = (state.seasonLabel!=='All Months' && grid[grid.length-1].excluded) ? ` The most recent data falls outside your selected season (${state.seasonLabel}).` : '';
+    hlNote.innerHTML = `Last streak ran ${fmtDateLong(startDate)}&ndash;${fmtDateLong(endDate)} (${formatLength(s.length,cfg)}), ending ${daysSince>0?`about ${daysSince} ${cfg.aggregation==='daily'?'day':'day'}${daysSince===1?'':'s'} before the most recent data`:'right at the most recent data'}.${outOfSeasonNote}`;
+  } else {
+    hlValue.textContent='0';
+    hlUnit.textContent='';
+    hlLabel.textContent='No Qualifying Streaks';
+    badge.textContent='N/A';
+    badge.className='cc-badge badge-ended';
+    hlNote.textContent = `${thresholdDescription(cfg).replace(/&ge;|&le;|&deg;/g,m=>({'&ge;':'≥','&le;':'≤','&deg;':'°'}[m]))} has never been met at this station in the period of record${state.seasonLabel!=='All Months'?` within ${state.seasonLabel}`:''}.`;
+  }
+
+  if(stats.recordStreak){
+    rarityLine.textContent = rarityMessage(stats.currentStreak?stats.currentStreak.length:(stats.lastEndedStreak?stats.lastEndedStreak.length:0), stats.yearlyMax, state.seasonLabel);
+  } else {
+    rarityLine.textContent='';
+  }
+
+  document.getElementById('sv-record').textContent = stats.recordStreak ? formatLength(stats.recordStreak.length,cfg) : '—';
+  document.getElementById('sv-total').textContent = stats.totalStreaks;
+  document.getElementById('sv-avg').textContent = stats.totalStreaks ? formatLength(Math.round(stats.avgLength*10)/10,cfg) : '—';
+  document.getElementById('sl-thisyear').textContent = `${stats.endYear} So Far`;
+  document.getElementById('sv-thisyear').textContent = formatLength(stats.thisYearQualifying,cfg);
+  document.getElementById('sv-period').textContent = `${stats.startYear}–${stats.endYear}`;
+
+  document.getElementById('strip-mode-note').textContent = (cfg.aggregation==='daily' ? 'daily condition met' : 'any qualifying hour per day') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel} only` : '');
+
+  checkJeopardy(curStation, cfg, stats, grid);
+}
+
+// ================================================================
+// JEOPARDY / FORECAST CHECK
+// ================================================================
+function tempFAndRHtoDewpointF(tempF, rhPct){
+  const tC=(tempF-32)*5/9;
+  const rh=Math.min(Math.max(rhPct,1),100);
+  const gamma=Math.log(rh/100)+(17.625*tC)/(243.04+tC);
+  const tdC=243.04*gamma/(17.625-gamma);
+  return tdC*9/5+32;
+}
+async function checkJeopardy(station, cfg, stats, grid){
+  const el=document.getElementById('jeopardy-line');
+  if(!stats.currentStreak){el.textContent='';return;}
+  el.innerHTML='Checking NWS forecast&hellip;';
+  try{
+    const[icao,name,st,lat,lon,tz]=station;
+    const ptResp=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
+    if(!ptResp.ok) throw new Error('pt');
+    const pt=await ptResp.json();
+    const fUrl = cfg.aggregation==='hourly' ? pt.properties.forecastHourly : pt.properties.forecast;
+    if(!fUrl) throw new Error('nourl');
+    const fResp=await fetch(fUrl,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
+    if(!fResp.ok) throw new Error('f');
+    const fc=await fResp.json();
+    const periods=(fc.properties&&fc.properties.periods)||[];
+    function periodValue(p){
+      if(cfg.variable==='temp') return typeof p.temperature==='number'?p.temperature:null;
+      if(p.dewpoint && typeof p.dewpoint.value==='number'){
+        const v=p.dewpoint.value;
+        return (p.dewpoint.unitCode&&p.dewpoint.unitCode.indexOf('degC')>=0) ? v*9/5+32 : v;
+      }
+      if(p.relativeHumidity && typeof p.relativeHumidity.value==='number' && typeof p.temperature==='number'){
+        return tempFAndRHtoDewpointF(p.temperature,p.relativeHumidity.value);
+      }
+      return null;
+    }
+    let checkPeriods, label;
+    if(cfg.aggregation==='hourly'){
+      checkPeriods=periods.slice(0,6); label='the next few hours';
+    } else {
+      if(cfg.metric==='min'){checkPeriods=periods.filter(p=>!p.isDaytime).slice(0,1); label='tonight';}
+      else {checkPeriods=periods.filter(p=>p.isDaytime).slice(0,1); label='tomorrow';}
+      if(!checkPeriods.length){checkPeriods=periods.slice(0,2);label='the next period';}
+    }
+    const vals=checkPeriods.map(periodValue).filter(v=>v!=null);
+    if(!vals.length) throw new Error('novals');
+    const allQualify = vals.every(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
+    const anyQualify = vals.some(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
+    const roundedVals = vals.map(v=>Math.round(v)).join('–');
+    if(allQualify){
+      el.innerHTML=`<strong>Forecast: likely to continue.</strong> NWS forecast for ${label}: ${roundedVals}°F — still crossing the threshold.`;
+    } else if(!anyQualify){
+      el.innerHTML=`<strong>Forecast: likely to break.</strong> NWS forecast for ${label}: ${roundedVals}°F — no longer crossing the threshold.`;
+    } else {
+      el.innerHTML=`<strong>Forecast: uncertain.</strong> NWS forecast for ${label}: ${roundedVals}°F — right around the threshold.`;
+    }
+  } catch(e){
+    el.textContent='Forecast unavailable for this location.';
+  }
+}
+
+// ================================================================
+// YEAR STRIP CANVAS
+// ================================================================
+const stripCanvas=document.getElementById('strip-canvas');
+const stripCtx=stripCanvas.getContext('2d');
+const ROW_H=15, ROW_GAP=2, MONTH_HDR=18, LEFT_PAD=48, RIGHT_PAD=10;
+
+function setupStripCanvas(rows){
+  const wrap=document.getElementById('strip-wrap');
+  const W=wrap.clientWidth;
+  const H=MONTH_HDR + rows*(ROW_H+ROW_GAP);
+  stripDPR=window.devicePixelRatio||1;
+  stripCanvas.style.width=W+'px'; stripCanvas.style.height=H+'px';
+  stripCanvas.width=Math.round(W*stripDPR); stripCanvas.height=Math.round(H*stripDPR);
+  stripCtx.setTransform(stripDPR,0,0,stripDPR,0,0);
+  return {W,H};
+}
+
+function drawStrip(ctx, W, H, grid, streaks, stats, cfg, opts){
+  opts = opts || {};
+  const bg = opts.bg || null;
+  if(bg){ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);}
+  const plotW = W-LEFT_PAD-RIGHT_PAD;
+  const cellW = plotW/366;
+  const startYear=stats.startYear, endYear=stats.endYear;
+  const years=[]; for(let y=startYear;y<=endYear;y++) years.push(y);
+
+  // month gridlines / labels
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const MSTART=[0,31,59,90,120,151,181,212,243,273,304,334];
+  ctx.font=(opts.small?'10px':'11px')+' "Courier Prime", monospace';
+  ctx.fillStyle='#948F82'; ctx.textAlign='center';
+  for(let m=0;m<12;m++){
+    const s=MSTART[m], e=(m<11?MSTART[m+1]:366);
+    const mid=(s+e-1)/2;
+    ctx.fillText(MONTHS[m], LEFT_PAD+mid*cellW, MONTH_HDR-5);
+  }
+  ctx.textAlign='left';
+
+  // record + current streak index lookup for highlighting
+  const recordIdx = stats.recordStreak ? new Set() : null;
+  if(stats.recordStreak) for(let i=stats.recordStreak.startIdx;i<=stats.recordStreak.endIdx;i++) recordIdx.add(i);
+  const currentIdx = stats.currentStreak ? new Set() : null;
+  if(stats.currentStreak) for(let i=stats.currentStreak.startIdx;i<=stats.currentStreak.endIdx;i++) currentIdx.add(i);
+
+  const warmColor = getComputedStyle(document.documentElement).getPropertyValue('--streak-warm').trim()||'#E0824A';
+  const coolColor = getComputedStyle(document.documentElement).getPropertyValue('--streak-cool').trim()||'#5B9BD8';
+  const baseColor = cfg.op==='gte'?warmColor:coolColor;
+  const noDataColor = '#2C322D';
+  const missColor = 'rgba(232,228,217,0.035)';
+  const excludedColor = 'rgba(166,164,153,0.12)';
+
+  // pre-compute per-year, per-doy status by scanning grid once
+  // build map date -> {qualifies, idx} using either daily grid directly, or OR-reduced hourly->daily
+  let dayStatus; // Map ymd -> {q:bool, idxSample:number, recordHit:bool, currentHit:bool, excl:bool}
+  if(cfg.aggregation==='daily'){
+    dayStatus=new Map();
+    grid.forEach((g,i)=>{dayStatus.set(g.date,{q:g.qualifies&&!g.missing, present:!g.missing, idx:i, rec:recordIdx&&recordIdx.has(i), cur:currentIdx&&currentIdx.has(i), excl:!!g.excluded});});
+  } else {
+    dayStatus=new Map();
+    grid.forEach((g,i)=>{
+      let e=dayStatus.get(g.date);
+      if(!e){e={q:false,present:false,idx:i,rec:false,cur:false,excl:false};dayStatus.set(g.date,e);}
+      if(!g.missing){e.present=true; if(g.qualifies) e.q=true;}
+      if(g.excluded) e.excl=true;
+      if(recordIdx&&recordIdx.has(i)) e.rec=true;
+      if(currentIdx&&currentIdx.has(i)) e.cur=true;
+    });
+  }
+
+  years.forEach((y,ri)=>{
+    const rowY = MONTH_HDR + ri*(ROW_H+ROW_GAP);
+    for(let doy=0;doy<366;doy++){
+      if(doy===365 && !isLeap(y)) continue;
+      const md = doyToMD(y,doy);
+      const ymd = `${y}-${pad2(md.m)}-${pad2(md.d)}`;
+      const st = dayStatus.get(ymd);
+      let color = noDataColor;
+      if(st){
+        if(st.excl) color = excludedColor;
+        else color = st.present ? (st.q?baseColor:'rgba(166,164,153,0.10)') : missColor;
+      }
+      ctx.fillStyle=color;
+      ctx.fillRect(LEFT_PAD+doy*cellW, rowY, Math.max(cellW-0.4,0.6), ROW_H);
+      if(st && st.rec){
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--streak-record').trim()||'#D9A94F';
+        ctx.lineWidth=1;
+        ctx.strokeRect(LEFT_PAD+doy*cellW+0.5, rowY+0.5, Math.max(cellW-0.4,0.6), ROW_H-1);
+      }
+      if(st && st.cur){
+        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--streak-current').trim()||'#F1EEE4';
+        ctx.lineWidth=1;
+        ctx.strokeRect(LEFT_PAD+doy*cellW+0.5, rowY+0.5, Math.max(cellW-0.4,0.6), ROW_H-1);
+      }
+    }
+    ctx.fillStyle='#A6A499';
+    ctx.font=(opts.small?'9px':'10px')+' "Courier Prime", monospace';
+    ctx.fillText(String(y), 6, rowY+ROW_H-4);
+  });
+}
+
+function doyToMD(year, doy){
+  const ms = Date.UTC(year,0,1) + doy*86400000;
+  const dt = new Date(ms);
+  return {m:dt.getUTCMonth()+1, d:dt.getUTCDate()};
+}
+
+function renderStrip(grid, streaks, stats, cfg){
+  const rows = stats.endYear - stats.startYear + 1;
+  const {W,H} = setupStripCanvas(rows);
+  stripCtx.clearRect(0,0,W,H);
+  drawStrip(stripCtx, W, H, grid, streaks, stats, cfg, {});
+}
+
+// hover tooltip
+(function(){
+  const tt=document.getElementById('strip-tooltip');
+  stripCanvas.addEventListener('mousemove', (e)=>{
+    if(!lastGrid || !lastStats) return;
+    const rect=stripCanvas.getBoundingClientRect();
+    const x=e.clientX-rect.left, y=e.clientY-rect.top;
+    const plotW=rect.width-LEFT_PAD-RIGHT_PAD;
+    if(x<LEFT_PAD || y<MONTH_HDR){tt.style.display='none';return;}
+    const doy=Math.floor((x-LEFT_PAD)/(plotW/366));
+    const ri=Math.floor((y-MONTH_HDR)/(ROW_H+ROW_GAP));
+    const y0=lastStats.startYear+ri;
+    if(y0<lastStats.startYear||y0>lastStats.endYear||doy<0||doy>365){tt.style.display='none';return;}
+    if(doy===365 && !isLeap(y0)){tt.style.display='none';return;}
+    const md=doyToMD(y0,doy);
+    const ymd=`${y0}-${pad2(md.m)}-${pad2(md.d)}`;
+    tt.style.display='block';
+    tt.style.left=(x+14)+'px'; tt.style.top=(y+14)+'px';
+    tt.textContent=fmtDateLong(ymd);
+  });
+  stripCanvas.addEventListener('mouseleave', ()=>{tt.style.display='none';});
+})();
+
+// ================================================================
+// RANKED LIST + CHART
+// ================================================================
+function renderRanked(grid, streaks, stats, cfg){
+  const top = stats.sortedDesc.slice(0,15);
+  const tbody=document.getElementById('ranked-tbody');
+  if(!top.length){
+    tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--color-text-muted)">No qualifying streaks in the period of record</td></tr>';
+  } else {
+    tbody.innerHTML = top.map((s,i)=>{
+      const isCur = stats.currentStreak && s===stats.currentStreak;
+      const isRec = stats.recordStreak && s.length===stats.recordStreak.length;
+      const startDate=grid[s.startIdx].date, endDate=grid[s.endIdx].date;
+      const rowClass = isCur?'is-current':(isRec?'is-record':'');
+      const tag = isCur ? '<span class="rank-tag" style="background:rgba(224,130,74,.18);color:var(--streak-warm)">ACTIVE</span>' : (isRec?'<span class="rank-tag" style="background:rgba(217,169,79,.18);color:var(--streak-record)">RECORD</span>':'');
+      return `<tr class="${rowClass}"><td>#${i+1}</td><td>${fmtDateShort(startDate)}${startDate!==endDate?`–${fmtDateShort(endDate)}`:''}, ${yearOf(startDate)}</td><td class="r">${formatLength(s.length,cfg)}</td><td>${tag}</td></tr>`;
+    }).join('');
+  }
+
+  const labels = top.map((s,i)=>`#${i+1} · ${fmtDateShort(grid[s.startIdx].date)} ${yearOf(grid[s.startIdx].date)}`);
+  const lengths = top.map(s=>s.length);
+  const colors = top.map(s=>{
+    if(stats.currentStreak && s===stats.currentStreak) return '#F1EEE4';
+    if(stats.recordStreak && s.length===stats.recordStreak.length) return '#D9A94F';
+    return cfg.op==='gte' ? '#E0824A' : '#5B9BD8';
+  });
+  const trace = {
+    type:'bar', orientation:'h',
+    y: labels.slice().reverse(),
+    x: lengths.slice().reverse(),
+    marker:{color: colors.slice().reverse()},
+    hovertemplate: '%{x} ' + (cfg.aggregation==='daily'?'days':'hours') + '<extra></extra>'
+  };
+  const layout = {
+    paper_bgcolor:'#262B27', plot_bgcolor:'#262B27',
+    margin:{l:160,r:20,t:10,b:36},
+    font:{family:'Courier Prime, monospace', color:'#A6A499', size:11},
+    xaxis:{gridcolor:'rgba(232,228,217,0.08)', title:cfg.aggregation==='daily'?'Days':'Hours'},
+    yaxis:{automargin:true}
+  };
+  Plotly.newPlot('ranked-chart', [trace], layout, {responsive:true,displayModeBar:false});
+}
+
+// ================================================================
+// TOTALS MODE: COMPUTATION
+// ================================================================
+function computeYearlyTotals(grid, cfg){
+  // "possible" = in-season grid cells that exist for that year (regardless of missing readings).
+  // Comparing each year's possible-count against the record's max reveals edge years that are
+  // cut short (record starts mid-year, or the current year hasn't finished yet) -- the grid simply
+  // doesn't contain future days at all, so this is the only reliable way to flag them as partial.
+  const map = new Map(); // year -> {qual, present, possible}
+  for(const g of grid){
+    if(g.excluded) continue;
+    const y = yearOf(g.date);
+    let e = map.get(y);
+    if(!e){ e={qual:0, present:0, possible:0}; map.set(y,e); }
+    e.possible++;
+    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
+  }
+  const years = [...map.keys()].filter(y=>map.get(y).possible>0).sort((a,b)=>a-b);
+  const maxPossible = years.reduce((mx,y)=>Math.max(mx, map.get(y).possible), 0);
+  return years.map(y=>{
+    const e = map.get(y);
+    const partial = maxPossible>0 && e.possible < maxPossible*0.9;
+    return { key:String(y), label:String(y), qual:e.qual, present:e.present, possible:e.possible, partial };
+  });
+}
+
+function computeMonthlyTotals(grid, cfg){
+  // Climatology: average per-year total for each calendar month. A given year's contribution to a
+  // month is excluded from the average if that year's coverage of the month is well below the
+  // record's typical coverage for it (e.g. the current, still-in-progress month, or a record that
+  // starts/ends mid-month) -- otherwise a partial month would silently drag the average down.
+  const byMonth = new Map(); // month -> Map(year -> {qual, present, possible})
+  for(const g of grid){
+    if(g.excluded) continue;
+    const m = monthOf(g.date), y = yearOf(g.date);
+    let yearsMap = byMonth.get(m);
+    if(!yearsMap){ yearsMap=new Map(); byMonth.set(m,yearsMap); }
+    let e = yearsMap.get(y);
+    if(!e){ e={qual:0, present:0, possible:0}; yearsMap.set(y,e); }
+    e.possible++;
+    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
+  }
+  const months = [...byMonth.keys()].sort((a,b)=>a-b);
+  return months.map(m=>{
+    const yearsMap = byMonth.get(m);
+    const entries = [...yearsMap.values()];
+    const maxPossible = entries.reduce((mx,e)=>Math.max(mx,e.possible),0);
+    const complete = entries.filter(e=> maxPossible===0 || e.possible >= maxPossible*0.9);
+    const totalQual = complete.reduce((s,e)=>s+e.qual,0);
+    const yrCount = complete.length || 1;
+    return { key:String(m), label:MONTH_NAMES[m-1], qual: totalQual, yearsCount: complete.length, avgQual: totalQual/yrCount };
+  });
+}
+
+function formatTotal(n, cfg){
+  const r = Math.round(n*10)/10;
+  if(cfg.aggregation==='daily') return `${r} day${r===1?'':'s'}`;
+  if(r>=24) return `${r} hrs (${(r/24).toFixed(1)}d)`;
+  return `${r} hr${r===1?'':'s'}`;
+}
+
+// ================================================================
+// TOTALS MODE: RENDER
+// ================================================================
+function renderTotals(grid, cfg){
+  document.getElementById('totals-hdr-label').textContent = cfg.op==='gte' ? 'Total Time At/Above Threshold' : 'Total Time At/Below Threshold';
+  const groupBy = state.totalsGroupBy;
+  const rows = groupBy==='year' ? computeYearlyTotals(grid, cfg) : computeMonthlyTotals(grid, cfg);
+  const baseColor = cfg.op==='gte' ? '#E0824A' : '#5B9BD8';
+  const unitWord = cfg.aggregation==='daily' ? 'days' : 'hours';
+
+  const labels = rows.map(r=>r.label);
+  const values = rows.map(r=> groupBy==='year' ? r.qual : r.avgQual);
+  const opacities = rows.map(r=> (groupBy==='year' && r.partial) ? 0.45 : 1);
+
+  const trace = {
+    type:'bar', x:labels, y:values,
+    marker:{color:baseColor, opacity:opacities},
+    hovertemplate:'%{y:.1f} ' + unitWord + '<extra></extra>'
+  };
+  const yAxisTitle = groupBy==='year'
+    ? (cfg.aggregation==='daily'?'Days':'Hours')
+    : (cfg.aggregation==='daily'?'Avg Days / Year':'Avg Hours / Year');
+  const layout = {
+    paper_bgcolor:'#262B27', plot_bgcolor:'#262B27',
+    margin:{l:56,r:20,t:10,b:40},
+    font:{family:'Courier Prime, monospace', color:'#A6A499', size:11},
+    xaxis:{type:'category', gridcolor:'rgba(232,228,217,0.08)'},
+    yaxis:{gridcolor:'rgba(232,228,217,0.08)', title:yAxisTitle, rangemode:'tozero'}
+  };
+  Plotly.newPlot('totals-chart', [trace], layout, {responsive:true,displayModeBar:false});
+
+  const thead = document.getElementById('totals-thead');
+  const tbody = document.getElementById('totals-tbody');
+  if(!rows.length){
+    thead.innerHTML = '<tr><th>&ndash;</th></tr>';
+    tbody.innerHTML = '<tr><td style="text-align:center;padding:20px;color:var(--color-text-muted)">No data for this selection</td></tr>';
+    return;
+  }
+  if(groupBy==='year'){
+    thead.innerHTML = '<tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr>';
+    tbody.innerHTML = rows.slice().reverse().map(r=>{
+      const cov = r.possible ? Math.round(r.present/r.possible*100) : 0;
+      const partialTag = r.partial ? ' <span style="color:var(--color-text-muted)">(partial)</span>' : '';
+      return `<tr><td>${r.label}${partialTag}</td><td class="r">${formatTotal(r.qual,cfg)}</td><td class="r">${cov}%</td></tr>`;
+    }).join('');
+  } else {
+    thead.innerHTML = '<tr><th>Month</th><th class="r">Avg / Year</th><th class="r">Years of Data</th></tr>';
+    tbody.innerHTML = rows.map(r=>{
+      return `<tr><td>${r.label}</td><td class="r">${formatTotal(r.avgQual,cfg)}</td><td class="r">${r.yearsCount}</td></tr>`;
+    }).join('');
+  }
+}
+
+// ================================================================
+// LOAD STATION
+// ================================================================
+async function loadStation(station){
+  curStation=station;
+  const[icao,name,st,lat,lon,tz]=station;
+  showLoading(`Fetching ${icao} history from IEM ASOS (1991–present)… this can take ~20–40s`);
+  document.getElementById('stn-name').textContent=name;
+  document.getElementById('title-station').textContent=`${name.split(' ')[0]===name?name:name}, ${st}`;
+  document.getElementById('stn-meta').textContent=`${icao} · ${st} · Loading…`;
+  try{
+    const tzIana = TZ_IANA[tz]||'America/New_York';
+    const curYear = new Date().getUTCFullYear();
+    const url = buildIEMUrl(icao, tzIana, 1991, curYear);
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const text = await resp.text();
+    rawHourly = parseIEM(text);
+    if(!rawHourly.length) throw new Error('No data returned for this station.');
+    const maps = buildMaps(rawHourly);
+    hourlyMap = maps.hMap; dailyMap = maps.dMap;
+    sortedDates = [...dailyMap.keys()].sort();
+    document.getElementById('stn-meta').textContent = `${icao} · ${st} · Record: ${sortedDates[0].slice(0,4)}–${sortedDates[sortedDates.length-1].slice(0,4)}`;
+    document.getElementById('ts-lbl').textContent = `Loaded ${new Date().toLocaleTimeString()}`;
+    rebuildPresetRow();
+    recomputeAndRender();
+  } catch(e){
+    document.getElementById('stn-meta').textContent = `${icao} · ${st} · Load failed: ${e.message}`;
+  } finally {
+    hideLoading();
+  }
+}
+function refreshData(){ if(curStation) loadStation(curStation); }
+
+function recomputeAndRender(){
+  if(!sortedDates.length) return;
+  const cfg = activeCfg();
+  const grid = buildGrid(cfg);
+  lastGrid = grid;
+  updateThresholdSummary(cfg);
+  if(state.mode==='totals'){
+    renderTotals(grid, cfg);
+    return;
+  }
+  const streaks = extractStreaks(grid);
+  const stats = computeStats(grid, streaks, cfg);
+  lastStreaks=streaks; lastStats=stats;
+  renderHeadline(grid, streaks, stats, cfg);
+  renderStrip(grid, streaks, stats, cfg);
+  renderRanked(grid, streaks, stats, cfg);
+}
+
+// ================================================================
+// CONTROLS WIRING
+// ================================================================
+function rebuildPresetRow(){
+  const list = PRESETS[state.variable];
+  const groups = {};
+  list.forEach(p=>{(groups[p.group]=groups[p.group]||[]).push(p);});
+  const row=document.getElementById('preset-row');
+  row.innerHTML = Object.keys(groups).map(g=>{
+    return `<div class="preset-group"><span class="preset-group-label">${g}</span>${groups[g].map(p=>
+      `<button class="cc-btn cc-btn-sm${p.id===state.activePreset?' is-active':''}" data-preset="${p.id}">${p.label}</button>`
+    ).join('')}</div>`;
+  }).join('');
+  row.querySelectorAll('button[data-preset]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = PRESETS[state.variable].find(x=>x.id===btn.dataset.preset);
+      if(!p) return;
+      state.metric=p.metric; state.op=p.op; state.value=p.value; state.activePreset=p.id;
+      row.querySelectorAll('button[data-preset]').forEach(b=>b.classList.toggle('is-active', b.dataset.preset===p.id));
+      syncCustomControls();
+      recomputeAndRender();
+    });
+  });
+}
+
+function rebuildSeasonRow(){
+  const row=document.getElementById('season-preset-row');
+  row.innerHTML = SEASON_PRESETS.map(p=>
+    `<button class="cc-btn cc-btn-sm${p.id===state.seasonId?' is-active':''}" data-season="${p.id}">${p.label}</button>`
+  ).join('');
+  row.querySelectorAll('button[data-season]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const p = SEASON_PRESETS.find(x=>x.id===btn.dataset.season);
+      if(!p) return;
+      state.months = new Set(p.months);
+      state.seasonId = p.id;
+      state.seasonLabel = p.label;
+      row.querySelectorAll('button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===p.id));
+      syncMonthGrid();
+      recomputeAndRender();
+    });
+  });
+}
+
+function toggleMonthGrid(){ document.getElementById('month-grid').classList.toggle('open'); }
+
+function customSeasonLabel(){
+  const arr=[...state.months].sort((a,b)=>a-b);
+  if(arr.length===12) return 'All Months';
+  if(arr.length===0) return 'No Months Selected';
+  return arr.map(m=>MONTH_NAMES[m-1]).join('/');
+}
+
+function syncMonthGrid(){
+  const grid=document.getElementById('month-grid');
+  grid.innerHTML = MONTH_NAMES.map((name,i)=>{
+    const m=i+1;
+    const on = state.months.has(m);
+    return `<button class="cc-btn cc-btn-sm month-btn${on?' is-active':''}" data-month="${m}">${name}</button>`;
+  }).join('');
+  grid.querySelectorAll('button[data-month]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const m=parseInt(btn.dataset.month,10);
+      if(state.months.has(m)){ if(state.months.size>1) state.months.delete(m); }
+      else state.months.add(m);
+      btn.classList.toggle('is-active', state.months.has(m));
+      state.seasonId='custom'; state.seasonLabel=customSeasonLabel();
+      document.querySelectorAll('#season-preset-row button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===state.seasonId));
+      recomputeAndRender();
+    });
+  });
+}
+
+function syncCustomControls(){
+  document.getElementById('metric-select').value = state.metric;
+  document.querySelectorAll('#seg-op .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active', b.dataset.op===state.op));
+  document.getElementById('custom-num').value = state.value;
+  document.getElementById('custom-range').value = state.value;
+  document.getElementById('metric-field').style.display = state.aggregation==='daily' ? '' : 'none';
+}
+
+function toggleCustomPanel(){
+  document.getElementById('custom-panel').classList.toggle('open');
+}
+
+function applyCustom(){
+  const num = parseFloat(document.getElementById('custom-num').value);
+  if(isNaN(num)) return;
+  state.value = num;
+  state.metric = document.getElementById('metric-select').value;
+  state.op = document.querySelector('#seg-op .cc-segmented-btn.is-active').dataset.op;
+  state.activePreset = null;
+  document.querySelectorAll('#preset-row button[data-preset]').forEach(b=>b.classList.remove('is-active'));
+  recomputeAndRender();
+}
+
+function initControls(){
+  document.getElementById('seg-mode').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(state.mode===btn.dataset.mode) return;
+      state.mode = btn.dataset.mode;
+      document.getElementById('seg-mode').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      document.getElementById('streaks-view').style.display = state.mode==='streaks' ? '' : 'none';
+      document.getElementById('totals-view').style.display = state.mode==='totals' ? '' : 'none';
+      recomputeAndRender();
+    });
+  });
+  document.getElementById('seg-totals-group').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.totalsGroupBy = btn.dataset.group;
+      document.getElementById('seg-totals-group').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      if(lastGrid) renderTotals(lastGrid, activeCfg());
+    });
+  });
+  document.getElementById('seg-variable').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.variable = btn.dataset.variable;
+      state.aggregation = DEFAULT_AGG[state.variable];
+      const firstPreset = PRESETS[state.variable][0];
+      state.metric=firstPreset.metric; state.op=firstPreset.op; state.value=firstPreset.value; state.activePreset=firstPreset.id;
+      document.getElementById('seg-variable').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      document.getElementById('seg-agg').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b.dataset.agg===state.aggregation));
+      rebuildPresetRow(); syncCustomControls(); recomputeAndRender();
+    });
+  });
+  document.getElementById('seg-agg').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.aggregation = btn.dataset.agg;
+      document.getElementById('seg-agg').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+      syncCustomControls(); recomputeAndRender();
+    });
+  });
+  document.getElementById('seg-op').querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.getElementById('seg-op').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
+    });
+  });
+  const numInput=document.getElementById('custom-num'), rangeInput=document.getElementById('custom-range');
+  numInput.addEventListener('input', ()=>{ rangeInput.value = numInput.value; });
+  rangeInput.addEventListener('input', ()=>{ numInput.value = rangeInput.value; });
+  window.addEventListener('resize', ()=>{ if(state.mode==='streaks' && lastGrid && lastStats) renderStrip(lastGrid, lastStreaks, lastStats, activeCfg()); });
+}
+
+// ================================================================
+// PNG EXPORT
+// ================================================================
+function exportPNG(){
+  if(!lastGrid){alert('Load a station first.');return;}
+  const cfg = activeCfg();
+  const scale=2;
+  const ow=1200*scale, headerH=140*scale, footerH=40*scale;
+  const rows = lastStats.endYear - lastStats.startYear + 1;
+  const stripH = (MONTH_HDR + rows*(ROW_H+ROW_GAP))*scale;
+  const oh = headerH + stripH + footerH;
+  const off=document.createElement('canvas'); off.width=ow; off.height=oh;
+  const oc=off.getContext('2d');
+  oc.fillStyle='#1E2320'; oc.fillRect(0,0,ow,oh);
+  oc.fillStyle='#262B27'; oc.fillRect(0,0,ow,headerH);
+
+  const PAD=28*scale;
+  oc.fillStyle='#948F82'; oc.font=(11*scale)+'px "Courier Prime", monospace'; oc.textAlign='left';
+  oc.fillText('HOURLY DATA · STREAK TRACKER', PAD, 26*scale);
+  const[icao,name]=curStation;
+  oc.fillStyle='#E8E4D9'; oc.font='bold '+(22*scale)+'px "Zilla Slab", serif';
+  oc.fillText(`${name}`, PAD, 56*scale);
+  oc.fillStyle='#E0824A'; oc.font='bold '+(15*scale)+'px "Courier Prime", monospace';
+  const plainThresh = thresholdDescription(cfg).replace(/&ge;/g,'≥').replace(/&le;/g,'≤').replace(/&deg;/g,'°') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel}` : '');
+  oc.fillText(plainThresh, PAD, 80*scale);
+
+  const stat = lastStats.currentStreak
+    ? `CURRENT STREAK: ${formatLength(lastStats.currentStreak.length,cfg)} — active since ${fmtDateLong(lastGrid[lastStats.currentStreak.startIdx].date)}`
+    : (lastStats.lastEndedStreak ? `NOT CURRENTLY ACTIVE — last streak ${formatLength(lastStats.lastEndedStreak.length,cfg)}` : 'NO QUALIFYING STREAKS ON RECORD');
+  oc.fillStyle='#E8E4D9'; oc.font=(14*scale)+'px "Courier Prime", monospace';
+  oc.fillText(stat, PAD, 104*scale);
+
+  if(lastStats.recordStreak){
+    oc.fillStyle='#A6A499'; oc.font=(12*scale)+'px "Public Sans", sans-serif';
+    oc.fillText(`Record: ${formatLength(lastStats.recordStreak.length,cfg)} · Total streaks: ${lastStats.totalStreaks} · Period: ${lastStats.startYear}–${lastStats.endYear}`, PAD, 124*scale);
+  }
+
+  // Strip
+  const stripCanvasOff=document.createElement('canvas');
+  stripCanvasOff.width=ow; stripCanvasOff.height=stripH;
+  const sctx=stripCanvasOff.getContext('2d');
+  sctx.setTransform(scale,0,0,scale,0,0);
+  drawStrip(sctx, ow/scale, stripH/scale, lastGrid, lastStreaks, lastStats, cfg, {bg:'#262B27'});
+  oc.drawImage(stripCanvasOff, 0, headerH);
+
+  oc.fillStyle='#948F82'; oc.font=(11*scale)+'px "Courier Prime", monospace'; oc.textAlign='left';
+  oc.fillText(`Data: IEM ASOS · ${icao} · contextclimate.io`, PAD, oh-14*scale);
+  oc.textAlign='right';
+  oc.fillText('contextclimate.io', ow-PAD, oh-14*scale);
+  oc.fillStyle=cfg.op==='gte'?'#E0824A':'#5B9BD8';
+  oc.fillRect(0, oh-3*scale, ow, 3*scale);
+
+  const link=document.createElement('a');
+  link.download=`streak-tracker-${icao}-${state.activePreset||'custom'}-${cfg.aggregation}.png`;
+  link.href=off.toDataURL('image/png');
+  link.click();
+}
+
+// ================================================================
+// LOADING OVERLAY
+// ================================================================
+function showLoading(msg){
+  document.getElementById('loading-text').textContent=msg;
+  document.getElementById('loading-overlay').classList.add('show');
+}
+function hideLoading(){ document.getElementById('loading-overlay').classList.remove('show'); }
+
+// ================================================================
+// INIT
+// ================================================================
+function init(){
+  initSearch();
+  initControls();
+  syncCustomControls();
+  rebuildSeasonRow();
+  syncMonthGrid();
+  const def = STATIONS.find(s=>s[0]==='KISP') || STATIONS[0];
+  loadStation(def);
+}
+init();
+</script>
+</body>
+</html>
