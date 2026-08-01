@@ -172,6 +172,7 @@ footer a:hover { color:var(--color-text-primary); }
         </svg>
         Copy Image
       </button>
+      <button class="cc-btn cc-btn-sm" id="downloadBtn" onclick="downloadAnnualPNG(this)" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">&darr; PNG</button>
     </div>
   </div>
 
@@ -293,17 +294,13 @@ footer a:hover { color:var(--color-text-primary); }
         <div class="cc-stat-value" id="cmpChipTrend">—</div>
         <div class="cc-stat-note">per decade</div>
       </div>
-      <div class="cc-stat-chip">
-        <div class="cc-stat-label">Streak</div>
-        <div class="cc-stat-value" id="cmpChipStreak">—</div>
-        <div class="cc-stat-note" id="cmpChipStreakSub">—</div>
-      </div>
     </div>
 
     <!-- Compare chart -->
     <div class="cc-panel">
-      <div class="chart-hdr">
+      <div class="chart-hdr" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
         <div class="cc-btn-row-label" id="cmpChartTitle">Window Totals by Year</div>
+        <button class="cc-btn cc-btn-sm" id="cmpDownloadBtn" onclick="downloadComparePNG(this)" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">&darr; PNG</button>
       </div>
       <div class="cmp-chart-wrap">
         <canvas id="cmpChart"></canvas>
@@ -1330,15 +1327,35 @@ function showSpinner(show) {
   document.getElementById('precipChart').style.display = show ? 'none' : 'block';
 }
 
-// ─── COPY IMAGE ──────────────────────────────────────────────
-async function copyChartImage(btn) {
-  const chartCanvas = document.getElementById('precipChart');
-  if (!mainChart || chartCanvas.style.display === 'none') return;
+// ─── HIGH-RES PNG EXPORT ─────────────────────────────────────
+// Fixed export multiplier, independent of the viewing screen's
+// devicePixelRatio -- on a standard 1x-scaled display, Chart.js only
+// renders its canvas backing store at 1x, so capturing straight off the
+// live canvas produces a soft/low-res PNG. Bumping devicePixelRatio and
+// forcing a resize renders the chart itself at high resolution before we
+// draw it into the export canvas, then we restore normal resolution for
+// on-screen interaction. (contextclimate-png-export-highres convention)
+const EXPORT_SCALE = 3;
 
-  const dpr = window.devicePixelRatio || 1;
-  const cw  = chartCanvas.width;
-  const ch  = chartCanvas.height;
-  const px  = n => Math.round(n * dpr);
+function renderChartAtExportScale(chart, buildFn) {
+  const origDpr = chart.options.devicePixelRatio || (window.devicePixelRatio || 1);
+  chart.options.devicePixelRatio = EXPORT_SCALE;
+  chart.resize();
+  let result;
+  try {
+    result = buildFn(EXPORT_SCALE);
+  } finally {
+    chart.options.devicePixelRatio = origDpr;
+    chart.resize();
+  }
+  return result;
+}
+
+function buildAnnualExportCanvas(scale) {
+  const chartCanvas = document.getElementById('precipChart');
+  const cw = chartCanvas.width;
+  const ch = chartCanvas.height;
+  const px = n => Math.round(n * scale);
   const PAD = px(24);
 
   const legendItems = [];
@@ -1425,6 +1442,94 @@ async function copyChartImage(btn) {
   });
 
   ctx.drawImage(chartCanvas, 0, HDR_H);
+  return out;
+}
+
+function buildCompareExportCanvas(scale) {
+  const chartCanvas = document.getElementById('cmpChart');
+  const cw = chartCanvas.width;
+  const ch = chartCanvas.height;
+  const px = n => Math.round(n * scale);
+  const PAD = px(24);
+
+  const windowLabel = cmpWindowType === 'year' ? 'Full Year (Jan 1 – Dec 31)'
+    : cmpWindowType === 'month' ? MONTH_SHORT[cmpMonth]
+    : `${MONTH_SHORT[cmpCustomStart.m]} ${cmpCustomStart.d} – ${MONTH_SHORT[cmpCustomEnd.m]} ${cmpCustomEnd.d}`;
+  const baselineLabel = cmpBaseline === 'normal3020' ? '1991–2020 Normal' : 'Full Period of Record';
+
+  const legendItems = [
+    { label: 'Highlighted year', color: '#D08425', dash: [] },
+    { label: 'Baseline avg', color: '#2AA87E', dash: [px(5), px(3)] },
+    { label: 'Trend', color: '#9b6dff', dash: [px(3), px(3)] }
+  ];
+
+  const HDR_H  = px(118);
+  const LINE_LEN = px(28);
+  const LINE_GAP = px(7);
+  const ITEM_GAP = px(22);
+
+  const out = document.createElement('canvas');
+  out.width  = cw;
+  out.height = ch + HDR_H;
+
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#1E2320';
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  ctx.fillStyle = '#D08425';
+  ctx.fillRect(0, 0, cw, px(3));
+
+  ctx.fillStyle = '#E8E4D9';
+  ctx.font = `700 ${px(20)}px "Zilla Slab", serif`;
+  ctx.fillText(activeStation.label, PAD, px(33));
+
+  ctx.fillStyle = '#D08425';
+  ctx.font = `600 ${px(16)}px "Courier Prime", monospace`;
+  const hlLbl = cmpHighlightYear !== null ? String(cmpHighlightYear) : '';
+  const hlTw = ctx.measureText(hlLbl).width;
+  ctx.fillText(hlLbl, cw - PAD - hlTw, px(33));
+
+  ctx.fillStyle = '#A6A499';
+  ctx.font = `400 ${px(12)}px "Courier Prime", monospace`;
+  ctx.fillText(`Window: ${windowLabel}  ·  Baseline: ${baselineLabel}  ·  NOAA ACIS ThreadEx  ·  contextclimate.io`, PAD, px(52));
+
+  ctx.strokeStyle = 'rgba(232,228,217,0.14)';
+  ctx.lineWidth = px(1);
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(PAD, px(65));
+  ctx.lineTo(cw - PAD, px(65));
+  ctx.stroke();
+
+  ctx.font = `500 ${px(12)}px "Courier Prime", monospace`;
+  const LINE_Y  = px(80);
+  const LABEL_Y = px(86);
+  let legX = PAD;
+
+  legendItems.forEach(item => {
+    ctx.save();
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = item.dash.length ? px(1.5) : px(2);
+    ctx.setLineDash(item.dash);
+    ctx.beginPath();
+    ctx.moveTo(legX, LINE_Y);
+    ctx.lineTo(legX + LINE_LEN, LINE_Y);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#A6A499';
+    ctx.fillText(item.label, legX + LINE_LEN + LINE_GAP, LABEL_Y);
+    legX += LINE_LEN + LINE_GAP + ctx.measureText(item.label).width + ITEM_GAP;
+  });
+
+  ctx.drawImage(chartCanvas, 0, HDR_H);
+  return out;
+}
+
+async function copyChartImage(btn) {
+  const chartCanvas = document.getElementById('precipChart');
+  if (!mainChart || chartCanvas.style.display === 'none') return;
+
+  const out = renderChartAtExportScale(mainChart, buildAnnualExportCanvas);
 
   const resetBtn = () => {
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1"/></svg> Copy Image';
@@ -1442,6 +1547,36 @@ async function copyChartImage(btn) {
     btn.textContent = '✗ Failed';
     setTimeout(resetBtn, 2200);
   }
+}
+
+function downloadAnnualPNG(btn) {
+  const chartCanvas = document.getElementById('precipChart');
+  if (!mainChart || chartCanvas.style.display === 'none') return;
+  const out = renderChartAtExportScale(mainChart, buildAnnualExportCanvas);
+  const resetBtn = () => { btn.innerHTML = '&darr; PNG'; btn.classList.remove('done'); };
+  const link = document.createElement('a');
+  const yrPart = currentHighlightYear !== null ? `-${currentHighlightYear}` : '';
+  link.download = `precip-annual-${activeStation.short}${yrPart}.png`;
+  link.href = out.toDataURL('image/png');
+  link.click();
+  btn.textContent = '✓ Saved';
+  btn.classList.add('done');
+  setTimeout(resetBtn, 2200);
+}
+
+function downloadComparePNG(btn) {
+  const chartCanvas = document.getElementById('cmpChart');
+  if (!cmpChart || chartCanvas.style.display === 'none') return;
+  const out = renderChartAtExportScale(cmpChart, buildCompareExportCanvas);
+  const resetBtn = () => { btn.innerHTML = '&darr; PNG'; btn.classList.remove('done'); };
+  const link = document.createElement('a');
+  const yrPart = cmpHighlightYear !== null ? `-${cmpHighlightYear}` : '';
+  link.download = `precip-compare-${activeStation.short}-${cmpWindowType}${yrPart}.png`;
+  link.href = out.toDataURL('image/png');
+  link.click();
+  btn.textContent = '✓ Saved';
+  btn.classList.add('done');
+  setTimeout(resetBtn, 2200);
 }
 
 
@@ -1684,9 +1819,6 @@ function renderCmpChips(stats) {
   document.getElementById('cmpChipWetDaysSub').textContent = h ? `of ${h.totalDays} days` : '≥ 0.01"';
 
   document.getElementById('cmpChipTrend').textContent = stats.trendPerDecade !== null ? (stats.trendPerDecade >= 0 ? '+' : '') + stats.trendPerDecade + '"' : '—';
-
-  document.getElementById('cmpChipStreak').textContent = stats.streakLen ? stats.streakLen : '—';
-  document.getElementById('cmpChipStreakSub').textContent = stats.streakDir ? `years running ${stats.streakDir} normal` : '—';
 }
 
 function renderCmpWindowNote(series) {
