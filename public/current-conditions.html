@@ -1643,6 +1643,12 @@ function parseSkyCoverValues(values){
     return{start,end:start+parseISODuration(durStr),value:v.value};
   }).filter(v=>!isNaN(v.start)&&v.value!=null);
 }
+// forecastGridData's windGust series comes back in km/h (wmoUnit:km_h-1) regardless
+// of the units requested elsewhere — convert to mph so it lines up with
+// parseWindMph()/windBarColor()'s scale, same treatment as historical gust obs.
+function parseWindGustMphValues(values){
+  return parseSkyCoverValues(values).map(seg=>({...seg,value:seg.value!=null?seg.value*0.621371:null}));
+}
 function skyCoverAt(list,t){
   if(!list||!list.length)return null;
   for(const seg of list){if(t>=seg.start&&t<seg.end)return seg.value;}
@@ -1662,7 +1668,8 @@ async function fetchNWSForecast(station){
   if(!hResp.ok||!dResp.ok)throw new Error('NWS forecast fetch failed');
   const[hJson,dJson,gJson]=await Promise.all([hResp.json(),dResp.json(),(gResp&&gResp.ok)?gResp.json():Promise.resolve(null)]);
   const skyCoverRaw=gJson&&gJson.properties&&gJson.properties.skyCover&&gJson.properties.skyCover.values;
-  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[],skyCover:parseSkyCoverValues(skyCoverRaw)};
+  const windGustRaw=gJson&&gJson.properties&&gJson.properties.windGust&&gJson.properties.windGust.values;
+  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[],skyCover:parseSkyCoverValues(skyCoverRaw),windGust:parseWindGustMphValues(windGustRaw)};
 }
 
 function fcPopStr(period){
@@ -1701,7 +1708,7 @@ function attributionLineForecast(periods){
 
 let fcChartsBuilt=false;
 let fcOffset=0; // 0 = next 48h; 48 = the following 48h window (hours 48-96)
-let lastFcHourly=null,lastFcTz=null,lastFcSkyCover=null;
+let lastFcHourly=null,lastFcTz=null,lastFcSkyCover=null,lastFcWindGust=null;
 // Toggle between the two 48-hour windows using the already-fetched hourly periods
 // (NWS forecastHourly typically returns ~150+ hours, so no refetch is needed).
 function setFcRange(offset){
@@ -1709,15 +1716,15 @@ function setFcRange(offset){
   fcOffset=offset;
   const toggle=document.getElementById('fc-range-toggle');
   if(toggle)toggle.querySelectorAll('.cc-segmented-btn').forEach(b=>{b.classList.toggle('active',Number(b.dataset.offset)===offset);});
-  buildForecastCharts(lastFcHourly,lastFcTz,lastFcSkyCover);
+  buildForecastCharts(lastFcHourly,lastFcTz,lastFcSkyCover,lastFcWindGust);
 }
 function fcRangeUnavailable(){
   ['chart-fc-temp','chart-fc-wind','chart-fc-cloud','chart-fc-precip'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast not available this far out for this station</div>';
   });
 }
-function buildForecastCharts(hourlyPeriods,tz,skyCover){
-  lastFcHourly=hourlyPeriods;lastFcTz=tz;lastFcSkyCover=skyCover||lastFcSkyCover;
+function buildForecastCharts(hourlyPeriods,tz,skyCover,windGust){
+  lastFcHourly=hourlyPeriods;lastFcTz=tz;lastFcSkyCover=skyCover||lastFcSkyCover;lastFcWindGust=windGust||lastFcWindGust;
   const now=Date.now();
   const upcoming=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000);
   const periods=upcoming.slice(fcOffset,fcOffset+48);
@@ -1747,11 +1754,16 @@ function buildForecastCharts(hourlyPeriods,tz,skyCover){
   // Wind speed — official wind-barb glyphs (SVG overlay, see drawBarbs), same
   // direction color palette as the historical wind panel. Trace below is an
   // invisible hit-target so Plotly's native hover/unified-hover still works.
-  // (NWS's simplified hourly product has no gust field, so no gust markers here.)
+  // Gusts come from forecastGridData's windGust time series (the simplified hourly
+  // product has no gust field) and render as colored dots — same convention as
+  // the historical wind panel's gust markers, colored on the same speed scale.
   const windY=periods.map(p=>parseWindMph(p.windSpeed));
   const windDirDeg=periods.map(p=>COMPASS_TO_DEG[p.windDirection]);
+  const gustY=xs.map(dt=>skyCoverAt(lastFcWindGust,dt.getTime()));
+  const gustPts=xs.map((dt,i)=>({dt,v:gustY[i]})).filter(p=>p.v!=null);
+  const gustTrace={x:gustPts.map(p=>p.dt),y:gustPts.map(p=>p.v),type:'scatter',mode:'markers',name:'Gust',marker:{color:gustPts.map(p=>windBarColor(p.v)),size:7,symbol:'circle',line:{color:'#262B27',width:1.2}},hovertemplate:'<b>Gust</b> %{y:.0f} mph<extra></extra>'};
   const validW=windY.filter(v=>v!=null);
-  const windTickMax=validW.length?Math.ceil(Math.max(...validW)/5)*5+5:20;
+  const windTickMax=Math.ceil(Math.max(20,...validW,...gustPts.map(p=>p.v))/5)*5+5;
   const windTrace={x:xs,y:windY,type:'scatter',mode:'markers',name:'Wind Speed',marker:{size:16,opacity:0},showlegend:false,hovertemplate:'<b>Wind</b> %{customdata} %{y:.0f} mph<extra></extra>',customdata:periods.map(p=>p.windDirection||'--')};
   const windLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
     xaxis:{...commonX},
@@ -1760,8 +1772,11 @@ function buildForecastCharts(hourlyPeriods,tz,skyCover){
 
   // Cloud Cover — precise sky-cover percentage from the NWS gridpoint forecast
   // (forecastGridData's skyCover time series, expanded via skyCoverAt), not the
-  // coarser shortForecast text. Hours outside the grid's returned range render as
-  // an empty bar (cloudBarColor(null)) rather than guessing.
+  // coarser shortForecast text. Line + colored dots (not bars): a 0% reading is a
+  // real observation (clear sky) but as a bar has zero height, indistinguishable
+  // from missing data — and 100% sits at the near-black end of this palette, so a
+  // bar chart reads like the opposite of what it shows. A null (outside the grid's
+  // returned range) still renders as a genuine gap in the connecting line.
   const cloudY=xs.map(dt=>skyCoverAt(lastFcSkyCover,dt.getTime()));
   const cloudTrace={x:xs,y:cloudY,type:'scatter',mode:'lines+markers',name:'Cloud Cover',line:{color:'rgba(255,255,255,.14)',width:1.5,shape:'spline'},marker:{color:cloudY.map(v=>cloudBarColor(v)),size:6,line:{width:0}},hovertemplate:'<b>Cloud Cover</b> %{y}%<extra></extra>'};
   const cloudLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
@@ -1780,13 +1795,13 @@ function buildForecastCharts(hourlyPeriods,tz,skyCover){
   const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),cConfig=chartConfig('forecast_cloud',500),pConfig=chartConfig('forecast_precip_chance',500);
   if(!fcChartsBuilt){
     Plotly.newPlot('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
-    Plotly.newPlot('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.newPlot('chart-fc-wind',[windTrace,gustTrace],windLayout,wConfig);
     Plotly.newPlot('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
     Plotly.newPlot('chart-fc-precip',[popTrace],popLayout,pConfig);
     fcChartsBuilt=true;
   }else{
     Plotly.react('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
-    Plotly.react('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.react('chart-fc-wind',[windTrace,gustTrace],windLayout,wConfig);
     Plotly.react('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
     Plotly.react('chart-fc-precip',[popTrace],popLayout,pConfig);
   }
@@ -2490,7 +2505,7 @@ async function loadStation(station){
     fetchClimate(icao).then(c=>{updateClimateChips(c);climateData=c;maybeBuildClimateCharts();}).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
     const ianaTz=TZ_IANA[tz]||'America/New_York';
-    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz,f.skyCover);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
+    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz,f.skyCover,f.windGust);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
     startRefreshTimer();
   }catch(e){console.error('Load error:',e);setText('ts-lbl','Error loading data');}
   finally{setLoading(false);}
