@@ -321,6 +321,15 @@ const SECTIONS = [
         thumb:       'homerun-derby_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Natural Law', 'Atmospheric Circulation', 'Interactive'],
+        title:       'The Coriolis Effect',
+        description: 'Pick a launch latitude, drag to aim a shot at a fixed target, and fire — then watch the exact same shot from two views at once: the ground, where it visibly curves off target, and space, where it never curved at all and the ground simply rotated underneath it. Dial Earth\'s spin from 0× up to 1000× to see why the real effect is nearly invisible on an ordinary throw, and why it vanishes entirely at the equator.',
+        footerTags:  ['Coriolis Effect', 'Rotating Reference Frames', 'Meteorology'],
+        to:          '/earthandspace/coriolis-effect',
+        thumb:       '/CoriolisEffect_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
