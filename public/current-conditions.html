@@ -1649,6 +1649,27 @@ function parseSkyCoverValues(values){
 function parseWindGustMphValues(values){
   return parseSkyCoverValues(values).map(seg=>({...seg,value:seg.value!=null?seg.value*0.621371:null}));
 }
+// forecastGridData's quantitativePrecipitation series comes back in mm — convert
+// to inches to match the historical precip panel's units.
+function parseQpfInValues(values){
+  return parseSkyCoverValues(values).map(seg=>({...seg,value:seg.value!=null?seg.value/25.4:null}));
+}
+// Precip-amount bars in the forecast panel are colored by precipitation TYPE
+// (fixed palette), not by intensity like the historical precip panel's
+// precipBarColor() — classified from the hourly period's shortForecast prose.
+// Thunderstorms take priority over whatever precip type accompanies them.
+const PRECIP_TYPE_COLOR={THUNDER:'#E24C4C',FZRA:'#E896C8',SLEET:'#F0A94E',SNOW:'#EDEFF5',RAIN:'#3FAE6E'};
+const PRECIP_TYPE_LABEL={THUNDER:'Thunderstorm',FZRA:'Freezing Rain',SLEET:'Sleet',SNOW:'Snow',RAIN:'Rain'};
+function classifyPrecipType(shortForecast){
+  const s=(shortForecast||'').toLowerCase();
+  if(s.includes('thunderstorm')||s.includes('tstorm'))return'THUNDER';
+  if(s.includes('freezing rain')||s.includes('freezing drizzle'))return'FZRA';
+  if(s.includes('sleet')||s.includes('ice pellets'))return'SLEET';
+  if(s.includes('snow')||s.includes('flurr')||s.includes('wintry mix'))return'SNOW';
+  if(s.includes('rain')||s.includes('shower')||s.includes('drizzle'))return'RAIN';
+  return null;
+}
+function precipTypeBarColor(type){return PRECIP_TYPE_COLOR[type]||PRECIP_TYPE_COLOR.RAIN;}
 function skyCoverAt(list,t){
   if(!list||!list.length)return null;
   for(const seg of list){if(t>=seg.start&&t<seg.end)return seg.value;}
@@ -1669,7 +1690,8 @@ async function fetchNWSForecast(station){
   const[hJson,dJson,gJson]=await Promise.all([hResp.json(),dResp.json(),(gResp&&gResp.ok)?gResp.json():Promise.resolve(null)]);
   const skyCoverRaw=gJson&&gJson.properties&&gJson.properties.skyCover&&gJson.properties.skyCover.values;
   const windGustRaw=gJson&&gJson.properties&&gJson.properties.windGust&&gJson.properties.windGust.values;
-  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[],skyCover:parseSkyCoverValues(skyCoverRaw),windGust:parseWindGustMphValues(windGustRaw)};
+  const qpfRaw=gJson&&gJson.properties&&gJson.properties.quantitativePrecipitation&&gJson.properties.quantitativePrecipitation.values;
+  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[],skyCover:parseSkyCoverValues(skyCoverRaw),windGust:parseWindGustMphValues(windGustRaw),qpf:parseQpfInValues(qpfRaw)};
 }
 
 function fcPopStr(period){
@@ -1708,7 +1730,7 @@ function attributionLineForecast(periods){
 
 let fcChartsBuilt=false;
 let fcOffset=0; // 0 = next 48h; 48 = the following 48h window (hours 48-96)
-let lastFcHourly=null,lastFcTz=null,lastFcSkyCover=null,lastFcWindGust=null;
+let lastFcHourly=null,lastFcTz=null,lastFcSkyCover=null,lastFcWindGust=null,lastFcQpf=null;
 // Toggle between the two 48-hour windows using the already-fetched hourly periods
 // (NWS forecastHourly typically returns ~150+ hours, so no refetch is needed).
 function setFcRange(offset){
@@ -1716,15 +1738,15 @@ function setFcRange(offset){
   fcOffset=offset;
   const toggle=document.getElementById('fc-range-toggle');
   if(toggle)toggle.querySelectorAll('.cc-segmented-btn').forEach(b=>{b.classList.toggle('active',Number(b.dataset.offset)===offset);});
-  buildForecastCharts(lastFcHourly,lastFcTz,lastFcSkyCover,lastFcWindGust);
+  buildForecastCharts(lastFcHourly,lastFcTz,lastFcSkyCover,lastFcWindGust,lastFcQpf);
 }
 function fcRangeUnavailable(){
   ['chart-fc-temp','chart-fc-wind','chart-fc-cloud','chart-fc-precip'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast not available this far out for this station</div>';
   });
 }
-function buildForecastCharts(hourlyPeriods,tz,skyCover,windGust){
-  lastFcHourly=hourlyPeriods;lastFcTz=tz;lastFcSkyCover=skyCover||lastFcSkyCover;lastFcWindGust=windGust||lastFcWindGust;
+function buildForecastCharts(hourlyPeriods,tz,skyCover,windGust,qpf){
+  lastFcHourly=hourlyPeriods;lastFcTz=tz;lastFcSkyCover=skyCover||lastFcSkyCover;lastFcWindGust=windGust||lastFcWindGust;lastFcQpf=qpf||lastFcQpf;
   const now=Date.now();
   const upcoming=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000);
   const periods=upcoming.slice(fcOffset,fcOffset+48);
@@ -1733,7 +1755,7 @@ function buildForecastCharts(hourlyPeriods,tz,skyCover,windGust){
   CHART_TITLES['chart-fc-temp']=`${fcLabel} \u2014 Temperature & Dewpoint`;
   CHART_TITLES['chart-fc-wind']=`${fcLabel} \u2014 Wind Speed`;
   CHART_TITLES['chart-fc-cloud']=`${fcLabel} \u2014 Cloud Cover`;
-  CHART_TITLES['chart-fc-precip']=`${fcLabel} \u2014 Precipitation Chance`;
+  CHART_TITLES['chart-fc-precip']=`${fcLabel} \u2014 Precipitation`;
   const xs=periods.map(p=>new Date(p.startTime));
   const xRange=[new Date(xs[0].getTime()-15*60000),new Date(xs[xs.length-1].getTime()+15*60000)];
   const commonX={type:'date',range:xRange,gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickformat:'%a %I%p',hoverformat:'%a %b %d, %H:%M',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false,showgrid:true};
@@ -1784,26 +1806,39 @@ function buildForecastCharts(hourlyPeriods,tz,skyCover,windGust){
     yaxis:{title:{text:'Cloud Cover (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     hovermode:'x unified'};
 
-  // Precipitation chance
+  // Precipitation — two series sharing one panel on separate axes. Amount
+  // (forecastGridData's quantitativePrecipitation, converted to inches) is bars
+  // on the primary (left) axis, colored by precip TYPE rather than intensity —
+  // classified per-hour from that period's shortForecast prose — so green=rain,
+  // white=snow, pink=freezing rain, orange=sleet, red=thunderstorms. Chance
+  // (probabilityOfPrecipitation) is a blue line+dots on a secondary (right) axis,
+  // since it's a fundamentally different unit (0-100%) from amount (inches).
+  const qpfY=xs.map(dt=>skyCoverAt(lastFcQpf,dt.getTime()));
+  const precipType=periods.map(p=>classifyPrecipType(p.shortForecast));
+  const qpfTrace={x:xs,y:qpfY,type:'bar',name:'Precip Amount',yaxis:'y',marker:{color:xs.map((dt,i)=>precipTypeBarColor(precipType[i])),line:{width:0}},customdata:precipType.map(t=>PRECIP_TYPE_LABEL[t]||'Precip'),hovertemplate:'<b>%{customdata}</b> %{y:.2f}"<extra></extra>'};
   const popY=periods.map(p=>{const v=fcPopStr(p);return v==null?0:v;});
-  const popTrace={x:xs,y:popY,type:'bar',name:'Precip Chance',marker:{color:'rgba(90,173,236,.75)',line:{width:0}},hovertemplate:'<b>Precip Chance</b> %{y}%<extra></extra>'};
-  const popLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
+  const popTrace={x:xs,y:popY,type:'scatter',mode:'lines+markers',name:'Precip Chance',yaxis:'y2',line:{color:'#5AADEC',width:2,shape:'spline'},marker:{color:'#5AADEC',size:5,line:{width:0}},hovertemplate:'<b>Precip Chance</b> %{y}%<extra></extra>'};
+  const validQpf=qpfY.filter(v=>v!=null&&v>0);
+  const qpfTickMax=validQpf.length?Math.max(...validQpf)*1.15:0.1;
+  const popLayout={...PLOTLY_BASE,margin:{l:52,r:52,t:32,b:40},showlegend:true,
+    legend:{x:.01,y:.94,bgcolor:'rgba(0,0,0,0)',bordercolor:'rgba(255,255,255,.1)',borderwidth:1,font:{size:12}},
     xaxis:{...commonX},
-    yaxis:{title:{text:'Precip Chance (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    yaxis:{title:{text:'Precip Amount (in)',font:{size:13},standoff:6},range:[0,qpfTickMax],rangemode:'tozero',gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    yaxis2:{title:{text:'Precip Chance (%)',font:{size:13,color:'#5AADEC'},standoff:6},range:[0,100],overlaying:'y',side:'right',showgrid:false,linecolor:'rgba(90,173,236,.4)',tickfont:{size:13,color:'#5AADEC'},tickcolor:'rgba(90,173,236,.4)',zeroline:false},
     bargap:.1,hovermode:'x unified'};
 
-  const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),cConfig=chartConfig('forecast_cloud',500),pConfig=chartConfig('forecast_precip_chance',500);
+  const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),cConfig=chartConfig('forecast_cloud',500),pConfig=chartConfig('forecast_precip',500);
   if(!fcChartsBuilt){
     Plotly.newPlot('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
     Plotly.newPlot('chart-fc-wind',[windTrace,gustTrace],windLayout,wConfig);
     Plotly.newPlot('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
-    Plotly.newPlot('chart-fc-precip',[popTrace],popLayout,pConfig);
+    Plotly.newPlot('chart-fc-precip',[qpfTrace,popTrace],popLayout,pConfig);
     fcChartsBuilt=true;
   }else{
     Plotly.react('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
     Plotly.react('chart-fc-wind',[windTrace,gustTrace],windLayout,wConfig);
     Plotly.react('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
-    Plotly.react('chart-fc-precip',[popTrace],popLayout,pConfig);
+    Plotly.react('chart-fc-precip',[qpfTrace,popTrace],popLayout,pConfig);
   }
   const barbObs=xs.map((dt,i)=>({dt,speedMph:windY[i],dirDeg:windDirDeg[i],color:windBarColor(windY[i])})).filter(o=>o.speedMph!=null&&o.dirDeg!=null);
   drawBarbs('chart-fc-wind',barbObs,{shaftLen:28,featherLen:8.5,featherGap:4.4,pennantGap:6.6,minSpacing:17});
@@ -2011,7 +2046,7 @@ const CHART_TITLES={
   'chart-fc-temp':'48-Hour Forecast \u2014 Temperature & Dewpoint',
   'chart-fc-wind':'48-Hour Forecast \u2014 Wind Speed',
   'chart-fc-cloud':'48-Hour Forecast \u2014 Cloud Cover',
-  'chart-fc-precip':'48-Hour Forecast \u2014 Precipitation Chance'
+  'chart-fc-precip':'48-Hour Forecast \u2014 Precipitation'
 };
 
 function attributionLine(obs){
@@ -2505,7 +2540,7 @@ async function loadStation(station){
     fetchClimate(icao).then(c=>{updateClimateChips(c);climateData=c;maybeBuildClimateCharts();}).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
     const ianaTz=TZ_IANA[tz]||'America/New_York';
-    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz,f.skyCover,f.windGust);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
+    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz,f.skyCover,f.windGust,f.qpf);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
     startRefreshTimer();
   }catch(e){console.error('Load error:',e);setText('ts-lbl','Error loading data');}
   finally{setLoading(false);}
