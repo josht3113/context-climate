@@ -11,10 +11,10 @@ const SECTIONS = [
     label: 'Live  ·  Updates Continuously',
     cards: [
       {
-        tags:       ['US Cities', 'UPDATES HOURLY'],
-        title:      'Current Conditions & Forecast',
-        description:'Live ASOS station observations with time-series charts, climate normals, daily records, and solar data updated continuously.',
-        footerTags: ['Climate Normals', 'Daily Records', 'Solar & Moon'],
+        tags:       ['US Cities', 'Select Your Location'],
+        title:      'Local Weather & Forecast',
+        description:'Live station observations with time-series charts, climate normals, daily records, and solar data updated continuously.',
+        footerTags: ['Climate Normals', 'Forecasts', 'Solar & Moon'],
         to:         '/current-conditions',
         accentVar:  '--accent-live',
         thumb:      '/current-conditions_thumbnail.png',
