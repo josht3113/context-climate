@@ -23,7 +23,7 @@ const SECTIONS = [
         tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Monthly Temperature Heatmap',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
-        footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies', 'Live'],
+        footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Live'],
         to:         '/temp-heatmap-monthly',
         accentVar:  '--accent-live',
         thumb:      '/OG_Monthly_Heatmap_thumbnail.png',
