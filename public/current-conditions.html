@@ -95,7 +95,7 @@
 .chart-box { position: relative; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 4px; }
 .chart-png-btn { position: absolute; top: 8px; right: 8px; z-index: 6; opacity: .82; }
 .chart-png-btn:hover { opacity: 1; }
-#chart-temp { height: 215px; } #chart-dew { height: 215px; } #chart-wind { height: 240px; } #chart-precip { height: 200px; } #chart-lower { height: 190px; }
+#chart-temp { height: 215px; } #chart-dew { height: 215px; } #chart-cloud { height: 200px; } #chart-wind { height: 240px; } #chart-precip { height: 200px; } #chart-lower { height: 190px; }
 #chart-clim-hi { height: 260px; } #chart-clim-lo { height: 260px; }
 .chart-overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(30,35,32,.85); z-index: 10; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-muted); }
 .chart-overlay.show { display: flex; }
@@ -147,7 +147,7 @@
 .fc-daily-strip { display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: auto auto auto auto; column-gap: 6px; row-gap: 0; }
 .fc-empty { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); padding: 20px; white-space: nowrap; }
 .fc-charts-col { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
-#chart-fc-temp { height: 230px; } #chart-fc-wind { height: 210px; } #chart-fc-precip { height: 190px; }
+#chart-fc-temp { height: 230px; } #chart-fc-wind { height: 210px; } #chart-fc-cloud { height: 190px; } #chart-fc-precip { height: 190px; }
 
 /* ── 5-Day Forecast — day/night split cards ─────────────────────
    One column per calendar day; daytime block stacked over nighttime
@@ -283,6 +283,7 @@
 <div class="fc-charts-col">
   <div class="chart-box"><div id="chart-fc-temp"></div></div>
   <div class="chart-box"><div id="chart-fc-wind"></div></div>
+  <div class="chart-box"><div id="chart-fc-cloud"></div></div>
   <div class="chart-box"><div id="chart-fc-precip"></div></div>
 </div>
 
@@ -329,6 +330,16 @@
     </div>
   </div>
   <div class="chart-box"><div id="chart-dew"></div></div>
+
+  <div class="cg-side">
+    <div class="colorbar-cap">Cloud (%)</div>
+    <div class="colorbar-wrap">
+      <span class="colorbar-hi" id="cloud-cb-hi">--</span>
+      <div class="colorbar-track" id="cloud-cb-track"></div>
+      <span class="colorbar-lo" id="cloud-cb-lo">--</span>
+    </div>
+  </div>
+  <div class="chart-box"><div id="chart-cloud"></div></div>
 
   <div class="cg-side">
     <div class="colorbar-cap">Wind (mph)</div>
@@ -627,6 +638,8 @@ const SCALES={
   // dark charcoal → dark green → bright green → yellow-green → yellow, 0–1.00 in/hr.
   precip:{vals:[0,0.001,0.05,0.30,0.60,1.00],cols:['#232323','#0d2812','#1c7020','#40c030','#b0d820','#e4d800']},
   wind:{vals:[0,5,10,15,20,25,30,55],cols:['#232323','#545E6B','#7D9BB5','#B4C8E3','#CEB8CC','#E09999','#E3625C','#FFE033']},
+  // Cloud cover: clear-sky blue fading to overcast grey, 0-100%.
+  cloud:{vals:[0,20,40,60,80,100],cols:['#2E86DE','#79ABD9','#A8B4B8','#8B9195','#6E7276','#54585C']},
 };
 function hexToRGB(hex){return[parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)];}
 function getColorRGB(val,scale){
@@ -647,6 +660,7 @@ function tempBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=g
 function dewBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.td);return`rgb(${r},${g},${b})`;}
 function precipBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.precip);return`rgb(${r},${g},${b})`;}
 function windBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.wind);return`rgb(${r},${g},${b})`;}
+function cloudBarColor(v){if(v==null)return'rgba(255,255,255,.12)';const[r,g,b]=getColorRGB(v,SCALES.cloud);return`rgb(${r},${g},${b})`;}
 function vGradCss(scale){
   const lo=scale.vals[0],span=scale.vals[scale.vals.length-1]-lo;
   return'linear-gradient(to top,'+scale.cols.map((c,i)=>`${c} ${((scale.vals[i]-lo)/span*100).toFixed(1)}%`).join(',')+')';
@@ -659,6 +673,7 @@ function setColorBar(trackId,hiId,loId,scale,fmt){
 function initColorBars(){
   setColorBar('temp-cb-track','temp-cb-hi','temp-cb-lo',SCALES.temp,v=>v+'°');
   setColorBar('dew-cb-track','dew-cb-hi','dew-cb-lo',SCALES.td,v=>v+'°');
+  setColorBar('cloud-cb-track','cloud-cb-hi','cloud-cb-lo',SCALES.cloud,v=>Math.round(v)+'%');
   setColorBar('precip-cb-track','precip-cb-hi','precip-cb-lo',SCALES.precip,v=>v.toFixed(2)+'"');
   setColorBar('wind-cb-track','wind-cb-hi','wind-cb-lo',SCALES.wind,v=>Math.round(v)+' mph');
 }
@@ -669,6 +684,17 @@ function drctCompass(d){
 }
 function skyDesc(c){const m={CLR:'Clear',SKC:'Clear',FEW:'Few Clouds',SCT:'Partly Cloudy',BKN:'Mostly Cloudy',OVC:'Overcast',VV:'Obscured'};return m[c]||c||'--';}
 function calcRH(tmpf,dwpf){const T=(tmpf-32)*5/9,Td=(dwpf-32)*5/9,a=17.625,b=243.04;return Math.min(100,Math.max(0,Math.round(100*Math.exp(a*Td/(b+Td))/Math.exp(a*T/(b+T)))));}
+// Effective total sky cover — METAR convention: the reporting-relevant cover is the
+// densest (highest okta) layer among however many are reported, not just the lowest
+// one (skyc1), since a thin FEW layer can sit under a higher BKN/OVC deck. No layers
+// reported at all -> null (unknown), not assumed clear, same as every other panel's
+// "leave real gaps blank" convention.
+function skyLayerOktas(code){const m={CLR:0,SKC:0,FEW:2,SCT:4,BKN:6,OVC:8,VV:8};return(code&&code in m)?m[code]:null;}
+function effectiveCloudPct(...codes){
+  const oktas=codes.map(skyLayerOktas).filter(v=>v!=null);
+  if(!oktas.length)return null;
+  return Math.round(Math.max(...oktas)/8*100);
+}
 
 // ================================================================
 // SOLAR + MOON
@@ -1328,7 +1354,7 @@ function renderDD(matches,dists){
 // ================================================================
 function buildIEMUrl(icao,days=10){
   const now=new Date(),start=new Date(now.getTime()-days*24*60*60*1000);
-  const fields=['tmpf','dwpf','sknt','drct','gust','p01i','mslp','vsby','feel','skyc1','skyl1','wxcodes'];
+  const fields=['tmpf','dwpf','sknt','drct','gust','p01i','mslp','vsby','feel','skyc1','skyc2','skyc3','skyc4','skyl1','wxcodes'];
   const dp=fields.map(f=>`data=${f}`).join('&');
   const p=t=>`year${t}=${t==='1'?start.getUTCFullYear():now.getUTCFullYear()}&month${t}=${t==='1'?start.getUTCMonth()+1:now.getUTCMonth()+1}&day${t}=${t==='1'?start.getUTCDate():now.getUTCDate()}`;
   return`https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${icao}&${dp}&${p('1')}&hour1=0&minute1=0&${p('2')}&hour2=${now.getUTCHours()}&minute2=${now.getUTCMinutes()}&tz=UTC&format=onlycomma&latlon=no&missing=empty&trace=T&direct=no`;
@@ -1346,11 +1372,12 @@ function parseIEM(text){
     const dt=new Date(valid.replace(' ','T')+':00Z');if(isNaN(dt))continue;
     const tmpf=getN('tmpf'),dwpf=getN('dwpf'),sknt=getN('sknt'),drct=getN('drct');
     const gust=getN('gust'),p01i=getN('p01i'),mslp=getN('mslp'),vsby=getN('vsby'),feel=getN('feel');
-    const skyc1=get('skyc1'),skyl1=getN('skyl1'),wxcodes=get('wxcodes');
+    const skyc1=get('skyc1'),skyc2=get('skyc2'),skyc3=get('skyc3'),skyc4=get('skyc4'),skyl1=getN('skyl1'),wxcodes=get('wxcodes');
     obs.push({dt,tmpf,dwpf,
       sknt:sknt!=null?Math.round(sknt*1.15078*10)/10:null,drct,
       gust:gust!=null?Math.round(gust*1.15078*10)/10:null,
       p01i,mslp,vsby,feel,skyc1,skyl1,wxcodes,
+      cloudPct:effectiveCloudPct(skyc1,skyc2,skyc3,skyc4),
       relh:(tmpf!=null&&dwpf!=null)?calcRH(tmpf,dwpf):null
     });
   }
@@ -1596,6 +1623,28 @@ function renderAlerts(alerts){
 // NWS FORECAST (next 36 hours + 7-day)
 // ================================================================
 const forecastGridCache={}; // icao -> {hourlyUrl, dailyUrl} — grid rarely changes, avoid re-resolving every refresh
+// NWS gridpoint "forecastGridData" carries raw model time-series (skyCover, etc.) as
+// ISO8601 interval/duration pairs ("2026-08-01T18:00:00+00:00/PT3H") rather than
+// discrete hourly periods — parseISODuration/parseSkyCoverValues expand those into
+// plain {start,end,value} segments so skyCoverAt() can look up any timestamp.
+function parseISODuration(dur){
+  const m=/^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?$/.exec(dur||'');
+  if(!m)return 3600000;
+  const days=parseInt(m[1]||0,10),hours=parseInt(m[2]||0,10),mins=parseInt(m[3]||0,10);
+  return((days*24+hours)*60+mins)*60000;
+}
+function parseSkyCoverValues(values){
+  return(values||[]).map(v=>{
+    const[startStr,durStr]=String(v.validTime).split('/');
+    const start=new Date(startStr).getTime();
+    return{start,end:start+parseISODuration(durStr),value:v.value};
+  }).filter(v=>!isNaN(v.start)&&v.value!=null);
+}
+function skyCoverAt(list,t){
+  if(!list||!list.length)return null;
+  for(const seg of list){if(t>=seg.start&&t<seg.end)return seg.value;}
+  return null;
+}
 async function fetchNWSForecast(station){
   const[icao,,,lat,lon]=station;
   let grid=forecastGridCache[icao];
@@ -1603,13 +1652,14 @@ async function fetchNWSForecast(station){
     const ptResp=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
     if(!ptResp.ok)throw new Error('NWS points lookup failed');
     const pt=await ptResp.json();
-    grid={hourlyUrl:pt.properties.forecastHourly,dailyUrl:pt.properties.forecast};
+    grid={hourlyUrl:pt.properties.forecastHourly,dailyUrl:pt.properties.forecast,gridDataUrl:pt.properties.forecastGridData};
     forecastGridCache[icao]=grid;
   }
-  const[hResp,dResp]=await Promise.all([fetch(grid.hourlyUrl),fetch(grid.dailyUrl)]);
+  const[hResp,dResp,gResp]=await Promise.all([fetch(grid.hourlyUrl),fetch(grid.dailyUrl),grid.gridDataUrl?fetch(grid.gridDataUrl):Promise.resolve(null)]);
   if(!hResp.ok||!dResp.ok)throw new Error('NWS forecast fetch failed');
-  const[hJson,dJson]=await Promise.all([hResp.json(),dResp.json()]);
-  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[]};
+  const[hJson,dJson,gJson]=await Promise.all([hResp.json(),dResp.json(),(gResp&&gResp.ok)?gResp.json():Promise.resolve(null)]);
+  const skyCoverRaw=gJson&&gJson.properties&&gJson.properties.skyCover&&gJson.properties.skyCover.values;
+  return{hourly:hJson.properties.periods||[],daily:dJson.properties.periods||[],skyCover:parseSkyCoverValues(skyCoverRaw)};
 }
 
 function fcPopStr(period){
@@ -1648,7 +1698,7 @@ function attributionLineForecast(periods){
 
 let fcChartsBuilt=false;
 let fcOffset=0; // 0 = next 48h; 48 = the following 48h window (hours 48-96)
-let lastFcHourly=null,lastFcTz=null;
+let lastFcHourly=null,lastFcTz=null,lastFcSkyCover=null;
 // Toggle between the two 48-hour windows using the already-fetched hourly periods
 // (NWS forecastHourly typically returns ~150+ hours, so no refetch is needed).
 function setFcRange(offset){
@@ -1656,15 +1706,15 @@ function setFcRange(offset){
   fcOffset=offset;
   const toggle=document.getElementById('fc-range-toggle');
   if(toggle)toggle.querySelectorAll('.cc-segmented-btn').forEach(b=>{b.classList.toggle('active',Number(b.dataset.offset)===offset);});
-  buildForecastCharts(lastFcHourly,lastFcTz);
+  buildForecastCharts(lastFcHourly,lastFcTz,lastFcSkyCover);
 }
 function fcRangeUnavailable(){
-  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{
+  ['chart-fc-temp','chart-fc-wind','chart-fc-cloud','chart-fc-precip'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast not available this far out for this station</div>';
   });
 }
-function buildForecastCharts(hourlyPeriods,tz){
-  lastFcHourly=hourlyPeriods;lastFcTz=tz;
+function buildForecastCharts(hourlyPeriods,tz,skyCover){
+  lastFcHourly=hourlyPeriods;lastFcTz=tz;lastFcSkyCover=skyCover||lastFcSkyCover;
   const now=Date.now();
   const upcoming=hourlyPeriods.filter(p=>new Date(p.endTime).getTime()>=now-30*60000);
   const periods=upcoming.slice(fcOffset,fcOffset+48);
@@ -1672,6 +1722,7 @@ function buildForecastCharts(hourlyPeriods,tz){
   const fcLabel=fcOffset>0?`Hours ${fcOffset}\u2013${fcOffset+48} Forecast`:'48-Hour Forecast';
   CHART_TITLES['chart-fc-temp']=`${fcLabel} \u2014 Temperature & Dewpoint`;
   CHART_TITLES['chart-fc-wind']=`${fcLabel} \u2014 Wind Speed`;
+  CHART_TITLES['chart-fc-cloud']=`${fcLabel} \u2014 Cloud Cover`;
   CHART_TITLES['chart-fc-precip']=`${fcLabel} \u2014 Precipitation Chance`;
   const xs=periods.map(p=>new Date(p.startTime));
   const xRange=[new Date(xs[0].getTime()-15*60000),new Date(xs[xs.length-1].getTime()+15*60000)];
@@ -1704,6 +1755,17 @@ function buildForecastCharts(hourlyPeriods,tz){
     yaxis:{title:{text:'Wind Speed (mph)',font:{size:13},standoff:6},range:[0,windTickMax],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     bargap:.15,hovermode:'x unified'};
 
+  // Cloud Cover — precise sky-cover percentage from the NWS gridpoint forecast
+  // (forecastGridData's skyCover time series, expanded via skyCoverAt), not the
+  // coarser shortForecast text. Hours outside the grid's returned range render as
+  // an empty bar (cloudBarColor(null)) rather than guessing.
+  const cloudY=xs.map(dt=>skyCoverAt(lastFcSkyCover,dt.getTime()));
+  const cloudTrace={x:xs,y:cloudY,type:'bar',name:'Cloud Cover',marker:{color:cloudY.map(v=>cloudBarColor(v)),line:{width:0}},hovertemplate:'<b>Cloud Cover</b> %{y}%<extra></extra>'};
+  const cloudLayout={...PLOTLY_BASE,margin:{l:52,r:20,t:32,b:40},showlegend:false,
+    xaxis:{...commonX},
+    yaxis:{title:{text:'Cloud Cover (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    bargap:0,hovermode:'x unified'};
+
   // Precipitation chance
   const popY=periods.map(p=>{const v=fcPopStr(p);return v==null?0:v;});
   const popTrace={x:xs,y:popY,type:'bar',name:'Precip Chance',marker:{color:'rgba(90,173,236,.75)',line:{width:0}},hovertemplate:'<b>Precip Chance</b> %{y}%<extra></extra>'};
@@ -1712,20 +1774,22 @@ function buildForecastCharts(hourlyPeriods,tz){
     yaxis:{title:{text:'Precip Chance (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     bargap:.1,hovermode:'x unified'};
 
-  const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),pConfig=chartConfig('forecast_precip_chance',500);
+  const tConfig=chartConfig('forecast_temp_dewpoint',500),wConfig=chartConfig('forecast_wind',500),cConfig=chartConfig('forecast_cloud',500),pConfig=chartConfig('forecast_precip_chance',500);
   if(!fcChartsBuilt){
     Plotly.newPlot('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
     Plotly.newPlot('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.newPlot('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
     Plotly.newPlot('chart-fc-precip',[popTrace],popLayout,pConfig);
     fcChartsBuilt=true;
   }else{
     Plotly.react('chart-fc-temp',[tempTrace,dewTrace],tempLayout,tConfig);
     Plotly.react('chart-fc-wind',[windTrace],windLayout,wConfig);
+    Plotly.react('chart-fc-cloud',[cloudTrace],cloudLayout,cConfig);
     Plotly.react('chart-fc-precip',[popTrace],popLayout,pConfig);
   }
   const barbObs=xs.map((dt,i)=>({dt,speedMph:windY[i],dirDeg:windDirDeg[i],color:windBarColor(windY[i])})).filter(o=>o.speedMph!=null&&o.dirDeg!=null);
   drawBarbs('chart-fc-wind',barbObs,{shaftLen:28,featherLen:8.5,featherGap:4.4,pennantGap:6.6,minSpacing:17});
-  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
+  ['chart-fc-temp','chart-fc-wind','chart-fc-cloud','chart-fc-precip'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
 }
 
 // One stacked half of a day column (either the daytime or nighttime period). Returns ''
@@ -1778,7 +1842,7 @@ function buildDailyStrip(periods,tz){
 }
 
 function forecastError(){
-  ['chart-fc-temp','chart-fc-wind','chart-fc-precip'].forEach(id=>{
+  ['chart-fc-temp','chart-fc-wind','chart-fc-cloud','chart-fc-precip'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
   });
   const d=document.getElementById('fc-daily-strip');if(d)d.innerHTML='<div class="fc-empty">Forecast unavailable</div>';
@@ -1920,6 +1984,7 @@ function chartConfig(){
 const CHART_TITLES={
   'chart-temp':'Temperature',
   'chart-dew':'Dewpoint',
+  'chart-cloud':'Cloud Cover',
   'chart-wind':'Wind Speed & Gusts',
   'chart-precip':'Precipitation Rate',
   'chart-lower':'Sea-Level Pressure',
@@ -1927,6 +1992,7 @@ const CHART_TITLES={
   'chart-clim-lo':'Daily Low Temperature \u2014 Historical Range',
   'chart-fc-temp':'48-Hour Forecast \u2014 Temperature & Dewpoint',
   'chart-fc-wind':'48-Hour Forecast \u2014 Wind Speed',
+  'chart-fc-cloud':'48-Hour Forecast \u2014 Cloud Cover',
   'chart-fc-precip':'48-Hour Forecast \u2014 Precipitation Chance'
 };
 
@@ -1961,7 +2027,14 @@ function ensurePngButton(chartDivId){
 // PNG EXPORT — standing rule: every downloaded chart is self-explanatory. A graph
 // with no title, no station/date context, and no data-source attribution is useless
 // once it leaves this page, so every export composes a large title, a context line,
-// the chart itself, and a footer citation into one image (2x scale).
+// the chart itself, and a footer citation into one image.
+// Export at a fixed high-res multiplier, independent of Plotly's default 1x raster —
+// otherwise the chart bitmap is captured at on-screen CSS pixel size and then
+// stretched into the branded canvas, which is what causes blurry/soft PNG exports
+// (same root cause the canvas-heatmap tools' PNG export standard fixes; here it's
+// Plotly.toImage()'s own `scale` option that needs to be bumped instead of a manual
+// devicePixelRatio re-render).
+const EXPORT_SCALE=3;
 // Wind panels also composite in the wind-barb SVG overlay (drawBarbs/renderWindBarbs
 // draws barbs as a separate absolutely-positioned <svg> next to the Plotly div, not
 // inside the Plotly chart itself, so Plotly.toImage() alone would silently drop them).
@@ -1978,15 +2051,15 @@ function exportChartPNG(chartDivId){
   const overlaySrc=overlay?('data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(new XMLSerializer().serializeToString(overlay))))):null;
 
   Promise.all([
-    Plotly.toImage(gd,{format:'png',width:chartW,height:chartH,scale:1}).then(loadImg),
+    Plotly.toImage(gd,{format:'png',width:chartW,height:chartH,scale:EXPORT_SCALE}).then(loadImg),
     overlaySrc?loadImg(overlaySrc):Promise.resolve(null)
   ]).then(([chartImg,barbImg])=>{
     const PAD=28,HDR=112,FTR=42;
     const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
     const off=document.createElement('canvas');
-    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    off.width=Math.round(ow*EXPORT_SCALE);off.height=Math.round(oh*EXPORT_SCALE);
     const oc=off.getContext('2d');
-    oc.scale(2,2);
+    oc.scale(EXPORT_SCALE,EXPORT_SCALE);
 
     oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
     oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
@@ -2079,7 +2152,7 @@ function exportSkyPlotPNG(kind){
   const displayW=svg.getBoundingClientRect().width||vbW;
   // Rasterize several times larger than the on-page size — the source is a
   // vector, so this stays crisp instead of just upscaling a screenshot.
-  const chartW=Math.round(Math.max(1600,displayW*3));
+  const chartW=Math.round(Math.max(1600,displayW*EXPORT_SCALE));
   const chartH=Math.round(chartW*vbH/vbW);
   clone.setAttribute('width',chartW);
   clone.setAttribute('height',chartH);
@@ -2096,9 +2169,9 @@ function exportSkyPlotPNG(kind){
     const PAD=28,HDR=112,FTR=42;
     const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
     const off=document.createElement('canvas');
-    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    off.width=Math.round(ow*EXPORT_SCALE);off.height=Math.round(oh*EXPORT_SCALE);
     const oc=off.getContext('2d');
-    oc.scale(2,2);
+    oc.scale(EXPORT_SCALE,EXPORT_SCALE);
 
     oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
     oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
@@ -2146,6 +2219,7 @@ function exportSkyPlotPNG(kind){
 const CHARTS_GROUP=[
   {id:'chart-temp',  title:'Temperature',       scale:SCALES.temp,   fmt:v=>v+'°',           cap:'Temp (°F)'},
   {id:'chart-dew',   title:'Dewpoint',          scale:SCALES.td,     fmt:v=>v+'°',           cap:'Dewpt (°F)'},
+  {id:'chart-cloud', title:'Cloud Cover',       scale:SCALES.cloud,  fmt:v=>Math.round(v)+'%',    cap:'Cloud (%)'},
   {id:'chart-wind',  title:'Wind Speed & Gusts',scale:SCALES.wind,   fmt:v=>Math.round(v)+' mph', cap:'Wind (mph)'},
   {id:'chart-precip',title:'Precipitation Rate',scale:SCALES.precip, fmt:v=>v.toFixed(2)+'"',     cap:'Precip (in/hr)'},
   {id:'chart-lower', title:'Sea-Level Pressure',scale:null,          fmt:null,                    cap:null}
@@ -2170,7 +2244,7 @@ function exportChartsGroupPNG(){
   };
 
   Promise.all(rows.map(r=>Promise.all([
-    Plotly.toImage(r.gd,{format:'png',width:r.w,height:r.h,scale:1}).then(loadImg),
+    Plotly.toImage(r.gd,{format:'png',width:r.w,height:r.h,scale:EXPORT_SCALE}).then(loadImg),
     (()=>{const src=overlaySrcFor(r.gd);return src?loadImg(src):Promise.resolve(null);})()
   ]))).then(imgs=>{
     const attrib=chartAttrib['chart-temp']||{context:'',source:'Data: NOAA ASOS via Iowa Environmental Mesonet (IEM)'};
@@ -2180,9 +2254,9 @@ function exportChartsGroupPNG(){
     const oh=HDR+rows.reduce((s,r)=>s+r.h+GAP,0)-GAP+FTR;
 
     const off=document.createElement('canvas');
-    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    off.width=Math.round(ow*EXPORT_SCALE);off.height=Math.round(oh*EXPORT_SCALE);
     const oc=off.getContext('2d');
-    oc.scale(2,2);
+    oc.scale(EXPORT_SCALE,EXPORT_SCALE);
 
     oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
     oc.fillStyle='#2AA87E';oc.fillRect(0,0,ow,4);
@@ -2281,6 +2355,16 @@ function buildCharts(obs, fullObs){
     yaxis:{title:{text:'Dewpoint (°F)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     bargap:0,shapes,hovermode:'x unified'};
 
+  // Cloud Cover — its own panel, bars colored by value (see cloud color bar legend).
+  // Uses the effective (max-okta) sky cover across all reported layers; hours with
+  // no sky layer reported at all render as an empty bar (cloudBarColor(null)), same
+  // "leave real gaps blank" convention as every other panel here.
+  const cloudTrace={x:xs,y:obs.map(o=>o.cloudPct),type:'bar',width:barW,name:'Cloud Cover',marker:{color:obs.map(o=>cloudBarColor(o.cloudPct)),line:{width:0}},hovertemplate:'<b>Cloud Cover</b> %{y}%<extra></extra>'};
+  const cloudLayout={...PLOTLY_BASE,margin:{l:52,r:56,t:30,b:40},showlegend:false,
+    xaxis:{...commonX},
+    yaxis:{title:{text:'Cloud Cover (%)',font:{size:13},standoff:6},range:[0,100],gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
+    bargap:0,shapes,hovermode:'x unified'};
+
   // Wind: official wind-barb glyphs (SVG overlay, see drawBarbs) — shaft/feathers
   // encode speed; glyph color also follows speed (see windBarColor/SCALES.wind),
   // These two traces are invisible hit-targets so Plotly's native hover still works;
@@ -2314,7 +2398,7 @@ function buildCharts(obs, fullObs){
     yaxis:{title:{text:'Pressure (mb)',font:{size:13},standoff:6},gridcolor:'rgba(255,255,255,.07)',linecolor:'rgba(255,255,255,.1)',tickfont:{size:13},tickcolor:'rgba(255,255,255,.3)',zeroline:false},
     shapes,hovermode:'x unified'};
 
-  const tempConfig=chartConfig('temperature',630),dewConfig=chartConfig('dewpoint',630),
+  const tempConfig=chartConfig('temperature',630),dewConfig=chartConfig('dewpoint',630),cloudConfig=chartConfig('cloud',630),
         windConfig=chartConfig('wind',630),precipConfig=chartConfig('precip',630),lowerConfig=chartConfig('pressure',630);
   const barbObs=windObs.map(o=>({dt:o.dt,speedMph:o.sknt,dirDeg:o.drct,color:windBarColor(o.sknt)}))
     .concat(calmObs.map(o=>({dt:o.dt,speedMph:0.4,dirDeg:0,color:'rgba(200,200,200,.55)'})));
@@ -2322,6 +2406,7 @@ function buildCharts(obs, fullObs){
   if(!chartsBuilt){
     Plotly.newPlot('chart-temp',[tempTrace],tempLayout,tempConfig);
     Plotly.newPlot('chart-dew',[dewTrace],dewLayout,dewConfig);
+    Plotly.newPlot('chart-cloud',[cloudTrace],cloudLayout,cloudConfig);
     Plotly.newPlot('chart-wind',[windTrace,calmTrace,gustTrace],windLayout,windConfig);
     Plotly.newPlot('chart-precip',[pcpnTrace],precipLayout,precipConfig);
     Plotly.newPlot('chart-lower',[presTrace],lowerLayout,lowerConfig);
@@ -2329,12 +2414,13 @@ function buildCharts(obs, fullObs){
   }else{
     Plotly.react('chart-temp',[tempTrace],tempLayout,tempConfig);
     Plotly.react('chart-dew',[dewTrace],dewLayout,dewConfig);
+    Plotly.react('chart-cloud',[cloudTrace],cloudLayout,cloudConfig);
     Plotly.react('chart-wind',[windTrace,calmTrace,gustTrace],windLayout,windConfig);
     Plotly.react('chart-precip',[pcpnTrace],precipLayout,precipConfig);
     Plotly.react('chart-lower',[presTrace],lowerLayout,lowerConfig);
   }
   drawBarbs('chart-wind',barbObs,{shaftLen:30,featherLen:9,featherGap:4.6,pennantGap:7,minSpacing:17});
-  ['chart-temp','chart-dew','chart-wind','chart-precip','chart-lower'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
+  ['chart-temp','chart-dew','chart-cloud','chart-wind','chart-precip','chart-lower'].forEach(id=>{chartAttrib[id]=attrib;ensurePngButton(id);});
 }
 
 function toggleSunLines(){
@@ -2399,7 +2485,7 @@ async function loadStation(station){
     fetchClimate(icao).then(c=>{updateClimateChips(c);climateData=c;maybeBuildClimateCharts();}).catch(()=>{});
     fetchAlerts(lat,lon).catch(()=>{});
     const ianaTz=TZ_IANA[tz]||'America/New_York';
-    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
+    fetchNWSForecast(station).then(f=>{buildForecastCharts(f.hourly,ianaTz,f.skyCover);buildDailyStrip(f.daily,ianaTz);}).catch(e=>{console.warn('NWS forecast:',e);forecastError();});
     startRefreshTimer();
   }catch(e){console.error('Load error:',e);setText('ts-lbl','Error loading data');}
   finally{setLoading(false);}
