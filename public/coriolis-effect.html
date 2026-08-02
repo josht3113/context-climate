@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Coriolis Effect — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<style>
+  :root {
+    --tool-accent: var(--accent-earth);
+    --col-ground:   #6FD1A8;   /* ground-frame (rotating) ball/path color */
+    --col-space:    #E8C15A;   /* space-frame (inertial) ball/path color */
+    --canvas-bg:    #262B27;   /* opaque literal per core-sample-tools.css chart-surface rule */
+  }
+
+  html, body { height: 100%; }
+  body { padding: 0; overflow: hidden; }
+
+  .cor-app {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 14px 18px 16px;
+    box-sizing: border-box;
+    gap: 10px;
+  }
+
+  .cor-head { text-align: center; flex: 0 0 auto; }
+  .cor-head .cc-title { margin: 0 0 4px; font-size: 23px; }
+  .cor-head .cc-subtitle { max-width: 720px; margin: 0 auto; font-size: 14px; }
+
+  /* ── Control bar ─────────────────────────────────────────────────────── */
+  .cor-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .cor-controls .cc-panel { padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
+
+  .cor-ctrl-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  /* Globe latitude picker */
+  .cor-globe-block { display: flex; align-items: center; gap: 10px; }
+  #globeCanvas { background: var(--canvas-bg); border-radius: 50%; cursor: ns-resize; touch-action: none; }
+  .cor-lat-readout { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
+  .cor-lat-value { font-family: var(--font-mono); font-size: 19px; font-weight: 700; color: var(--color-text-primary); }
+  .cor-lat-hemi { font-size: 12px; color: var(--color-text-muted); }
+  .cor-lat-presets { display: flex; flex-direction: column; gap: 4px; }
+  .cor-lat-presets .cc-btn-sm { padding: 2px 8px; font-size: 12px; }
+
+  /* Rotation-rate presets */
+  .cor-rate-row { display: flex; gap: 6px; }
+
+  /* Stats */
+  .cor-stats { display: flex; gap: 16px; flex-wrap: wrap; }
+  .cor-stat { display: flex; flex-direction: column; gap: 1px; }
+  .cor-stat-val { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
+  .cor-stat-lbl { font-size: 12px; color: var(--color-text-muted); letter-spacing: 0.04em; }
+
+  .cor-hint { font-size: 13px; color: #7a8099; margin-left: auto; align-self: center; white-space: nowrap; }
+
+  /* ── Canvas row ──────────────────────────────────────────────────────── */
+  .cor-canvas-row {
+    flex: 1 1 auto;
+    display: flex;
+    gap: 14px;
+    min-height: 0;
+  }
+  .cor-canvas-card {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 12px 12px;
+    min-width: 0;
+    min-height: 0;
+  }
+  .cor-panel-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    flex: 0 0 auto;
+  }
+  .cor-panel-label.ground { color: var(--col-ground); }
+  .cor-panel-label.space  { color: var(--col-space); }
+
+  .cor-canvas-wrap {
+    flex: 1 1 auto;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cor-canvas-wrap canvas {
+    background: var(--canvas-bg);
+    border-radius: var(--radius-md);
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  .cor-orbit-note {
+    position: absolute;
+    left: 50%;
+    top: 10px;
+    transform: translateX(-50%);
+    background: rgba(18,20,18,0.85);
+    border: 1px solid var(--color-border-hover);
+    border-radius: var(--radius-md);
+    padding: 6px 14px;
+    font-size: 13px;
+    color: #e8c15a;
+    max-width: 88%;
+    text-align: center;
+    display: none;
+  }
+
+  @media (max-width: 900px) {
+    .cor-canvas-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cor-app">
+
+  <div class="cor-head">
+    <h1 class="cc-title">The Coriolis Effect</h1>
+    <p class="cc-subtitle">Drag on the ground view to aim at the target and fire. Two views of the exact same shot play back side by side: the world as you'd feel it standing on the spinning ground, and what's truly happening to the shot in space.</p>
+  </div>
+
+  <div class="cor-controls">
+
+    <div class="cc-panel cor-globe-block">
+      <span class="cor-ctrl-label">Launch&nbsp;Latitude</span>
+      <canvas id="globeCanvas" width="200" height="200" style="width:84px;height:84px;"></canvas>
+      <div class="cor-lat-readout">
+        <span class="cor-lat-value" id="latValue">45.0°</span>
+        <span class="cor-lat-hemi" id="latHemi">Northern Hemisphere</span>
+      </div>
+      <div class="cor-lat-presets">
+        <button class="cc-btn cc-btn-sm" data-lat="90">90°N</button>
+        <button class="cc-btn cc-btn-sm" data-lat="45">45°N</button>
+        <button class="cc-btn cc-btn-sm" data-lat="0">Equator</button>
+        <button class="cc-btn cc-btn-sm" data-lat="-45">45°S</button>
+        <button class="cc-btn cc-btn-sm" data-lat="-90">90°S</button>
+      </div>
+    </div>
+
+    <div class="cc-panel">
+      <span class="cor-ctrl-label">Earth's&nbsp;Spin</span>
+      <div class="cor-rate-row" id="rateRow">
+        <button class="cc-btn cc-btn-sm" data-mult="0">0×</button>
+        <button class="cc-btn cc-btn-sm is-active" data-mult="1">1× (real)</button>
+        <button class="cc-btn cc-btn-sm" data-mult="10">10×</button>
+        <button class="cc-btn cc-btn-sm" data-mult="100">100×</button>
+        <button class="cc-btn cc-btn-sm" data-mult="1000">1000×</button>
+      </div>
+    </div>
+
+    <div class="cc-panel cor-stats">
+      <div class="cor-stat"><span class="cor-stat-val" id="statF">—</span><span class="cor-stat-lbl">CORIOLIS PARAM f</span></div>
+      <div class="cor-stat"><span class="cor-stat-val" id="statTime">—</span><span class="cor-stat-lbl">FLIGHT TIME</span></div>
+      <div class="cor-stat"><span class="cor-stat-val" id="statDeflect">—</span><span class="cor-stat-lbl">DEFLECTION</span></div>
+    </div>
+
+    <button class="cc-btn cc-btn-sm" id="clearBtn" style="align-self:center;">Clear Trails</button>
+
+    <span class="cor-hint">Drag on the ground view (left) to aim &amp; set speed — release to fire</span>
+
+  </div>
+
+  <div class="cor-canvas-row">
+    <div class="cc-panel cor-canvas-card">
+      <div class="cor-panel-label ground">Ground View — what you'd see standing here</div>
+      <div class="cor-canvas-wrap">
+        <canvas id="groundCanvas" width="900" height="900"></canvas>
+        <div class="cor-orbit-note" id="groundOrbitNote"></div>
+      </div>
+    </div>
+    <div class="cc-panel cor-canvas-card">
+      <div class="cor-panel-label space">Space View — what's actually happening</div>
+      <div class="cor-canvas-wrap">
+        <canvas id="spaceCanvas" width="900" height="900"></canvas>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Physical constants ────────────────────────────────────────────────
+  var SIDEREAL_DAY_S = 86164.0905;
+  var OMEGA_EARTH = 2 * Math.PI / SIDEREAL_DAY_S; // rad/s, ~7.2921e-5
+
+  // ── Scenario constants ────────────────────────────────────────────────
+  var RANGE_M   = 80000;     // fixed target range, meters (long-range-artillery scale)
+  var SPEED_MIN = 150;       // m/s
+  var SPEED_MAX = 900;       // m/s
+  var DRAG_MAX_PX = 260;     // drag distance (in canvas px @ internal resolution) mapping to SPEED_MAX
+  var PLAYBACK_SECONDS = 5.5; // wall-clock seconds any shot's animation takes
+
+  // ── State ─────────────────────────────────────────────────────────────
+  var state = {
+    latDeg: 45,
+    mult: 1,
+    aiming: false,
+    aimStart: null,       // {x,y} screen px (canvas-internal coords) — always cannon
+    aimCurrent: null,
+    shot: null,            // in-flight / just-fired shot object
+    trails: []             // history of finished shots {groundPts, spacePts, meta}
+  };
+
+  // ── DOM refs ──────────────────────────────────────────────────────────
+  var globeCanvas  = document.getElementById('globeCanvas');
+  var groundCanvas = document.getElementById('groundCanvas');
+  var spaceCanvas  = document.getElementById('spaceCanvas');
+  var gctx = globeCanvas.getContext('2d');
+  var gndCtx = groundCanvas.getContext('2d');
+  var spcCtx = spaceCanvas.getContext('2d');
+
+  var latValueEl = document.getElementById('latValue');
+  var latHemiEl  = document.getElementById('latHemi');
+  var statF = document.getElementById('statF');
+  var statTime = document.getElementById('statTime');
+  var statDeflect = document.getElementById('statDeflect');
+  var groundOrbitNote = document.getElementById('groundOrbitNote');
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Physics
+  // ══════════════════════════════════════════════════════════════════════
+
+  // Coriolis parameter f = 2 * Omega_effective * sin(lat).
+  // Local ground-frame rotation rate omega = f / 2 (the true physical spin
+  // rate of the local tangent plane — half the ball's apparent curvature
+  // rate, which is the textbook factor-of-two in the Coriolis force).
+  function computeF(latDeg, mult) {
+    var omegaEff = OMEGA_EARTH * mult;
+    return 2 * omegaEff * Math.sin(latDeg * Math.PI / 180);
+  }
+
+  // Local tangent-plane rotation rate: the *true* physical spin rate of
+  // the ground at this latitude. This is exactly half the Coriolis
+  // parameter f (the textbook factor-of-two).
+  function computeOmega(latDeg, mult) {
+    return OMEGA_EARTH * mult * Math.sin(latDeg * Math.PI / 180);
+  }
+
+  function rotateVec(x, y, ang) {
+    var c = Math.cos(ang), s = Math.sin(ang);
+    return [x * c - y * s, x * s + y * c];
+  }
+
+  // Inertial (space) position: with no real horizontal force acting, this
+  // is by definition a straight line at constant velocity. Nothing curves
+  // here — this IS "what's actually happening."
+  function inertialPosAt(vx0, vy0, t) {
+    return [vx0 * t, vy0 * t];
+  }
+
+  // Ground-frame (rotating / "what you'd see standing here") position: the
+  // exact kinematic result of viewing that straight inertial path from a
+  // patch of ground that has itself rotated by omega*t since launch — the
+  // classic merry-go-round analogy, at the true rotation rate for this
+  // latitude. Rotating the dead-straight inertial path *backward* by the
+  // ground's own spin is what makes it look curved from the ground.
+  function groundPosAt(vx0, vy0, omega, t) {
+    var s = inertialPosAt(vx0, vy0, t);
+    return rotateVec(s[0], s[1], -omega * t);
+  }
+
+  // Reconstruct the inertial-frame position of something that's fixed in
+  // the ground frame (the target, compass grid, etc.) — it rotates forward
+  // with the ground at the same true rate.
+  function toInertial(gx, gy, omega, t) {
+    return rotateVec(gx, gy, omega * t);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Shot construction — precompute full sampled trajectory at fire time
+  // ══════════════════════════════════════════════════════════════════════
+
+  function fireShot(bearingDeg, speed, latDeg, mult) {
+    var mathAng = (90 - bearingDeg) * Math.PI / 180; // East=x, North=y
+    var vx0 = speed * Math.cos(mathAng);
+    var vy0 = speed * Math.sin(mathAng);
+    var f = computeF(latDeg, mult);
+    var omega = computeOmega(latDeg, mult); // = f/2, true local spin rate
+
+    // Rotating the inertial straight line preserves its distance from the
+    // cannon exactly (rotation doesn't change magnitude), so the ground
+    // path reaches the target's range at precisely t = RANGE_M / speed,
+    // regardless of rotation rate — no search needed.
+    var flightDuration = RANGE_M / speed;
+
+    // At very high rotation rates the ground path winds through multiple
+    // spiral loops before landing — sample finely enough to keep it smooth.
+    var totalTurns = Math.abs(omega) * flightDuration / (2 * Math.PI);
+    var N = Math.max(300, Math.min(4000, Math.ceil(240 * (totalTurns + 1))));
+
+    var groundPts = new Array(N + 1);
+    var spacePts = new Array(N + 1);
+    for (var i = 0; i <= N; i++) {
+      var t = (flightDuration * i) / N;
+      var g = groundPosAt(vx0, vy0, omega, t);
+      groundPts[i] = { t: t, x: g[0], y: g[1] };
+      var s = inertialPosAt(vx0, vy0, t);
+      spacePts[i] = { t: t, x: s[0], y: s[1] };
+    }
+
+    // Straight-line (naive aim, no rotation) reference for deflection stat.
+    var straightAtLanding = [vx0 * flightDuration, vy0 * flightDuration];
+    var lastGround = groundPts[groundPts.length - 1];
+    var deflectM = Math.sqrt(
+      Math.pow(lastGround.x - straightAtLanding[0], 2) +
+      Math.pow(lastGround.y - straightAtLanding[1], 2)
+    );
+
+    return {
+      bearingDeg: bearingDeg,
+      speed: speed,
+      latDeg: latDeg,
+      mult: mult,
+      f: f,
+      omega: omega,
+      vx0: vx0, vy0: vy0,
+      groundPts: groundPts,
+      spacePts: spacePts,
+      flightDuration: flightDuration,
+      totalTurns: totalTurns,
+      deflectM: deflectM,
+      startTime: performance.now(),
+      playbackSeconds: PLAYBACK_SECONDS,
+      done: false
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Rendering
+  // ══════════════════════════════════════════════════════════════════════
+
+  var SCALE = (0.5 * 900 * 0.78) / RANGE_M; // px per meter, tuned to internal 900x900 canvas
+  var CANNON_PX = { x: 450, y: 900 * 0.86 };
+
+  function worldToScreen(x, y) {
+    // x=East(+right), y=North(+up on screen, so flip for canvas y-down)
+    return [CANNON_PX.x + x * SCALE, CANNON_PX.y - y * SCALE];
+  }
+
+  function sampleAt(pts, t) {
+    if (t <= pts[0].t) return pts[0];
+    var last = pts[pts.length - 1];
+    if (t >= last.t) return last;
+    // linear scan is fine at this array size (~900) and only runs per-frame
+    for (var i = 1; i < pts.length; i++) {
+      if (pts[i].t >= t) {
+        var a = pts[i - 1], b = pts[i];
+        var span = b.t - a.t;
+        var frac = span > 0 ? (t - a.t) / span : 0;
+        return { t: t, x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
+      }
+    }
+    return last;
+  }
+
+  function drawCompassGrid(ctx, rotationAngle) {
+    ctx.save();
+    ctx.translate(CANNON_PX.x, CANNON_PX.y);
+    ctx.rotate(-rotationAngle); // canvas rotation is CW-positive; our math angles are CCW-positive
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    // range rings every 20km
+    for (var r = 20000; r <= RANGE_M + 1; r += 20000) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * SCALE, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // radial spokes every 30 deg
+    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+    for (var deg = 0; deg < 360; deg += 30) {
+      var a = deg * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(Math.sin(a) * RANGE_M * SCALE * 1.05, -Math.cos(a) * RANGE_M * SCALE * 1.05);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Compass letters (screen-fixed, not rotated, so they still read N/E/S/W
+    // as *screen* directions — the grid under them is what rotates).
+  }
+
+  function drawCompassLabels(ctx) {
+    ctx.save();
+    ctx.font = '600 15px "Public Sans", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    var R = RANGE_M * SCALE * 1.1;
+    ctx.fillText('N', CANNON_PX.x, CANNON_PX.y - R);
+    ctx.fillText('S', CANNON_PX.x, Math.min(890, CANNON_PX.y + R));
+    ctx.fillText('E', CANNON_PX.x + R, CANNON_PX.y);
+    ctx.fillText('W', CANNON_PX.x - R, CANNON_PX.y);
+    ctx.restore();
+  }
+
+  function drawCannon(ctx) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(CANNON_PX.x, CANNON_PX.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawTarget(ctx, x, y) {
+    var s = worldToScreen(x, y);
+    ctx.save();
+    ctx.strokeStyle = '#C1544B';
+    ctx.fillStyle = 'rgba(193,84,75,0.18)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(s[0], s[1], 16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#C1544B'; ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPath(ctx, pts, upToT, color, lineWidth) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth || 3;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    var started = false;
+    for (var i = 0; i < pts.length; i++) {
+      if (pts[i].t > upToT) break;
+      var s = worldToScreen(pts[i].x, pts[i].y);
+      if (!started) { ctx.moveTo(s[0], s[1]); started = true; }
+      else ctx.lineTo(s[0], s[1]);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawBall(ctx, x, y, color) {
+    var s = worldToScreen(x, y);
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(s[0], s[1], 6.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function renderGhosts(ctx, isGround) {
+    for (var i = 0; i < state.trails.length; i++) {
+      var tr = state.trails[i];
+      var pts = isGround ? tr.groundPts : tr.spacePts;
+      drawPath(ctx, pts, Infinity, 'rgba(232,228,217,0.22)', 2);
+    }
+  }
+
+  function render() {
+    var now = performance.now();
+    var shot = state.shot;
+
+    // ── Ground canvas ───────────────────────────────────────────────────
+    gndCtx.clearRect(0, 0, 900, 900);
+    drawCompassGrid(gndCtx, 0);
+    renderGhosts(gndCtx, true);
+    drawCompassLabels(gndCtx);
+    drawTarget(gndCtx, 0, RANGE_M);
+    drawCannon(gndCtx);
+
+    if (state.aiming && state.aimCurrent) {
+      var dx = state.aimCurrent.x - CANNON_PX.x;
+      var dy = state.aimCurrent.y - CANNON_PX.y;
+      gndCtx.save();
+      gndCtx.strokeStyle = 'rgba(111,209,168,0.85)';
+      gndCtx.lineWidth = 2.5;
+      gndCtx.setLineDash([6, 6]);
+      gndCtx.beginPath();
+      gndCtx.moveTo(CANNON_PX.x, CANNON_PX.y);
+      gndCtx.lineTo(state.aimCurrent.x, state.aimCurrent.y);
+      gndCtx.stroke();
+      gndCtx.restore();
+    }
+
+    if (shot) {
+      var elapsedWall = (now - shot.startTime) / 1000;
+      var frac = Math.min(1, elapsedWall / shot.playbackSeconds);
+      var simT = frac * shot.flightDuration;
+      drawPath(gndCtx, shot.groundPts, simT, '#6FD1A8', 3.5);
+      var gp = sampleAt(shot.groundPts, simT);
+      drawBall(gndCtx, gp.x, gp.y, '#6FD1A8');
+
+      groundOrbitNote.style.display = shot.totalTurns > 1.1 ? 'block' : 'none';
+      if (shot.totalTurns > 1.1) {
+        groundOrbitNote.textContent = "At this spin rate the shot spirals through " +
+          shot.totalTurns.toFixed(1) + " full loops before it ever reaches the target's range.";
+      }
+
+      if (frac >= 1 && !shot.done) {
+        shot.done = true;
+        state.trails.push(shot);
+        updateStatsAfterShot(shot);
+      }
+    } else {
+      groundOrbitNote.style.display = 'none';
+    }
+
+    // ── Space canvas ────────────────────────────────────────────────────
+    spcCtx.clearRect(0, 0, 900, 900);
+    var rotNow = 0;
+    if (shot) {
+      var elapsedWallR = (now - shot.startTime) / 1000;
+      var fracR = Math.min(1, elapsedWallR / shot.playbackSeconds);
+      rotNow = shot.omega * (fracR * shot.flightDuration);
+    }
+    drawCompassGrid(spcCtx, rotNow);
+    renderGhosts(spcCtx, false);
+    // No fixed N/E/S/W labels here on purpose: this panel's whole grid
+    // rotates under the ball, so a screen-fixed "N" would misleadingly
+    // imply north stays put — the ground view (which really is fixed) is
+    // the only place a static compass reading is honest.
+
+    if (shot) {
+      var elapsedWall2 = (now - shot.startTime) / 1000;
+      var frac2 = Math.min(1, elapsedWall2 / shot.playbackSeconds);
+      var simT2 = frac2 * shot.flightDuration;
+      var targetGroundVec = [0, RANGE_M];
+      var targetInertial = toInertial(targetGroundVec[0], targetGroundVec[1], shot.omega, simT2);
+      drawTarget(spcCtx, targetInertial[0], targetInertial[1]);
+      drawCannon(spcCtx);
+      drawPath(spcCtx, shot.spacePts, simT2, '#E8C15A', 3.5);
+      var sp = sampleAt(shot.spacePts, simT2);
+      drawBall(spcCtx, sp.x, sp.y, '#E8C15A');
+    } else {
+      drawTarget(spcCtx, 0, RANGE_M);
+      drawCannon(spcCtx);
+    }
+
+    requestAnimationFrame(render);
+  }
+
+  function updateStatsAfterShot(shot) {
+    var km = shot.deflectM / 1000;
+    statDeflect.textContent = (km < 0.1 ? Math.round(shot.deflectM) + ' m' : km.toFixed(2) + ' km');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Globe latitude picker
+  // ══════════════════════════════════════════════════════════════════════
+
+  var GLOBE_R = 86;
+  var GLOBE_C = { x: 100, y: 100 };
+
+  function drawGlobe() {
+    gctx.clearRect(0, 0, 200, 200);
+    gctx.save();
+    gctx.translate(GLOBE_C.x, GLOBE_C.y);
+
+    gctx.fillStyle = '#1E2320';
+    gctx.beginPath(); gctx.arc(0, 0, GLOBE_R, 0, Math.PI * 2); gctx.fill();
+    gctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    gctx.lineWidth = 1.5;
+    gctx.stroke();
+
+    var refLats = [23.44, 66.56, -23.44, -66.56];
+    gctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    gctx.lineWidth = 1;
+    refLats.concat([0]).forEach(function (phiDeg) {
+      var phi = phiDeg * Math.PI / 180;
+      var y = -GLOBE_R * Math.sin(phi);
+      var rx = GLOBE_R * Math.cos(phi);
+      gctx.beginPath();
+      gctx.ellipse(0, y, rx, rx * 0.22, 0, 0, Math.PI * 2);
+      gctx.stroke();
+    });
+
+    // Central meridian (the great circle we're picking a point on)
+    gctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    gctx.beginPath(); gctx.moveTo(0, -GLOBE_R); gctx.lineTo(0, GLOBE_R); gctx.stroke();
+
+    // Pin
+    var phi0 = state.latDeg * Math.PI / 180;
+    var py = -GLOBE_R * Math.sin(phi0);
+    gctx.fillStyle = '#6FD1A8';
+    gctx.beginPath(); gctx.arc(0, py, 6, 0, Math.PI * 2); gctx.fill();
+    gctx.strokeStyle = '#12140f'; gctx.lineWidth = 1.5; gctx.stroke();
+
+    gctx.restore();
+  }
+
+  function latFromGlobeY(clientY) {
+    var rect = globeCanvas.getBoundingClientRect();
+    var scaleY = 200 / rect.height;
+    var localY = (clientY - rect.top) * scaleY - GLOBE_C.y;
+    var ratio = Math.max(-1, Math.min(1, -localY / GLOBE_R));
+    return Math.asin(ratio) * 180 / Math.PI;
+  }
+
+  var globeDragging = false;
+  globeCanvas.addEventListener('pointerdown', function (e) {
+    globeDragging = true;
+    globeCanvas.setPointerCapture(e.pointerId);
+    setLatitude(latFromGlobeY(e.clientY));
+  });
+  globeCanvas.addEventListener('pointermove', function (e) {
+    if (!globeDragging) return;
+    setLatitude(latFromGlobeY(e.clientY));
+  });
+  globeCanvas.addEventListener('pointerup', function () { globeDragging = false; });
+  globeCanvas.addEventListener('pointercancel', function () { globeDragging = false; });
+
+  document.querySelectorAll('[data-lat]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setLatitude(parseFloat(btn.getAttribute('data-lat')));
+    });
+  });
+
+  function setLatitude(deg) {
+    state.latDeg = Math.max(-90, Math.min(90, deg));
+    latValueEl.textContent = Math.abs(state.latDeg).toFixed(1) + '°';
+    latHemiEl.textContent = state.latDeg > 0.05 ? 'Northern Hemisphere'
+      : state.latDeg < -0.05 ? 'Southern Hemisphere'
+      : 'Equator — no deflection';
+    drawGlobe();
+    updateLiveStats();
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Rotation-rate presets
+  // ══════════════════════════════════════════════════════════════════════
+
+  document.querySelectorAll('#rateRow [data-mult]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('#rateRow [data-mult]').forEach(function (b) { b.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+      state.mult = parseFloat(btn.getAttribute('data-mult'));
+      updateLiveStats();
+    });
+  });
+
+  function updateLiveStats() {
+    var f = computeF(state.latDeg, state.mult);
+    statF.textContent = Math.abs(f) < 1e-9 ? '0' : f.toExponential(2) + ' /s';
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Aim & fire on the ground canvas
+  // ══════════════════════════════════════════════════════════════════════
+
+  function canvasLocalPoint(canvas, clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    var scaleX = canvas.width / rect.width;
+    var scaleY = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }
+
+  groundCanvas.addEventListener('pointerdown', function (e) {
+    if (state.shot && !state.shot.done) return; // one shot in flight at a time
+    state.aiming = true;
+    groundCanvas.setPointerCapture(e.pointerId);
+    state.aimCurrent = canvasLocalPoint(groundCanvas, e.clientX, e.clientY);
+  });
+  groundCanvas.addEventListener('pointermove', function (e) {
+    if (!state.aiming) return;
+    state.aimCurrent = canvasLocalPoint(groundCanvas, e.clientX, e.clientY);
+  });
+  groundCanvas.addEventListener('pointerup', function () {
+    if (!state.aiming) return;
+    state.aiming = false;
+    var dx = state.aimCurrent.x - CANNON_PX.x;
+    var dy = state.aimCurrent.y - CANNON_PX.y;
+    var dragDist = Math.sqrt(dx * dx + dy * dy);
+    if (dragDist < 8) return; // too small to count as a shot
+
+    var bearingDeg = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
+    var speedFrac = Math.min(1, dragDist / DRAG_MAX_PX);
+    var speed = SPEED_MIN + speedFrac * (SPEED_MAX - SPEED_MIN);
+
+    state.shot = fireShot(bearingDeg, speed, state.latDeg, state.mult);
+    statTime.textContent = shotTimeLabel(state.shot);
+    statDeflect.textContent = '—';
+  });
+  groundCanvas.addEventListener('pointercancel', function () { state.aiming = false; });
+
+  function shotTimeLabel(shot) {
+    var t = shot.flightDuration;
+    var label = t < 120 ? Math.round(t) + ' s' : (t / 60).toFixed(1) + ' min';
+    var speedUp = Math.round(t / shot.playbackSeconds);
+    return label + ' (played back ' + speedUp + '× faster)';
+  }
+
+  document.getElementById('clearBtn').addEventListener('click', function () {
+    state.trails = [];
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Boot
+  // ══════════════════════════════════════════════════════════════════════
+
+  setLatitude(45);
+  updateLiveStats();
+  drawGlobe();
+  requestAnimationFrame(render);
+
+  // Expose for headless/automated testing.
+  window.__coriolisTest = {
+    computeF: computeF,
+    computeOmega: computeOmega,
+    groundPosAt: groundPosAt,
+    inertialPosAt: inertialPosAt,
+    toInertial: toInertial,
+    fireShot: fireShot,
+    state: state
+  };
+})();
+</script>
+</body>
+</html>
