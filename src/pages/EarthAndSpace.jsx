@@ -44,10 +44,10 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
+            tags:        ['Tidal Forces', 'Interactive'],
             title:       'Tidal Rhythm',
-            description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
-            footerTags:  ['Tidal Forces', 'Spring & Neap Tides', 'NOAA Data', 'Astronomy'],
+            description: 'See why the Moon raises two tidal bulges causing daily patterns of high and low tides and explore how spring and neap tides emerge from the combined pull of the Sun and Moon.',
+            footerTags:  ['Tidal Forces', 'Spring & Neap Tides'],
             to:          '/earthandspace/tidal-rhythm',
             thumb:       '/TidalRhythm_thumbnail.png',
             status:      'live',
