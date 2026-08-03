@@ -37,8 +37,8 @@ const SECTIONS = [
           {
             tags:        ['Moon Phases', 'Interactive'],
             title:       'Lunar Phase Simulator',
-            description: 'Drag the Moon around its orbit or spin Earth to change the time of day, and watch how orbital position translates into phase, sky position, and the Moon\'s tidal lock with Earth. A live horizon diagram tracks moonrise and moonset, and Sync to Today pulls up tonight\'s real phase.',
-            footerTags:  ['Moon Phases', 'Tidal Locking', 'Horizon Diagram'],
+            description: 'Use this simulator to explore the relationship between orbital position and lunar phase, sky position relative to the sun, and the Moon\'s tidal lock with Earth. Sync to Today function pulls up tonight\'s real phase.',
+            footerTags:  ['Moon Phases', 'Tidal Locking'],
             to:          '/earthandspace/moon-phase-simulator',
             thumb:       '/MoonPhaseSimulator_thumbnail.png',
             status:      'live',
