@@ -148,6 +148,33 @@
     }
   };
 
+  // ── Continuous time axes ──────────────────────────────────────────
+  // The underlying data can have real gaps (deep history still being
+  // backfilled). Chart.js's category axis spaces every label equally
+  // regardless of true elapsed time, so if we only pass the months/years
+  // that HAVE data, a multi-year gap gets silently bridged into a smooth
+  // (and totally misleading) connecting line. Building the full
+  // continuous range and inserting explicit nulls for missing periods
+  // (with spanGaps:false) makes Chart.js draw a real visual break instead.
+
+  function monthRange(startYM, endYM) {
+    let [y, m] = startYM.split('-').map(Number);
+    const [ey, em] = endYM.split('-').map(Number);
+    const out = [];
+    while (y < ey || (y === ey && m <= em)) {
+      out.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+    return out;
+  }
+
+  function yearRange(startY, endY) {
+    const out = [];
+    for (let y = startY; y <= endY; y++) out.push(y);
+    return out;
+  }
+
   function rollingMean(values, window) {
     const out = new Array(values.length).fill(null);
     for (let i = 0; i < values.length; i++) {
@@ -173,27 +200,30 @@
       : 'Mean cloud cover (%)';
 
     if (state.view === 'annual') {
-      const rows = doc.annual;
-      const labels = rows.map(r => String(r.year));
-      const values = rows.map(r => r[valueKey]);
+      const byYear = new Map(doc.annual.map(r => [r.year, r]));
+      const startY = Number(doc.metadata.data_start.slice(0, 4));
+      const endY = Number(doc.metadata.last_data_month.slice(0, 4));
+      const years = yearRange(startY, endY);
+      const labels = years.map(String);
+      const rows = years.map(y => byYear.get(y) || null);
+      const values = rows.map(r => r ? r[valueKey] : null);
 
       const datasets = [{
         label: state.mode === 'anomaly' ? 'Annual anomaly' : 'Annual mean',
         data: values,
         borderColor: ACCENT,
         backgroundColor: ACCENT_MUTED,
-        pointRadius: rows.map(r => r.complete ? 2.5 : 4),
-        pointStyle: rows.map(r => r.complete ? 'circle' : 'crossRot'),
+        pointRadius: rows.map(r => r ? (r.complete ? 2.5 : 4) : 0),
+        pointStyle: rows.map(r => r ? (r.complete ? 'circle' : 'crossRot') : 'circle'),
         pointBackgroundColor: ACCENT,
         borderWidth: 2,
         tension: 0.15,
-        spanGaps: true,
+        spanGaps: false,
       }];
 
       if (state.mode === 'anomaly' && doc.trend) {
         const t = doc.trend;
-        const trendVals = labels.map(l => {
-          const y = Number(l);
+        const trendVals = years.map(y => {
           if (y < t.fit_year_range[0] || y > t.fit_year_range[1]) return null;
           return t.slope_pct_per_year * y + t.intercept_pct;
         });
@@ -205,7 +235,7 @@
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0,
-          spanGaps: true,
+          spanGaps: false,
         });
         datasets.push({
           label: 'Baseline (0)',
@@ -221,9 +251,11 @@
     }
 
     // monthly view
-    const rows = doc.monthly;
-    const labels = rows.map(r => r.date);
-    const values = rows.map(r => r[valueKey]);
+    const byMonth = new Map(doc.monthly.map(r => [r.date, r]));
+    const months = monthRange(doc.metadata.data_start, doc.metadata.last_data_month);
+    const labels = months;
+    const rows = months.map(d => byMonth.get(d) || null);
+    const values = rows.map(r => r ? r[valueKey] : null);
     const smoothed = rollingMean(values, 12);
 
     const datasets = [
@@ -234,7 +266,7 @@
         borderWidth: 1,
         pointRadius: 0,
         tension: 0.1,
-        spanGaps: true,
+        spanGaps: false,
       },
       {
         label: '12-month running mean',
@@ -243,7 +275,7 @@
         borderWidth: 2,
         pointRadius: 0,
         tension: 0.15,
-        spanGaps: true,
+        spanGaps: false,
       },
     ];
 
@@ -322,7 +354,7 @@
       {
         label: 'Trend',
         value: t ? `${fmtPct(t.slope_pct_per_decade, 2)} / decade` : '—',
-        note: t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)} · R² ${t.r_squared}` : '',
+        note: t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)} · R² ${t.r_squared} · ${t.fit_year_range[0]}–${t.fit_year_range[1]}` : '',
       },
       {
         label: `Latest complete year (${lastComplete ? lastComplete.year : '—'})`,
@@ -337,7 +369,7 @@
       {
         label: 'Sample',
         value: `${doc.metadata.sample_points} points`,
-        note: `${doc.metadata.data_start} – ${doc.metadata.last_data_month}`,
+        note: `${doc.monthly.length} of ${monthRange(doc.metadata.data_start, doc.metadata.last_data_month).length} months so far`,
       },
     ];
 
@@ -357,10 +389,12 @@
 
     const notice = document.getElementById('backfill-notice');
     if (doc.metadata.backfill_complete === false) {
+      const totalMonths = monthRange(doc.metadata.data_start, doc.metadata.last_data_month).length;
+      const haveMonths = doc.monthly.length;
       notice.style.display = 'block';
-      notice.textContent =
-        `Historical backfill in progress — data currently reaches back to ${doc.metadata.data_start}. ` +
-        `More history is added automatically each day until it reaches 1980.`;
+      notice.textContent = haveMonths < totalMonths
+        ? `Historical backfill in progress — ${haveMonths} of ${totalMonths} months in the ${doc.metadata.data_start}–${doc.metadata.last_data_month} range are filled in so far (gaps shown as breaks in the line). More is added automatically each day.`
+        : `Historical backfill in progress — data currently reaches back to ${doc.metadata.data_start}. More history is added automatically each day until it reaches 1980.`;
     } else {
       notice.style.display = 'none';
     }
@@ -425,7 +459,7 @@
       ctx.fillText(trendStr, 48, chartY + chartH + 64);
       ctx.fillStyle = '#A6A499';
       ctx.font = '400 18px "Public Sans", sans-serif';
-      const ciStr = t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)}, R² = ${t.r_squared}, n = ${t.n_years} complete years` : '';
+      const ciStr = t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)}, R² = ${t.r_squared}, n = ${t.n_years} complete years (${t.fit_year_range[0]}–${t.fit_year_range[1]})` : '';
       ctx.fillText(ciStr, 48, chartY + chartH + 118);
 
       ctx.fillStyle = '#948F82';
