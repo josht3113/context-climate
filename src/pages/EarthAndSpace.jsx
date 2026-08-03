@@ -81,7 +81,7 @@ const SECTIONS = [
           {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
             title:       "Kepler's First Law — Orbit Shape Explorer",
-            description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
+            description: "Use this tool to explore how the shapes of planetary orbits can be described by eccentricity — from nearly circular to highly elliptical. Animate the planet with realistic speed variation.",
             footerTags:  ["Kepler's Laws", 'Eccentricity', 'Astronomy'],
             to:          '/earthandspace/kepler-law1-ellipses',
             thumb:       '/KeplerLaw1_thumbnail.png',
