@@ -246,15 +246,15 @@
           <div class="cc-btn-row">
             <button class="cc-btn primary cc-btn-sm" id="btnSkyPlay">▶ Play</button>
             <div class="cc-segmented" id="skySpeedToggle">
-              <button class="cc-segmented-btn cc-btn-sm" data-speed="1">×1</button>
-              <button class="cc-segmented-btn cc-btn-sm is-active" data-speed="3">×3</button>
+              <button class="cc-segmented-btn cc-btn-sm is-active" data-speed="1">×1</button>
+              <button class="cc-segmented-btn cc-btn-sm" data-speed="3">×3</button>
               <button class="cc-segmented-btn cc-btn-sm" data-speed="8">×8</button>
               <button class="cc-segmented-btn cc-btn-sm" data-speed="20">×20</button>
             </div>
           </div>
           <div class="control-readout" id="skyDayReadout">Day 0 · 0 lunations</div>
         </div>
-        <p class="fact-line">The Moon (gold dot, left) actually orbits Earth continuously, crossing the ecliptic at its two nodes every 27.2 days. The Sun's direction (line to the left) drifts slowly too, as Earth moves around it. A solar or lunar eclipse needs the Moon lined up with the Sun <em>and</em> parked at a node at the same moment — most months it misses.</p>
+        <p class="fact-line">The Sun stays fixed to the left; the Moon (gray dot) orbits Earth counterclockwise once every synodic month (~29.5 days) — new moon nearest the Sun, full moon on the far side. The gauge under the diagram tracks its height above/below the ecliptic on a separate, slightly faster clock (the 27.2-day draconic month). A solar or lunar eclipse needs both clocks to land together at once — most months they miss.</p>
         <div class="control-block">
           <div class="control-block-label">Most recent new/full moon</div>
           <div class="control-readout" id="skyStateReadout">—</div>
@@ -888,49 +888,49 @@
 
   /* ══════════════════════ SKY VIEW — CONTINUOUS ORBIT ANIMATION ══════════════════════ */
   // Unlike the Orbital Geometry tab (which only ever shows the Moon parked at a syzygy), this
-  // tab animates it sweeping all the way around its real tilted orbit, continuously, so the two
-  // periodicities that matter — the 27.21-day draconic month (when it crosses a node) and the
-  // ~29.53-day synodic month (when it lines up with the Sun) — visibly drift in and out of step.
+  // tab animates it going all the way around, continuously. The Sun is held fixed to one side —
+  // its apparent direction barely changes over the timescale of a few months — while the Moon
+  // sweeps counterclockwise, one full lap per synodic month (new moon nearest the Sun, full moon
+  // on the far side). Separately, and on a slightly different clock (the 27.21-day draconic
+  // month), the Moon's height above/below the ecliptic drifts too — that's the gauge under the
+  // diagram. Eclipses only happen on the rare occasions both clocks land together at once.
   const skc = document.getElementById('skyCanvas');
   const skctx = skc.getContext('2d');
   const skoc = document.getElementById('skyOrbitalCanvas');
   const skoctx = skoc.getContext('2d');
   const PX_PER_DEG = 210; // angular scale for the sky view
-  const YEAR = 365.25;    // days — sets how fast the Sun's apparent direction drifts
+  const SKY_TICK_MS = 50;
+  const DAY_STEP_BASE = 0.08; // simulated days per tick at speed ×1 — one synodic month ≈ 18s
 
   const skyAnim = {
     playing: false,
-    speed: 3,             // simulated days advanced per tick
-    t: 0,                  // elapsed simulated days since this tab's animation started
-    theta0: 55,              // Moon's starting position on its tilted orbit (deg from ascending node)
-    phiSun0: 0,               // Sun's starting apparent ecliptic longitude (deg)
+    speed: 1,               // multiplier on DAY_STEP_BASE
+    t: 0,                    // elapsed simulated days
+    theta0: 40,                // Moon's starting position on the draconic (node) clock, degrees
     lastSyzygyIdx: null,
-    history: [],               // last several {phase, beta, dist, type} at each new/full moon
-    lastEvent: null              // most recent syzygy — drives the "what an observer saw" panel
+    history: [],                // last several {phase, beta, dist, type} at each new/full moon
+    lastEvent: null               // most recent syzygy — drives the "what an observer saw" panel
   };
   let skyTimer = null;
 
   function skyKinematics(t){
-    const thetaMoon = ((skyAnim.theta0 + t*360/DRACONIC) % 360 + 360) % 360;
-    const phiSun = ((skyAnim.phiSun0 + t*360/YEAR) % 360 + 360) % 360;
+    const phaseAngle = ((t*360/SYNODIC) % 360 + 360) % 360;             // 0=new, 180=full — drives screen position
+    const thetaMoon = ((skyAnim.theta0 + t*360/DRACONIC) % 360 + 360) % 360; // independent node clock
     const beta = INCLINATION*Math.sin(thetaMoon*Math.PI/180);
-    return { thetaMoon, phiSun, beta };
+    return { phaseAngle, beta };
   }
 
-  // Elongation (Moon's position minus the Sun's, in the same frame) is linear in t by
-  // construction, so syzygies (elongation a multiple of 180°) land at exact, solvable moments —
-  // that's what lets the history strip log a real classifyEclipse() result instead of a guess.
-  const ELONG_RATE = 360/DRACONIC - 360/YEAR; // deg/day — reproduces the real ~29.53-day synodic month
-  function elongUnwrapped(t){ return (skyAnim.theta0 - skyAnim.phiSun0) + t*ELONG_RATE; }
-
+  // The phase angle is already linear in t, so syzygies (phase a multiple of 180°) land at
+  // exact, solvable moments — that's what lets the history strip log a real classifyEclipse()
+  // result instead of a guess.
   function processSyzygyCrossings(prevT, newT){
-    const idx0 = Math.floor(elongUnwrapped(prevT)/180);
-    const idx1 = Math.floor(elongUnwrapped(newT)/180);
+    const idx0 = Math.floor(prevT*360/SYNODIC/180);
+    const idx1 = Math.floor(newT*360/SYNODIC/180);
     if (skyAnim.lastSyzygyIdx === null) skyAnim.lastSyzygyIdx = idx0;
     if (idx1 === skyAnim.lastSyzygyIdx) return;
     const dir = idx1 > skyAnim.lastSyzygyIdx ? 1 : -1;
     for (let i = skyAnim.lastSyzygyIdx + dir; dir>0 ? i<=idx1 : i>=idx1; i += dir){
-      const tAt = (i*180 - (skyAnim.theta0 - skyAnim.phiSun0)) / ELONG_RATE;
+      const tAt = i * SYNODIC/2;
       const kin = skyKinematics(tAt);
       const ph = (((i % 2) + 2) % 2 === 0) ? 'new' : 'full';
       const cls = classifyEclipse(ph, kin.beta, state.dist);
@@ -944,7 +944,7 @@
 
   function skyTick(){
     const prevT = skyAnim.t;
-    skyAnim.t += skyAnim.speed;
+    skyAnim.t += DAY_STEP_BASE * skyAnim.speed;
     processSyzygyCrossings(prevT, skyAnim.t);
     renderSky();
   }
@@ -953,7 +953,7 @@
     skyAnim.playing = true;
     document.getElementById('btnSkyPlay').textContent = '⏸ Pause';
     clearInterval(skyTimer);
-    skyTimer = setInterval(skyTick, 60);
+    skyTimer = setInterval(skyTick, SKY_TICK_MS);
   }
   function pauseSkyAnim(){
     skyAnim.playing = false;
@@ -980,88 +980,99 @@
     return overlap/(Math.PI*R*R);
   }
 
-  // The animated top-down diagram. The Moon's screen angle is thetaMoon (its real position on
-  // its own tilted orbit), so the two nodes stay put at fixed points on the ring — exactly like
-  // the "why twice per orbit" inset on the Orbital Geometry tab. The Sun's direction (phiSun)
-  // drifts slowly around the same ring, because Earth is orbiting it. When the Moon and Sun
-  // marker line up (a syzygy) AND the Moon happens to be near a node, that's an eclipse window.
+  const SKY_SEASON_LIMIT = 1.6; // deg — schematic "close enough to a node to matter" band for the gauge
+
+  // The animated top-down diagram: Earth fixed at center, Sun fixed to the left (static — its
+  // apparent direction barely moves over a few months), Moon on a plain counterclockwise circular
+  // orbit, one lap per synodic month, so its screen position directly IS the phase (new moon
+  // nearest the Sun, full moon opposite). The separate gauge underneath tracks the Moon's height
+  // above/below the ecliptic on its own, slightly different clock — when that gauge sits near zero
+  // AND the Moon is at new or full, that's an eclipse window.
   function drawSkyOrbitAnim(){
     const W = skoc.width, H = skoc.height;
     skoctx.clearRect(0,0,W,H);
     skoctx.fillStyle = '#15181a'; skoctx.fillRect(0,0,W,H);
 
-    const cx = W*0.52, cy = H*0.56, rx = W*0.36, ryFlat = H*0.16, lift = H*0.30;
+    const cx = W*0.56, cy = H*0.42, r = Math.min(W*0.30, H*0.32);
     const kin = skyKinematics(skyAnim.t);
 
-    // Ecliptic ring
-    skoctx.strokeStyle = 'rgba(60,163,174,0.55)'; skoctx.lineWidth = 1.5;
-    skoctx.beginPath(); skoctx.ellipse(cx, cy, rx, ryFlat, 0, 0, Math.PI*2); skoctx.stroke();
-    skoctx.fillStyle = 'rgba(232,228,217,0.5)'; skoctx.font = '11px "Courier Prime", monospace';
-    skoctx.fillText('ecliptic', cx+rx-40, cy+ryFlat+16);
-
-    // Eclipse-possible zones at the two fixed nodes (same convention as the orbital-tab inset)
-    const wedge = 22*Math.PI/180;
-    skoctx.strokeStyle = 'rgba(245,163,64,0.5)'; skoctx.lineWidth = 7; skoctx.lineCap = 'round';
-    skoctx.beginPath(); skoctx.ellipse(cx, cy, rx, ryFlat, 0, -wedge, wedge); skoctx.stroke();
-    skoctx.beginPath(); skoctx.ellipse(cx, cy, rx, ryFlat, 0, Math.PI-wedge, Math.PI+wedge); skoctx.stroke();
-    skoctx.lineCap = 'butt';
-
-    // Moon's tilted orbital ring
-    const steps = 90; let pts = [];
-    for (let i=0;i<=steps;i++){ pts.push(project((i/steps)*Math.PI*2, NODE_TILT, cx, cy, rx, ryFlat, lift)); }
-    skoctx.strokeStyle = 'rgba(245,163,64,0.55)'; skoctx.lineWidth = 1.2;
-    skoctx.beginPath(); pts.forEach((p,i)=>{ if(i===0) skoctx.moveTo(p.x,p.y); else skoctx.lineTo(p.x,p.y); }); skoctx.stroke();
-
-    // Sun direction — flat on the ecliptic (the Sun defines it), drifts slowly over the year
-    const sunAngle = kin.phiSun*Math.PI/180;
-    const sunPt = { x: cx+Math.cos(sunAngle)*rx*1.32, y: cy+Math.sin(sunAngle)*ryFlat*1.32 };
-    skoctx.strokeStyle = 'rgba(255,210,140,0.5)'; skoctx.setLineDash([3,3]);
-    skoctx.beginPath(); skoctx.moveTo(cx,cy); skoctx.lineTo(sunPt.x, sunPt.y); skoctx.stroke();
-    skoctx.setLineDash([]);
-    const sunGrad = skoctx.createRadialGradient(sunPt.x,sunPt.y,2, sunPt.x,sunPt.y,12);
+    // Sun — fixed, static, off to the left
+    const sunX = cx - r*1.55, sunY = cy;
+    const sunGrad = skoctx.createRadialGradient(sunX,sunY,3, sunX,sunY,26);
     sunGrad.addColorStop(0,'#FFE9B8'); sunGrad.addColorStop(1,'#E0952E');
     skoctx.fillStyle = sunGrad;
-    skoctx.beginPath(); skoctx.arc(sunPt.x, sunPt.y, 12, 0, Math.PI*2); skoctx.fill();
-    skoctx.fillStyle = 'rgba(255,232,190,0.85)'; skoctx.font='10px "Courier Prime", monospace';
-    skoctx.fillText('toward Sun', sunPt.x+14, sunPt.y+4);
+    skoctx.beginPath(); skoctx.arc(sunX, sunY, 26, 0, Math.PI*2); skoctx.fill();
+    skoctx.fillStyle = 'rgba(255,232,190,0.85)'; skoctx.font = '11px "Courier Prime", monospace'; skoctx.textAlign='center';
+    skoctx.fillText('SUN', sunX, sunY+42); skoctx.textAlign='left';
+
+    // Orbit ring — a plain circle; this diagram isn't trying to show the 5° tilt, just the sweep
+    skoctx.strokeStyle = 'rgba(232,228,217,0.18)'; skoctx.lineWidth = 1.5;
+    skoctx.beginPath(); skoctx.arc(cx, cy, r, 0, Math.PI*2); skoctx.stroke();
+
+    // "new" / "full" reference labels on the ring
+    skoctx.fillStyle = 'rgba(232,228,217,0.45)'; skoctx.font = '10px "Courier Prime", monospace'; skoctx.textAlign='center';
+    skoctx.fillText('new', cx-r-4, cy+4);
+    skoctx.textAlign='left'; skoctx.fillText('full', cx+r+8, cy+4);
 
     // Earth
-    const earthGrad = skoctx.createRadialGradient(cx-6,cy-6,2, cx,cy,16);
+    const earthGrad = skoctx.createRadialGradient(cx-6,cy-6,2, cx,cy,17);
     earthGrad.addColorStop(0,'#5EC8D8'); earthGrad.addColorStop(1,'#1B4F63');
     skoctx.fillStyle = earthGrad;
-    skoctx.beginPath(); skoctx.arc(cx,cy,16,0,Math.PI*2); skoctx.fill();
+    skoctx.beginPath(); skoctx.arc(cx,cy,17,0,Math.PI*2); skoctx.fill();
     skoctx.strokeStyle='rgba(255,255,255,0.25)'; skoctx.stroke();
     skoctx.fillStyle='rgba(232,228,217,0.75)'; skoctx.font='11px "Public Sans", sans-serif'; skoctx.textAlign='center';
-    skoctx.fillText('Earth', cx, cy+30); skoctx.textAlign='left';
+    skoctx.fillText('Earth', cx, cy+34); skoctx.textAlign='left';
 
-    // Moon, at its true orbital position (fixed node frame — unlike the Sun marker, its screen
-    // angle does NOT depend on the phase toggle; it just keeps sweeping around)
-    const moonRad = kin.thetaMoon*Math.PI/180;
-    const moonP = project(moonRad, NODE_TILT, cx, cy, rx, ryFlat, lift);
+    // Moon — counterclockwise, one lap per synodic month; angle 180° (toward the Sun) = new moon
+    const a = (180 + kin.phaseAngle) * Math.PI/180;
+    const moonX = cx + r*Math.cos(a);
+    const moonY = cy - r*Math.sin(a);
 
-    // Is the Moon near a node right now, AND near alignment with the Sun (a syzygy)?
-    const nodeDist = Math.min(kin.thetaMoon%180, 180-(kin.thetaMoon%180));
-    const elongNow = ((kin.thetaMoon - kin.phiSun)%360+360)%360;
-    const syzygyDist = Math.min(elongNow%180, 180-(elongNow%180));
-    const eclipseWindow = nodeDist < 14 && syzygyDist < 5;
+    const nearNode = Math.abs(kin.beta) < SKY_SEASON_LIMIT;
+    const nearSyzygy = kin.phaseAngle < 6 || kin.phaseAngle > 354 || Math.abs(kin.phaseAngle-180) < 6;
+    const eclipseWindow = nearNode && nearSyzygy;
 
-    skoctx.strokeStyle = 'rgba(232,228,217,0.3)'; skoctx.setLineDash([2,3]);
-    skoctx.beginPath(); skoctx.moveTo(moonP.x, moonP.y);
-    skoctx.lineTo(moonP.x, cy + Math.sin(moonRad)*Math.cos(NODE_TILT)*ryFlat); skoctx.stroke();
-    skoctx.setLineDash([]);
-
-    skoctx.beginPath(); skoctx.arc(moonP.x, moonP.y, eclipseWindow ? 8 : 5.5, 0, Math.PI*2);
+    skoctx.beginPath(); skoctx.arc(moonX, moonY, eclipseWindow ? 9 : 6, 0, Math.PI*2);
     skoctx.fillStyle = eclipseWindow ? '#F5A340' : '#C9C9C9';
     skoctx.fill();
     skoctx.strokeStyle = eclipseWindow ? 'rgba(245,163,64,0.9)' : 'rgba(0,0,0,0.35)';
     skoctx.lineWidth = eclipseWindow ? 2.5 : 1; skoctx.stroke(); skoctx.lineWidth = 1;
     skoctx.fillStyle='rgba(232,228,217,0.85)'; skoctx.font='11px "Public Sans", sans-serif';
-    skoctx.fillText('Moon', moonP.x+9, moonP.y-8);
+    skoctx.fillText('Moon', moonX+10, moonY-9);
 
     if (eclipseWindow){
       skoctx.fillStyle = '#F5A340'; skoctx.font = 'bold 12px "Public Sans", sans-serif';
       skoctx.fillText('⚠ eclipse window', 12, 20);
     }
+
+    // Ecliptic-latitude gauge — the Moon's height above/below the ecliptic right now, on its own
+    // (draconic) clock. This is what actually decides whether a given new/full moon eclipses.
+    const gy = H*0.86, gx0 = W*0.10, gx1 = W*0.90, gw = gx1-gx0;
+    const toX = (beta)=> gx0 + gw*((beta+INCLINATION)/(2*INCLINATION));
+
+    skoctx.fillStyle='rgba(232,228,217,0.6)'; skoctx.font='10px "Courier Prime", monospace'; skoctx.textAlign='center';
+    skoctx.fillText("Moon's ecliptic latitude (β) right now", (gx0+gx1)/2, gy-16);
+
+    // shaded "close enough to a node to matter" band
+    skoctx.fillStyle = 'rgba(245,163,64,0.22)';
+    skoctx.fillRect(toX(-SKY_SEASON_LIMIT), gy-6, toX(SKY_SEASON_LIMIT)-toX(-SKY_SEASON_LIMIT), 12);
+
+    skoctx.strokeStyle='rgba(232,228,217,0.3)'; skoctx.lineWidth=1;
+    skoctx.beginPath(); skoctx.moveTo(gx0,gy); skoctx.lineTo(gx1,gy); skoctx.stroke();
+    skoctx.beginPath(); skoctx.moveTo(gx0,gy-6); skoctx.lineTo(gx0,gy+6); skoctx.stroke();
+    skoctx.beginPath(); skoctx.moveTo(gx1,gy-6); skoctx.lineTo(gx1,gy+6); skoctx.stroke();
+    skoctx.beginPath(); skoctx.moveTo((gx0+gx1)/2,gy-8); skoctx.lineTo((gx0+gx1)/2,gy+8); skoctx.stroke();
+
+    const markerX = toX(kin.beta);
+    skoctx.beginPath(); skoctx.arc(markerX, gy, nearNode?6:4.5, 0, Math.PI*2);
+    skoctx.fillStyle = nearNode ? '#F5A340' : '#e8e4d9';
+    skoctx.fill(); skoctx.strokeStyle='rgba(0,0,0,0.4)'; skoctx.stroke();
+
+    skoctx.fillStyle='rgba(232,228,217,0.55)'; skoctx.font='10px "Courier Prime", monospace';
+    skoctx.fillText('-'+INCLINATION.toFixed(2)+'°', gx0, gy+20);
+    skoctx.fillText('node', (gx0+gx1)/2, gy+20);
+    skoctx.fillText('+'+INCLINATION.toFixed(2)+'°', gx1, gy+20);
+    skoctx.textAlign='left';
   }
 
   function renderSky(){
