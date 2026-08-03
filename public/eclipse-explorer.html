@@ -80,6 +80,7 @@
 
   /* Path map */
   .map-wrap{ position:relative; width:100%; max-width:820px; }
+  .mini-map-wrap{ max-width:100%; }
   #mapSvg{ width:100%; height:auto; display:block; border:1px solid var(--color-border-hover); border-radius: var(--radius-md); background:#151a17; }
   .map-tooltip{
     position:absolute; pointer-events:none; display:none;
@@ -165,7 +166,6 @@
   <nav class="cc-tab-bar" id="tabBar">
     <button class="cc-tab is-active" data-tab="orbital">Orbital Geometry</button>
     <button class="cc-tab" data-tab="sky">Sky View</button>
-    <button class="cc-tab" data-tab="path">Path &amp; Circumstances</button>
     <button class="cc-tab" data-tab="saros">Saros Cycle</button>
   </nav>
 
@@ -285,32 +285,6 @@
       </div>
     </section>
 
-    <!-- ══════════════════ PATH & CIRCUMSTANCES ══════════════════ -->
-    <section class="view-panel" data-view="path">
-      <div class="view-sidebar cc-panel">
-        <div class="control-block">
-          <div class="control-block-label">Case study</div>
-          <div class="cc-segmented" id="caseToggle" style="flex-direction:column; align-items:stretch;">
-            <button class="cc-segmented-btn is-active" data-case="2024" style="border-right:none;border-bottom:1px solid var(--color-border);">Apr 8, 2024 — crossed N. America</button>
-            <button class="cc-segmented-btn" data-case="2026">Aug 12, 2026 — in 3 weeks, Greenland→Iceland→Spain</button>
-          </div>
-        </div>
-        <div class="cc-stat-row" id="caseStats"></div>
-        <div class="control-block">
-          <div class="control-block-label">Long Island (40.8°N, 73.1°W)</div>
-          <div id="liCircumstance" class="fact-line"></div>
-        </div>
-        <p class="fact-line" style="font-size:12px;">Click a city marker on the map for its real local circumstances.</p>
-      </div>
-      <div class="view-main">
-        <div class="map-wrap">
-          <svg id="mapSvg" viewBox="0 0 960 480"></svg>
-          <div class="map-tooltip" id="mapTooltip"></div>
-        </div>
-        <div class="scale-note">Coastlines simplified for orientation. Path, city markers, and all times/durations are plotted from published eclipse-catalog coordinates.</div>
-      </div>
-    </section>
-
     <!-- ══════════════════ SAROS CYCLE / FUTURE ECLIPSE TIMELINE ══════════════════ -->
     <section class="view-panel" data-view="saros">
       <div class="view-sidebar cc-panel">
@@ -326,6 +300,17 @@
         </div>
         <p class="fact-line">A Saros is <strong>18 years, 11⅓ days</strong> — 223 synodic months ≈ 239 anomalistic months ≈ 242 draconic months. Sun, Moon and node realign almost exactly, so the eclipse repeats with nearly the same character, shifted about 120° west in longitude (the extra ⅓ day) and drifting slowly toward one pole. Every third Saros (~54 years) lands near the same longitudes again — an <strong>exeligmos</strong>.</p>
         <div class="control-block" id="sarosDetailPanel" style="display:none;"></div>
+        <div class="control-block" id="sarosPathBlock" style="display:none;">
+          <div class="control-block-label" id="sarosPathTitle"></div>
+          <div class="map-wrap mini-map-wrap">
+            <svg id="mapSvg" viewBox="0 0 960 480"></svg>
+            <div class="map-tooltip" id="mapTooltip"></div>
+          </div>
+          <div class="cc-stat-row" id="caseStats"></div>
+          <div class="control-block-label" style="margin-top:2px;">Long Island (40.8°N, 73.1°W)</div>
+          <div id="liCircumstance" class="fact-line"></div>
+          <p class="fact-line" style="font-size:11px;">Click a city marker for its local circumstances. This is the real path for this event — not the schematic geometry above.</p>
+        </div>
       </div>
       <div class="view-main">
         <div class="timeline-wrap">
@@ -443,7 +428,6 @@
     if (currentTab === 'sky' && tab !== 'sky' && typeof skyAnim !== 'undefined' && skyAnim.playing) pauseSkyAnim();
     currentTab = tab;
     if (tab === 'sky') renderSky();
-    if (tab === 'path') renderMap();
     if (tab === 'saros') renderTimeline();
   }
   document.getElementById('tabBar').addEventListener('click', (e)=>{
@@ -1251,15 +1235,9 @@
     ]
   };
 
+  // No longer a standalone tab with a manual toggle — currentCase is set by
+  // renderSarosDetail() whenever you land on a Saros-139 or Saros-126 event.
   let currentCase = CASE_2024;
-
-  document.getElementById('caseToggle').addEventListener('click',(e)=>{
-    const btn = e.target.closest('.cc-segmented-btn'); if(!btn) return;
-    document.querySelectorAll('#caseToggle .cc-segmented-btn').forEach(b=>b.classList.remove('is-active'));
-    btn.classList.add('is-active');
-    currentCase = btn.dataset.case === '2024' ? CASE_2024 : CASE_2026;
-    renderMap();
-  });
 
   /* Simplified equirectangular landmasses — hand-simplified outlines for
      orientation only (NOT survey-precision coastlines). viewBox 960x480,
@@ -1316,47 +1294,64 @@
 
   const mapSvgEl = document.getElementById('mapSvg');
   const tooltipEl = document.getElementById('mapTooltip');
+  const MAP_DISPLAY_PX = 260; // assumed rendered width once embedded in the sidebar
 
+  // This now always renders inside the ~296px Saros sidebar, not a full-width tab, so showing
+  // the whole 960x480 world made the path, coastlines and text illegible. Instead we zoom the
+  // viewBox to a regional box around this case's own waypoints, and size fonts/strokes/markers
+  // relative to that box's scale, so they land at a consistent, readable pixel size no matter
+  // how tight (Iceland-Spain) or wide (Mexico-Maine) the real path happens to be.
   function renderMap(){
-    let svg = '';
-    // graticule
-    svg += '<g stroke="rgba(232,228,217,0.08)" stroke-width="1">';
-    for(let lon=-180; lon<=180; lon+=20){ const x=lonToX(lon); svg += `<line x1="${x}" y1="0" x2="${x}" y2="480"/>`; }
-    for(let lat=-80; lat<=80; lat+=20){ const y=latToY(lat); svg += `<line x1="0" y1="${y}" x2="960" y2="${y}"/>`; }
-    svg += '</g>';
-    // equator + prime meridian
-    svg += `<line x1="0" y1="${latToY(0)}" x2="960" y2="${latToY(0)}" stroke="rgba(232,228,217,0.16)"/>`;
-    svg += `<line x1="${lonToX(0)}" y1="0" x2="${lonToX(0)}" y2="480" stroke="rgba(232,228,217,0.16)"/>`;
+    const pts0 = currentCase.waypoints.map(w=>[lonToX(w.lon), latToY(w.lat)]);
+    if (currentCase.refs) currentCase.refs.forEach(r=>pts0.push([lonToX(r.lon), latToY(r.lat)]));
+    const xs = pts0.map(p=>p[0]), ys = pts0.map(p=>p[1]);
+    let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const padX = Math.max((x1-x0)*0.18, 24), padY = Math.max((y1-y0)*0.22, 24);
+    x0 -= padX; x1 += padX; y0 -= padY; y1 += padY;
+    if (x1-x0 < 80){ const mid=(x0+x1)/2; x0=mid-40; x1=mid+40; }   // floor so tight clusters don't over-zoom
+    if (y1-y0 < 50){ const mid=(y0+y1)/2; y0=mid-25; y1=mid+25; }
+    const vbW = x1-x0, vbH = y1-y0;
+    mapSvgEl.setAttribute('viewBox', x0+' '+y0+' '+vbW+' '+vbH);
 
+    const scale = vbW / MAP_DISPLAY_PX; // world-units per rendered px
+    const fontU = 9*scale, strokeU = 1.3*scale, cityRU = 3.4*scale, refRU = 2.4*scale;
+
+    let svg = '';
     // land — projected live from real (lat,lon) vertices, same projection as every marker
-    svg += '<g fill="rgba(60,163,174,0.16)" stroke="rgba(60,163,174,0.35)" stroke-width="1">';
+    svg += '<g fill="rgba(60,163,174,0.16)" stroke="rgba(60,163,174,0.4)" stroke-width="'+strokeU+'">';
     Object.values(LAND_LL).forEach(verts=>{ svg += `<path d="${landPath(verts)}"/>`; });
     svg += '</g>';
 
     // path polyline + band
     const pts = currentCase.waypoints.map(w=>[lonToX(w.lon), latToY(w.lat)]);
-    const bandPts = pts.map(p=>[p[0], p[1]-6]).concat(pts.slice().reverse().map(p=>[p[0], p[1]+6]));
+    const bandHalf = 5*scale;
+    const bandPts = pts.map(p=>[p[0], p[1]-bandHalf]).concat(pts.slice().reverse().map(p=>[p[0], p[1]+bandHalf]));
     svg += '<polygon points="'+bandPts.map(p=>p.join(',')).join(' ')+'" fill="rgba(245,163,64,0.18)"/>';
-    svg += '<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="#F5A340" stroke-width="2.5"/>';
+    svg += '<polyline points="'+pts.map(p=>p.join(',')).join(' ')+'" fill="none" stroke="#F5A340" stroke-width="'+(2*scale)+'"/>';
 
-    // reference (partial-only) cities for 2026
+    // reference (partial-only) cities
     if (currentCase.refs && currentCase.refs.length){
       currentCase.refs.forEach(r=>{
         const x=lonToX(r.lon), y=latToY(r.lat);
-        svg += `<circle cx="${x}" cy="${y}" r="3" fill="rgba(232,228,217,0.5)"/>`;
+        svg += `<circle cx="${x}" cy="${y}" r="${refRU}" fill="rgba(232,228,217,0.5)"/>`;
       });
     }
 
     // city markers
     currentCase.waypoints.forEach((w,i)=>{
       const x=lonToX(w.lon), y=latToY(w.lat);
-      svg += `<g class="map-city" data-i="${i}"><circle cx="${x}" cy="${y}" r="4.5" fill="#F5A340" stroke="#15181a" stroke-width="1"/></g>`;
+      svg += `<g class="map-city" data-i="${i}"><circle cx="${x}" cy="${y}" r="${cityRU}" fill="#F5A340" stroke="#15181a" stroke-width="${strokeU*0.7}"/></g>`;
     });
 
-    // Long Island marker
+    // Long Island marker — only draw it if it actually falls inside this case's regional box;
+    // for a path that never comes near it (e.g. 2026), it's correctly just off-screen, and the
+    // circumstance text below already says so in plain language.
     const lix = lonToX(LI.lon), liy = latToY(LI.lat);
-    svg += `<g><path d="M ${lix} ${liy-9} l 2.6 5.6 l 6 0.6 l -4.5 4 l 1.3 5.9 l -5.4 -3 l -5.4 3 l 1.3 -5.9 l -4.5 -4 l 6 -0.6 Z" fill="#3CA3AE" stroke="#15181a" stroke-width="1"/></g>`;
-    svg += `<text x="${lix+10}" y="${liy+4}" fill="rgba(232,228,217,0.8)" font-family="Courier Prime, monospace" font-size="11">Long Island</text>`;
+    if (lix>=x0 && lix<=x1 && liy>=y0 && liy<=y1){
+      const s = scale;
+      svg += `<g><path d="M ${lix} ${liy-9*s} l ${2.6*s} ${5.6*s} l ${6*s} ${0.6*s} l ${-4.5*s} ${4*s} l ${1.3*s} ${5.9*s} l ${-5.4*s} ${-3*s} l ${-5.4*s} ${3*s} l ${1.3*s} ${-5.9*s} l ${-4.5*s} ${-4*s} l ${6*s} ${-0.6*s} Z" fill="#3CA3AE" stroke="#15181a" stroke-width="${strokeU*0.7}"/></g>`;
+      svg += `<text x="${lix+10*s}" y="${liy+4*s}" fill="rgba(232,228,217,0.85)" font-family="Courier Prime, monospace" font-size="${fontU}">Long Island</text>`;
+    }
 
     mapSvgEl.innerHTML = svg;
 
@@ -1512,14 +1507,23 @@
       + '<div style="max-height:120px;overflow-y:auto;">'+membersHtml+'</div>'
       + '<div class="cc-btn-row">'
       +   '<button class="cc-btn cc-btn-sm" id="btnJumpOrbital">View shadow geometry (approx.) →</button>'
-      +   (PATH_CASE_BY_SAROS[ev.saros] ? '<button class="cc-btn cc-btn-sm" id="btnJumpPath">View real eclipse path →</button>' : '')
       + '</div>'
       + '</div>';
     panel.innerHTML = html;
     panel.style.display = 'flex';
     document.getElementById('btnJumpOrbital').addEventListener('click', ()=>jumpToOrbitalApprox(ev));
+
+    // Two of these 140 real events (2024's Saros 139, and Aug 2026's Saros 126) have an actual
+    // path plotted from published coordinates — show it inline, right here, instead of sending
+    // you to a separate tab. Everything else in this series has no path data yet, so hide it.
+    const pathBlock = document.getElementById('sarosPathBlock');
     if (PATH_CASE_BY_SAROS[ev.saros]){
-      document.getElementById('btnJumpPath').addEventListener('click', ()=>selectPathCase(PATH_CASE_BY_SAROS[ev.saros]));
+      currentCase = PATH_CASE_BY_SAROS[ev.saros] === '2024' ? CASE_2024 : CASE_2026;
+      document.getElementById('sarosPathTitle').textContent = currentCase.title;
+      renderMap();
+      pathBlock.style.display = 'flex';
+    } else {
+      pathBlock.style.display = 'none';
     }
   }
 
@@ -1539,13 +1543,6 @@
     switchTab('orbital');
   }
 
-  function selectPathCase(caseKey){
-    currentCase = caseKey==='2024' ? CASE_2024 : CASE_2026;
-    document.querySelectorAll('#caseToggle .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active', b.dataset.case===caseKey));
-    renderMap();
-    switchTab('path');
-  }
-
   document.getElementById('sarosToggle').addEventListener('click', (e)=>{
     const btn = e.target.closest('.cc-segmented-btn'); if(!btn) return;
     const sarosNum = parseInt(btn.dataset.saros, 10);
@@ -1555,8 +1552,9 @@
 
   /* ══════════════════════ INIT ══════════════════════ */
   updateAll();
-  renderMap();
   renderTimeline();
+  // renderMap() is called on demand by renderSarosDetail() when you select an event that has
+  // real path data — no need to pre-render it into a hidden block on load.
 
 })();
 </script>
