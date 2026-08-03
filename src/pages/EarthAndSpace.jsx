@@ -70,10 +70,10 @@ const SECTIONS = [
         label: "Orbital Mechanics & Kepler's Laws",
         cards: [
           {
-            tags:        ['Natural Law', 'Astronomy', 'Interactive'],
+            tags:        ['Natural Law', 'Interactive'],
             title:       'The Inverse Square Law',
             description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance — applications of the inverse square law.',
-            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight', 'Astronomy'],
+            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight'],
             to:          '/earthandspace/inverse-square-law',
             thumb:       '/InverseSquareLaw_thumbnail.png',
             status:      'live',
