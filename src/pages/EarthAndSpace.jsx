@@ -28,8 +28,8 @@ const SECTIONS = [
           {
             tags:        ['Moon Phases', 'Interactive'],
             title:       'Sidereal vs Synodic Month',
-            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation',
-            footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month'],
+            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation.',
+            footerTags:  ['Moon Phases', 'Orbital Mechanics'],
             to:          '/earthandspace/sidereal-synodic-month',
             thumb:       '/SiderealSynodicMonth_thumbnail.png',
             status:      'live',
