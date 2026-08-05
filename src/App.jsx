@@ -47,6 +47,7 @@ import SnowfallSeasonWindow        from './pages/SnowfallSeasonWindow'
 import SnowFrequency               from './pages/SnowFrequency'
 import UsPrecipYears               from './pages/UsPrecipYears'
 import UsSnowSeasons               from './pages/UsSnowSeasons'
+import WinterPrecipTypes           from './pages/WinterPrecipTypes'
 import TempThresholdHeatmap        from './pages/TempThresholdHeatmap'
 import StreakTracker               from './pages/StreakTracker'
 import SlpHeatmap                  from './pages/SlpHeatmap'
@@ -171,6 +172,7 @@ export default function App() {
           <Route path="/snow-frequency"                      element={<SnowFrequency />}           />
           <Route path="/us-precip-years"                     element={<UsPrecipYears />}           />
           <Route path="/us-snow-seasons"                     element={<UsSnowSeasons />}           />
+          <Route path="/winter-precip-types"                 element={<WinterPrecipTypes />}       />
           <Route path="/temperature-climatology"             element={<TemperatureClimatology />}  />
           <Route path="/dewpoint-climatology"                element={<DewpointClimatology />}     />
           <Route path="/temp-threshold-heatmap"              element={<TempThresholdHeatmap />}    />
