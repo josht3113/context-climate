@@ -197,6 +197,14 @@ const SECTIONS = [
         thumb:      '/US_seasonal_snowfall_thumbnail.png',
       },
       {
+        tags:       ['US CITIES', 'RAIN VS SNOW'],
+        title:      'Winter Precipitation Types',
+        description:'Rain vs. snow days each winter, total winter snowfall trends, and how the size of major snowstorms has shifted by decade.',
+        footerTags: ['Rain vs Snow Days', 'Storm Size by Decade', 'Trends'],
+        to:         '/winter-precip-types',
+        accentVar:  '--accent-climate',
+      },
+      {
         tags:       ['US CITIES', 'ANNUAL PRECIPITATION'],
         title:      'U.S. Annual Precipitation',
         description:'Year-by-year total precipitation for select U.S. cities — visualizing wet and dry years against long-term averages and percentile ranges.',
