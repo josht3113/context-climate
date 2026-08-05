@@ -262,7 +262,7 @@ footer a:hover { color:var(--color-text-primary); }
   <!-- Method -->
   <div class="method">
     <span class="method-icon">ℹ</span>
-    <span id="methodText">Frequency computed from all available snow seasons on record. For each calendar day, the bar height shows the percentage of years in which that day's observation met or exceeded the threshold. Missing observations are excluded from both numerator and denominator. The trend curve applies a Gaussian kernel smoother (σ = 12 days) across all daily values, weighting nearby days by a bell-curve function. Unlike a simple moving average, this naturally tapers to zero at the edges of the season and avoids distorting peak timing and height.</span>
+    <span id="methodText">Frequency computed from all available snow seasons on record. For each calendar day, the bar height shows the percentage of years in which that day's observation met or exceeded the threshold. Missing observations are excluded from both numerator and denominator. The trend curve applies a Gaussian kernel smoother (σ = 12 days) across all daily values, weighting nearby days by a bell-curve function. Unlike a simple moving average, this naturally tapers to zero at the edges of the season and avoids distorting peak timing and height. Peak Day and Peak Frequency are read off this smoothed curve rather than the raw daily bars, since a single day's raw percentage is a noisy estimate from a fairly small yearly sample.</span>
   </div>
 
 </div>
@@ -674,11 +674,13 @@ function computeFreq() {
   });
 
   const pcts = {};
+  const smoothed = {};
   thresh.forEach(t => {
     pcts[t.key] = hits[t.key].map((v,i) => cnt[i] ? +(v/cnt[i]*100).toFixed(1) : 0);
+    smoothed[t.key] = gaussSmooth(pcts[t.key]);
   });
 
-  return {pcts, cnt, allSYs, thresh};
+  return {pcts, smoothed, cnt, allSYs, thresh};
 }
 
 // ─── RENDER CHART ────────────────────────────────────────────────────────────
@@ -695,14 +697,14 @@ function render() {
 
   const result = computeFreq();
   freqResult = result;
-  const {pcts, cnt, thresh} = result;
+  const {pcts, smoothed, cnt, thresh} = result;
   const labels = buildXLabels();
   const datasets = [];
 
   thresh.forEach(t => {
     if (!t.active) return;
     const pct = pcts[t.key];
-    const line = gaussSmooth(pct);
+    const line = smoothed[t.key];
 
     if (showBars) {
       datasets.push({
@@ -779,14 +781,18 @@ function render() {
 }
 
 // ─── STAT CHIPS ──────────────────────────────────────────────────────────────
+// Peak Day / Peak Frequency read off the smoothed Gaussian curve rather than
+// the raw daily bars — a single raw day's percentage is a noisy estimate off
+// a fairly small yearly sample, and the smoothed curve is what the tool
+// already treats as the real climatological signal.
 function renderStats(result) {
   const el = document.getElementById('statsRow');
   if (!result) { el.innerHTML=''; return; }
 
-  const {pcts, allSYs, thresh} = result;
+  const {smoothed, allSYs, thresh} = result;
   const field = currentMode === 'snowfall' ? 'snow' : 'snwd';
   const primary = thresh.find(t=>t.active) || thresh[0];
-  const data = pcts[primary.key];
+  const data = smoothed[primary.key];
   const maxV = Math.max(...data);
   const maxI = data.indexOf(maxV);
 
@@ -809,12 +815,12 @@ function renderStats(result) {
     <div class="cc-stat-chip">
       <div class="cc-stat-label">Peak Day</div>
       <div class="cc-stat-value">${idxToLabel(maxI)}</div>
-      <div class="cc-stat-note">${primary.label} threshold</div>
+      <div class="cc-stat-note">${primary.label} threshold · smoothed</div>
     </div>
     <div class="cc-stat-chip">
       <div class="cc-stat-label">Peak Frequency</div>
       <div class="cc-stat-value">${maxV.toFixed(1)}%</div>
-      <div class="cc-stat-note">of years on ${idxToLabel(maxI)}</div>
+      <div class="cc-stat-note">trend curve · ${idxToLabel(maxI)}</div>
     </div>
     <div class="cc-stat-chip">
       <div class="cc-stat-label">Avg Days / Season</div>
@@ -830,14 +836,15 @@ function renderStats(result) {
 
 // ─── BREAKDOWN TABLE ─────────────────────────────────────────────────────────
 function renderBreakdown(result) {
-  const {pcts, allSYs, thresh} = result;
+  const {pcts, smoothed, allSYs, thresh} = result;
   const field = currentMode === 'snowfall' ? 'snow' : 'snwd';
 
   const rows = thresh.map(t => {
-    const data = pcts[t.key];
-    const maxV = Math.max(...data);
-    const maxI = data.indexOf(maxV);
-    const seaAvg = (data.reduce((a,b)=>a+b,0)/XMAX).toFixed(1);
+    const raw = pcts[t.key];
+    const sm = smoothed[t.key];
+    const maxV = Math.max(...sm);
+    const maxI = sm.indexOf(maxV);
+    const seaAvg = (raw.reduce((a,b)=>a+b,0)/XMAX).toFixed(1);
 
     let td = 0;
     allSYs.forEach(sy => {
