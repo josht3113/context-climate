@@ -54,6 +54,18 @@
 }
 .decade-btn:hover { border-color:var(--color-border-hover); color:var(--color-text-primary); }
 
+/* ENSO phase buttons -- same chip treatment as decade buttons (identical
+   rest/hover chrome); kept as a separate class so JS can scope queries to
+   each button row independently. Active-state colors are set inline per
+   phase by JS from ENSO_PHASES (content-encoded), same rule as decades. */
+.enso-btn {
+  font-family:var(--font-body); font-size:14px; font-weight:600;
+  padding:6px 15px; border-radius:var(--radius-md); border:1px solid var(--color-border);
+  background:transparent; color:var(--color-text-muted); cursor:pointer;
+  transition:all .15s ease; white-space:nowrap;
+}
+.enso-btn:hover { border-color:var(--color-border-hover); color:var(--color-text-primary); }
+
 /* ── Tabs ── */
 .tab-bar { margin-bottom:18px; }
 
@@ -188,6 +200,9 @@ footer a:hover { color:var(--color-text-primary); }
     <div class="ctrl-row" id="decadeControls" style="margin-bottom:14px;">
       <span class="cc-btn-row-label">Decade:</span>
     </div>
+    <div class="ctrl-row" id="ensoControls" style="margin-bottom:14px;">
+      <span class="cc-btn-row-label">ENSO Phase:</span>
+    </div>
     <div class="chart-wrap">
       <div id="chartSpinner" class="spinner"></div>
       <canvas id="cumSnowChart"></canvas>
@@ -197,6 +212,8 @@ footer a:hover { color:var(--color-text-primary); }
   </div>
 
   <div id="tabPanelDetail" hidden>
+
+    <div class="cc-subtitle" id="ensoFilterNote" style="margin-bottom:12px;"></div>
 
     <!-- Stat chips -->
     <div class="cc-stat-row stats-grid">
@@ -469,6 +486,52 @@ const DEC_HIGHLIGHT_COLORS = {
   2010:'#f03e3e', 2020:'#c92a2a',
 };
 
+// ─── ENSO PHASE CLASSIFICATION ─────────────────────────────────
+// Full-record ENSO phase per snow-season-year (sy = the season's November
+// year), 1869-70 through 2025-26 (157 seasons). Sourced directly from
+// ContextClimate's own enso-data/NYC.json -- the same extended/reconstructed
+// classification already used by ENSO_Charts.html, chosen over NOAA CPC's
+// official ONI table (which only starts in 1950) so long-record stations
+// get full coverage. Codes 1-8 match the ENSO_PHASES order below; verified
+// against the reference distribution (n=7/17/32/45/22/16/12/6, total 157).
+const SEASON_ENSO_CODE = {
+1869:3, 1870:3, 1871:4, 1872:3, 1873:3, 1874:3, 1875:4, 1876:5, 1877:8, 1878:4, 1879:3, 1880:5, 1881:4,
+  1882:4, 1883:5, 1884:5, 1885:6, 1886:2, 1887:5, 1888:8, 1889:2, 1890:4, 1891:5, 1892:2, 1893:2, 1894:4,
+  1895:5, 1896:7, 1897:4, 1898:3, 1899:7, 1900:5, 1901:4, 1902:7, 1903:3, 1904:6, 1905:6, 1906:3, 1907:4,
+  1908:3, 1909:2, 1910:3, 1911:6, 1912:4, 1913:6, 1914:5, 1915:3, 1916:1, 1917:3, 1918:7, 1919:5, 1920:4,
+  1921:3, 1922:3, 1923:5, 1924:2, 1925:6, 1926:4, 1927:4, 1928:4, 1929:5, 1930:7, 1931:4, 1932:4, 1933:2,
+  1934:4, 1935:4, 1936:4, 1937:4, 1938:3, 1939:6, 1940:7, 1941:6, 1942:2, 1943:4, 1944:3, 1945:4, 1946:4,
+  1947:4, 1948:4, 1949:2, 1950:3, 1951:6, 1952:5, 1953:5, 1954:3, 1955:1, 1956:3, 1957:7, 1958:5, 1959:4,
+  1960:4, 1961:4, 1962:4, 1963:6, 1964:3, 1965:7, 1966:4, 1967:4, 1968:6, 1969:5, 1970:2, 1971:3, 1972:8,
+  1973:1, 1974:3, 1975:2, 1976:6, 1977:6, 1978:3, 1979:5, 1980:4, 1981:4, 1982:8, 1983:3, 1984:2, 1985:4,
+  1986:6, 1987:7, 1988:1, 1989:3, 1990:4, 1991:7, 1992:4, 1993:4, 1994:6, 1995:3, 1996:4, 1997:8, 1998:2,
+  1999:1, 2000:3, 2001:4, 2002:6, 2003:4, 2004:5, 2005:3, 2006:5, 2007:1, 2008:3, 2009:7, 2010:1, 2011:2,
+  2012:4, 2013:4, 2014:5, 2015:8, 2016:3, 2017:3, 2018:5, 2019:5, 2020:2, 2021:2, 2022:2, 2023:7, 2024:4,
+  2025:4,
+};
+
+// Ordered cool -> warm (matches the reference strip-plot's column order).
+// Colors and labels are the exact values from enso-data/NYC.json's
+// "phases" array -- content-encoded, not a site-palette approximation.
+const ENSO_PHASES = [
+  { key: 'strongLaNina', code: 1, label: 'Strong LN', full: 'Strong La Niña',    color: '#9B59B6' },
+  { key: 'modLaNina',    code: 2, label: 'Mod LN',    full: 'Moderate La Niña',  color: '#5B9BD5' },
+  { key: 'weakLaNina',   code: 3, label: 'Weak LN',   full: 'Weak La Niña',      color: '#85C1E9' },
+  { key: 'neutral',      code: 4, label: 'Neutral',   full: 'Neutral',           color: '#27AE60' },
+  { key: 'weakElNino',   code: 5, label: 'Weak EN',   full: 'Weak El Niño',      color: '#F4D03F' },
+  { key: 'modElNino',    code: 6, label: 'Mod EN',    full: 'Moderate El Niño',  color: '#E67E22' },
+  { key: 'strongElNino', code: 7, label: 'Strong EN', full: 'Strong El Niño',    color: '#E74C3C' },
+  { key: 'superElNino',  code: 8, label: 'Super EN',  full: 'Super El Niño',     color: '#922B21' },
+];
+const ENSO_PHASE_COLOR = Object.fromEntries(ENSO_PHASES.map(p => [p.key, p.color]));
+const ENSO_PHASE_INFO  = Object.fromEntries(ENSO_PHASES.map(p => [p.key, p]));
+const ENSO_CODE_KEY    = Object.fromEntries(ENSO_PHASES.map(p => [p.code, p.key]));
+
+function getEnsoPhase(sy) {
+  const code = SEASON_ENSO_CODE[sy];
+  return code === undefined ? null : ENSO_CODE_KEY[code];
+}
+
 // ─── STATE ───────────────────────────────────────────────────
 let dataCache = {};
 let activeStation = STATIONS.find(s => s.id === 'KISP') || STATIONS[0];
@@ -477,6 +540,7 @@ let showDecades = true;
 let mainChart = null;
 let currentHighlightSy = null;
 let activeDecades = new Set();
+let activeEnsoPhase = null;
 let fetchSeq = 0;
 // Cache last render args so dropdown handler can call highlightSeason
 let _lastAllSYs = [], _lastSeasonData = {}, _lastAvgArr = [], _lastCurSy = 0;
@@ -698,13 +762,22 @@ function buildSeasonSelect(allSYs, seasonData, activeSy) {
 function buildDatasets(allSYs, seasonData, avgArr, highlightSy) {
   const datasets = [];
   const decadeMode = activeDecades.size > 0;
+  const ensoMode = activeEnsoPhase !== null;
 
   allSYs.forEach(sy => {
     if (!seasonData[sy]) return;
     const dec = Math.floor(sy / 10) * 10;
     let color, width, order;
 
-    if (decadeMode) {
+    if (ensoMode) {
+      if (getEnsoPhase(sy) === activeEnsoPhase) {
+        color = ENSO_PHASE_COLOR[activeEnsoPhase] || '#D08425';
+        width = 1.8; order = 1;
+      } else {
+        color = 'rgba(232,228,217,0.07)';
+        width = 0.5; order = 10;
+      }
+    } else if (decadeMode) {
       if (activeDecades.has(dec)) {
         color = DEC_HIGHLIGHT_COLORS[dec] || '#D08425';
         width = 1.8; order = 1;
@@ -776,6 +849,7 @@ function renderChart() {
   updateStats(allSYs, seasonData);
   buildSeasonSelect(allSYs, seasonData, currentHighlightSy);
   buildDecadeButtons(allSYs, seasonData, avgArr, curSy);
+  buildEnsoButtons(allSYs, seasonData, avgArr, curSy);
 
   const datasets = buildDatasets(allSYs, seasonData, avgArr, currentHighlightSy);
   showSpinner(false);
@@ -809,7 +883,7 @@ function renderChart() {
           labels: {
             filter: item => typeof item.label === 'string' && (
               item.label === 'Avg'
-              || item.label === SYL(currentHighlightSy)
+              || (activeEnsoPhase === null && activeDecades.size === 0 && item.label === SYL(currentHighlightSy))
               || item.label.endsWith('s avg')
             ),
             color: '#A6A499',
@@ -838,10 +912,16 @@ function highlightSeason(sy, allSYs, seasonData, avgArr, curSy) {
   if (seasonSel && +seasonSel.value !== sy) seasonSel.value = sy;
 
   activeDecades.clear();
+  activeEnsoPhase = null;
   document.querySelectorAll('.decade-btn').forEach(b => {
     b.style.background = b.style.borderColor = b.style.color = '';
     b.classList.remove('active');
   });
+  document.querySelectorAll('#ensoControls .enso-btn').forEach(b => {
+    b.style.background = b.style.borderColor = b.style.color = '';
+    b.classList.remove('active');
+  });
+  updateEnsoSubtitle();
 
   const datasets = buildDatasets(allSYs, seasonData, avgArr, sy);
   if (mainChart) {
@@ -852,6 +932,9 @@ function highlightSeason(sy, allSYs, seasonData, avgArr, curSy) {
       );
     mainChart.update('none');
   }
+
+  detailDirty = true;
+  if (activeTab === 'detail') { renderSeasonDetail(); detailDirty = false; }
 }
 
 // ─── DECADE HIGHLIGHT BUTTONS ────────────────────────────────
@@ -886,6 +969,15 @@ function toggleDecadeHighlight(dec, allSYs, seasonData, avgArr, curSy) {
     activeDecades.add(dec);
   }
 
+  // Decade highlighting and ENSO-phase highlighting are mutually exclusive
+  // coloring modes -- picking a decade clears any active phase.
+  activeEnsoPhase = null;
+  document.querySelectorAll('#ensoControls .enso-btn').forEach(b => {
+    b.style.background = b.style.borderColor = b.style.color = '';
+    b.classList.remove('active');
+  });
+  updateEnsoSubtitle();
+
   document.querySelectorAll('.decade-btn').forEach(b => {
     const d = +b.dataset.dec;
     const c = DEC_HIGHLIGHT_COLORS[d] || '#948F82';
@@ -910,6 +1002,75 @@ function toggleDecadeHighlight(dec, allSYs, seasonData, avgArr, curSy) {
       );
     mainChart.update('none');
   }
+
+  detailDirty = true;
+  if (activeTab === 'detail') { renderSeasonDetail(); detailDirty = false; }
+}
+
+// ─── ENSO PHASE BUTTONS ──────────────────────────────────────
+function buildEnsoButtons(allSYs, seasonData, avgArr, curSy) {
+  const ctrl = document.getElementById('ensoControls');
+  ctrl.innerHTML = '<span class="cc-btn-row-label">ENSO Phase:</span>';
+
+  const availableSYs = allSYs.filter(sy => seasonData[sy]);
+
+  ENSO_PHASES.forEach(p => {
+    const n = availableSYs.filter(sy => getEnsoPhase(sy) === p.key).length;
+    const btn = document.createElement('button');
+    btn.className = 'enso-btn' + (activeEnsoPhase === p.key ? ' active' : '');
+    btn.dataset.phase = p.key;
+    btn.textContent = p.label;
+    btn.title = `${p.full} · n=${n} season${n === 1 ? '' : 's'}`;
+    if (activeEnsoPhase === p.key) {
+      btn.style.background = p.color;
+      btn.style.borderColor = p.color;
+      btn.style.color = '#1E2320';
+    }
+    btn.onclick = () => toggleEnsoPhase(p.key, allSYs, seasonData, avgArr, curSy);
+    ctrl.appendChild(btn);
+  });
+
+  updateEnsoSubtitle();
+}
+
+function updateEnsoSubtitle() {
+  const el = document.getElementById('ensoFilterNote');
+  if (!el) return;
+  if (activeEnsoPhase === null) {
+    el.textContent = '';
+    return;
+  }
+  const p = ENSO_PHASE_INFO[activeEnsoPhase];
+  const n = (_lastAllSYs || []).filter(sy => _lastSeasonData[sy] && getEnsoPhase(sy) === activeEnsoPhase).length;
+  el.textContent = `Filtered to ${p.full} seasons only (n=${n}) · ENSO record, 1869–present`;
+}
+
+function toggleEnsoPhase(key, allSYs, seasonData, avgArr, curSy) {
+  activeEnsoPhase = (activeEnsoPhase === key) ? null : key;
+
+  // ENSO highlighting and decade highlighting are mutually exclusive
+  // coloring modes -- picking a phase clears any active decade selection.
+  activeDecades.clear();
+  document.querySelectorAll('#decadeControls .decade-btn').forEach(b => {
+    b.style.background = b.style.borderColor = b.style.color = '';
+    b.classList.remove('active');
+  });
+
+  buildEnsoButtons(allSYs, seasonData, avgArr, curSy);
+
+  const datasets = buildDatasets(allSYs, seasonData, avgArr, currentHighlightSy);
+  if (mainChart) {
+    mainChart.data.datasets = datasets;
+    mainChart.options.plugins.legend.labels.filter = item =>
+      typeof item.label === 'string' && (
+        item.label === 'Avg' || item.label.endsWith('s avg')
+        || (activeEnsoPhase === null && activeDecades.size === 0 && item.label === SYL(currentHighlightSy))
+      );
+    mainChart.update('none');
+  }
+
+  detailDirty = true;
+  if (activeTab === 'detail') { renderSeasonDetail(); detailDirty = false; }
 }
 
 // ─── DECADE AVG TOGGLE ───────────────────────────────────────
@@ -955,6 +1116,7 @@ async function selectStation(stn) {
   activeStation = stn;
   currentHighlightSy = null;
   activeDecades.clear();
+  activeEnsoPhase = null;
   document.getElementById('stationSubtitle').textContent = `${stn.label} · ${stn.short} · ACIS ThreadEx`;
   document.getElementById('footerStn').textContent = stn.label;
   document.getElementById('stnSelect').value = stn.id;
@@ -1005,7 +1167,11 @@ async function downloadChartPNG(btn) {
 
   const legendItems = [];
   const decadeMode = activeDecades.size > 0;
-  if (decadeMode) {
+  const ensoMode = activeEnsoPhase !== null;
+  if (ensoMode) {
+    const p = ENSO_PHASE_INFO[activeEnsoPhase];
+    legendItems.push({ label: p.full, color: p.color, dash: [] });
+  } else if (decadeMode) {
     [...activeDecades].sort((a, b) => a - b).forEach(dec => {
       legendItems.push({ label: dec + 's', color: DEC_HIGHLIGHT_COLORS[dec] || '#948F82', dash: [] });
     });
@@ -1036,7 +1202,12 @@ async function downloadChartPNG(btn) {
   ctx.fillText(activeStation.label, PAD, px(33));
 
   ctx.font = `600 ${px(16)}px "Courier Prime", monospace`;
-  if (decadeMode) {
+  if (ensoMode) {
+    const p = ENSO_PHASE_INFO[activeEnsoPhase];
+    ctx.fillStyle = p.color;
+    const tw = ctx.measureText(p.full).width;
+    ctx.fillText(p.full, cw - PAD - tw, px(33));
+  } else if (decadeMode) {
     let rx = cw - PAD;
     [...activeDecades].sort((a, b) => b - a).forEach(dec => {
       const lbl = dec + 's';
@@ -1129,6 +1300,10 @@ let detailTrend2 = '10';
 let detailStormThreshold = 10;
 let detailCharts = { snowDays: null, snowfall: null, stormCount: null, stormSize: null };
 let copyMetaD1 = {}, copyMetaD2 = {}, copyMetaD3 = {}, copyMetaD4 = {};
+function ensoSubLabel() {
+  if (activeEnsoPhase === null) return 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io';
+  return `${ENSO_PHASE_INFO[activeEnsoPhase].full} seasons · NOAA ACIS ThreadEx · contextclimate.io`;
+}
 const SNOW_COLOR_D = '#6D96D8';
 const TREND_SNOW_COLOR_D = '#A9C4EA';
 
@@ -1160,8 +1335,9 @@ function buildSeasonDayCounts() {
     if (!bySY[sy]) bySY[sy] = { snowDays: 0, totalSnow: 0 };
     if (isMeasurableD(r.snow)) { bySY[sy].snowDays++; bySY[sy].totalSnow += r.snow.val; }
   });
-  const sys = Object.keys(bySY).map(Number).sort((a, b) => a - b);
+  let sys = Object.keys(bySY).map(Number).sort((a, b) => a - b);
   sys.forEach(sy => { bySY[sy].totalSnow = +bySY[sy].totalSnow.toFixed(1); });
+  if (activeEnsoPhase !== null) sys = sys.filter(sy => getEnsoPhase(sy) === activeEnsoPhase);
   return { sys, bySY };
 }
 
@@ -1188,9 +1364,11 @@ function buildStorms() {
   });
   if (cur) storms.push(cur);
   // Only keep storms whose first day falls in the snow-season window
-  return storms
+  let out = storms
     .filter(s => SNOW_MONTHS.includes(s.startMonth))
     .map(s => ({ ...s, total: +s.total.toFixed(1), sy: getSnowSY(s.startYear, s.startMonth) }));
+  if (activeEnsoPhase !== null) out = out.filter(s => getEnsoPhase(s.sy) === activeEnsoPhase);
+  return out;
 }
 
 // ─── TREND / MOVING AVERAGE ────────────────────────────────────
@@ -1270,7 +1448,7 @@ function renderSnowDaysChart(sys, bySY) {
     });
   }
 
-  copyMetaD1 = { title: `${activeStation.label} — Snow Days per Season`, sub: 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io' };
+  copyMetaD1 = { title: `${activeStation.label} — Snow Days per Season`, sub: ensoSubLabel() };
 
   if (detailCharts.snowDays) { try { detailCharts.snowDays.destroy(); } catch (e) {} }
   const canvas = document.getElementById('snowDaysChart');
@@ -1307,7 +1485,7 @@ function renderSeasonSnowfallChart(sys, bySY) {
     });
   }
 
-  copyMetaD2 = { title: `${activeStation.label} — Total Season Snowfall`, sub: 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io' };
+  copyMetaD2 = { title: `${activeStation.label} — Total Season Snowfall`, sub: ensoSubLabel() };
 
   if (detailCharts.snowfall) { try { detailCharts.snowfall.destroy(); } catch (e) {} }
   const canvas = document.getElementById('seasonSnowfallChart');
@@ -1358,8 +1536,8 @@ function buildDecadeStormStatsD(sys, storms) {
 function renderStormChartsD(sys, storms) {
   const { labels, counts, sizes } = buildDecadeStormStatsD(sys, storms);
 
-  copyMetaD3 = { title: `${activeStation.label} — ${detailStormThreshold}"+ Storms by Decade`, sub: 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io' };
-  copyMetaD4 = { title: `${activeStation.label} — Avg Largest Storm by Decade`, sub: 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io' };
+  copyMetaD3 = { title: `${activeStation.label} — ${detailStormThreshold}"+ Storms by Decade`, sub: ensoSubLabel() };
+  copyMetaD4 = { title: `${activeStation.label} — Avg Largest Storm by Decade`, sub: ensoSubLabel() };
 
   if (detailCharts.stormCount) { try { detailCharts.stormCount.destroy(); } catch (e) {} }
   const c1 = document.getElementById('stormCountChartD');
