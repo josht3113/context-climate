@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Winter Precipitation Types — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root { --tool-accent: var(--accent-climate); } /* Climate section */
+
+.app { max-width:1100px; margin:0 auto; }
+
+.tool-header { margin-bottom:18px; }
+.cc-eyebrow { margin-bottom:8px; }
+.cc-title { margin-bottom:6px; }
+
+.stn-bar {
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  margin-bottom:20px; padding-bottom:16px; border-bottom:1px solid var(--color-border);
+}
+.stn-select-wrap { position:relative; display:inline-block; min-width:230px; max-width:340px; }
+.stn-select-wrap::after {
+  content:'▾'; position:absolute; right:12px; top:50%;
+  transform:translateY(-50%); color:var(--color-text-muted); pointer-events:none; font-size:1rem;
+}
+#stnSelect { width:100%; padding-right:36px; appearance:none; -webkit-appearance:none; }
+#stnSelect option, #stnSelect optgroup { background:var(--color-surface-2); color:var(--color-text-primary); font-family:sans-serif; }
+#stnSelect optgroup { font-weight:700; }
+
+.cc-badge.loading { background:rgba(208,132,37,0.14); color:#D08425; border:1px solid rgba(208,132,37,0.4); }
+.cc-badge.ok       { background:rgba(42,168,126,0.14); color:#2AA87E; border:1px solid rgba(42,168,126,0.4); }
+.cc-badge.error    { background:rgba(217,83,79,0.14);  color:#D9534F; border:1px solid rgba(217,83,79,0.4); }
+
+.stats-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); margin-bottom:20px; }
+
+.section-panel { margin-bottom:20px; }
+.chart-hdr { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+.chart-hdr-title { display:flex; flex-direction:column; gap:2px; }
+.chart-hdr-note { font-family:var(--font-body); font-size:13px; color:var(--color-text-muted); }
+.chart-wrap { position:relative; height:420px; }
+.chart-wrap canvas { display:none; width:100%; height:100%; }
+
+.split-wrap { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+.split-wrap .chart-wrap { height:320px; }
+.split-hdr { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.split-hdr p { margin:0; }
+@media(max-width:760px) { .split-wrap { grid-template-columns:1fr; } }
+
+.spinner {
+  width:28px; height:28px; border:2px solid var(--color-border);
+  border-top-color:var(--tool-accent); border-radius:50%;
+  animation:spin .8s linear infinite; margin:80px auto;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.ctrl-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.cc-btn.done { border-color:var(--accent-live); color:var(--accent-live); background:rgba(42,168,126,0.12); }
+
+.methodology {
+  font-family:var(--font-body); font-size:14px; color:var(--color-text-secondary);
+  border-top:1px solid var(--color-border); margin-top:6px; padding-top:14px;
+}
+.methodology b { color:var(--color-text-primary); }
+
+.footer-outer { border-top:1px solid var(--color-border); margin-top:8px; }
+footer {
+  max-width:1100px; margin:0 auto; padding:14px 4px;
+  font-family:var(--font-mono); font-size:13px; color:var(--color-text-muted);
+  display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px;
+}
+footer a { color:var(--color-text-secondary); text-decoration:none; transition:color .15s; }
+footer a:hover { color:var(--color-text-primary); }
+
+@media(max-width:640px) {
+  .stats-grid { grid-template-columns:1fr 1fr; }
+  .chart-wrap { height:340px; }
+  .stn-select-wrap { min-width:180px; max-width:100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <header class="tool-header">
+    <p class="cc-eyebrow">NOAA ACIS ThreadEx · Meteorological Winter (Dec–Feb)</p>
+    <h1 class="cc-title">Winter Precipitation Types</h1>
+    <p class="cc-subtitle">How much of each winter falls as rain vs. snow — and how the size of the biggest storms has shifted over time.</p>
+  </header>
+
+  <div class="stn-bar">
+    <span class="cc-btn-row-label">Location</span>
+    <div class="stn-select-wrap">
+      <select class="cc-select" id="stnSelect" onchange="onStnChange(this)"></select>
+    </div>
+    <span class="cc-badge loading" id="dataStatus">Loading…</span>
+    <span class="cc-subtitle" id="stationSubtitle" style="margin-left:auto;">Select a city · NOAA ACIS ThreadEx</span>
+  </div>
+
+  <!-- Stat chips -->
+  <div class="cc-stat-row stats-grid">
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Avg Snow Days</div>
+      <div class="cc-stat-value" id="chipSnowDays">—</div>
+      <div class="cc-stat-note" id="chipSnowDaysSub">per winter</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Avg Rain Days</div>
+      <div class="cc-stat-value" id="chipRainDays">—</div>
+      <div class="cc-stat-note" id="chipRainDaysSub">per winter</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Avg Winter Snowfall</div>
+      <div class="cc-stat-value" id="chipAvgSnow">—</div>
+      <div class="cc-stat-note" id="chipAvgSnowSub">inches, Dec–Feb</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Largest Single Storm</div>
+      <div class="cc-stat-value" id="chipBigStorm">—</div>
+      <div class="cc-stat-note" id="chipBigStormSub">—</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Period of Record</div>
+      <div class="cc-stat-value" id="chipPOR">—</div>
+      <div class="cc-stat-note">winters</div>
+    </div>
+  </div>
+
+  <!-- Chart 1: Precip type days -->
+  <div class="cc-panel section-panel">
+    <div class="chart-hdr">
+      <div class="chart-hdr-title">
+        <span class="cc-btn-row-label">Days by Precipitation Type, per Winter</span>
+        <span class="chart-hdr-note">Rain days = measurable-precip days minus measurable-snow days (undercounts rain that falls alongside snow on the same day)</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="cc-btn-row-label">Trend</span>
+        <select class="cc-select" id="trendSel1" onchange="onTrendChange1(this)">
+          <option value="off">No Trend</option>
+          <option value="linear">Linear Fit</option>
+          <option value="5">5-yr Trailing Avg</option>
+          <option value="10" selected>10-yr Trailing Avg</option>
+          <option value="15">15-yr Trailing Avg</option>
+        </select>
+        <button class="cc-btn cc-btn-sm" id="dlBtn1" onclick="downloadChartPNG(this, 'precip', () => copyMeta1, 'precip-days')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+            <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+          </svg>
+          Download PNG
+        </button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="spinner" id="spinner1"></div>
+      <canvas id="precipDaysChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart 2: Total winter snowfall -->
+  <div class="cc-panel section-panel">
+    <div class="chart-hdr">
+      <div class="chart-hdr-title">
+        <span class="cc-btn-row-label">Total Winter Snowfall</span>
+        <span class="chart-hdr-note">Dec 1 – Feb 28/29, by winter</span>
+      </div>
+      <div class="ctrl-row">
+        <span class="cc-btn-row-label">Trend</span>
+        <select class="cc-select" id="trendSel2" onchange="onTrendChange2(this)">
+          <option value="off">No Trend</option>
+          <option value="linear">Linear Fit</option>
+          <option value="5">5-yr Trailing Avg</option>
+          <option value="10" selected>10-yr Trailing Avg</option>
+          <option value="15">15-yr Trailing Avg</option>
+        </select>
+        <button class="cc-btn cc-btn-sm" id="dlBtn2" onclick="downloadChartPNG(this, 'snowfall', () => copyMeta2, 'total-snowfall')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+            <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+          </svg>
+          Download PNG
+        </button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <div class="spinner" id="spinner2"></div>
+      <canvas id="snowfallChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart 3: Storm size by decade -->
+  <div class="cc-panel section-panel">
+    <div class="chart-hdr">
+      <div class="chart-hdr-title">
+        <span class="cc-btn-row-label">Major Snowstorms by Decade</span>
+        <span class="chart-hdr-note">A "storm" = one or more consecutive days of measurable snow, summed. Decades with fewer than 5 winters of data are marked *.</span>
+      </div>
+      <div class="cc-segmented" id="thresholdSeg">
+        <button class="cc-segmented-btn" data-t="6">6"+</button>
+        <button class="cc-segmented-btn" data-t="8">8"+</button>
+        <button class="cc-segmented-btn is-active" data-t="10">10"+</button>
+        <button class="cc-segmented-btn" data-t="12">12"+</button>
+      </div>
+    </div>
+    <div class="split-wrap">
+      <div>
+        <div class="split-hdr">
+          <p class="chart-hdr-note">Number of storms at or above threshold</p>
+          <button class="cc-btn cc-btn-sm" id="dlBtn3" onclick="downloadChartPNG(this, 'stormCount', () => copyMeta3, 'storm-count')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+              <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+            </svg>
+            PNG
+          </button>
+        </div>
+        <div class="chart-wrap">
+          <div class="spinner" id="spinner3"></div>
+          <canvas id="stormCountChart"></canvas>
+        </div>
+      </div>
+      <div>
+        <div class="split-hdr">
+          <p class="chart-hdr-note">Avg size of each winter's largest storm</p>
+          <button class="cc-btn cc-btn-sm" id="dlBtn4" onclick="downloadChartPNG(this, 'stormSize', () => copyMeta4, 'storm-size')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+              <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+            </svg>
+            PNG
+          </button>
+        </div>
+        <div class="chart-wrap">
+          <div class="spinner" id="spinner4"></div>
+          <canvas id="stormSizeChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cc-panel">
+    <p class="methodology">
+      <b>Methodology:</b> Winter = Dec 1–Feb 28/29 (meteorological DJF). "Measurable" excludes trace amounts. Rain days are inferred (total precip days − snow days) since ACIS daily records don't separately flag precipitation type, so true rain-day counts on days that also had snow are undercounted. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-winter window ending at each complete winter. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>, prototype inspired by <a href="https://www.joshtimlin.com/single-post/2017/03/29/nyc-winters-precipitation-types-changing-times" target="_blank" style="color:inherit;">a 2017 analysis of Central Park data</a>.
+    </p>
+  </div>
+
+</div>
+
+<div class="footer-outer">
+  <footer>
+    <span>Data: <a href="https://threadex.rcc-acis.org" target="_blank">NOAA ACIS ThreadEx</a> · <a href="https://contextclimate.io" target="_blank">ContextClimate</a></span>
+    <span id="footerStn"></span>
+  </footer>
+</div>
+
+<script>
+// ─── REGIONS / STATIONS (same roster as us-snow-seasons.html) ─
+const REGIONS = [
+  { id: 'ne',  label: 'Northeast & Mid-Atlantic' },
+  { id: 'gl',  label: 'Great Lakes' },
+  { id: 'ap',  label: 'Appalachians & Mid-South' },
+  { id: 'mw',  label: 'Midwest & Plains' },
+  { id: 'mt',  label: 'Mountain West' },
+  { id: 'pac', label: 'Pacific Northwest' },
+];
+
+const STATIONS = [
+  // Northeast & Mid-Atlantic
+  { id:'KBUF',        label:'Buffalo, NY',           short:'BUF', state:'NY', region:'ne' },
+  { id:'KSYR',        label:'Syracuse, NY',           short:'SYR', state:'NY', region:'ne' },
+  { id:'KROC',        label:'Rochester, NY',          short:'ROC', state:'NY', region:'ne' },
+  { id:'KBGM',        label:'Binghamton, NY',         short:'BGM', state:'NY', region:'ne' },
+  { id:'KALB',        label:'Albany, NY',             short:'ALB', state:'NY', region:'ne' },
+  { id:'KISP',        label:'Islip, NY',              short:'ISP', state:'NY', region:'ne' },
+  { id:'USW00094728', label:'Central Park, NY',       short:'NYC', state:'NY', region:'ne', fallback:['94728 6','305801 3','KNYC'] },
+  { id:'KLGA',        label:'LaGuardia, NY',          short:'LGA', state:'NY', region:'ne' },
+  { id:'KJFK',        label:'JFK Airport, NY',        short:'JFK', state:'NY', region:'ne' },
+  { id:'KEWR',        label:'Newark, NJ',             short:'EWR', state:'NJ', region:'ne' },
+  { id:'KBDR',        label:'Bridgeport, CT',         short:'BDR', state:'CT', region:'ne' },
+  { id:'KTTN',        label:'Trenton, NJ',            short:'TTN', state:'NJ', region:'ne' },
+  { id:'KPHL',        label:'Philadelphia, PA',       short:'PHL', state:'PA', region:'ne' },
+  { id:'KDCA',        label:'Washington, DC',         short:'DCA', state:'DC', region:'ne' },
+  { id:'KPVD',        label:'Providence, RI',         short:'PVD', state:'RI', region:'ne' },
+  { id:'KBOS',        label:'Boston, MA',             short:'BOS', state:'MA', region:'ne' },
+  { id:'KBTV',        label:'Burlington, VT',         short:'BTV', state:'VT', region:'ne' },
+  { id:'KPWM',        label:'Portland, ME',           short:'PWM', state:'ME', region:'ne' },
+  { id:'KCAR',        label:'Caribou, ME',            short:'CAR', state:'ME', region:'ne' },
+  // Great Lakes
+  { id:'KMQT',        label:'Marquette, MI',          short:'MQT', state:'MI', region:'gl' },
+  { id:'KSSM',        label:'Sault Ste. Marie, MI',   short:'SSM', state:'MI', region:'gl', fallback:['USW00014820'] },
+  { id:'KDLH',        label:'Duluth, MN',             short:'DLH', state:'MN', region:'gl' },
+  { id:'KERI',        label:'Erie, PA',               short:'ERI', state:'PA', region:'gl' },
+  { id:'KCLE',        label:'Cleveland, OH',          short:'CLE', state:'OH', region:'gl' },
+  { id:'KTOL',        label:'Toledo, OH',             short:'TOL', state:'OH', region:'gl' },
+  { id:'KCMH',        label:'Columbus, OH',           short:'CMH', state:'OH', region:'gl' },
+  { id:'KDTW',        label:'Detroit, MI',            short:'DTW', state:'MI', region:'gl' },
+  { id:'KGRR',        label:'Grand Rapids, MI',       short:'GRR', state:'MI', region:'gl' },
+  { id:'KSBN',        label:'South Bend, IN',         short:'SBN', state:'IN', region:'gl' },
+  { id:'KORD',        label:'Chicago, IL',            short:'ORD', state:'IL', region:'gl' },
+  { id:'KMKE',        label:'Milwaukee, WI',          short:'MKE', state:'WI', region:'gl' },
+  { id:'KPIT',        label:'Pittsburgh, PA',         short:'PIT', state:'PA', region:'gl' },
+  // Appalachians & Mid-South
+  { id:'KORF',        label:'Norfolk, VA',            short:'ORF', state:'VA', region:'ap' },
+  { id:'KRIC',        label:'Richmond, VA',            short:'RIC', state:'VA', region:'ap' },
+  { id:'KROA',        label:'Roanoke, VA',            short:'ROA', state:'VA', region:'ap' },
+  { id:'KCRW',        label:'Charleston, WV',         short:'CRW', state:'WV', region:'ap' },
+  { id:'KRDU',        label:'Raleigh-Durham, NC',     short:'RDU', state:'NC', region:'ap' },
+  { id:'KGSO',        label:'Greensboro, NC',         short:'GSO', state:'NC', region:'ap' },
+  { id:'KCLT',        label:'Charlotte, NC',          short:'CLT', state:'NC', region:'ap' },
+  { id:'KBNA',        label:'Nashville, TN',          short:'BNA', state:'TN', region:'ap' },
+  { id:'KSDF',        label:'Louisville, KY',         short:'SDF', state:'KY', region:'ap' },
+  { id:'KLEX',        label:'Lexington, KY',          short:'LEX', state:'KY', region:'ap' },
+  { id:'KTYS',        label:'Knoxville, TN',          short:'TYS', state:'TN', region:'ap' },
+  // Midwest & Plains
+  { id:'KMSP',        label:'Minneapolis, MN',        short:'MSP', state:'MN', region:'mw' },
+  { id:'KFAR',        label:'Fargo, ND',              short:'FAR', state:'ND', region:'mw' },
+  { id:'KBIS',        label:'Bismarck, ND',           short:'BIS', state:'ND', region:'mw' },
+  { id:'KABR',        label:'Aberdeen, SD',           short:'ABR', state:'SD', region:'mw' },
+  { id:'KFSD',        label:'Sioux Falls, SD',        short:'FSD', state:'SD', region:'mw' },
+  { id:'KRAP',        label:'Rapid City, SD',         short:'RAP', state:'SD', region:'mw' },
+  { id:'KOMA',        label:'Omaha, NE',              short:'OMA', state:'NE', region:'mw' },
+  { id:'KDSM',        label:'Des Moines, IA',         short:'DSM', state:'IA', region:'mw' },
+  { id:'KICT',        label:'Wichita, KS',            short:'ICT', state:'KS', region:'mw' },
+  { id:'KMCI',        label:'Kansas City, MO',        short:'MCI', state:'MO', region:'mw' },
+  { id:'KSTL',        label:'St. Louis, MO',          short:'STL', state:'MO', region:'mw' },
+  { id:'KOKC',        label:'Oklahoma City, OK',      short:'OKC', state:'OK', region:'mw' },
+  { id:'KTUL',        label:'Tulsa, OK',              short:'TUL', state:'OK', region:'mw' },
+  // Mountain West
+  { id:'KDEN',        label:'Denver, CO',             short:'DEN', state:'CO', region:'mt' },
+  { id:'KCOS',        label:'Colorado Springs, CO',   short:'COS', state:'CO', region:'mt' },
+  { id:'KGJT',        label:'Grand Junction, CO',     short:'GJT', state:'CO', region:'mt' },
+  { id:'KCYS',        label:'Cheyenne, WY',           short:'CYS', state:'WY', region:'mt' },
+  { id:'KCPR',        label:'Casper, WY',             short:'CPR', state:'WY', region:'mt' },
+  { id:'KJAC',        label:'Jackson, WY',            short:'JAC', state:'WY', region:'mt' },
+  { id:'KSLC',        label:'Salt Lake City, UT',     short:'SLC', state:'UT', region:'mt' },
+  { id:'KBOI',        label:'Boise, ID',              short:'BOI', state:'ID', region:'mt' },
+  { id:'KBZN',        label:'Bozeman, MT',            short:'BZN', state:'MT', region:'mt' },
+  { id:'KGTF',        label:'Great Falls, MT',        short:'GTF', state:'MT', region:'mt' },
+  { id:'KMSO',        label:'Missoula, MT',           short:'MSO', state:'MT', region:'mt' },
+  { id:'KGEG',        label:'Spokane, WA',            short:'GEG', state:'WA', region:'mt' },
+  // Pacific Northwest
+  { id:'KRNO',        label:'Reno, NV',               short:'RNO', state:'NV', region:'pac' },
+  { id:'KSEA',        label:'Seattle, WA',            short:'SEA', state:'WA', region:'pac' },
+  { id:'KBLI',        label:'Bellingham, WA',         short:'BLI', state:'WA', region:'pac' },
+  { id:'KPDX',        label:'Portland, OR',           short:'PDX', state:'OR', region:'pac' },
+  { id:'KEUG',        label:'Eugene, OR',             short:'EUG', state:'OR', region:'pac' },
+  { id:'KMFR',        label:'Medford, OR',            short:'MFR', state:'OR', region:'pac' },
+];
+
+// ─── WINTER (DJF) CONSTANTS ────────────────────────────────────
+const WINTER_MONTHS = [11, 0, 1]; // Dec=11, Jan=0, Feb=1
+const SNOW_COLOR = '#6D96D8';
+const RAIN_COLOR = '#2AA87E';
+const TREND_SNOW_COLOR = '#A9C4EA';
+const TREND_RAIN_COLOR = '#8FD9BA';
+const EXPORT_SCALE = 3; // fixed PNG export resolution, independent of devicePixelRatio
+
+// ─── STATE ──────────────────────────────────────────────────
+let dataCache = {};
+let activeStation = STATIONS.find(s => s.id === 'KISP') || STATIONS[0];
+let parsed = [];
+let trendMode1 = '10';
+let trendMode2 = '10';
+let stormThreshold = 10;
+let fetchSeq = 0;
+let charts = { precip: null, snowfall: null, stormCount: null, stormSize: null };
+let copyMeta1 = {}, copyMeta2 = {}, copyMeta3 = {}, copyMeta4 = {};
+
+// ─── CHART.JS DEFAULTS ─────────────────────────────────────
+Chart.defaults.font.family = "'Courier Prime', monospace";
+Chart.defaults.font.size = 13;
+Chart.defaults.color = '#A6A499';
+Chart.defaults.plugins.legend.display = false;
+Chart.defaults.plugins.tooltip.backgroundColor = '#2C322D';
+Chart.defaults.plugins.tooltip.borderColor = 'rgba(232,228,217,0.14)';
+Chart.defaults.plugins.tooltip.borderWidth = 1;
+Chart.defaults.plugins.tooltip.titleColor = '#E8E4D9';
+Chart.defaults.plugins.tooltip.bodyColor = '#A6A499';
+Chart.defaults.plugins.tooltip.padding = 10;
+const so = (x = {}) => ({
+  border: { display: false },
+  grid: { color: 'rgba(232,228,217,0.05)' },
+  ticks: { padding: 6, font: { size: 12 }, ...x }
+});
+
+// ─── UTILS ──────────────────────────────────────────────────
+function parseVal(v) {
+  if (!v || v === 'M' || v === '') return { val: null, trace: false, missing: true };
+  if (v === 'T') return { val: 0, trace: true, missing: false };
+  const n = parseFloat(v.replace(/[^0-9.\-]/g, ''));
+  if (isNaN(n) || n < 0) return { val: null, trace: false, missing: true };
+  return { val: n, trace: false, missing: false };
+}
+const isMeasurable = r => r && r.val !== null && r.val > 0;
+function getWinterY(year, month) { return month === 11 ? year : year - 1; }
+function WL(wy) { return `${wy}–${String(wy + 1).slice(-2)}`; }
+function dateFromParts(y, m, d) { return new Date(Date.UTC(y, m, d)); }
+function isWinterComplete(wy) {
+  const now = new Date();
+  const end = new Date(Date.UTC(wy + 1, 2, 1)); // Mar 1 of the following year
+  return now >= end;
+}
+
+// ─── FETCH (elems: snow + pcpn, same fallback pattern as us-snow-seasons) ─
+async function tryFetch(sid) {
+  const res = await fetch('https://data.rcc-acis.org/StnData', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sid, sdate: 'por', edate: 'por', elems: [{ name: 'snow' }, { name: 'pcpn' }] })
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const json = await res.json();
+  if (json.error) throw new Error('ACIS: ' + json.error);
+  if (!json.data || !json.data.length) throw new Error('No data returned');
+  return json.data;
+}
+
+async function fetchData(sid) {
+  const mySeq = ++fetchSeq;
+  setStatus('loading');
+  showSpinners(true);
+  const stn = STATIONS.find(s => s.id === sid);
+  const candidates = [sid, ...(stn?.fallback || [])];
+  let lastErr = '';
+  for (const candidate of candidates) {
+    try {
+      const raw = await tryFetch(candidate);
+      if (mySeq !== fetchSeq) return;
+      const processed = processData(raw);
+      dataCache[sid] = processed;
+      applyCache(sid);
+      const last = parsed[parsed.length - 1];
+      setStatus('ok', 'Live — through ' + (last ? last.date : '—'));
+      renderAll();
+      return;
+    } catch (e) {
+      lastErr = e.message;
+      console.warn(`fetchData: ${candidate} failed — ${e.message}`);
+    }
+  }
+  if (mySeq !== fetchSeq) return;
+  setStatus('error', `Failed — ${stn?.label || sid} (${lastErr})`);
+  showSpinners(false);
+}
+
+function processData(raw) {
+  const all = [];
+  raw.forEach(row => {
+    const [ds, sR, pR] = row;
+    const pts = ds.split('-');
+    const yr = +pts[0], mo = +pts[1] - 1, dy = +pts[2];
+    all.push({ date: ds, year: yr, month: mo, day: dy, snow: parseVal(sR), pcpn: parseVal(pR) });
+  });
+  return { parsed: all };
+}
+function applyCache(sid) { parsed = dataCache[sid].parsed; }
+
+// ─── AGGREGATION: per-winter day counts ──────────────────────
+function buildWinterDayCounts() {
+  const byWY = {}; // wy -> { snowDays, precipDays, totalSnow }
+  parsed.forEach(r => {
+    if (!WINTER_MONTHS.includes(r.month)) return;
+    const wy = getWinterY(r.year, r.month);
+    if (!byWY[wy]) byWY[wy] = { snowDays: 0, precipDays: 0, totalSnow: 0 };
+    if (isMeasurable(r.snow)) { byWY[wy].snowDays++; byWY[wy].totalSnow += r.snow.val; }
+    if (isMeasurable(r.pcpn)) byWY[wy].precipDays++;
+  });
+  const wys = Object.keys(byWY).map(Number).sort((a, b) => a - b);
+  wys.forEach(wy => {
+    byWY[wy].rainDays = Math.max(0, byWY[wy].precipDays - byWY[wy].snowDays);
+    byWY[wy].totalSnow = +byWY[wy].totalSnow.toFixed(1);
+  });
+  return { wys, byWY };
+}
+
+// ─── AGGREGATION: storms (consecutive measurable-snow days) ──
+function buildStorms() {
+  const storms = [];
+  let cur = null;
+  let prevDate = null;
+  parsed.forEach(r => {
+    const d = dateFromParts(r.year, r.month, r.day);
+    const measurable = isMeasurable(r.snow);
+    const contiguous = cur && prevDate && (d - prevDate) === 86400000;
+    if (measurable) {
+      if (cur && contiguous) {
+        cur.total += r.snow.val; cur.end = r.date; cur.days++;
+      } else {
+        if (cur) storms.push(cur);
+        cur = { start: r.date, end: r.date, total: r.snow.val, days: 1, startYear: r.year, startMonth: r.month };
+      }
+    } else if (cur) {
+      storms.push(cur); cur = null;
+    }
+    prevDate = d;
+  });
+  if (cur) storms.push(cur);
+  // Only keep storms whose first day falls in the DJF window
+  return storms
+    .filter(s => WINTER_MONTHS.includes(s.startMonth))
+    .map(s => ({ ...s, total: +s.total.toFixed(1), wy: getWinterY(s.startYear, s.startMonth) }));
+}
+
+// ─── TREND / MOVING AVERAGE ──────────────────────────────────
+function linearTrend(points) {
+  const pts = points.filter(p => p.y !== null && p.y !== undefined);
+  if (pts.length < 3) return null;
+  const n = pts.length;
+  const sx = pts.reduce((s, p) => s + p.x, 0);
+  const sy = pts.reduce((s, p) => s + p.y, 0);
+  const sxy = pts.reduce((s, p) => s + p.x * p.y, 0);
+  const sxx = pts.reduce((s, p) => s + p.x * p.x, 0);
+  const denom = n * sxx - sx * sx;
+  if (denom === 0) return null;
+  const slope = (n * sxy - sx * sy) / denom;
+  const intercept = (sy - slope * sx) / n;
+  return x => slope * x + intercept;
+}
+
+function buildTrailingAvgSeries(wys, getVal, windowN) {
+  const completeWys = wys.filter(isWinterComplete);
+  const series = completeWys.map(wy => ({ wy, y: getVal(wy) })).filter(p => p.y !== null && p.y !== undefined);
+  const avgByWy = {};
+  for (let i = windowN - 1; i < series.length; i++) {
+    const windowVals = series.slice(i - windowN + 1, i + 1).map(p => p.y);
+    avgByWy[series[i].wy] = +(windowVals.reduce((a, b) => a + b, 0) / windowN).toFixed(2);
+  }
+  return wys.map(wy => avgByWy[wy] !== undefined ? avgByWy[wy] : null);
+}
+
+function buildTrendSeries(wys, getVal, mode) {
+  if (mode === 'off') return null;
+  if (mode === 'linear') {
+    const fn = linearTrend(wys.filter(isWinterComplete).map(wy => ({ x: wy, y: getVal(wy) })));
+    return fn ? wys.map(wy => fn(wy)) : null;
+  }
+  return buildTrailingAvgSeries(wys, getVal, +mode);
+}
+function trendLabel(mode) {
+  return mode === 'linear' ? 'Linear' : `${mode}-yr Avg`;
+}
+
+// ─── STATS STRIP ─────────────────────────────────────────────
+function updateStats(wys, byWY, storms) {
+  const complete = wys.filter(isWinterComplete);
+  const avg = arr => arr.length ? +(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1) : null;
+  const snowAvg = avg(complete.map(wy => byWY[wy].snowDays));
+  const rainAvg = avg(complete.map(wy => byWY[wy].rainDays));
+  const snowfallAvg = avg(complete.map(wy => byWY[wy].totalSnow));
+
+  document.getElementById('chipSnowDays').textContent = snowAvg !== null ? snowAvg : '—';
+  document.getElementById('chipRainDays').textContent = rainAvg !== null ? rainAvg : '—';
+  document.getElementById('chipAvgSnow').textContent = snowfallAvg !== null ? snowfallAvg + '"' : '—';
+
+  const biggest = [...storms].sort((a, b) => b.total - a.total)[0];
+  document.getElementById('chipBigStorm').textContent = biggest ? biggest.total + '"' : '—';
+  document.getElementById('chipBigStormSub').textContent = biggest
+    ? `${biggest.start}${biggest.end !== biggest.start ? ' – ' + biggest.end : ''}` : '—';
+
+  if (wys.length) {
+    document.getElementById('chipPOR').textContent = `${WL(wys[0])} – ${WL(wys[wys.length - 1])}`;
+  } else {
+    document.getElementById('chipPOR').textContent = '—';
+  }
+}
+
+// ─── CHART 1: PRECIP TYPE DAYS ────────────────────────────────
+function renderPrecipDaysChart(wys, byWY) {
+  const labels = wys.map(WL);
+  const snowData = wys.map(wy => byWY[wy].snowDays);
+  const rainData = wys.map(wy => byWY[wy].rainDays);
+
+  const datasets = [
+    { type: 'bar', label: 'Snow Days', data: snowData, backgroundColor: SNOW_COLOR, order: 2, yAxisID: 'y' },
+    { type: 'bar', label: 'Rain Days', data: rainData, backgroundColor: RAIN_COLOR, order: 2, yAxisID: 'y' },
+  ];
+
+  if (trendMode1 !== 'off') {
+    const snowTrend = buildTrendSeries(wys, wy => byWY[wy].snowDays, trendMode1);
+    const rainTrend = buildTrendSeries(wys, wy => byWY[wy].rainDays, trendMode1);
+    const lbl = trendLabel(trendMode1);
+    if (snowTrend) datasets.push({
+      type: 'line', label: `Snow (${lbl})`, data: snowTrend,
+      borderColor: TREND_SNOW_COLOR, borderWidth: 2, borderDash: [6, 3], pointRadius: 0, tension: 0, order: 1, yAxisID: 'y'
+    });
+    if (rainTrend) datasets.push({
+      type: 'line', label: `Rain (${lbl})`, data: rainTrend,
+      borderColor: TREND_RAIN_COLOR, borderWidth: 2, borderDash: [6, 3], pointRadius: 0, tension: 0, order: 1, yAxisID: 'y'
+    });
+  }
+
+  copyMeta1 = { title: `${activeStation.label} — Days by Precipitation Type`, sub: 'Meteorological Winter (Dec–Feb) · NOAA ACIS ThreadEx · contextclimate.io' };
+
+  if (charts.precip) { try { charts.precip.destroy(); } catch (e) {} }
+  const canvas = document.getElementById('precipDaysChart');
+  canvas.style.display = 'block';
+  charts.precip = new Chart(canvas, {
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: {
+        legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
+        y: { ...so(), ticks: { callback: v => v + 'd', font: { size: 12 }, padding: 6 }, beginAtZero: true }
+      }
+    }
+  });
+  showSpinner('spinner1', false);
+}
+
+// ─── CHART 2: TOTAL WINTER SNOWFALL ───────────────────────────
+function renderSnowfallChart(wys, byWY) {
+  const labels = wys.map(WL);
+  const snowfall = wys.map(wy => byWY[wy].totalSnow);
+
+  const datasets = [
+    { type: 'bar', label: 'Total Snowfall', data: snowfall, backgroundColor: SNOW_COLOR, order: 2 },
+  ];
+  if (trendMode2 !== 'off') {
+    const trend = buildTrendSeries(wys, wy => byWY[wy].totalSnow, trendMode2);
+    if (trend) datasets.push({
+      type: 'line', label: trendLabel(trendMode2), data: trend,
+      borderColor: '#2AA87E', borderWidth: 2, borderDash: [6, 3], pointRadius: 0, tension: 0, order: 1
+    });
+  }
+
+  copyMeta2 = { title: `${activeStation.label} — Total Winter Snowfall`, sub: 'Meteorological Winter (Dec–Feb) · NOAA ACIS ThreadEx · contextclimate.io' };
+
+  if (charts.snowfall) { try { charts.snowfall.destroy(); } catch (e) {} }
+  const canvas = document.getElementById('snowfallChart');
+  canvas.style.display = 'block';
+  charts.snowfall = new Chart(canvas, {
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: {
+        legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
+        y: { ...so(), ticks: { callback: v => v + '"', font: { size: 12 }, padding: 6 }, beginAtZero: true }
+      }
+    }
+  });
+  showSpinner('spinner2', false);
+}
+
+// ─── CHART 3/4: STORMS BY DECADE ──────────────────────────────
+function buildDecadeStormStats(wys, storms) {
+  const wysComplete = wys.filter(isWinterComplete);
+  const decades = [...new Set(wysComplete.map(wy => Math.floor(wy / 10) * 10))].sort((a, b) => a - b);
+
+  const countByDec = {}, largestByWY = {};
+  storms.forEach(s => {
+    if (!isWinterComplete(s.wy)) return;
+    const dec = Math.floor(s.wy / 10) * 10;
+    if (s.total >= stormThreshold) countByDec[dec] = (countByDec[dec] || 0) + 1;
+    if (!largestByWY[s.wy] || s.total > largestByWY[s.wy]) largestByWY[s.wy] = s.total;
+  });
+
+  const sizeByDec = decades.map(dec => {
+    const wysInDec = wysComplete.filter(wy => Math.floor(wy / 10) * 10 === dec);
+    const vals = wysInDec.map(wy => largestByWY[wy] || 0);
+    return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : 0;
+  });
+
+  const labels = decades.map(dec => {
+    const wysInDec = wysComplete.filter(wy => Math.floor(wy / 10) * 10 === dec);
+    return wysInDec.length < 5 ? dec + 's*' : dec + 's';
+  });
+
+  return { decades, labels, counts: decades.map(dec => countByDec[dec] || 0), sizes: sizeByDec };
+}
+
+function renderStormCharts(wys, storms) {
+  const { labels, counts, sizes } = buildDecadeStormStats(wys, storms);
+
+  copyMeta3 = { title: `${activeStation.label} — ${stormThreshold}"+ Storms by Decade`, sub: 'Meteorological Winter (Dec–Feb) · NOAA ACIS ThreadEx · contextclimate.io' };
+  copyMeta4 = { title: `${activeStation.label} — Avg Largest Storm by Decade`, sub: 'Meteorological Winter (Dec–Feb) · NOAA ACIS ThreadEx · contextclimate.io' };
+
+  if (charts.stormCount) { try { charts.stormCount.destroy(); } catch (e) {} }
+  const c1 = document.getElementById('stormCountChart');
+  c1.style.display = 'block';
+  charts.stormCount = new Chart(c1, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: `${stormThreshold}"+ Storms`, data: counts, backgroundColor: '#D08425' }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      scales: {
+        x: { ...so(), grid: { display: false } },
+        y: { ...so(), beginAtZero: true, ticks: { stepSize: 1, font: { size: 12 } } }
+      }
+    }
+  });
+
+  if (charts.stormSize) { try { charts.stormSize.destroy(); } catch (e) {} }
+  const c2 = document.getElementById('stormSizeChart');
+  c2.style.display = 'block';
+  charts.stormSize = new Chart(c2, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'Avg Largest Storm', data: sizes, backgroundColor: '#A08CC6' }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: { legend: { display: false }, tooltip: { enabled: true } },
+      scales: {
+        x: { ...so(), grid: { display: false } },
+        y: { ...so(), beginAtZero: true, ticks: { callback: v => v + '"', font: { size: 12 } } }
+      }
+    }
+  });
+  showSpinner('spinner3', false);
+  showSpinner('spinner4', false);
+}
+
+// ─── RENDER ALL ────────────────────────────────────────────
+function renderAll() {
+  const { wys, byWY } = buildWinterDayCounts();
+  const storms = buildStorms();
+  updateStats(wys, byWY, storms);
+  renderPrecipDaysChart(wys, byWY);
+  renderSnowfallChart(wys, byWY);
+  renderStormCharts(wys, storms);
+}
+
+// ─── CONTROLS ────────────────────────────────────────────
+function onTrendChange1(sel) {
+  trendMode1 = sel.value;
+  if (parsed.length) { const { wys, byWY } = buildWinterDayCounts(); renderPrecipDaysChart(wys, byWY); }
+}
+function onTrendChange2(sel) {
+  trendMode2 = sel.value;
+  if (parsed.length) { const { wys, byWY } = buildWinterDayCounts(); renderSnowfallChart(wys, byWY); }
+}
+
+document.getElementById('thresholdSeg').addEventListener('click', e => {
+  const btn = e.target.closest('.cc-segmented-btn');
+  if (!btn) return;
+  stormThreshold = +btn.dataset.t;
+  document.querySelectorAll('#thresholdSeg .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+  if (parsed.length) { const storms = buildStorms(); const { wys } = buildWinterDayCounts(); renderStormCharts(wys, storms); }
+});
+
+// ─── STATION SELECT ──────────────────────────────────────
+function buildStnSelect() {
+  const sel = document.getElementById('stnSelect');
+  sel.innerHTML = '';
+  REGIONS.forEach(r => {
+    const og = document.createElement('optgroup');
+    og.label = r.label;
+    STATIONS.filter(s => s.region === r.id).forEach(stn => {
+      const opt = document.createElement('option');
+      opt.value = stn.id;
+      opt.textContent = stn.label;
+      if (stn.id === activeStation.id) opt.selected = true;
+      og.appendChild(opt);
+    });
+    sel.appendChild(og);
+  });
+}
+function onStnChange(sel) {
+  const stn = STATIONS.find(s => s.id === sel.value);
+  if (stn) selectStation(stn);
+}
+async function selectStation(stn) {
+  if (activeStation.id === stn.id && parsed.length) return;
+  activeStation = stn;
+  document.getElementById('stationSubtitle').textContent = `${stn.label} · ${stn.short} · ACIS ThreadEx`;
+  document.getElementById('footerStn').textContent = stn.label;
+  document.getElementById('stnSelect').value = stn.id;
+  if (dataCache[stn.id]) {
+    applyCache(stn.id);
+    const last = parsed[parsed.length - 1];
+    setStatus('ok', 'Live — through ' + (last ? last.date : '—'));
+    renderAll();
+  } else {
+    await fetchData(stn.id);
+  }
+}
+function setStatus(state, msg = '') {
+  const el = document.getElementById('dataStatus');
+  el.className = 'cc-badge ' + state;
+  el.textContent = state === 'loading' ? 'Loading…' : state === 'error' ? '⚠ ' + msg : '● ' + msg;
+}
+function showSpinners(show) { ['spinner1', 'spinner2', 'spinner3', 'spinner4'].forEach(id => showSpinner(id, show)); }
+function showSpinner(id, show) {
+  document.getElementById(id).style.display = show ? 'block' : 'none';
+  const canvas = document.getElementById(id).nextElementSibling;
+  if (canvas) canvas.style.display = show ? 'none' : 'block';
+}
+
+// ─── DOWNLOAD PNG ────────────────────────────────────────
+// Fixed-resolution export (EXPORT_SCALE), independent of the viewing
+// screen's devicePixelRatio -- see contextclimate-png-export-highres.
+async function downloadChartPNG(btn, chartKey, getMeta, slug) {
+  const chart = charts[chartKey];
+  if (!chart) return;
+  const canvas = chart.canvas;
+  if (canvas.style.display === 'none') return;
+
+  const originalRatio = chart.options.devicePixelRatio;
+  chart.options.devicePixelRatio = EXPORT_SCALE;
+  chart.resize();
+
+  const cw = canvas.width, ch = canvas.height; // now rendered at EXPORT_SCALE
+  const px = n => Math.round(n * EXPORT_SCALE);
+  const PAD = px(24), HDR_H = px(72);
+  const meta = getMeta();
+
+  const out = document.createElement('canvas');
+  out.width = cw; out.height = ch + HDR_H;
+  const ctx = out.getContext('2d');
+  ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, out.width, out.height);
+  ctx.fillStyle = '#D08425'; ctx.fillRect(0, 0, cw, px(3));
+
+  ctx.fillStyle = '#E8E4D9';
+  ctx.font = `700 ${px(20)}px "Zilla Slab", serif`;
+  ctx.fillText(meta.title || '', PAD, px(33));
+
+  ctx.fillStyle = '#A6A499';
+  ctx.font = `400 ${px(12)}px "Courier Prime", monospace`;
+  ctx.fillText(meta.sub || '', PAD, px(52));
+
+  ctx.strokeStyle = 'rgba(232,228,217,0.14)';
+  ctx.lineWidth = px(1);
+  ctx.beginPath(); ctx.moveTo(PAD, px(62)); ctx.lineTo(cw - PAD, px(62)); ctx.stroke();
+
+  ctx.drawImage(canvas, 0, HDR_H);
+
+  // Restore the on-screen chart to its real display resolution.
+  chart.options.devicePixelRatio = originalRatio;
+  chart.resize();
+
+  const orig = btn.innerHTML;
+  const resetBtn = () => { btn.innerHTML = orig; btn.classList.remove('done'); };
+  try {
+    out.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${activeStation.short}-${slug}-${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      btn.textContent = '✓ Downloaded';
+      btn.classList.add('done');
+      setTimeout(resetBtn, 2200);
+    }, 'image/png');
+  } catch (e) {
+    console.error('PNG export failed:', e);
+    btn.textContent = '✗ Failed';
+    setTimeout(resetBtn, 2200);
+  }
+}
+
+// ─── INIT ─────────────────────────────────────────────────
+buildStnSelect();
+selectStation(activeStation);
+
+if (window.self !== window.top) {
+  document.querySelector('.tool-header').style.display = 'none';
+}
+</script>
+</body>
+</html>
