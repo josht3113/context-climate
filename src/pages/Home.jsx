@@ -203,6 +203,7 @@ const SECTIONS = [
         footerTags: ['Rain vs Snow Days', 'Storm Size by Decade', 'Trends'],
         to:         '/winter-precip-types',
         accentVar:  '--accent-climate',
+        thumb:      '/winter_precip_types_thumbnail.png',
       },
       {
         tags:       ['US CITIES', 'ANNUAL PRECIPITATION'],
