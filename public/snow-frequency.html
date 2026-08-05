@@ -931,6 +931,8 @@ function setBadge(type, text) {
 }
 
 // ─── EXPORT ──────────────────────────────────────────────────────────────────
+const EXPORT_SCALE = 3; // fixed PNG export resolution, independent of devicePixelRatio
+
 function flashBtn(id, text) {
   const btn = document.getElementById(id);
   const orig = btn.textContent;
@@ -941,10 +943,21 @@ function flashBtn(id, text) {
 
 function downloadPNG() {
   if (!mainChart) return;
+
+  // Render at a fixed high-res multiplier, independent of the viewing
+  // screen's devicePixelRatio -- Chart.js sizes its canvas backing store
+  // off devicePixelRatio, so on a standard 1x display the old approach
+  // (divide by live dpr, then hardcode a 2x export canvas) captured a 1x
+  // bitmap and upscaled it into the export, producing a blurry PNG.
+  // Temporarily force the chart to re-render at EXPORT_SCALE, capture,
+  // then restore the real display resolution.
+  const originalRatio = mainChart.options.devicePixelRatio;
+  mainChart.options.devicePixelRatio = EXPORT_SCALE;
+  mainChart.resize();
+
   const chartCanvas = mainChart.canvas;
-  const dpr = window.devicePixelRatio || 1;
-  const cw  = chartCanvas.width  / dpr;
-  const ch  = chartCanvas.height / dpr;
+  const cw = chartCanvas.width  / EXPORT_SCALE;
+  const ch = chartCanvas.height / EXPORT_SCALE;
 
   // Period label
   let periodLabel;
@@ -959,15 +972,18 @@ function downloadPNG() {
   const modeLbl    = currentMode === 'snowfall' ? 'Snowfall Events' : 'Snow Cover Depth';
   const chartTitle = document.getElementById('chartTitle').textContent;
 
-  const PAD = 24, HDR = 92, FTR = 30;
+  // Legend — active thresholds, dot color matches the on-page threshold pills
+  const activeThresh = (freqResult?.thresh || []).filter(t => t.active);
+
+  const PAD = 24, HDR = 118, FTR = 30;
   const ow  = cw + PAD * 2;
   const oh  = HDR + ch + FTR;
 
   const off = document.createElement('canvas');
-  off.width  = ow * 2;
-  off.height = oh * 2;
+  off.width  = ow * EXPORT_SCALE;
+  off.height = oh * EXPORT_SCALE;
   const oc = off.getContext('2d');
-  oc.scale(2, 2);
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   // Background
   oc.fillStyle = '#1E2320';
@@ -999,6 +1015,22 @@ function downloadPNG() {
     );
   }
 
+  // Legend — dot + label per active threshold
+  if (activeThresh.length) {
+    const LEG_Y = 100;
+    let legX = PAD;
+    oc.font = '600 13px "Courier Prime", monospace';
+    activeThresh.forEach(t => {
+      oc.fillStyle = t.dotColor;
+      oc.beginPath();
+      oc.arc(legX + 5, LEG_Y - 4, 5, 0, Math.PI * 2);
+      oc.fill();
+      oc.fillStyle = '#A6A499';
+      oc.fillText(t.label, legX + 15, LEG_Y);
+      legX += 15 + oc.measureText(t.label).width + 20;
+    });
+  }
+
   // Branding top right
   oc.fillStyle = '#948F82';
   oc.font = '12px "Courier Prime", monospace';
@@ -1017,6 +1049,10 @@ function downloadPNG() {
   // Bottom accent line
   oc.fillStyle = '#D08425';
   oc.fillRect(0, oh - 2, ow, 2);
+
+  // Restore the on-screen chart to its real display resolution.
+  mainChart.options.devicePixelRatio = originalRatio;
+  mainChart.resize();
 
   const slug     = activeStn.short.toLowerCase();
   const modeSlug = currentMode === 'snowfall' ? 'snowfall' : 'cover';
