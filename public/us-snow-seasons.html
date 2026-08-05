@@ -113,12 +113,12 @@ footer a:hover { color:var(--color-text-primary); }
       </select>
       <span class="cc-btn-row-label" style="margin-left:10px;">Decade Avgs</span>
       <button class="cc-btn active" id="decToggle" onclick="toggleDecades(this)">Showing</button>
-      <button class="cc-btn cc-btn-sm" id="copyBtn" onclick="copyChartImage(this)" style="margin-left:auto;display:flex;align-items:center;gap:6px;" title="Copy chart as image">
+      <button class="cc-btn cc-btn-sm" id="dlBtn" onclick="downloadChartPNG(this)" style="margin-left:auto;display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="5" y="5" width="9" height="9" rx="1.5"/>
-          <path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1"/>
+          <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+          <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
         </svg>
-        Copy Image
+        Download PNG
       </button>
     </div>
   </div>
@@ -308,6 +308,7 @@ let activeDecades = new Set();
 let fetchSeq = 0;
 // Cache last render args so dropdown handler can call highlightSeason
 let _lastAllSYs = [], _lastSeasonData = {}, _lastAvgArr = [], _lastCurSy = 0;
+const EXPORT_SCALE = 3; // fixed PNG export resolution, independent of devicePixelRatio
 
 // ─── CHART.JS DEFAULTS ───────────────────────────────────────
 Chart.defaults.font.family = "'Courier Prime', monospace";
@@ -806,15 +807,25 @@ function showSpinner(show) {
   document.getElementById('cumSnowChart').style.display  = show ? 'none' : 'block';
 }
 
-// ─── COPY IMAGE ──────────────────────────────────────────────
-async function copyChartImage(btn) {
+// ─── DOWNLOAD PNG ──────────────────────────────────────────────
+// Fixed-resolution export (EXPORT_SCALE), independent of the viewing
+// screen's devicePixelRatio -- see contextclimate-png-export-highres.
+// Chart.js sizes its own canvas backing store off devicePixelRatio, so on
+// a standard 1x display, capturing the live canvas as-is and compositing
+// it into a larger export canvas would upscale/blur it, same underlying
+// issue as the raw-canvas heatmap tools. Fix: temporarily force the chart
+// to re-render its backing canvas at EXPORT_SCALE, capture, then restore.
+async function downloadChartPNG(btn) {
   const chartCanvas = document.getElementById('cumSnowChart');
   if (!mainChart || chartCanvas.style.display === 'none') return;
 
-  const dpr = window.devicePixelRatio || 1;
-  const cw  = chartCanvas.width;
+  const originalRatio = mainChart.options.devicePixelRatio;
+  mainChart.options.devicePixelRatio = EXPORT_SCALE;
+  mainChart.resize();
+
+  const cw  = chartCanvas.width;  // now rendered at EXPORT_SCALE
   const ch  = chartCanvas.height;
-  const px  = n => Math.round(n * dpr);
+  const px  = n => Math.round(n * EXPORT_SCALE);
   const PAD = px(24);
 
   const legendItems = [];
@@ -902,19 +913,28 @@ async function copyChartImage(btn) {
 
   ctx.drawImage(chartCanvas, 0, HDR_H);
 
+  // Restore the on-screen chart to its real display resolution.
+  mainChart.options.devicePixelRatio = originalRatio;
+  mainChart.resize();
+
   const resetBtn = () => {
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11H2a1 1 0 01-1-1V2a1 1 0 011-1h8a1 1 0 011 1v1"/></svg> Copy Image';
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8m0 0l-3-3m3 3l3-3"/><path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/></svg> Download PNG';
     btn.classList.remove('done');
   };
   try {
-    out.toBlob(async blob => {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      btn.textContent = '✓ Copied';
+    out.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${activeStation.short}-cumulative-snowfall-${new Date().toISOString().slice(0, 10)}.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+      btn.textContent = '✓ Downloaded';
       btn.classList.add('done');
       setTimeout(resetBtn, 2200);
     }, 'image/png');
   } catch (e) {
-    console.error('Clipboard write failed:', e);
+    console.error('PNG export failed:', e);
     btn.textContent = '✗ Failed';
     setTimeout(resetBtn, 2200);
   }
