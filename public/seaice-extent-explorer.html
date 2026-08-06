@@ -327,6 +327,28 @@
     return lines;
   }
 
+  function getLegendItems(){
+    // Mirrors whatever is currently toggled on/visible in the interactive
+    // chart, so the exported PNG's legend always matches what's drawn.
+    var items = [];
+    var contextOn = STATE.chart.data.datasets.some(function(ds){ return ds._kind === 'context' && !ds.hidden; });
+    if (contextOn && STATE.yearKeys && STATE.yearKeys.length){
+      items.push({
+        label: 'All years (' + STATE.yearKeys[0] + '–' + STATE.yearKeys[STATE.yearKeys.length - 1] + ')',
+        color: '#5a5a54',
+        dashed: false
+      });
+    }
+    STATE.chart.data.datasets.forEach(function(ds){
+      if (ds._kind === 'context' || ds.hidden) return;
+      var label = ds.label;
+      if (ds._kind === 'current') label += ' (current)';
+      else if (ds._kind === 'previous') label += ' (previous)';
+      items.push({ label: label, color: ds.borderColor, dashed: ds._kind === 'decade' });
+    });
+    return items;
+  }
+
   function downloadChartPNG(){
     var EXPORT_SCALE = 3;
     var logicalWidth = 1400;
@@ -341,6 +363,28 @@
     var footnoteLines = footnoteText ? wrapText(mctx, footnoteText, contentWidth) : [];
 
     var citationText = (document.getElementById('citation').textContent || '').trim();
+
+    // Lay out the legend (color-swatch + label pairs, wrapped into rows)
+    // before we know totalHeight, same approach as the footnote wrapping above.
+    var LEGEND_SWATCH_W = 26, LEGEND_SWATCH_GAP = 8, LEGEND_ITEM_GAP = 22, LEGEND_ROW_H = 26;
+    mctx.font = '500 15px "Source Sans 3"';
+    var legendItems = getLegendItems();
+    var legendRows = [];
+    (function(){
+      var row = [], x = 0;
+      legendItems.forEach(function(item){
+        var textW = mctx.measureText(item.label).width;
+        var itemW = LEGEND_SWATCH_W + LEGEND_SWATCH_GAP + textW;
+        if (x + itemW > contentWidth && row.length){
+          legendRows.push(row);
+          row = []; x = 0;
+        }
+        row.push({ item: item, w: itemW });
+        x += itemW + LEGEND_ITEM_GAP;
+      });
+      if (row.length) legendRows.push(row);
+    })();
+    var legendBlockHeight = legendRows.length ? (legendRows.length * LEGEND_ROW_H + 18) : 0;
 
     // Render the chart's own canvas at a fixed high-res multiplier, independent
     // of the viewing screen's devicePixelRatio -- otherwise on a standard 1x
@@ -370,7 +414,7 @@
       var creditHeight = 30;
       var dividerGap = 26;
 
-      var totalHeight = pad + headerHeight + chartGap + chartDrawHeight + statGap + 96 + statGap
+      var totalHeight = pad + headerHeight + chartGap + chartDrawHeight + legendBlockHeight + statGap + 96 + statGap
         + dividerGap + footnoteBlockHeight + citationBlockHeight + creditHeight + pad;
 
       var canvas = document.createElement('canvas');
@@ -403,7 +447,34 @@
       y += headerHeight - 56 - 32 + chartGap;
 
       ctx.drawImage(img, pad, y, chartDrawWidth, chartDrawHeight);
-      y += chartDrawHeight + statGap;
+      y += chartDrawHeight + 20;
+
+      if (legendRows.length){
+        ctx.textBaseline = 'middle';
+        ctx.font = '500 15px "Source Sans 3"';
+        legendRows.forEach(function(row){
+          var x = pad;
+          var rowMidY = y + LEGEND_ROW_H / 2;
+          row.forEach(function(cell){
+            var item = cell.item;
+            ctx.strokeStyle = item.color;
+            ctx.lineWidth = item.dashed ? 2.5 : 3;
+            ctx.setLineDash(item.dashed ? [5, 3] : []);
+            ctx.beginPath();
+            ctx.moveTo(x, rowMidY);
+            ctx.lineTo(x + LEGEND_SWATCH_W, rowMidY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = '#c9c9c0';
+            ctx.fillText(item.label, x + LEGEND_SWATCH_W + LEGEND_SWATCH_GAP, rowMidY);
+            x += cell.w + LEGEND_ITEM_GAP;
+          });
+          y += LEGEND_ROW_H;
+        });
+        ctx.textBaseline = 'top';
+        y += 18;
+      }
+      y += statGap - 20;
 
       ctx.fillStyle = '#6e6e68';
       ctx.font = '600 15px "Source Sans 3"';
