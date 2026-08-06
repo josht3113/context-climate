@@ -14,7 +14,7 @@
     --surface-raised: #12172a;
     --accent: #BA7517;
     --accent-soft: rgba(186,117,23,0.14);
-    --current: #F5D742;
+    --current: #FFE135;
     --previous: #E8E6DC;
     --text: #f2f0e8;
     --text-secondary: #a8a8a0;
@@ -230,6 +230,8 @@
     compareColors: ['#4FBFA0', '#D4537E', '#7AB8E0']
   };
 
+  var CURRENT_COLOR = '#FFE135';
+
   function buildSlotLabels(){
     var labels = [];
     var d = new Date(2000, 0, 1); // 2000 is a leap year, gives exactly 366 days
@@ -326,7 +328,7 @@
   }
 
   function downloadChartPNG(){
-    var scale = 2;
+    var EXPORT_SCALE = 3;
     var logicalWidth = 1400;
     var pad = 44;
     var contentWidth = logicalWidth - pad*2;
@@ -340,8 +342,21 @@
 
     var citationText = (document.getElementById('citation').textContent || '').trim();
 
+    // Render the chart's own canvas at a fixed high-res multiplier, independent
+    // of the viewing screen's devicePixelRatio -- otherwise on a standard 1x
+    // display the chart only ever gets captured at 1x and then upscaled into
+    // the export canvas below, which is what makes exported PNGs look blurry.
+    var origDpr = STATE.chart.options.devicePixelRatio || (window.devicePixelRatio || 1);
+    STATE.chart.options.devicePixelRatio = EXPORT_SCALE;
+    STATE.chart.resize();
+
     var img = new Image();
     img.onload = function(){
+      // Restore the on-screen chart to normal resolution now that the
+      // high-res bitmap has been captured, so nothing looks different to the user.
+      STATE.chart.options.devicePixelRatio = origDpr;
+      STATE.chart.resize();
+
       var chartAspect = img.width / img.height;
       var chartDrawWidth = contentWidth;
       var chartDrawHeight = chartDrawWidth / chartAspect;
@@ -359,10 +374,10 @@
         + dividerGap + footnoteBlockHeight + citationBlockHeight + creditHeight + pad;
 
       var canvas = document.createElement('canvas');
-      canvas.width = logicalWidth * scale;
-      canvas.height = totalHeight * scale;
+      canvas.width = logicalWidth * EXPORT_SCALE;
+      canvas.height = totalHeight * EXPORT_SCALE;
       var ctx = canvas.getContext('2d');
-      ctx.scale(scale, scale);
+      ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
       ctx.textBaseline = 'top';
 
       ctx.fillStyle = '#07070f';
@@ -395,7 +410,7 @@
       ctx.fillText('CURRENT STANDING', pad, y);
       y += 30;
 
-      ctx.fillStyle = '#F5D742';
+      ctx.fillStyle = CURRENT_COLOR;
       ctx.font = '600 42px "Archivo"';
       var statValue = document.getElementById('statValue').textContent || '';
       ctx.fillText(statValue, pad, y);
@@ -509,15 +524,39 @@
 
     var datasets = [];
     yearKeys.forEach(function(y){
-      datasets.push({ label: String(y), data: yearsObj[String(y)], borderColor: '#3a3a36', borderWidth: 1, pointRadius: 0, tension: 0.25, hidden: !STATE.contextVisible, _kind: 'context' });
+      datasets.push({ label: String(y), data: yearsObj[String(y)], borderColor: '#3a3a36', borderWidth: 1, pointRadius: 0, tension: 0.25, cubicInterpolationMode: 'monotone', hidden: !STATE.contextVisible, _kind: 'context' });
     });
     decades.forEach(function(dec){
-      datasets.push({ label: dec.label, data: dec.data, borderColor: dec.color, borderWidth: 2, borderDash: [6,4], pointRadius: 0, tension: 0.25, hidden: false, _kind: 'decade' });
+      datasets.push({ label: dec.label, data: dec.data, borderColor: dec.color, borderWidth: 2, borderDash: [6,4], pointRadius: 0, tension: 0.25, cubicInterpolationMode: 'monotone', hidden: false, _kind: 'decade' });
     });
     if (STATE.previousYear !== null){
-      datasets.push({ label: String(STATE.previousYear), data: yearsObj[String(STATE.previousYear)], borderColor: '#E8E6DC', borderWidth: 2, pointRadius: 0, tension: 0.25, hidden: false, _kind: 'previous' });
+      datasets.push({ label: String(STATE.previousYear), data: yearsObj[String(STATE.previousYear)], borderColor: '#E8E6DC', borderWidth: 2, pointRadius: 0, tension: 0.25, cubicInterpolationMode: 'monotone', hidden: false, _kind: 'previous' });
     }
-    datasets.push({ label: String(maxYear), data: yearsObj[String(maxYear)], borderColor: '#F5D742', borderWidth: 2.5, pointRadius: 0, tension: 0.25, hidden: false, _kind: 'current' });
+
+    // Current year: brighter/bolder line with a small marker at the last
+    // reported day (today), so it's visually distinct from the reference lines.
+    var currentData = yearsObj[String(maxYear)];
+    var lastValidIdx = -1;
+    for (var lvi = currentData.length - 1; lvi >= 0; lvi--){
+      if (currentData[lvi] !== null && currentData[lvi] !== undefined){ lastValidIdx = lvi; break; }
+    }
+    var currentPointRadius = currentData.map(function(v, i){ return i === lastValidIdx ? 4 : 0; });
+    var currentPointHoverRadius = currentData.map(function(v, i){ return i === lastValidIdx ? 5 : 3; });
+    datasets.push({
+      label: String(maxYear),
+      data: currentData,
+      borderColor: CURRENT_COLOR,
+      borderWidth: 3,
+      pointRadius: currentPointRadius,
+      pointHoverRadius: currentPointHoverRadius,
+      pointBackgroundColor: CURRENT_COLOR,
+      pointBorderColor: '#07070f',
+      pointBorderWidth: 1.5,
+      tension: 0.25,
+      cubicInterpolationMode: 'monotone',
+      hidden: false,
+      _kind: 'current'
+    });
 
     STATE.chart.data.datasets = datasets;
     STATE.chart.update();
@@ -613,7 +652,7 @@
         label: y,
         data: STATE.yearsObj[String(y)],
         borderColor: STATE.compareColors[STATE.compareCount % STATE.compareColors.length],
-        borderWidth: 2, pointRadius: 0, tension: 0.25, hidden: false, _kind: 'compare'
+        borderWidth: 2, pointRadius: 0, tension: 0.25, cubicInterpolationMode: 'monotone', hidden: false, _kind: 'compare'
       });
       STATE.compareCount++;
       STATE.chart.update();
