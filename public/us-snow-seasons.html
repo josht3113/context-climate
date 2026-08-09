@@ -377,6 +377,36 @@ footer a:hover { color:var(--color-text-primary); }
       </div>
     </div>
 
+    <!-- Chart: Largest storm's share of season snowfall -->
+    <div class="cc-panel section-panel">
+      <div class="chart-hdr">
+        <div class="chart-hdr-title">
+          <span class="cc-btn-row-label">Largest Storm's Share of the Season</span>
+          <span class="chart-hdr-note">Largest single event (consecutive measurable-snow days) as % of that season's total snowfall</span>
+        </div>
+        <div class="ctrl-row">
+          <span class="cc-btn-row-label">Trend</span>
+          <select class="cc-select" id="trendSelD6" onchange="onTrendChangeD6(this)">
+            <option value="off">No Trend</option>
+            <option value="linear">Linear Fit</option>
+            <option value="5">5-yr Trailing Avg</option>
+            <option value="10" selected>10-yr Trailing Avg</option>
+            <option value="15">15-yr Trailing Avg</option>
+          </select>
+          <button class="cc-btn cc-btn-sm" id="dlBtnD6" onclick="downloadDetailChartPNG(this, 'stormShare', () => copyMetaD6, 'storm-share')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+              <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+            </svg>
+            Download PNG
+          </button>
+        </div>
+      </div>
+      <div class="detail-chart-wrap">
+        <canvas id="stormShareChart"></canvas>
+      </div>
+    </div>
+
     <div class="cc-panel">
       <p class="methodology">
         <b>Methodology:</b> Snow season = Nov 1–Apr 30. "Measurable" excludes trace amounts. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-season window ending at each complete season. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>.
@@ -1328,9 +1358,10 @@ let detailDirty = true;
 let detailTrend1 = '10';
 let detailTrend2 = '10';
 let detailStormThreshold = 10;
-let detailCharts = { snowDays: null, snowfall: null, stormCount: null, stormSize: null, snowIntensity: null };
-let copyMetaD1 = {}, copyMetaD2 = {}, copyMetaD3 = {}, copyMetaD4 = {}, copyMetaD5 = {};
+let detailCharts = { snowDays: null, snowfall: null, stormCount: null, stormSize: null, snowIntensity: null, stormShare: null };
+let copyMetaD1 = {}, copyMetaD2 = {}, copyMetaD3 = {}, copyMetaD4 = {}, copyMetaD5 = {}, copyMetaD6 = {};
 let detailTrend5 = '10';
+let detailTrend6 = '10';
 function ensoSubLabel() {
   if (activeEnsoPhase === null) return 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io';
   return `${ENSO_PHASE_INFO[activeEnsoPhase].full} seasons · NOAA ACIS ThreadEx · contextclimate.io`;
@@ -1339,6 +1370,8 @@ const SNOW_COLOR_D = '#6D96D8';
 const TREND_SNOW_COLOR_D = '#A9C4EA';
 const SNOW_INTENSITY_COLOR = '#7EC9C0';
 const TREND_INTENSITY_COLOR = '#BFE6E0';
+const STORM_SHARE_COLOR = '#C97B84';
+const TREND_STORM_SHARE_COLOR = '#E7B9C0';
 
 // ─── TAB SWITCHING ───────────────────────────────────────────
 function switchTab(tab) {
@@ -1648,6 +1681,52 @@ function renderStormChartsD(sys, storms) {
   });
 }
 
+// ─── CHART: LARGEST STORM'S SHARE OF SEASON SNOWFALL ────────────
+function renderStormShareChart(sys, bySY, storms) {
+  const labels = sys.map(SYL);
+  const largestBySy = {};
+  storms.forEach(s => {
+    if (!largestBySy[s.sy] || s.total > largestBySy[s.sy]) largestBySy[s.sy] = s.total;
+  });
+  const shareOf = sy => {
+    const total = bySY[sy].totalSnow;
+    const largest = largestBySy[sy] || 0;
+    return total > 0 ? (largest / total) * 100 : null;
+  };
+  const share = sys.map(sy => { const v = shareOf(sy); return v !== null ? +v.toFixed(1) : null; });
+
+  const datasets = [
+    { type: 'bar', label: "Largest Storm's Share", data: share, backgroundColor: STORM_SHARE_COLOR, order: 2 },
+  ];
+  if (detailTrend6 !== 'off') {
+    const trend = buildTrendSeriesD(sys, shareOf, detailTrend6);
+    if (trend) datasets.push({
+      type: 'line', label: trendLabelD(detailTrend6), data: trend,
+      borderColor: TREND_STORM_SHARE_COLOR, borderWidth: 2, borderDash: [6, 3], pointRadius: 0, tension: 0, order: 1
+    });
+  }
+
+  copyMetaD6 = { title: `${activeStation.label} — Largest Storm's Share of Season Snowfall`, sub: ensoSubLabel() };
+
+  if (detailCharts.stormShare) { try { detailCharts.stormShare.destroy(); } catch (e) {} }
+  const canvas = document.getElementById('stormShareChart');
+  canvas.style.display = 'block';
+  detailCharts.stormShare = new Chart(canvas, {
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
+      plugins: {
+        legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
+        tooltip: { mode: 'index', intersect: false }
+      },
+      scales: {
+        x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
+        y: { ...so(), ticks: { callback: v => v + '%', font: { size: 12 }, padding: 6 }, beginAtZero: true, suggestedMax: 100 }
+      }
+    }
+  });
+}
+
 // ─── RENDER ALL (DETAIL TAB) ────────────────────────────────────
 function renderSeasonDetail() {
   if (!parsed.length) return;
@@ -1658,6 +1737,7 @@ function renderSeasonDetail() {
   renderSeasonSnowfallChart(sys, bySY);
   renderSnowIntensityChart(sys, bySY);
   renderStormChartsD(sys, storms);
+  renderStormShareChart(sys, bySY, storms);
 }
 
 // ─── DETAIL CONTROLS ─────────────────────────────────────────
@@ -1672,6 +1752,10 @@ function onTrendChangeD2(sel) {
 function onTrendChangeD5(sel) {
   detailTrend5 = sel.value;
   if (parsed.length && activeTab === 'detail') { const { sys, bySY } = buildSeasonDayCounts(); renderSnowIntensityChart(sys, bySY); }
+}
+function onTrendChangeD6(sel) {
+  detailTrend6 = sel.value;
+  if (parsed.length && activeTab === 'detail') { const { sys, bySY } = buildSeasonDayCounts(); const storms = buildStorms(); renderStormShareChart(sys, bySY, storms); }
 }
 
 document.getElementById('thresholdSegD').addEventListener('click', e => {
