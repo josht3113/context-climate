@@ -513,6 +513,7 @@ function formatPct(p) {
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let mode      = 'climatology';
+let loadToken = 0; // bumped each loadClimatology() call; lets a stale in-flight request detect it's superseded
 let windType  = 'sust';  // 'sust' | 'gust'
 let threshIdx = 0;       // index into THRESHOLDS_MPH
 
@@ -666,9 +667,11 @@ function initGrids() {
     Array.from({ length: 366 }, () => new Int16Array(24))
   );
   dataCount = Array.from({ length: 366 }, () => new Int16Array(24));
+  return { sustCount, gustCount, dataCount };
 }
 
-function processYear(obs) {
+function processYear(obs, grids) {
+  const { sustCount, gustCount, dataCount } = grids;
   // Per-(doy, hour): max sustained and max gust for this year.
   const maxSped = new Float32Array(366 * 24).fill(-1);
   const maxGust = new Float32Array(366 * 24).fill(NaN);
@@ -1037,38 +1040,48 @@ function hasSped(idx) {
 // ═══════════════════════════════════════════════════════════════
 async function loadClimatology() {
   const st = activeStation();
+  const requestStationId = activeStationId;
+  const myToken = ++loadToken;
+
   document.getElementById('title-station').textContent = st.label;
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
-  if (climoCache.has(activeStationId)) {
-    const c = climoCache.get(activeStationId);
+  if (climoCache.has(requestStationId)) {
+    const c = climoCache.get(requestStationId);
     sustCount = c.sustCount; gustCount = c.gustCount; dataCount = c.dataCount;
     renderHeatmap(); renderLegend(); updateStats();
     return;
   }
 
-  initGrids();
+  // Request-local grids so a slower/older request can't clobber a newer one.
+  const reqGrids = initGrids();
   showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM… (may take ~30s)`);
 
   try {
     const csv = await fetchRangeCSV(CLIMO_START, CLIMO_END);
+    if (myToken !== loadToken) return; // superseded by a later station switch
     setProgress(55, 'Parsing wind observations…', 0);
     await sleep(30);
+    if (myToken !== loadToken) return;
     const { byYear, totalObs } = parseIEM(csv);
     setProgress(80, 'Aggregating by year…', totalObs);
     await sleep(30);
-    for (const obs of byYear.values()) processYear(obs);
-    setProgress(100, 'Done', totalObs);
+    if (myToken !== loadToken) return;
+    for (const obs of byYear.values()) processYear(obs, reqGrids);
 
-    climoCache.set(activeStationId, {
-      sustCount: sustCount.map(arr => arr.map(r => Int16Array.from(r))),
-      gustCount: gustCount.map(arr => arr.map(r => Int16Array.from(r))),
-      dataCount: dataCount.map(r => Int16Array.from(r)),
+    climoCache.set(requestStationId, {
+      sustCount: reqGrids.sustCount.map(arr => arr.map(r => Int16Array.from(r))),
+      gustCount: reqGrids.gustCount.map(arr => arr.map(r => Int16Array.from(r))),
+      dataCount: reqGrids.dataCount.map(r => Int16Array.from(r)),
     });
 
+    if (myToken !== loadToken) return; // abandoned while we were caching
+    sustCount = reqGrids.sustCount; gustCount = reqGrids.gustCount; dataCount = reqGrids.dataCount;
+    setProgress(100, 'Done', totalObs);
     hideLoading();
   } catch (e) {
+    if (myToken !== loadToken) return; // ignore errors from abandoned requests
     showError(e.message);
     console.error('Climatology load failed:', e);
     return;
@@ -1189,6 +1202,12 @@ function downloadPNG() {
     ? `Probability of ${lbl} ${typeLbl.toLowerCase()} by hour and day of year  ·  ${CLIMO_START}–${CLIMO_END}`
     : `Hours with ${lbl} ${typeLbl.toLowerCase()}  ·  ${currentYear}`;
 
+  const EXPORT_SCALE = 3;
+  const origDpr = dpr;
+  dpr = EXPORT_SCALE;
+  setupCanvas();
+  renderHeatmap();
+
   const cw = canvas.width  / dpr;
   const ch = canvas.height / dpr;
   const PAD = 24, HDR = 86, FTR = 28, MONTH_H = 22;
@@ -1196,9 +1215,9 @@ function downloadPNG() {
   const oh  = HDR + MONTH_H + ch + FTR;
 
   const off = document.createElement('canvas');
-  off.width  = ow * 2; off.height = oh * 2;
+  off.width  = ow * EXPORT_SCALE; off.height = oh * EXPORT_SCALE;
   const oc   = off.getContext('2d');
-  oc.scale(2, 2);
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   oc.fillStyle = '#1E2320';
   oc.fillRect(0, 0, ow, oh);
@@ -1261,6 +1280,10 @@ function downloadPNG() {
   oc.textAlign = 'left';
 
   oc.drawImage(canvas, PAD, HDR + MONTH_H, cw, ch);
+
+  dpr = origDpr;
+  setupCanvas();
+  renderHeatmap();
 
   oc.fillStyle = '#948F82';
   oc.font = '12px "Courier Prime", monospace';

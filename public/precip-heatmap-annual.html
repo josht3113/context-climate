@@ -418,6 +418,7 @@ let toYear          = DEFAULT_CLIMO_TO;
 let singleData      = null;
 let climoData       = null;
 const climoCache    = new Map();
+let loadToken = 0; // bumped each loadClimatology()/loadSingleYear() call; lets a stale in-flight request detect it's superseded
 let liveTimer=null, fakeTimer=null;
 let dpr = window.devicePixelRatio || 1;
 
@@ -829,22 +830,26 @@ function startLiveRefresh(){
 
 async function loadSingleYear(year){
   stopLiveRefresh();const st=STATIONS[activeStationId];
+  const myToken=++loadToken;
   showLoading(`Loading ${year}…`);startFakeProgress();
   try{
     const[iemResult,acisResult]=await Promise.allSettled([
       fetchIEM(activeStationId,st.tz,year,year),
       fetchACISDaily(activeStationId,year,year)
     ]);
+    if(myToken!==loadToken)return; // superseded by a newer station/year/mode switch
     stopFakeProgress();setProgress(80,'Parsing…');await sleep(20);
+    if(myToken!==loadToken)return;
     singleData=makeSingleData();
     if(iemResult.status==='fulfilled')parseCSVInto(iemResult.value,year,year,singleData,null);
     if(acisResult.status==='fulfilled')parseACISDaily(acisResult.value,singleData,null);
     hideLoading();updateTitle();renderHeatmap();renderLegend();updateStats();startLiveRefresh();
-  }catch(e){stopFakeProgress();showError(e.message);console.error(e);}
+  }catch(e){if(myToken!==loadToken)return;stopFakeProgress();showError(e.message);console.error(e);}
 }
 
 async function loadClimatology(fy,ty){
   const st=STATIONS[activeStationId];const cacheKey=`${activeStationId}_${fy}_${ty}`;
+  const myToken=++loadToken;
   if(climoCache.has(cacheKey)){climoData=climoCache.get(cacheKey);updateTitle();renderHeatmap();renderLegend();updateStats();return;}
   showLoading(`Fetching ${fy}–${ty}… (${ty-fy+1} years)`);startFakeProgress();
   try{
@@ -852,14 +857,17 @@ async function loadClimatology(fy,ty){
       fetchIEM(activeStationId,st.tz,fy,ty),
       fetchACISDaily(activeStationId,fy,ty)
     ]);
+    if(myToken!==loadToken)return; // superseded by a newer station/range/mode switch
     stopFakeProgress();setProgress(70,'Parsing…');await sleep(30);
+    if(myToken!==loadToken)return;
     const accum=makeClimoAccum();
     if(iemResult.status==='fulfilled')parseCSVInto(iemResult.value,fy,ty,null,accum);
     if(acisResult.status==='fulfilled')parseACISDaily(acisResult.value,null,accum);
     setProgress(90,'Computing…');await sleep(20);
+    if(myToken!==loadToken)return; // abandoned while computing
     climoData=accumToStats(accum);climoCache.set(cacheKey,climoData);
     setProgress(100);hideLoading();updateTitle();renderHeatmap();renderLegend();updateStats();
-  }catch(e){stopFakeProgress();showError(e.message);console.error(e);}
+  }catch(e){if(myToken!==loadToken)return;stopFakeProgress();showError(e.message);console.error(e);}
 }
 
 // ═══════════════════════════════════════════════
@@ -921,6 +929,12 @@ canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 function downloadPNG(){
   const st=STATIONS[activeStationId];
   const period=mode==='single'?String(currentYear):`${fromYear}–${toYear} Avg`;
+  const EXPORT_SCALE = 3;
+  const origDpr = dpr;
+  dpr = EXPORT_SCALE;
+  setupCanvas();
+  renderHeatmap();
+
   const cw2=canvas.width/dpr,ch2=canvas.height/dpr;
   const PAD=24,HDR=98,MBAR=22,FTR=20; // HDR bumped 90->98: the legend colorbar
   // (y 72-81) was overlapping its own "Dry"/"≥ 1.00 in/hr" endpoint labels
@@ -932,8 +946,8 @@ function downloadPNG(){
   const FULL_W=cw2,GRID_W=FULL_W-AVG_GAP-TOT_COL_W;
   const cw=GRID_W/366;
 
-  const off=document.createElement('canvas');off.width=ow*2;off.height=oh*2;
-  const oc=off.getContext('2d');oc.scale(2,2);
+  const off=document.createElement('canvas');off.width=ow*EXPORT_SCALE;off.height=oh*EXPORT_SCALE;
+  const oc=off.getContext('2d');oc.scale(EXPORT_SCALE,EXPORT_SCALE);
 
   oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
   const sc=SCALE_HOURLY;const grad=oc.createLinearGradient(0,0,ow,0);
@@ -974,6 +988,10 @@ function downloadPNG(){
   oc.textAlign='left';
 
   oc.drawImage(canvas,canvasX,HDR+MBAR,cw2,ch2);
+
+  dpr = origDpr;
+  setupCanvas();
+  renderHeatmap();
   oc.fillStyle='#948F82';oc.font='11px "Barlow Condensed",sans-serif';
   oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS & NOAA ACIS  ·  contextclimate.io`,PAD,oh-8);
   oc.fillStyle=grad;oc.fillRect(0,oh-2,ow,2);

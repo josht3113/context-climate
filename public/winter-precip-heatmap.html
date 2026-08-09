@@ -624,6 +624,7 @@ function formatPct(p) {
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let mode        = 'climatology';
+let loadToken   = 0; // bumped each loadClimatology() call; lets a stale in-flight request detect it's superseded
 let precipType  = 'all';
 let currentYear = CLIMO_END;
 
@@ -777,9 +778,11 @@ function initGrids() {
   plCount   = Array.from({ length: 366 }, () => new Int16Array(24));
   fzCount   = Array.from({ length: 366 }, () => new Int16Array(24));
   dataCount = Array.from({ length: 366 }, () => new Int16Array(24));
+  return { snCount, plCount, fzCount, dataCount };
 }
 
-function processYear(obs) {
+function processYear(obs, grids) {
+  const { snCount, plCount, fzCount, dataCount } = grids;
   const ySN   = new Uint8Array(366 * 24);
   const yPL   = new Uint8Array(366 * 24);
   const yFZ   = new Uint8Array(366 * 24);
@@ -1186,39 +1189,49 @@ canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; })
 // ═══════════════════════════════════════════════════════════════
 async function loadClimatology() {
   const st = activeStation();
+  const requestStationId = activeStationId;
+  const myToken = ++loadToken;
+
   document.getElementById('title-station').textContent = st.label;
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
-  if (climoCache.has(activeStationId)) {
-    const c = climoCache.get(activeStationId);
+  if (climoCache.has(requestStationId)) {
+    const c = climoCache.get(requestStationId);
     snCount = c.snCount; plCount = c.plCount; fzCount = c.fzCount; dataCount = c.dataCount;
     renderHeatmap(); renderLegend(); updateStats();
     return;
   }
 
-  initGrids();
+  // Request-local grids so a slower/older request can't clobber a newer one.
+  const reqGrids = initGrids();
   showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM… (one large request, may take ~30s)`);
 
   try {
     const csv = await fetchRangeCSV(CLIMO_START, CLIMO_END);
+    if (myToken !== loadToken) return; // superseded by a later station switch
     setProgress(60, 'Parsing observations…');
     await sleep(30);
+    if (myToken !== loadToken) return;
     const byYear = parseIEM(csv);
     setProgress(90, 'Aggregating by year…');
     await sleep(30);
-    for (const obs of byYear.values()) processYear(obs);
-    setProgress(100);
+    if (myToken !== loadToken) return;
+    for (const obs of byYear.values()) processYear(obs, reqGrids);
 
-    climoCache.set(activeStationId, {
-      snCount:   snCount.map(r => Int16Array.from(r)),
-      plCount:   plCount.map(r => Int16Array.from(r)),
-      fzCount:   fzCount.map(r => Int16Array.from(r)),
-      dataCount: dataCount.map(r => Int16Array.from(r)),
+    climoCache.set(requestStationId, {
+      snCount:   reqGrids.snCount.map(r => Int16Array.from(r)),
+      plCount:   reqGrids.plCount.map(r => Int16Array.from(r)),
+      fzCount:   reqGrids.fzCount.map(r => Int16Array.from(r)),
+      dataCount: reqGrids.dataCount.map(r => Int16Array.from(r)),
     });
 
+    if (myToken !== loadToken) return; // abandoned while we were caching
+    snCount = reqGrids.snCount; plCount = reqGrids.plCount; fzCount = reqGrids.fzCount; dataCount = reqGrids.dataCount;
+    setProgress(100);
     hideLoading();
   } catch (e) {
+    if (myToken !== loadToken) return; // ignore errors from abandoned requests
     showError(`Failed to load: ${e.message}`);
     console.error('Climatology load failed:', e);
     return;
@@ -1330,6 +1343,12 @@ function downloadPNG() {
     ? `Probability of ${typeLabel.toLowerCase()} by hour and day of year  ·  ${CLIMO_START}–${CLIMO_END}`
     : `Hours with observed ${typeLabel.toLowerCase()}  ·  ${currentYear}`;
 
+  const EXPORT_SCALE = 3;
+  const origDpr = dpr;
+  dpr = EXPORT_SCALE;
+  setupCanvas();
+  renderHeatmap();
+
   const cw = canvas.width  / dpr;
   const ch = canvas.height / dpr;
   const PAD = 24, HDR = 86, FTR = 28, MONTH_H = 22;
@@ -1337,10 +1356,10 @@ function downloadPNG() {
   const oh = HDR + MONTH_H + ch + FTR;
 
   const off = document.createElement('canvas');
-  off.width  = ow * 2;
-  off.height = oh * 2;
+  off.width  = ow * EXPORT_SCALE;
+  off.height = oh * EXPORT_SCALE;
   const oc = off.getContext('2d');
-  oc.scale(2, 2);
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   oc.fillStyle = '#1E2320';
   oc.fillRect(0, 0, ow, oh);
@@ -1386,6 +1405,10 @@ function downloadPNG() {
   oc.textAlign = 'left';
 
   oc.drawImage(canvas, PAD, HDR + MONTH_H, cw, ch);
+
+  dpr = origDpr;
+  setupCanvas();
+  renderHeatmap();
 
   oc.fillStyle = '#948F82';
   oc.font = '12px "Courier Prime", monospace';

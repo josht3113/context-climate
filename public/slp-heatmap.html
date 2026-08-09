@@ -506,6 +506,7 @@ function buildGradient(ctx2d, x0, x1) {
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let mode        = 'climatology';
+let loadToken   = 0; // bumped each loadClimatology() call; lets a stale in-flight request detect it's superseded
 let currentYear = CLIMO_END;
 
 // Climatology: per-(doy, hour) accumulator across years
@@ -635,13 +636,15 @@ function parseSLP(text) {
 function initClimoGrids() {
   climoSum   = Array.from({ length: 366 }, () => new Float64Array(24));
   climoCount = Array.from({ length: 366 }, () => new Int16Array(24));
+  return { climoSum, climoCount };
 }
 
 // Contribute one year's observations to climatology accumulators.
 // We first average within each hour of this year (so a year with
 // more sub-hourly obs doesn't outweigh one with fewer), then add
 // that hourly mean to the multi-year sum.
-function processYearClimo(obs) {
+function processYearClimo(obs, grids) {
+  const { climoSum, climoCount } = grids;
   const ySum = new Float64Array(366 * 24);
   const yCnt = new Int16Array(366 * 24);
 
@@ -995,41 +998,51 @@ canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; })
 // ═══════════════════════════════════════════════════════════════
 async function loadClimatology() {
   const st = activeStation();
+  const requestStationId = activeStationId;
+  const myToken = ++loadToken;
+
   document.getElementById('title-station').textContent = st.label;
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
   // Return cached data immediately if available
-  if (climoCache.has(activeStationId)) {
-    const c = climoCache.get(activeStationId);
+  if (climoCache.has(requestStationId)) {
+    const c = climoCache.get(requestStationId);
     climoSum   = c.climoSum;
     climoCount = c.climoCount;
     renderHeatmap(); renderLegend(); updateStats();
     return;
   }
 
-  initClimoGrids();
+  // Request-local grids so a slower/older request can't clobber a newer one.
+  const reqGrids = initClimoGrids();
   showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM… (one large request, ~30 s)`);
 
   try {
     const csv = await fetchRangeCSV(CLIMO_START, CLIMO_END);
+    if (myToken !== loadToken) return; // superseded by a later station switch
     setProgress(60, 'Parsing observations…');
     await sleep(30);
+    if (myToken !== loadToken) return;
     const byYear = parseSLP(csv);
     setProgress(80, 'Aggregating by year…');
     await sleep(30);
-    for (const obs of byYear.values()) processYearClimo(obs);
-    setProgress(100);
+    if (myToken !== loadToken) return;
+    for (const obs of byYear.values()) processYearClimo(obs, reqGrids);
     await sleep(80);
+    if (myToken !== loadToken) return;
 
-    // Cache so switching back is instant
-    climoCache.set(activeStationId, {
-      climoSum:   climoSum.map(r => new Float64Array(r)),
-      climoCount: climoCount.map(r => new Int16Array(r)),
+    // Cache under the station this request was actually for.
+    climoCache.set(requestStationId, {
+      climoSum:   reqGrids.climoSum.map(r => new Float64Array(r)),
+      climoCount: reqGrids.climoCount.map(r => new Int16Array(r)),
     });
 
+    climoSum = reqGrids.climoSum; climoCount = reqGrids.climoCount;
+    setProgress(100);
     hideLoading();
   } catch (e) {
+    if (myToken !== loadToken) return; // ignore errors from abandoned requests
     showError(e.message);
     console.error('Climatology load failed:', e);
     return;
@@ -1109,6 +1122,12 @@ function downloadPNG() {
     ? `Mean sea level pressure by hour and day of year  ·  ${CLIMO_START}–${CLIMO_END}`
     : `Observed sea level pressure (hourly mean)  ·  ${currentYear}`;
 
+  const EXPORT_SCALE = 3;
+  const origDpr = dpr;
+  dpr = EXPORT_SCALE;
+  setupCanvas();
+  renderHeatmap();
+
   const cw = canvas.width  / dpr;
   const ch = canvas.height / dpr;
 
@@ -1117,10 +1136,10 @@ function downloadPNG() {
   const oh  = HDR + MONTH_H + ch + FTR;
 
   const off = document.createElement('canvas');
-  off.width  = ow * 2;
-  off.height = oh * 2;
+  off.width  = ow * EXPORT_SCALE;
+  off.height = oh * EXPORT_SCALE;
   const oc   = off.getContext('2d');
-  oc.scale(2, 2);
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   // Background
   oc.fillStyle = '#1E2320';
@@ -1170,6 +1189,10 @@ function downloadPNG() {
 
   // Heatmap
   oc.drawImage(canvas, PAD, HDR + MONTH_H, cw, ch);
+
+  dpr = origDpr;
+  setupCanvas();
+  renderHeatmap();
 
   // Footer
   oc.fillStyle = '#948F82';
