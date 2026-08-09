@@ -382,25 +382,15 @@ footer a:hover { color:var(--color-text-primary); }
       <div class="chart-hdr">
         <div class="chart-hdr-title">
           <span class="cc-btn-row-label">Largest Storm's Share of the Season</span>
-          <span class="chart-hdr-note">Largest single event (consecutive measurable-snow days) as % of that season's total snowfall</span>
+          <span class="chart-hdr-note">Each bar is a season's total snowfall &mdash; shaded to show how much came from its single largest event (consecutive measurable-snow days)</span>
         </div>
-        <div class="ctrl-row">
-          <span class="cc-btn-row-label">Trend</span>
-          <select class="cc-select" id="trendSelD6" onchange="onTrendChangeD6(this)">
-            <option value="off">No Trend</option>
-            <option value="linear">Linear Fit</option>
-            <option value="5">5-yr Trailing Avg</option>
-            <option value="10" selected>10-yr Trailing Avg</option>
-            <option value="15">15-yr Trailing Avg</option>
-          </select>
-          <button class="cc-btn cc-btn-sm" id="dlBtnD6" onclick="downloadDetailChartPNG(this, 'stormShare', () => copyMetaD6, 'storm-share')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
-              <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
-            </svg>
-            Download PNG
-          </button>
-        </div>
+        <button class="cc-btn cc-btn-sm" id="dlBtnD6" onclick="downloadDetailChartPNG(this, 'stormShare', () => copyMetaD6, 'storm-share')" style="display:flex;align-items:center;gap:6px;" title="Download chart as PNG">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2v8m0 0l-3-3m3 3l3-3"/>
+            <path d="M2 12v1.5A1.5 1.5 0 003.5 15h9a1.5 1.5 0 001.5-1.5V12"/>
+          </svg>
+          Download PNG
+        </button>
       </div>
       <div class="detail-chart-wrap">
         <canvas id="stormShareChart"></canvas>
@@ -1361,7 +1351,6 @@ let detailStormThreshold = 10;
 let detailCharts = { snowDays: null, snowfall: null, stormCount: null, stormSize: null, snowIntensity: null, stormShare: null };
 let copyMetaD1 = {}, copyMetaD2 = {}, copyMetaD3 = {}, copyMetaD4 = {}, copyMetaD5 = {}, copyMetaD6 = {};
 let detailTrend5 = '10';
-let detailTrend6 = '10';
 function ensoSubLabel() {
   if (activeEnsoPhase === null) return 'Nov–Apr Snow Season · NOAA ACIS ThreadEx · contextclimate.io';
   return `${ENSO_PHASE_INFO[activeEnsoPhase].full} seasons · NOAA ACIS ThreadEx · contextclimate.io`;
@@ -1370,8 +1359,20 @@ const SNOW_COLOR_D = '#6D96D8';
 const TREND_SNOW_COLOR_D = '#A9C4EA';
 const SNOW_INTENSITY_COLOR = '#7EC9C0';
 const TREND_INTENSITY_COLOR = '#BFE6E0';
-const STORM_SHARE_COLOR = '#C97B84';
-const TREND_STORM_SHARE_COLOR = '#E7B9C0';
+const STORM_HERO_TOP = '#E58A5C';
+const STORM_HERO_BOTTOM = '#C25A38';
+const STORM_HERO_HOVER = '#F0A57A';
+const REST_OF_SEASON_TOP = 'rgba(141,177,231,0.40)';
+const REST_OF_SEASON_BOTTOM = 'rgba(88,120,168,0.20)';
+const REST_OF_SEASON_HOVER = 'rgba(160,193,240,0.52)';
+
+function verticalGradientD(ctx, stops) {
+  const area = ctx.chart.chartArea;
+  if (!area) return stops[0][1];
+  const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  stops.forEach(([stop, color]) => g.addColorStop(stop, color));
+  return g;
+}
 
 // ─── TAB SWITCHING ───────────────────────────────────────────
 function switchTab(tab) {
@@ -1688,23 +1689,32 @@ function renderStormShareChart(sys, bySY, storms) {
   storms.forEach(s => {
     if (!largestBySy[s.sy] || s.total > largestBySy[s.sy]) largestBySy[s.sy] = s.total;
   });
+  const largest = sys.map(sy => largestBySy[sy] || 0);
+  const rest = sys.map(sy => Math.max(0, +(bySY[sy].totalSnow - (largestBySy[sy] || 0)).toFixed(1)));
   const shareOf = sy => {
     const total = bySY[sy].totalSnow;
-    const largest = largestBySy[sy] || 0;
-    return total > 0 ? (largest / total) * 100 : null;
+    const big = largestBySy[sy] || 0;
+    return total > 0 ? (big / total) * 100 : null;
   };
-  const share = sys.map(sy => { const v = shareOf(sy); return v !== null ? +v.toFixed(1) : null; });
 
   const datasets = [
-    { type: 'bar', label: "Largest Storm's Share", data: share, backgroundColor: STORM_SHARE_COLOR, order: 2 },
+    {
+      type: 'bar', label: 'Largest Storm', data: largest, stack: 'season',
+      backgroundColor: ctx => verticalGradientD(ctx, [[0, STORM_HERO_TOP], [1, STORM_HERO_BOTTOM]]),
+      hoverBackgroundColor: STORM_HERO_HOVER,
+      borderColor: '#1E2320', borderWidth: 1,
+      borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 6, bottomRight: 6 },
+      borderSkipped: false, maxBarThickness: 30, order: 2
+    },
+    {
+      type: 'bar', label: 'Rest of Season', data: rest, stack: 'season',
+      backgroundColor: ctx => verticalGradientD(ctx, [[0, REST_OF_SEASON_TOP], [1, REST_OF_SEASON_BOTTOM]]),
+      hoverBackgroundColor: REST_OF_SEASON_HOVER,
+      borderColor: '#1E2320', borderWidth: 1,
+      borderRadius: { topLeft: 6, topRight: 6, bottomLeft: 0, bottomRight: 0 },
+      borderSkipped: false, maxBarThickness: 30, order: 1
+    }
   ];
-  if (detailTrend6 !== 'off') {
-    const trend = buildTrendSeriesD(sys, shareOf, detailTrend6);
-    if (trend) datasets.push({
-      type: 'line', label: trendLabelD(detailTrend6), data: trend,
-      borderColor: TREND_STORM_SHARE_COLOR, borderWidth: 2, borderDash: [6, 3], pointRadius: 0, tension: 0, order: 1
-    });
-  }
 
   copyMetaD6 = { title: `${activeStation.label} — Largest Storm's Share of Season Snowfall`, sub: ensoSubLabel() };
 
@@ -1717,11 +1727,28 @@ function renderStormShareChart(sys, bySY, storms) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: {
+          mode: 'index', intersect: false,
+          callbacks: {
+            label: item => {
+              const sy = sys[item.dataIndex];
+              if (item.dataset.label === 'Largest Storm') {
+                const pct = shareOf(sy);
+                return `Largest Storm: ${item.formattedValue}"${pct !== null ? '  (' + pct.toFixed(1) + '% of season)' : ''}`;
+              }
+              return `Rest of Season: ${item.formattedValue}"`;
+            },
+            footer: items => {
+              const sy = sys[items[0].dataIndex];
+              return `Season Total: ${bySY[sy].totalSnow}"`;
+            }
+          },
+          footerColor: '#E8E4D9', footerFont: { family: "'Courier Prime', monospace", size: 12, weight: '700' }
+        }
       },
       scales: {
-        x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
-        y: { ...so(), ticks: { callback: v => v + '%', font: { size: 12 }, padding: 6 }, beginAtZero: true, suggestedMax: 100 }
+        x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false }, stacked: true },
+        y: { ...so(), ticks: { callback: v => v + '"', font: { size: 12 }, padding: 6 }, beginAtZero: true, stacked: true }
       }
     }
   });
@@ -1752,10 +1779,6 @@ function onTrendChangeD2(sel) {
 function onTrendChangeD5(sel) {
   detailTrend5 = sel.value;
   if (parsed.length && activeTab === 'detail') { const { sys, bySY } = buildSeasonDayCounts(); renderSnowIntensityChart(sys, bySY); }
-}
-function onTrendChangeD6(sel) {
-  detailTrend6 = sel.value;
-  if (parsed.length && activeTab === 'detail') { const { sys, bySY } = buildSeasonDayCounts(); const storms = buildStorms(); renderStormShareChart(sys, bySY, storms); }
 }
 
 document.getElementById('thresholdSegD').addEventListener('click', e => {
