@@ -522,6 +522,11 @@ let tsCount         = null;
 let dataCount       = null;
 let nowMarkerActive = false;
 
+// Bumped on every loadClimatology() call; lets an in-flight request that
+// resolves after the user has switched stations again detect it's stale
+// and bail out instead of caching/rendering data under the wrong station.
+let loadToken = 0;
+
 // Auto-scale: stretch the color gradient to this view's actual max probability
 // instead of the fixed 0–MAX_PROB range, so low-frequency stations aren't
 // lost to near-black. Toggle-able from the legend row; on by default.
@@ -644,9 +649,10 @@ function parseIEM(text) {
 function initGrids() {
   tsCount   = Array.from({ length: 366 }, () => new Int16Array(24));
   dataCount = Array.from({ length: 366 }, () => new Int16Array(24));
+  return { tsCount, dataCount };
 }
 
-function processYear(obs) {
+function processYear(obs, tsCountArr, dataCountArr) {
   // Use typed arrays for per-year tracking (366*24 flat)
   const yTS   = new Uint8Array(366 * 24);
   const yData = new Uint8Array(366 * 24);
@@ -661,8 +667,8 @@ function processYear(obs) {
     for (let h = 0; h < 24; h++) {
       const idx = d * 24 + h;
       if (yData[idx]) {
-        dataCount[d][h]++;
-        if (yTS[idx]) tsCount[d][h]++;
+        dataCountArr[d][h]++;
+        if (yTS[idx]) tsCountArr[d][h]++;
       }
     }
   }
@@ -1094,39 +1100,56 @@ canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; })
 // ═══════════════════════════════════════════════════════════════
 async function loadClimatology() {
   const st = activeStation();
+  // Capture which station/request this call belongs to. If the user
+  // switches stations again before this resolves, activeStationId and
+  // loadToken will have moved on -- the myToken checks below let this
+  // (now-stale) call bail instead of caching/rendering its data under
+  // whatever station happens to be active by the time it finishes.
+  const requestStationId = activeStationId;
+  const myToken = ++loadToken;
+
   document.getElementById('title-station').textContent = st.label;
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
   // Return cached data immediately if available
-  if (climoCache.has(activeStationId)) {
-    const c = climoCache.get(activeStationId);
+  if (climoCache.has(requestStationId)) {
+    const c = climoCache.get(requestStationId);
     tsCount = c.tsCount; dataCount = c.dataCount;
     renderHeatmap(); renderLegend(); updateStats();
     return;
   }
 
-  initGrids();
+  // Use request-local grids (not the shared globals) while fetching, so a
+  // slower/older request can't write into a newer request's in-progress data.
+  const { tsCount: reqTsCount, dataCount: reqDataCount } = initGrids();
   showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM… (one large request, may take ~30s)`);
 
   try {
     const csv = await fetchRangeCSV(CLIMO_START, CLIMO_END);
+    if (myToken !== loadToken) return; // superseded by a later station switch
     setProgress(60, 'Parsing observations…');
     await sleep(30);
+    if (myToken !== loadToken) return;
     const byYear = parseIEM(csv);
     setProgress(90, 'Aggregating by year…');
     await sleep(30);
-    for (const obs of byYear.values()) processYear(obs);
-    setProgress(100);
+    if (myToken !== loadToken) return;
+    for (const obs of byYear.values()) processYear(obs, reqTsCount, reqDataCount);
 
-    // Cache so switching back is instant
-    climoCache.set(activeStationId, {
-      tsCount:   tsCount.map(r => Int16Array.from(r)),
-      dataCount: dataCount.map(r => Int16Array.from(r)),
+    // Cache under the station this request was actually for -- not
+    // activeStationId, which may have changed while we were fetching.
+    climoCache.set(requestStationId, {
+      tsCount:   reqTsCount.map(r => Int16Array.from(r)),
+      dataCount: reqDataCount.map(r => Int16Array.from(r)),
     });
 
+    if (myToken !== loadToken) return; // abandoned while we were caching
+    tsCount = reqTsCount; dataCount = reqDataCount;
+    setProgress(100);
     hideLoading();
   } catch(e) {
+    if (myToken !== loadToken) return; // ignore errors from abandoned requests
     showError(`Failed to load: ${e.message}`);
     console.error('Climatology load failed:', e);
     return;
