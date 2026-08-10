@@ -47,7 +47,7 @@ const SECTIONS = [
             tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
             title:       'Tidal Rhythm',
             description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
-            footerTags:  ['Tidal Forces', 'Spring & Neap Tides', 'NOAA Data', 'Astronomy'],
+            footerTags:  ['Tidal Forces', 'Spring & Neap Tides'],
             to:          '/earthandspace/tidal-rhythm',
             thumb:       '/TidalRhythm_thumbnail.png',
             status:      'live',
