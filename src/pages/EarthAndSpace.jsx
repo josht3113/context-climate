@@ -28,8 +28,8 @@ const SECTIONS = [
           {
             tags:        ['Moon Phases', 'Interactive'],
             title:       'Sidereal vs Synodic Month',
-            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation.',
-            footerTags:  ['Moon Phases', 'Orbital Mechanics'],
+            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation',
+            footerTags:  ['Moon Phases', 'Orbital Mechanics', 'Sidereal Month'],
             to:          '/earthandspace/sidereal-synodic-month',
             thumb:       '/SiderealSynodicMonth_thumbnail.png',
             status:      'live',
@@ -37,26 +37,26 @@ const SECTIONS = [
           {
             tags:        ['Moon Phases', 'Interactive'],
             title:       'Lunar Phase Simulator',
-            description: 'Use this simulator to explore the relationship between orbital position and lunar phase, sky position relative to the sun, and the Moon\'s tidal lock with Earth. Sync to Today function pulls up tonight\'s real phase.',
-            footerTags:  ['Moon Phases', 'Tidal Locking'],
+            description: 'Drag the Moon around its orbit or spin Earth to change the time of day, and watch how orbital position translates into phase, sky position, and the Moon\'s tidal lock with Earth. A live horizon diagram tracks moonrise and moonset, and Sync to Today pulls up tonight\'s real phase.',
+            footerTags:  ['Moon Phases', 'Tidal Locking', 'Horizon Diagram'],
             to:          '/earthandspace/moon-phase-simulator',
             thumb:       '/MoonPhaseSimulator_thumbnail.png',
             status:      'live',
           },
           {
-            tags:        ['Tidal Forces', 'Interactive'],
+            tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
             title:       'Tidal Rhythm',
-            description: 'See why the Moon raises two tidal bulges causing daily patterns of high and low tides and explore how spring and neap tides emerge from the combined pull of the Sun and Moon.',
-            footerTags:  ['Tidal Forces', 'Spring & Neap Tides'],
+            description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
+            footerTags:  ['Tidal Forces', 'Spring & Neap Tides', 'NOAA Data', 'Astronomy'],
             to:          '/earthandspace/tidal-rhythm',
             thumb:       '/TidalRhythm_thumbnail.png',
             status:      'live',
           },
           {
-            tags:        ['Eclipses', 'Interactive'],
+            tags:        ['Eclipses', 'Astronomy', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'UNDER CONSTRUCTION',
-            footerTags:  ['Shadow Geometry', 'Saros Cycle', 'Eclipses'],
+            description: 'Tilt the Moon\'s orbit relative to the Sun–Earth line and watch real umbra, antumbra, and penumbral shadow cones — not simplified circles — decide whether you get a total, annular, or partial eclipse, and why most months you get none at all. Then check the geometry against two real eclipses: the 89%-partial eclipse Long Island saw in April 2024, and the total eclipse that swept from Greenland to Iceland to Spain in August 2026, plus the real Saros cycle linking each eclipse to its predecessor 18 years earlier.',
+            footerTags:  ['Shadow Geometry', 'Saros Cycle', 'Eclipse Case Studies', 'Astronomy'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
             status:      'live',
@@ -70,10 +70,10 @@ const SECTIONS = [
         label: "Orbital Mechanics & Kepler's Laws",
         cards: [
           {
-            tags:        ['Natural Law', 'Interactive'],
+            tags:        ['Natural Law', 'Astronomy', 'Interactive'],
             title:       'The Inverse Square Law',
             description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance — applications of the inverse square law.',
-            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight'],
+            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight', 'Astronomy'],
             to:          '/earthandspace/inverse-square-law',
             thumb:       '/InverseSquareLaw_thumbnail.png',
             status:      'live',
@@ -81,7 +81,7 @@ const SECTIONS = [
           {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
             title:       "Kepler's First Law — Orbit Shape Explorer",
-            description: "Use this tool to explore how the shapes of planetary orbits can be described by eccentricity — from nearly circular to highly elliptical. Animate the planet with realistic speed variation.",
+            description: "Explore how eccentricity determines the shape of planetary orbits — from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
             footerTags:  ["Kepler's Laws", 'Eccentricity', 'Astronomy'],
             to:          '/earthandspace/kepler-law1-ellipses',
             thumb:       '/KeplerLaw1_thumbnail.png',
@@ -477,39 +477,15 @@ export default function EarthAndSpace() {
       {SECTIONS.map((section) => (
         <section key={section.key} style={{ marginBottom: '56px' }}>
 
-          {/* Section header */}
-          <div style={{
-            display:      'flex',
-            alignItems:   'center',
-            gap:          '12px',
-            marginBottom: '24px',
-          }}>
-            {/* Colored accent bar */}
-            <div style={{
-              width:        '4px',
-              height:       '28px',
-              borderRadius: '2px',
-              background:   section.accent,
-              flexShrink:   0,
-            }} />
-            <h2 style={{
-              margin:     0,
-              fontSize:   '1.0rem',
-              fontWeight: 700,
-              letterSpacing: '0.10em',
-              textTransform: 'uppercase',
-              color:      'var(--color-text-primary)',
-            }}>
-              {section.label}
-            </h2>
-            {/* Divider line */}
-            <div style={{
-              flex:        1,
-              height:      '1px',
-              background:  'var(--color-border)',
-              opacity:     0.5,
-            }} />
-          </div>
+          {/* Section header — reuses Home's .sectionLabel so section titles
+              match the font/size/weight used for "Live · Updates Continuously" etc. */}
+          <h2
+            className={styles.sectionLabel}
+            style={{ '--section-accent': section.accent }}
+          >
+            <span className={styles.sectionLabelBar} />
+            {section.label}
+          </h2>
 
           {/* Cards grid — either a flat grid, or (for sections with a
               "subgroups" array, e.g. Astronomy) a labeled grid per subgroup,
@@ -521,13 +497,13 @@ export default function EarthAndSpace() {
                   style={{ marginBottom: si < section.subgroups.length - 1 ? '40px' : 0 }}
                 >
                   <h3 style={{
-                    margin:        '0 0 16px',
+                    margin:        '0 0 18px',
                     fontFamily:    'var(--font-mono)',
-                    fontSize:      '0.78rem',
-                    fontWeight:    600,
-                    letterSpacing: '0.08em',
+                    fontSize:      '1rem',
+                    fontWeight:    700,
+                    letterSpacing: '0.06em',
                     textTransform: 'uppercase',
-                    color:         'var(--color-text-secondary)',
+                    color:         'var(--color-text-primary)',
                   }}>
                     {sub.label}
                   </h3>
