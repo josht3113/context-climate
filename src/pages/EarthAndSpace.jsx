@@ -53,10 +53,10 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Eclipses', 'Astronomy', 'Interactive'],
+            tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
             description: 'UNDER CONSTRUCTION',
-            footerTags:  ['Shadow Geometry', 'Saros Cycle', 'Eclipse Case Studies', 'Astronomy'],
+            footerTags:  ['Shadow Geometry', 'Eclipses'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
             status:      'live',
