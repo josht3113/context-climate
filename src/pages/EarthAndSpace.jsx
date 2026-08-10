@@ -55,7 +55,7 @@ const SECTIONS = [
           {
             tags:        ['Eclipses', 'Astronomy', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'Tilt the Moon\'s orbit relative to the Sun–Earth line and watch real umbra, antumbra, and penumbral shadow cones — not simplified circles — decide whether you get a total, annular, or partial eclipse, and why most months you get none at all. Then check the geometry against two real eclipses: the 89%-partial eclipse Long Island saw in April 2024, and the total eclipse that swept from Greenland to Iceland to Spain in August 2026, plus the real Saros cycle linking each eclipse to its predecessor 18 years earlier.',
+            description: 'UNDER CONSTRUCTION',
             footerTags:  ['Shadow Geometry', 'Saros Cycle', 'Eclipse Case Studies', 'Astronomy'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
