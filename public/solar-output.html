@@ -193,6 +193,38 @@
     return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
   }
 
+  /* Some data sources append daily/6-hourly "recent" readings past the
+     monthly composite's cutoff (LASP's near-real-time TSIS-1 feed does
+     this). Mixing resolutions makes the chart look noisy at the tail and
+     skews stats like the long-term mean, since each extra daily row
+     would otherwise count as much as a whole monthly average. Collapse
+     anything sharing a calendar month down to a single averaged point so
+     the whole series -- and any charts/stats built from it -- stays
+     uniformly monthly, regardless of what resolution the source JSON
+     actually contains. */
+  function collapseToMonthly(points) {
+    var byMonth = {};
+    var order = [];
+    points.forEach(function (p) {
+      var key = p.date.slice(0, 7); // "YYYY-MM"
+      if (!byMonth[key]) {
+        byMonth[key] = { sum: 0, count: 0, cycle: p.cycle };
+        order.push(key);
+      }
+      byMonth[key].sum += p.tsi;
+      byMonth[key].count += 1;
+      byMonth[key].cycle = p.cycle; // last-seen cycle tag for that month
+    });
+    return order.map(function (key) {
+      var b = byMonth[key];
+      return {
+        date: key + "-15",
+        tsi: Math.round((b.sum / b.count) * 1000) / 1000,
+        cycle: b.cycle
+      };
+    });
+  }
+
   /* ─────────────────────── TAB SWITCHING ─────────────────────── */
   var tabs = document.querySelectorAll(".cc-tab");
   var panels = { tsi: document.getElementById("panel-tsi"), live: document.getElementById("panel-live") };
@@ -207,7 +239,7 @@
   });
 
   /* ═══════════════════════ PANEL: TSI ═══════════════════════ */
-  var tsiData = null;      // full JSON payload
+  var tsiData = null;      // full JSON payload, points normalized to monthly
   var tsiChart = null;
 
   function buildTsiChart(points) {
@@ -314,9 +346,10 @@
         return r.json();
       })
       .then(function (json) {
+        json.points = collapseToMonthly(json.points);
         tsiData = json;
-        buildTsiChart(json.points);
-        renderTsiStats(json.points);
+        buildTsiChart(tsiData.points);
+        renderTsiStats(tsiData.points);
       })
       .catch(function (err) {
         document.getElementById("tsiCanvasBox").innerHTML =
