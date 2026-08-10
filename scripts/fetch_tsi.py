@@ -26,6 +26,8 @@ EPOCH = date(1610, 1, 1)
 MONTHLY_URL = "https://lasp.colorado.edu/lisird/latis/dap/nrl2_tsi_P1M.csv"
 # Preliminary / near-real-time products -- may lag or be empty if the
 # instrument feed has a gap. Checked in order; first one with rows wins.
+# These report DAILY or 6-hourly, a finer resolution than the monthly
+# composite -- see monthly_bin() below, which is why that matters.
 RECENT_CANDIDATES = [
     "https://lasp.colorado.edu/lisird/latis/dap/nnl_tsi_prelim_P1D.csv",
     "https://lasp.colorado.edu/lisird/latis/dap/tsis_tsi_24hr.csv",
@@ -108,6 +110,34 @@ def parse_julian_date(csv_text: str):
     return rows
 
 
+def monthly_bin(rows):
+    """Collapse (date, value) rows sharing a calendar month into a single
+    averaged point, using the 15th as a stable representative day (matching
+    the source composite's own convention for its monthly product).
+
+    The "recent" near-real-time feeds report daily or 6-hourly, a much
+    finer cadence than the monthly composite. Appending those rows to the
+    monthly series unbinned makes the tail of the record look noisy (daily
+    TSI swings a few W/m^2 with sunspot transits in a way the monthly mean
+    smooths out) and it skews any simple average of "points" toward
+    whichever stretch happens to have the most rows. Binning first keeps
+    the whole series at a uniform monthly cadence.
+    """
+    buckets = {}
+    order = []
+    for d, v in rows:
+        key = (d.year, d.month)
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(v)
+    out = []
+    for (y, m) in order:
+        vals = buckets[(y, m)]
+        out.append((date(y, m, 15), round(sum(vals) / len(vals), 3)))
+    return out
+
+
 def main():
     out_path = sys.argv[1] if len(sys.argv) > 1 else "solar-tsi-monthly.json"
 
@@ -128,8 +158,8 @@ def main():
             continue
         recent = [(d, v) for d, v in recent if d > latest_monthly_date]
         if recent:
-            extra_recent = recent
-            print(f"  found {len(recent)} more-recent points from {url}")
+            extra_recent = monthly_bin(recent)
+            print(f"  found {len(recent)} more-recent rows from {url} -> {len(extra_recent)} monthly point(s) after binning")
             break
 
     points = [{"date": d.isoformat(), "tsi": v, "cycle": cycle_for(d)} for d, v in monthly]
@@ -142,9 +172,11 @@ def main():
         "generated": date.today().isoformat(),
         "latest_date": points[-1]["date"],
         "note": (
-            "Monthly composite total solar irradiance at 1 AU. "
-            "If latest_date lags today by more than ~6 weeks, LASP's "
-            "near-real-time feed likely has a gap -- the tool should label "
+            "Monthly composite total solar irradiance at 1 AU. Points past the "
+            "official monthly composite's cutoff are a monthly average of the "
+            "near-real-time daily feed, so the whole series stays one point per "
+            "calendar month. If latest_date lags today by more than ~6 weeks, "
+            "LASP's near-real-time feed likely has a gap -- the tool should label "
             "the reading as 'latest available' rather than 'live'."
         ),
         "points": points,
