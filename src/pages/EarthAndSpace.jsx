@@ -28,7 +28,7 @@ const SECTIONS = [
           {
             tags:        ['Lunar Cycle', 'Interactive'],
             title:       'Sidereal vs Synodic Month',
-            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation',
+            description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation.',
             footerTags:  ['Moon Phases', 'Orbital Mechanics'],
             to:          '/earthandspace/sidereal-synodic-month',
             thumb:       '/SiderealSynodicMonth_thumbnail.png',
@@ -37,7 +37,7 @@ const SECTIONS = [
           {
             tags:        ['Moon Phases', 'Interactive'],
             title:       'Lunar Phase Simulator',
-            description: 'Use this tool to explore why we see different moon phases, and discover why we only always see the same side of the moon from Earth. Sync to Today button pulls up tonight\'s real phase.',
+            description: 'Explore why we observe different moon phases over the course of a month, and discover why we always see the same side of the moon from Earth. Sync to Today button pulls up tonight\'s real phase.',
             footerTags:  ['Moon Phases', 'Tidal Locking'],
             to:          '/earthandspace/moon-phase-simulator',
             thumb:       '/MoonPhaseSimulator_thumbnail.png',
