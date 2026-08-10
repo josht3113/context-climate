@@ -117,7 +117,7 @@ const SECTIONS = [
           {
             tags:        ['Space Travel', 'Interactive'],
             title:       'Mission to Mars',
-            description: "Launch a rover toward Mars by timing your departure, not aiming at where Mars is right now. Watch the rover sweep a real Hohmann transfer ellipse — equal areas in equal times, straight out of Kepler's Second Law — and see exactly how many degrees (and days) a mistimed launch misses by.",
+            description: "Launch a rover toward Mars by timing your departure just right to meet the target at the perfect location. Watch the rover sweep a real Hohmann transfer ellipse, and see exactly how many days a mistimed launch misses by.",
             footerTags:  ['Hohmann Transfer', 'Launch Windows'],
             to:          '/earthandspace/mission-to-mars',
             thumb:       '/MissionToMars_thumbnail.png',
