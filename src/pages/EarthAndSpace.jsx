@@ -72,7 +72,7 @@ const SECTIONS = [
           {
             tags:        ['Natural Law', 'Interactive'],
             title:       'The Inverse Square Law',
-            description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance — applications of the inverse square law.',
+            description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance.',
             footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight'],
             to:          '/earthandspace/inverse-square-law',
             thumb:       '/InverseSquareLaw_thumbnail.png',
