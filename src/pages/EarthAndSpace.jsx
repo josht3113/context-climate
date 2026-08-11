@@ -126,8 +126,8 @@ const SECTIONS = [
           {
             tags:        ['Planetary Formation', 'Interactive'],
             title:       'Chemical Fractionation',
-            description: "Drag through the young solar nebula and watch metals, silicate rock, and ice condense out in temperature order — see the snow line fall almost exactly where the ESSRT's own asteroid belt sits, and why that split left the inner planets rocky and the outer planets built from ice and gas. Then add heat to a newly accreted, well-mixed planet and watch density sort it into Earth's real layered structure, straight from the ESSRT interior model — down to a solid inner core denser than lead.",
-            footerTags:  ['Condensation Sequence', 'Planetary Differentiation', 'Density'],
+            description: "Explore how planets forming in different regions of the young solar system formed from different materials with different properties, and how Earth developed its interior layers.",
+            footerTags:  ['Condensation Sequence', 'Planetary Differentiation'],
             to:          '/earthandspace/chemical-fractionation',
             thumb:       '/ChemicalFractionation_thumbnail.png',
             status:      'live',
