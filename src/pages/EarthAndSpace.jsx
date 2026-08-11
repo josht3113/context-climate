@@ -231,7 +231,7 @@ const SECTIONS = [
           {
             tags:        ['Spectroscopy', 'Interactive'],
             title:       'Doppler Shift Explorer',
-            description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together. See rest and observed line positions side by side, read off the velocity, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
+            description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
             footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect'],
             to:          '/earthandspace/doppler-shift-explorer',
             thumb:       '/DopplerShiftExplorer_thumbnail.png',
