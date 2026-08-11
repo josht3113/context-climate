@@ -196,7 +196,7 @@ const SECTIONS = [
           {
             tags:        ['Apparent Motion', 'Interactive'],
             title:       "The Sun's Path",
-            description: "Watch the Sun trace its daily arc across a south-facing sky on the first day of each season at 41-degrees north and te Arctic Circle.",
+            description: "Watch the Sun trace its daily arc across a south-facing sky on the first day of each season at 41-degrees north and at the Arctic Circle.",
             footerTags:  ['Solar Altitude', 'Seasons'],
             to:          '/earthandspace/suns-path',
             thumb:       '/TheSunsPath_thumbnail.png',
