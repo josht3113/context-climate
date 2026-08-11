@@ -240,7 +240,7 @@ const SECTIONS = [
           {
             tags:        ['Cosmology', 'Interactive'],
             title:       "Hubble's Law Explorer",
-            description: 'Stretch a simple row of galaxies and pick any one of them as home to discover that the velocity distance relationship looks the same no matter who is measuring, then build the real Hubble diagram yourself from four classic galaxy clusters. Read each cluster\'s redshifted hydrogen line, plot the point, and reveal the fit line to estimate the Hubble constant and the age of the universe.',
+            description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from four classic galaxy clusters.',
             footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang Evidence'],
             to:          '/earthandspace/hubbles-law-explorer',
             thumb:       '/HubblesLawExplorer_thumbnail.png',
