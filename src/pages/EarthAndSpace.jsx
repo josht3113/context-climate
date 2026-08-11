@@ -205,8 +205,8 @@ const SECTIONS = [
           {
             tags:        ['Apparent Motion', 'Interactive'],
             title:       'The Turning Sky',
-            description: 'Step outside on a Long Island night and watch the sky turn — the North Star anchors a slow celestial clock while the southern sky drifts past in a Stellarium-style star field. Toggle between one night\'s hourly rotation and a full year\'s monthly march to see how the steady 15°-per-hour spin of the celestial sphere builds the changing seasons of stars.',
-            footerTags:  ['Celestial Rotation', 'Circumpolar Stars', 'Star Field', 'Astronomy'],
+            description: 'Take a virtual step outside on a Long Island night and watch the sky turn. Toggle between north-facing or south-facing views, and daily or yearly temporal scales.',
+            footerTags:  ['Celestial Observation', 'Circumpolar Stars'],
             to:          '/earthandspace/turning-sky',
             thumb:       '/TheTurningSky_thumbnail.png',
             status:      'live',
