@@ -234,7 +234,9 @@
   <div class="li"><div class="ls" style="background:var(--ln-weak)"></div>Weak La Niña (0.5–1.0°C)</div>
   <div class="lsep"></div>
   <div class="li"><div class="ls" style="background:var(--cur1);height:4px"></div>2024–25 La Niña (recent)</div>
-  <div class="li"><div class="ls-dashed"></div>2026 (developing)</div>
+  <div class="li" title="If NOAA hasn't published the following month yet, the line's tip shows a hollow-ringed 2-month partial average instead of a final ONI value.">
+    <div class="ls-dashed"></div>2026 (developing)<span style="opacity:.55">&nbsp;— hollow tip = partial</span>
+  </div>
 </div>
 
 <div class="notable" id="notable">
@@ -523,6 +525,22 @@ function detect(raw, oni, years) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CURRENT EVENT LINES
 // ─────────────────────────────────────────────────────────────────────────────
+// ONI is a CENTERED 3-month mean, so the newest possible ONI value always
+// trails the newest raw anomaly by one month — it needs the following
+// month's number too. For the live "developing" trajectory that lag reads
+// as the line stalling a month behind reality. partialTrailingMean() gives
+// the line's tip something to plot for the latest raw month even when the
+// centered mean can't be computed yet: a 2-month (prior+current) average
+// where available, otherwise just the raw value itself. The caller flags
+// which index is partial so the marker/tooltip can visually mark it as an
+// estimate rather than a true published ONI reading.
+function partialTrailingMean(rawArr, idx) {
+  const c = rawArr[idx];
+  if (c === null || c === undefined) return null;
+  const p = rawArr[idx - 1] ?? null;
+  return p !== null ? +((p + c) / 2).toFixed(3) : +c.toFixed(3);
+}
+
 function buildCurrentLines(raw, oni) {
   const lines = [];
 
@@ -539,11 +557,20 @@ function buildCurrentLines(raw, oni) {
   const dv_raw = [...(raw[2026] || Array(12).fill(null)), ...Array(12).fill(null)];
   const dv_oni = [...(oni[2026] || Array(12).fill(null)), ...Array(12).fill(null)];
   if (dv_raw.some(v => v !== null)) {
+    const lastRawIdx = dv_raw.reduce((b, v, i) => v !== null ? i : b, -1);
+    let partialIdx = null;
+    if (dv_oni[lastRawIdx] === null) {
+      const partial = partialTrailingMean(dv_raw, lastRawIdx);
+      if (partial !== null) {
+        dv_oni[lastRawIdx] = partial;   // local copy only — never written back to oniData
+        partialIdx = lastRawIdx;
+      }
+    }
     const lastIdx = dv_oni.reduce((b, v, i) => v !== null ? i : b, -1);
     lines.push({
       year: 2026, type: 'developing', label: '2026 (developing)',
       oniSeries: dv_oni, rawSeries: dv_raw,
-      color: '#FFE000', width: 3.5, dashed: true, isCurrent: true, lastIdx,
+      color: '#FFE000', width: 3.5, dashed: true, isCurrent: true, lastIdx, partialIdx,
     });
   }
   return lines;
@@ -603,12 +630,22 @@ function buildDatasets(events, curLines, metric, mode, thresh) {
   // Current event lines — always on top
   for (const cl of curLines) {
     const series = metric === 'oni' ? cl.oniSeries : cl.rawSeries;
+    const isPartialTip = metric === 'oni' && cl.partialIdx !== null && cl.partialIdx !== undefined;
 
-    // Endpoint dot for the developing 2026 line
+    // Endpoint dot for the developing 2026 line. A partial-average tip
+    // (see partialTrailingMean) draws as a hollow ring instead of a solid
+    // dot, so it reads as "provisional" rather than a confirmed ONI value.
     const pRadius = Array(24).fill(0);
     const pBg     = Array(24).fill(cl.color);
+    const pBorder = Array(24).fill('transparent');
+    const pBW     = Array(24).fill(0);
     if (cl.lastIdx !== undefined && cl.lastIdx >= 0) {
       pRadius[cl.lastIdx] = 6;
+      if (isPartialTip && cl.partialIdx === cl.lastIdx) {
+        pBg[cl.lastIdx]     = 'transparent';
+        pBorder[cl.lastIdx] = cl.color;
+        pBW[cl.lastIdx]     = 2.5;
+      }
     }
 
     ds.push({
@@ -619,14 +656,15 @@ function buildDatasets(events, curLines, metric, mode, thresh) {
       borderDash: cl.dashed ? [9, 5] : [],
       pointRadius: pRadius,
       pointBackgroundColor: pBg,
-      pointBorderColor: 'transparent',
+      pointBorderColor: pBorder,
+      pointBorderWidth: pBW,
       pointHoverRadius: 7,
       tension: 0.35,
       fill: false,
       spanGaps: false,
       order: 0,
     });
-    dsMeta.push({ kind: 'current', cl });
+    dsMeta.push({ kind: 'current', cl, isPartialTip });
   }
 
   return ds;
@@ -764,19 +802,25 @@ function extTooltip({ chart: c, tooltip: tip }) {
   const extra   = evPts.length - Math.min(5, evPts.length);
 
   let html = `<div class="tth">${monLabel}</div>`;
+  let sawPartial = false;
   for (const dp of show) {
+    const meta = dsMeta[dp.datasetIndex];
     const ds  = c.data.datasets[dp.datasetIndex];
     const v   = dp.raw;
     const sign = v >= 0 ? '+' : '';
     const vc  = v >= 0.5 ? '#f39c12' : v <= -0.5 ? '#42a5f5' : 'rgba(232,228,217,.7)';
     const bc  = typeof ds.borderColor === 'string' ? ds.borderColor : '#888';
+    const isPartial = meta?.isPartialTip && meta.cl.partialIdx === dp.dataIndex;
+    if (isPartial) sawPartial = true;
+    const nameSuffix = isPartial ? ' <span style="opacity:.6">(partial)</span>' : '';
     html += `<div class="ttr">
       <div class="ttsw" style="background:${bc}"></div>
-      <div class="ttn">${ds.label}</div>
+      <div class="ttn">${ds.label}${nameSuffix}</div>
       <div class="ttv" style="color:${vc}">${sign}${v.toFixed(2)}°C</div>
     </div>`;
   }
   if (extra > 0) html += `<div class="ttmore">+ ${extra} more events at this month</div>`;
+  if (sawPartial) html += `<div class="ttmore">Partial 2-mo. average — next month not yet published by NOAA</div>`;
 
   tipEl.innerHTML = html;
   tipEl.classList.add('on');
