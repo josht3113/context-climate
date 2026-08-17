@@ -21,7 +21,7 @@
   .cc-subtitle { max-width: 500px; margin: 0 auto; }
 
   /* ── Canvas + live readout ── */
-  .canvas-block { width: 100%; max-width: 700px; margin-top: 22px; }
+  .canvas-block { width: 100%; max-width: 860px; margin-top: 22px; }
 
   #isl-canvas {
     width: 100%;
@@ -62,7 +62,7 @@
   /* ── Applications section: rail + content ── */
   .app-section {
     width: 100%;
-    max-width: 840px;
+    max-width: 880px;
     margin-top: 30px;
     display: flex;
     align-items: flex-start;
@@ -419,7 +419,7 @@
   </header>
 
   <div class="canvas-block">
-    <canvas id="isl-canvas" class="cc-canvas-frame" width="700" height="720" tabindex="0" aria-label="Interactive inverse square law diagram. Drag the white marker along the ray, or focus the diagram and use the arrow keys to move it. Colored dots mark real bodies from the selected application."></canvas>
+    <canvas id="isl-canvas" class="cc-canvas-frame" width="1200" height="1200" tabindex="0" aria-label="Interactive inverse square law diagram, extended to real Jupiter distance. Drag the white marker along the ray, or focus the diagram and use the arrow keys to move it. Colored dots mark real bodies from the selected application."></canvas>
     <span class="readout-formula">Intensity ∝ 1 / r²</span>
     <div class="cc-stat-row" style="justify-content: center; margin-top: 10px;">
       <div class="cc-stat-chip">
@@ -577,13 +577,17 @@
 
     const canvas = document.getElementById('isl-canvas');
     const ctx    = canvas.getContext('2d');
-    const CW     = canvas.width;   // 700
-    const CH     = canvas.height;  // 720
-    const cx     = CW / 2;         // 350
-    const cy     = CH / 2;         // 360
+    const CW     = canvas.width;   // 1200
+    const CH     = canvas.height;  // 1200
+    const cx     = CW / 2;         // 600
+    const cy     = CH / 2;         // 600
 
-    // Ring radii (r1 is the "1r" unit used by the probe and real-body markers)
-    const r1 = 100, r2 = 200, r3 = 300;
+    // Ring radii (r1 is the "1r" unit used by the probe and real-body markers).
+    // Extended out to 6r so Jupiter (5.2 AU / 5.2r) sits at its real position
+    // instead of pinning off-scale — Saturn and beyond still pin at the edge.
+    const r1 = 100, r2 = 200, r3 = 300, r4 = 400, r5 = 500, r6 = 600;
+    const RING_RADII = [r1, r2, r3, r4, r5, r6];
+    const R_MAX_PX = r6;
 
     // Wedge: pointing upper-right at -45°
     const WM      = -Math.PI / 4;
@@ -601,8 +605,8 @@
     let currentApp = 'gravity';
 
     // ── Probe state ────────────────────────────────────────────────────────────────
-    const PROBE_MIN = 0.4, PROBE_MAX = 3.8;
-    const MARKER_MAX = 3.8; // real-body markers pin here when off-scale
+    const PROBE_MIN = 0.4, PROBE_MAX = 6.0;
+    const MARKER_MAX = 6.0; // real-body markers pin here when off-scale (Saturn and beyond)
     let probeR = 1.6;
     let dragging = false;
 
@@ -760,7 +764,7 @@
       ctx.clearRect(0, 0, CW, CH);
 
       // Background: very dark with subtle color bleed from center
-      const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, r3 * 1.8);
+      const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R_MAX_PX * 1.8);
       bg.addColorStop(0,    `rgba(${rC},${gC},${bC},0.09)`);
       bg.addColorStop(0.35, '#101320');
       bg.addColorStop(1,    '#07090f');
@@ -772,14 +776,14 @@
         const a = (i / 48) * Math.PI * 2;
         ctx.beginPath();
         ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + Math.cos(a) * r3 * 1.05, cy + Math.sin(a) * r3 * 1.05);
+        ctx.lineTo(cx + Math.cos(a) * R_MAX_PX * 1.05, cy + Math.sin(a) * R_MAX_PX * 1.05);
         ctx.strokeStyle = `rgba(${rC},${gC},${bC},0.028)`;
         ctx.lineWidth = 0.5;
         ctx.stroke();
       }
 
       // Ring circles
-      [r1, r2, r3].forEach(r => {
+      RING_RADII.forEach(r => {
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
         ctx.strokeStyle = 'rgba(255,255,255,0.055)';
@@ -787,38 +791,31 @@
         ctx.stroke();
       });
 
-      // ── Wedge sector fills (three bands, decreasing brightness) ──
-
-      // Band 1: center → r1
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, r1, W_START, W_END);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${rC},${gC},${bC},0.27)`;
-      ctx.fill();
-
-      // Band 2: r1 → r2
-      ctx.beginPath();
-      ctx.arc(cx, cy, r2, W_START, W_END);
-      ctx.arc(cx, cy, r1, W_END, W_START, true);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${rC},${gC},${bC},0.085)`;
-      ctx.fill();
-
-      // Band 3: r2 → r3
-      ctx.beginPath();
-      ctx.arc(cx, cy, r3, W_START, W_END);
-      ctx.arc(cx, cy, r2, W_END, W_START, true);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(${rC},${gC},${bC},0.032)`;
-      ctx.fill();
+      // ── Wedge sector fills (six bands, decreasing brightness with distance —
+      //     fainter bands read as "weaker," reinforcing the law itself) ──
+      const BAND_OPACITY = [0.27, 0.085, 0.032, 0.014, 0.007, 0.0035];
+      let prevBandR = 0;
+      RING_RADII.forEach((r, i) => {
+        ctx.beginPath();
+        if (i === 0) {
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, r, W_START, W_END);
+        } else {
+          ctx.arc(cx, cy, r, W_START, W_END);
+          ctx.arc(cx, cy, prevBandR, W_END, W_START, true);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `rgba(${rC},${gC},${bC},${BAND_OPACITY[i]})`;
+        ctx.fill();
+        prevBandR = r;
+      });
 
       // Wedge boundary rays
       for (let i = 0; i <= 5; i++) {
         const a = W_START + (i / 5) * WS;
         ctx.beginPath();
         ctx.moveTo(cx, cy);
-        ctx.lineTo(cx + Math.cos(a) * r3, cy + Math.sin(a) * r3);
+        ctx.lineTo(cx + Math.cos(a) * R_MAX_PX, cy + Math.sin(a) * R_MAX_PX);
         ctx.strokeStyle = `rgba(${rC},${gC},${bC},0.26)`;
         ctx.lineWidth = 1;
         ctx.stroke();
@@ -829,6 +826,9 @@
         { r: r1, core: 0.95, glow: 0.22, cw: 4.0, gw: 14 },
         { r: r2, core: 0.46, glow: 0.10, cw: 2.5, gw: 9  },
         { r: r3, core: 0.19, glow: 0.04, cw: 1.8, gw: 6  },
+        { r: r4, core: 0.10, glow: 0.020, cw: 1.4, gw: 5 },
+        { r: r5, core: 0.06, glow: 0.012, cw: 1.1, gw: 4 },
+        { r: r6, core: 0.035, glow: 0.008, cw: 0.9, gw: 3 },
       ];
 
       arcDef.forEach(({ r, core, glow, cw, gw }) => {
@@ -848,10 +848,10 @@
 
       // ── Energy particles: same 7 on each static reference ring ──
       const N         = 7;
-      const pOpacity  = [0.88, 0.34, 0.15];
-      const pRadius   = [3.5,  3.0,  2.4 ];
+      const pOpacity  = [0.88, 0.34, 0.15, 0.08, 0.045, 0.025];
+      const pRadius   = [3.5,  3.0,  2.4,  2.0,  1.7,   1.4  ];
 
-      [r1, r2, r3].forEach((r, ri) => {
+      RING_RADII.forEach((r, ri) => {
         const op = pOpacity[ri];
         const pr = pRadius[ri];
 
@@ -921,8 +921,8 @@
       ctx.font = '600 15px "Courier Prime", monospace';
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ['r', '2r', '3r'].forEach((lbl, i) => {
-        const rd = [r1, r2, r3][i];
+      ['r', '2r', '3r', '4r', '5r', '6r'].forEach((lbl, i) => {
+        const rd = RING_RADII[i];
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
         ctx.fillText(lbl,
           cx + Math.cos(DLA) * (rd + 30),
