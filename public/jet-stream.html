@@ -51,8 +51,8 @@ body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  padding: 24px 16px 72px 28px;
+  align-items: center;
+  padding: 24px 20px 72px 20px;
 }
 
 header {
@@ -306,7 +306,22 @@ function unproject(px, py) {
 // ── Canvas ─────────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('jet-canvas');
 const ctx = canvas.getContext('2d');
+// Every drawing routine below (stroke widths, glow radii, font sizes, the
+// map projection's TX/TY/SCALE, click hit-testing, etc.) is written in this
+// original 1000×800 "logical" pixel space — CW/CH stays that fixed size so
+// none of that tuning has to change. RENDER_SCALE instead makes the canvas's
+// actual backing store denser (a fixed multiplier, independent of the
+// viewing screen's devicePixelRatio, so it's crisp everywhere): we grow the
+// canvas element's real pixel buffer and apply ctx.scale() once so every
+// draw call — still issued in logical coordinates — lands at higher
+// physical resolution. The CSS display size (width:100%, capped by
+// .canvas-block's max-width) is untouched, so nothing changes on screen
+// except sharpness.
 const CW = canvas.width, CH = canvas.height;
+const RENDER_SCALE = 2;
+canvas.width = CW * RENDER_SCALE;
+canvas.height = CH * RENDER_SCALE;
+ctx.scale(RENDER_SCALE, RENDER_SCALE);
 
 // ── Domain ───────────────────────────────────────────────────────────────────
 const LON1 = -126, LON2 = -66, LAT1 = 14, LAT2 = 61;
@@ -542,7 +557,16 @@ function drawGeoLabels() {
 // ── Draw: jet ribbon glow ─────────────────────────────────────────────────────
 function drawJetRibbon() {
   const pathTop = [], pathBot = [], center = [];
-  for (let lon = LON1; lon <= LON2; lon += 1) {
+  // Draw a quarter-wavelength past each edge of the visible domain. wavePhase
+  // drifts continuously, so a ridge/trough peak periodically lands just
+  // outside LON1/LON2 regardless of the Wavelength or Trough/Ridge Position
+  // settings — without this margin the ribbon hard-stops mid-slope right at
+  // the boundary instead of rounding over the peak. A quarter wavelength is
+  // the worst-case distance from an edge to the nearest extremum, and it
+  // stays within the map's projected canvas bounds at every latitude the
+  // jet can reach (verified against AMP_MAX / AMP_MAX_RIDGE_WINTER).
+  const ribbonMargin = WAVELEN_DEG / 4;
+  for (let lon = LON1 - ribbonMargin; lon <= LON2 + ribbonMargin; lon += 1) {
     const cLat = jetLat(lon);
     center.push([lon, project(lon, cLat)]);
     pathTop.push(project(lon, cLat + CORE_HALFWIDTH * 1.6));
@@ -905,8 +929,11 @@ canvas.addEventListener('click', (ev) => {
   const rect = canvas.getBoundingClientRect();
   const cssX = ev.clientX - rect.left;
   const cssY = ev.clientY - rect.top;
-  const px = cssX * (canvas.width / rect.width);
-  const py = cssY * (canvas.height / rect.height);
+  // Map into logical (CW×CH) space, not the RENDER_SCALE-inflated backing
+  // store — project()/unproject() and everything else here work in logical
+  // pixels.
+  const px = cssX * (CW / rect.width);
+  const py = cssY * (CH / rect.height);
   const [lon, lat] = unproject(px, py);
 
   if (lon < LON1 || lon > LON2 || lat < LAT1 || lat > LAT2) {
