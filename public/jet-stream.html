@@ -407,7 +407,16 @@ function streakBoost(lon) {
 }
 
 // ── Particle system ──────────────────────────────────────────────────────────
-const N_P = 600, TRAIL = 55, P_MAX = 900;
+// Particles used to be confined to a lon/lat box (LON1-LON2 x LAT1-LAT2) that
+// only covers about two-thirds of the canvas's projected area — this conic
+// projection shows meridians converging toward the north, so that box left
+// wedge-shaped gaps over the open North Pacific and North Atlantic in the
+// upper corners, even though the base map draws land/ocean there. Particles
+// are now spawned and recycled by canvas pixel position instead, so they
+// cover exactly what's drawn on the map. N_P is scaled up ~1.5x (the old
+// box's share of the canvas area) so density over the US core looks the same
+// as before, rather than getting diluted by the extra coverage.
+const N_P = 900, TRAIL = 55, P_MAX = 900;
 const BG_SPEED = 0.05, JET_BOOST = 0.24, CORE_HALFWIDTH = 2.3, SHAPE_HALFWIDTH = 6.2;
 const PULL_COEFF = 0.0018, PULL_MAX = 0.09;
 const PHASE_RATE = 0.00035;
@@ -420,8 +429,12 @@ const GRADIENT_RANGE = 9;
 
 const parts = [];
 function resetP(p) {
-  p.lon = LON1 + Math.random() * (LON2 - LON1);
-  p.lat = LAT1 + Math.random() * (LAT2 - LAT1);
+  // Spawn at a random point on the visible canvas, then unproject to the
+  // lon/lat that pixel represents — this is what makes particle coverage
+  // match the map rather than an approximate lon/lat rectangle.
+  const [lon, lat] = unproject(Math.random() * CW, Math.random() * CH);
+  p.lon = lon;
+  p.lat = lat;
   p.age = Math.floor(Math.random() * P_MAX);
   p.hist = [];
 }
@@ -486,7 +499,10 @@ function stepParts() {
     p.lat += v;
     p.age++;
 
-    if (p.lon < LON1 || p.lon > LON2 || p.lat < LAT1 || p.lat > LAT2 || p.age > P_MAX) {
+    // Recycle once the particle drifts off the visible canvas (in pixel
+    // space, not the old lon/lat box) — matches how it was spawned.
+    const [px, py] = project(p.lon, p.lat);
+    if (px < 0 || px > CW || py < 0 || py > CH || p.age > P_MAX) {
       resetP(p);
     }
   }
