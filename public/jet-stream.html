@@ -315,6 +315,16 @@ const LON1 = -126, LON2 = -66, LAT1 = 14, LAT2 = 61;
 let WAVELEN_DEG = 30; // mutable; updated by the Wavelength slider
 let numWaves = 2;     // companion value in "waves across the map" units
 const AMP_MIN = 1.5, AMP_MAX = 11;
+// Ridges and troughs aren't mirror images in real synoptic patterns: winter
+// cold-outbreak troughs bottom out around 25-30°N (AMP_MAX already gets
+// there), but blocking ridges routinely push much farther poleward — the
+// "Ridiculously Resilient Ridge" pattern and similar blocks are commonly
+// analyzed in the mid-50s °N, occasionally higher. So winter gets a taller
+// ceiling on the ridge (poleward) side only; the trough side and summer are
+// unchanged. Capped at 56°N (not higher) so the ridge apex stays safely on
+// the map canvas even when it's phased right to the west/east edge of the
+// domain, where this conic projection has the least vertical headroom.
+const AMP_MAX_RIDGE_WINTER = 19;
 const WINTER_BASE = 37, SUMMER_BASE = 50;
 const WINTER_DEFAULT_SLIDER = 68, SUMMER_DEFAULT_SLIDER = 26;
 
@@ -325,12 +335,23 @@ let wavePhase = 0;
 let troughShiftDeg = 0; // user-controlled trough/ridge position offset, in degrees lon
 let speedMult = 1.0;
 let waveSliderVal = WINTER_DEFAULT_SLIDER;
-let amplitude = AMP_MIN + (waveSliderVal/100) * (AMP_MAX - AMP_MIN);
+// Two amplitudes instead of one: ampRidge governs poleward (ridge) excursions,
+// ampTrough governs equatorward (trough) excursions. In summer they're equal
+// (same behavior as before); in winter ampRidge gets the taller ceiling above.
+function ridgeAmpMax() { return season === 'winter' ? AMP_MAX_RIDGE_WINTER : AMP_MAX; }
+let ampTrough = AMP_MIN + (waveSliderVal/100) * (AMP_MAX - AMP_MIN);
+let ampRidge = AMP_MIN + (waveSliderVal/100) * (ridgeAmpMax() - AMP_MIN);
+function recalcAmplitude() {
+  ampTrough = AMP_MIN + (waveSliderVal / 100) * (AMP_MAX - AMP_MIN);
+  ampRidge = AMP_MIN + (waveSliderVal / 100) * (ridgeAmpMax() - AMP_MIN);
+}
 
 function jetLat(lon) {
   const k = 2 * Math.PI / WAVELEN_DEG;
   const phaseTotal = wavePhase - k * troughShiftDeg;
-  return baseline + amplitude * Math.sin(k * (lon - LON1) + phaseTotal);
+  const s = Math.sin(k * (lon - LON1) + phaseTotal);
+  const amp = s >= 0 ? ampRidge : ampTrough;
+  return baseline + amp * s;
 }
 
 // ── Jet streaks ──────────────────────────────────────────────────────────────
@@ -427,7 +448,9 @@ function stepParts() {
     // instead of cutting straight east across it.
     const k = 2 * Math.PI / WAVELEN_DEG;
     const phaseTotal = wavePhase - k * troughShiftDeg;
-    const slope = amplitude * k * Math.cos(k * (p.lon - LON1) + phaseTotal);
+    const angle = k * (p.lon - LON1) + phaseTotal;
+    const ampHere = Math.sin(angle) >= 0 ? ampRidge : ampTrough;
+    const slope = ampHere * k * Math.cos(angle);
     const tnorm = Math.sqrt(1 + slope * slope);
     const uTan = spd / tnorm;
     const vTan = spd * slope / tnorm;
@@ -740,7 +763,7 @@ function describeConditions() {
 
 waveSlider.addEventListener('input', () => {
   waveSliderVal = +waveSlider.value;
-  amplitude = AMP_MIN + (waveSliderVal / 100) * (AMP_MAX - AMP_MIN);
+  recalcAmplitude();
   waveVal.textContent = waveLabel(waveSliderVal);
   describeConditions();
   clearPresetActive();
@@ -772,7 +795,7 @@ document.querySelectorAll('[data-season]').forEach(btn => {
     baselineTarget = season === 'winter' ? WINTER_BASE : SUMMER_BASE;
     waveSliderVal = season === 'winter' ? WINTER_DEFAULT_SLIDER : SUMMER_DEFAULT_SLIDER;
     waveSlider.value = waveSliderVal;
-    amplitude = AMP_MIN + (waveSliderVal / 100) * (AMP_MAX - AMP_MIN);
+    recalcAmplitude();
     waveVal.textContent = waveLabel(waveSliderVal);
     describeConditions();
     clearPresetActive();
@@ -799,7 +822,7 @@ function applyPreset(id) {
   document.querySelectorAll('[data-season]').forEach(b => b.classList.toggle('active', b.dataset.season === season));
 
   waveSliderVal = p.waveSliderVal;
-  amplitude = AMP_MIN + (waveSliderVal / 100) * (AMP_MAX - AMP_MIN);
+  recalcAmplitude();
   waveSlider.value = waveSliderVal;
   waveVal.textContent = waveLabel(waveSliderVal);
 
