@@ -85,6 +85,8 @@ import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
 import SeaIceHeatmap               from './pages/SeaIceHeatmap'
 import JetStream                   from './pages/JetStream'
+import FrontsCrossSection         from './pages/FrontsCrossSection'
+import FrontsMapAnalysis          from './pages/FrontsMapAnalysis'
 import SpectralFingerprintLab      from './pages/SpectralFingerprintLab'
 import DopplerShiftExplorer        from './pages/DopplerShiftExplorer'
 import HubblesLawExplorer          from './pages/HubblesLawExplorer'
@@ -214,6 +216,8 @@ export default function App() {
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
           <Route path="/seaice-heatmap"                            element={<SeaIceHeatmap />}             />
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
+          <Route path="/earthandspace/fronts-cross-section"        element={<FrontsCrossSection />}        />
+          <Route path="/earthandspace/fronts-map-analysis"         element={<FrontsMapAnalysis />}         />
           <Route path="/earthandspace/spectral-fingerprint-lab"    element={<SpectralFingerprintLab />}    />
           <Route path="/earthandspace/doppler-shift-explorer"      element={<DopplerShiftExplorer />}      />
           <Route path="/earthandspace/hubbles-law-explorer"        element={<HubblesLawExplorer />}        />
