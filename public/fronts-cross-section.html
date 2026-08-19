@@ -1,0 +1,1433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="core-sample-tools.css">
+<title>Anatomy of a Front — ContextClimate</title>
+<style>
+/* Tool-specific layout only — shared chrome (colors, type, buttons, panels,
+   segmented toggles, legend chips) lives in core-sample-tools.css. Sidebar +
+   scrolling column layout, same one-off structure as jetstream.html. */
+:root { --tool-accent: var(--accent-earth); }
+
+/* CONTENT colors — these encode real meaning (air-mass identity, ESSRT front
+   symbol conventions) and must never be normalized away by the shared theme. */
+:root {
+  --air-cold:  #6D96D8;   /* cP / cold air mass — ESSRT blue */
+  --air-cool:  #8FB4E0;   /* modified cool air ahead of a warm front */
+  --air-warm:  #D9603F;   /* mT / warm air mass — ESSRT red */
+  --air-warm2: #E08A5B;
+  --precip:    #4FB79A;
+  --cloud:     #C9CFD6;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { display: flex; flex-direction: row; align-items: flex-start; padding: 0; }
+
+.sidebar {
+  width: 306px; flex-shrink: 0; position: sticky; top: 0;
+  max-height: 100vh; overflow-y: auto;
+  background: var(--color-surface); border-right: 1px solid var(--color-border);
+  padding: 22px 20px 32px; display: flex; flex-direction: column; gap: 18px;
+}
+.sidebar-eyebrow {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: -6px;
+}
+.front-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.front-grid .cc-btn { padding: 10px 4px; text-align: center; font-size: 13px; }
+.front-grid .cc-btn .fg-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 24px 20px 72px; }
+header { text-align: center; padding: 0 0 18px; max-width: 980px; width: 100%; }
+header .cc-eyebrow { margin-bottom: 9px; }
+header .cc-title { margin: 0 auto 9px; font-size: clamp(30px, 6vw, 44px); }
+header .cc-subtitle { max-width: 620px; margin: 0 auto; }
+
+.stack { width: 100%; max-width: 1080px; display: flex; flex-direction: column; gap: 14px; }
+
+.canvas-block {
+  width: 100%; border: 1px solid var(--color-border-hover); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--color-surface); position: relative;
+}
+.canvas-block canvas { width: 100%; height: auto; display: block; }
+#xsCanvas { cursor: ew-resize; }
+.block-label {
+  padding: 9px 18px; border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--color-text-muted);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+}
+.block-label .bl-hint { text-transform: none; letter-spacing: .02em; font-family: var(--font-body); font-size: 12px; color: var(--color-text-muted); }
+
+.readout-strip {
+  padding: 13px 20px; border-top: 1px solid var(--color-border);
+  font-size: 14px; color: var(--color-text-secondary); text-align: center; min-height: 1.6em;
+}
+.readout-strip strong { color: var(--color-text-primary); }
+.readout-strip em { color: var(--tool-accent); font-style: normal; font-weight: 600; }
+.legend-strip { padding: 12px 18px; border-top: 1px solid var(--color-border); }
+
+.obs-row { display: flex; gap: 14px; align-items: stretch; flex-wrap: wrap; }
+.obs-card {
+  flex: 0 0 236px; background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; align-items: center;
+}
+.obs-card canvas { width: 200px; height: 130px; }
+.obs-detail { flex: 1 1 380px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px 18px; }
+.obs-detail h4 { font-family: var(--font-display); font-size: 19px; font-weight: 700; margin-bottom: 4px; color: var(--color-text-primary); }
+.obs-detail p { font-size: 14px; color: var(--color-text-secondary); }
+.obs-detail p + p { margin-top: 8px; }
+.obs-detail em { color: var(--tool-accent); font-style: normal; font-weight: 600; }
+.obs-detail strong { color: var(--color-text-primary); }
+
+.slider-row { display: flex; flex-direction: column; gap: 8px; }
+.slider-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider-label { font-family: var(--font-mono); font-size: 13px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-primary); }
+.slider-val { font-family: var(--font-mono); font-size: 18px; font-weight: 600; color: var(--tool-accent); white-space: nowrap; }
+input[type="range"] {
+  width: 100%; -webkit-appearance: none; appearance: none; height: 4px;
+  background: var(--color-surface-2); border-radius: 2px; outline: none; cursor: pointer; border: 1px solid var(--color-border);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--tool-accent); box-shadow: 0 0 12px rgba(60,163,174,.55); cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--tool-accent); border: none; cursor: pointer; }
+.slider-extremes { display: flex; justify-content: space-between; gap: 6px; margin-top: 2px; }
+.slider-extreme { font-family: var(--font-mono); font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--color-text-muted); }
+.slider-note { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; font-style: italic; }
+
+.divider { border: none; border-top: 1px solid var(--color-border); }
+.toggle-list { display: flex; flex-direction: column; gap: 6px; }
+.toggle-list .cc-btn { text-align: left; font-size: 13px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; }
+.toggle-box { width: 13px; height: 13px; border: 1px solid var(--color-border-hover); border-radius: 2px; flex-shrink: 0; position: relative; }
+.cc-btn.is-active .toggle-box { background: var(--tool-accent); border-color: var(--tool-accent); }
+.cc-btn.is-active .toggle-box::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 4px; height: 7px; border: solid var(--color-bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+.transport { display: flex; gap: 7px; }
+.transport .cc-btn { flex: 1; text-align: center; }
+
+.check-panel { width: 100%; max-width: 1080px; margin-top: 4px; }
+.check-panel details {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg); padding: 0; overflow: hidden;
+}
+.check-panel summary {
+  cursor: pointer; padding: 13px 18px; font-family: var(--font-mono); font-size: 12px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-secondary); list-style: none;
+}
+.check-panel summary::-webkit-details-marker { display: none; }
+.check-panel summary::before { content: '▸ '; color: var(--tool-accent); }
+.check-panel details[open] summary::before { content: '▾ '; }
+.check-panel summary:hover { color: var(--color-text-primary); }
+.qa { padding: 0 18px 16px; display: flex; flex-direction: column; gap: 12px; }
+.qa .q { font-size: 15px; color: var(--color-text-primary); font-weight: 600; }
+.qa .a { font-size: 14px; color: var(--color-text-secondary); border-left: 2px solid var(--tool-accent); padding-left: 12px; margin-top: 4px; }
+.qa .a[hidden] { display: none; }
+.qa-item { border-top: 1px solid var(--color-border); padding-top: 12px; }
+.qa-item:first-child { border-top: none; padding-top: 4px; }
+.qa .reveal-btn { margin-top: 6px; }
+
+.std-note {
+  display: block; margin-top: 18px; font-size: 13px; color: var(--color-text-muted);
+  text-align: center; font-style: italic; max-width: 900px; line-height: 1.65;
+}
+.std-note a { color: var(--color-text-secondary); }
+
+@media (max-width: 860px) {
+  body { flex-direction: column; }
+  .sidebar { width: 100%; position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--color-border); }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <p class="sidebar-eyebrow">Front Type</p>
+  <div class="front-grid">
+    <button class="cc-btn is-active" data-front="cold"><span class="fg-swatch" style="background:#6D96D8"></span>Cold</button>
+    <button class="cc-btn" data-front="warm"><span class="fg-swatch" style="background:#D9603F"></span>Warm</button>
+    <button class="cc-btn" data-front="stationary"><span class="fg-swatch" style="background:#A08CC6"></span>Stationary</button>
+    <button class="cc-btn" data-front="occluded"><span class="fg-swatch" style="background:#A08CC6"></span>Occluded</button>
+  </div>
+
+  <hr class="divider">
+
+  <p class="sidebar-eyebrow">Frontal Passage</p>
+  <div class="transport">
+    <button class="cc-btn primary" id="playBtn">▶ Play</button>
+    <button class="cc-btn" id="resetBtn">↺ Reset</button>
+  </div>
+  <div class="slider-row">
+    <div class="slider-header">
+      <span class="slider-label">Front position</span>
+      <span class="slider-val" id="posVal">−400 km</span>
+    </div>
+    <input type="range" id="posSlider" min="-900" max="900" step="5" value="-400">
+    <div class="slider-extremes">
+      <span class="slider-extreme">← Approaching</span>
+      <span class="slider-extreme">Departed →</span>
+    </div>
+    <p class="slider-note" id="posNote">The station (▲) stays put; the front moves across it.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="slider-row">
+    <div class="slider-header">
+      <span class="slider-label">Vertical exaggeration</span>
+      <span class="slider-val" id="veVal">50×</span>
+    </div>
+    <input type="range" id="veSlider" min="1" max="150" step="1" value="50">
+    <div class="slider-extremes">
+      <span class="slider-extreme">← True scale</span>
+      <span class="slider-extreme">Textbook →</span>
+    </div>
+    <p class="slider-note" id="veNote">Drag toward 1× to see the real shape of a front.</p>
+  </div>
+  <button class="cc-btn cc-btn-sm" id="trueScaleBtn">Jump to true scale (1×)</button>
+
+  <hr class="divider">
+
+  <p class="sidebar-eyebrow">Show</p>
+  <div class="toggle-list">
+    <button class="cc-btn is-active" data-layer="airmass"><span class="toggle-box"></span>Air-mass shading</button>
+    <button class="cc-btn is-active" data-layer="motion"><span class="toggle-box"></span>Air motion arrows</button>
+    <button class="cc-btn is-active" data-layer="clouds"><span class="toggle-box"></span>Clouds &amp; precipitation</button>
+    <button class="cc-btn is-active" data-layer="labels"><span class="toggle-box"></span>Cloud names</button>
+    <button class="cc-btn is-active" data-layer="planview"><span class="toggle-box"></span>Map (plan) view</button>
+    <button class="cc-btn is-active" data-layer="meteogram"><span class="toggle-box"></span>Station trace</button>
+  </div>
+
+  <hr class="divider">
+  <button class="cc-btn cc-btn-sm" id="pngBtn">↓ PNG</button>
+</aside>
+
+<div class="main-col">
+
+<header>
+  <p class="cc-eyebrow">Earth &amp; Space Science · Synoptic Meteorology</p>
+  <h1 class="cc-title">Anatomy of a Front</h1>
+  <p class="cc-subtitle">A front is a <em>boundary between two air masses</em>. Watch it in cross-section, then watch what a single weather station records as it passes overhead.</p>
+</header>
+
+<div class="stack">
+
+  <div class="canvas-block" id="planBlock">
+    <div class="block-label"><span>Plan view — looking down from above</span><span class="bl-hint">A—A′ marks the slice shown below</span></div>
+    <canvas id="planCanvas" width="1080" height="300"></canvas>
+  </div>
+
+  <div class="canvas-block">
+    <div class="block-label"><span>Cross-section along A—A′</span><span class="bl-hint">Drag anywhere on the diagram to move the front</span></div>
+    <canvas id="xsCanvas" width="1080" height="520"></canvas>
+    <div class="readout-strip" id="xsReadout"></div>
+    <div class="legend-strip"><div class="cc-legend-row" id="xsLegend"></div></div>
+  </div>
+
+  <div class="obs-row">
+    <div class="obs-card">
+      <span class="cc-stat-label">Station ▲ right now</span>
+      <canvas id="stationCanvas" width="400" height="260"></canvas>
+      <span class="cc-tag" id="stationTag">—</span>
+    </div>
+    <div class="obs-detail">
+      <h4 id="obsTitle">—</h4>
+      <p id="obsBody"></p>
+      <p id="obsClue"></p>
+    </div>
+  </div>
+
+  <div class="canvas-block" id="meteoBlock">
+    <div class="block-label"><span>What the station records as the front passes</span><span class="bl-hint">The vertical line is "now"</span></div>
+    <canvas id="meteoCanvas" width="1080" height="348"></canvas>
+  </div>
+
+  <div class="check-panel">
+    <details>
+      <summary>Check yourself — questions for this front</summary>
+      <div class="qa" id="qaList"></div>
+    </details>
+  </div>
+
+</div>
+
+<span class="std-note" id="stdNote"></span>
+
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANATOMY OF A FRONT — cross-section + plan view + station trace
+   All draw functions take (ctx, W, H) in LOGICAL css pixels, so the same
+   code paints the screen canvas (scaled by dpr) and the export canvas
+   (scaled by a fixed EXPORT_SCALE) — export resolution is never derived
+   from the viewing screen's devicePixelRatio.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const CSS = getComputedStyle(document.documentElement);
+const C = k => CSS.getPropertyValue(k).trim();
+const COL = {
+  bg: '#262B27', surf2: '#2C322D', border: 'rgba(232,228,217,0.14)',
+  borderH: 'rgba(232,228,217,0.26)',
+  text: '#E8E4D9', text2: '#A6A499', muted: '#948F82',
+  accent: '#3CA3AE',
+  cold: '#6D96D8', cool: '#8FB4E0', warm: '#D9603F', warm2: '#E08A5B',
+  precip: '#4FB79A', cloud: '#C9CFD6', purple: '#A08CC6', gold: '#A69630'
+};
+const FONT = { mono: "'Courier Prime', monospace", body: "'Public Sans', sans-serif", disp: "'Zilla Slab', serif" };
+
+/* ── interpolation helpers ──────────────────────────────────────── */
+function smooth(t){ t = Math.min(1, Math.max(0, t)); return t*t*(3-2*t); }
+function tbl(pts, d){
+  const n = pts.length;
+  if (d <= pts[0][0]) return pts[0][1];
+  if (d >= pts[n-1][0]) return pts[n-1][1];
+  for (let i=1;i<n;i++){
+    if (d <= pts[i][0]){
+      const [x0,y0] = pts[i-1], [x1,y1] = pts[i];
+      return y0 + (y1-y0)*smooth((d-x0)/(x1-x0));
+    }
+  }
+  return pts[n-1][1];
+}
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+
+/* ═══════════════════════════════════════════════════════════════════
+   FRONT DEFINITIONS
+   d = (position of a point) − (position of the front), in km.
+   d > 0  →  AHEAD of the front (the air mass being replaced)
+   d < 0  →  BEHIND the front  (the advancing air mass)
+   Every front here is drawn moving to the RIGHT, so "right" on the
+   cross-section is always the direction the front is heading.
+   ═══════════════════════════════════════════════════════════════════ */
+const FRONTS = {
+
+cold: {
+  key:'cold', name:'Cold Front', short:'COLD',
+  color: COL.cold, symbol:'triangles', symbolSide:+1,
+  speedKmh: 45, slope: 1/75, slopeText:'about 1 : 75',
+  coldOn:'left',
+  planAngle: -62,            // degrees of the front line in plan view
+  planHeading:'southeast', planCompass: 135,
+  behind: { label:'cP — continental polar', sub:'cold &amp; dry', col: COL.cold },
+  ahead:  { label:'mT — maritime tropical', sub:'warm &amp; humid', col: COL.warm },
+  tagline:'Cold, dense air charges in and <em>shovels</em> the warm air up along a steep boundary.',
+  word:{noun:'front', ahead:'Ahead of the front', behind:'Behind the front', at:'The front is going through'},
+  T:   [[-900,44],[-300,46],[-60,48],[0,60],[40,71],[300,73],[900,74]],
+  Td:  [[-900,32],[-200,34],[-40,38],[30,60],[200,63],[900,64]],
+  P:   [[-900,1014.2],[-400,1012.4],[-150,1009.0],[-40,1006.6],[0,1006.2],[60,1007.0],[200,1008.4],[500,1009.8],[900,1010.6]],
+  WD:  [[-900,302],[-120,300],[-20,285],[30,228],[150,216],[900,212]],
+  WS:  [[-900,18],[-200,23],[0,26],[80,16],[400,14],[900,12]],
+  SKY: [[-900,0],[-320,1],[-140,5],[-60,8],[120,8],[300,5],[520,2],[900,1]],
+  PR:  [[-900,0],[-110,0],[-60,0.35],[-10,1.0],[50,0.9],[110,0.2],[180,0]],
+  wx: d => (d > -70 && d < 120) ? 'tstm' : (d >= 120 && d < 190 ? 'rain' : 'none'),
+  clouds: [
+    {type:'anvil', name:'anvil',        x0:40,  x1:660, z0:8.2, z1:11.4},
+    {type:'cb',    name:'Cumulonimbus', x0:-110, x1:150, z0:0.8, z1:11.6},
+    {type:'layer', name:'Cumulus',      x0:-430,x1:-120,z0:0.9, z1:2.7, dens:0.9},
+    {type:'layer', name:'Cirrus',       x0:400, x1:940, z0:9.2, z1:10.8, dens:0.55}
+  ],
+  qa: [
+    ['Which air mass is rising at a cold front, and why?',
+     'The <strong>warm</strong> air rises. It is less dense than the advancing cold air, so the cold air stays at the surface and wedges underneath, forcing the warm air upward.'],
+    ['Why do cold fronts produce brief but intense precipitation?',
+     'The frontal surface is <strong>steep</strong> (about 1:75). Warm, humid air is lifted rapidly over a narrow horizontal distance, so it cools and condenses fast — building tall cumulonimbus in a narrow band instead of a wide sheet of cloud.'],
+    ['What happens to temperature, dewpoint and wind as the front passes?',
+     'Temperature <strong>drops sharply</strong>, dewpoint drops (drier cP air), pressure bottoms out then <strong>rises</strong>, and the wind <strong>veers</strong> from southwest to northwest.'],
+    ['On a station model, how would you spot this front?',
+     'Look for a <strong>tight temperature gradient</strong>, a <strong>dewpoint drop</strong> from the 50s–60s into the 30s–40s, and a <strong>wind shift</strong> from southwesterly to northwesterly across a short distance.']
+  ]
+},
+
+warm: {
+  key:'warm', name:'Warm Front', short:'WARM',
+  color: COL.warm, symbol:'semicircles', symbolSide:+1,
+  speedKmh: 25, slope: 1/200, slopeText:'about 1 : 200',
+  coldOn:'right',
+  planAngle: -78, planHeading:'northeast', planCompass: 45,
+  behind: { label:'mT — maritime tropical', sub:'warm &amp; humid', col: COL.warm },
+  ahead:  { label:'cP (modified)', sub:'cool &amp; moist', col: COL.cool },
+  tagline:'Warm air slides <em>gently up and over</em> the retreating cold air, spreading cloud hundreds of kilometres ahead.',
+  word:{noun:'front', ahead:'Ahead of the front', behind:'Behind the front', at:'The front is going through'},
+  T:   [[-900,70],[-200,68],[-40,63],[60,54],[180,47],[500,45],[900,44]],
+  Td:  [[-900,62],[-200,60],[-40,56],[60,48],[180,42],[500,40],[900,39]],
+  P:   [[-900,1006.6],[-200,1006.2],[0,1005.8],[150,1007.0],[400,1009.4],[700,1011.6],[900,1012.6]],
+  WD:  [[-900,224],[-150,220],[-20,198],[80,152],[220,115],[900,100]],
+  WS:  [[-900,14],[-100,15],[100,13],[400,11],[900,10]],
+  SKY: [[-900,3],[-300,5],[-120,7],[0,8],[420,8],[620,7],[820,5],[1000,3],[1250,1]],
+  PR:  [[-900,0],[-120,0.05],[0,0.4],[120,0.65],[300,0.5],[430,0.15],[560,0]],
+  wx: d => (d > -60 && d < 420) ? 'rain' : 'none',
+  clouds: [
+    {type:'layer', name:'Nimbostratus',  x0:-90, x1:330,  z0:0.5, z1:5.4, dens:1.0},
+    {type:'layer', name:'Altostratus',   x0:300, x1:720,  z0:3.4, z1:6.4, dens:0.75},
+    {type:'layer', name:'Cirrostratus',  x0:680, x1:1020, z0:5.8, z1:8.4, dens:0.5},
+    {type:'layer', name:'Cirrus',        x0:980, x1:1400, z0:7.8, z1:10.4,dens:0.35},
+    {type:'layer', name:'Stratus',       x0:-260,x1:-60,  z0:0.4, z1:1.5, dens:0.55}
+  ],
+  qa: [
+    ['Which air mass is rising at a warm front?',
+     'The <strong>warm</strong> air rises again — but here it is the warm air that is advancing, so it climbs the long gentle ramp made by the retreating cold air. This is called <strong>overrunning</strong>.'],
+    ['Why is the cloud and rain so widespread?',
+     'The frontal surface is very <strong>gentle</strong> (about 1:200). Warm air rises slowly over a huge horizontal distance, so cloud forms in wide flat sheets and precipitation is <strong>steady and long-lasting</strong> rather than intense.'],
+    ['Why does the cloud sequence go cirrus → cirrostratus → altostratus → nimbostratus?',
+     'You meet the <strong>top</strong> of the frontal surface first. Far ahead of the surface front the warm air is already 8–10 km up, making high thin ice cloud. Closer in, the surface is lower, the cloud is thicker and lower, and rain begins.'],
+    ['On a station model, how would you spot this front?',
+     'Temperature and dewpoint <strong>rise</strong> across it, the wind <strong>veers</strong> from easterly/southeasterly to southwesterly, and there is a broad area of <strong>overcast skies and steady precipitation on the cool side</strong>, ahead of the boundary.']
+  ]
+},
+
+stationary: {
+  key:'stationary', name:'Stationary Front', short:'STNRY',
+  color: COL.purple, symbol:'alternating', symbolSide:+1,
+  speedKmh: 6, slope: 1/160, slopeText:'about 1 : 160',
+  coldOn:'right',
+  planAngle: -86, planHeading:'barely moving', planCompass: null,
+  behind: { label:'mT — maritime tropical', sub:'warm &amp; humid', col: COL.warm },
+  ahead:  { label:'cP — continental polar', sub:'cool &amp; drier', col: COL.cool },
+  tagline:'Neither air mass can displace the other. The winds blow <em>parallel</em> to the boundary, in opposite directions.',
+  word:{noun:'boundary', ahead:'On the cool side of the boundary', behind:'On the warm side of the boundary', at:'Right on the boundary'},
+  T:   [[-900,68],[-150,66],[0,58],[150,50],[900,47]],
+  Td:  [[-900,60],[-150,59],[0,52],[150,44],[900,42]],
+  P:   [[-900,1012.0],[-300,1010.6],[0,1009.4],[300,1010.4],[900,1012.2]],
+  WD:  [[-900,252],[-100,248],[0,158],[100,72],[900,68]],
+  WS:  [[-900,10],[0,8],[900,10]],
+  SKY: [[-900,4],[-250,6],[-60,8],[280,8],[520,6],[800,3],[1100,1]],
+  PR:  [[-900,0],[-160,0.1],[-30,0.45],[180,0.45],[380,0.2],[520,0]],
+  wx: d => (d > -180 && d < 400) ? 'rain' : 'none',
+  clouds: [
+    {type:'layer', name:'Nimbostratus', x0:-200, x1:300, z0:0.5, z1:5.0, dens:0.95},
+    {type:'layer', name:'Altostratus',  x0:250,  x1:650, z0:3.2, z1:6.0, dens:0.65},
+    {type:'layer', name:'Cirrostratus', x0:600,  x1:950, z0:5.6, z1:8.0, dens:0.4}
+  ],
+  qa: [
+    ['Why does a stationary front stay put?',
+     'Neither air mass is strong enough to replace the other — the flow on both sides is <strong>parallel to the boundary</strong> rather than across it, so the front moves less than about 6 mph (10 km/h), or not at all.'],
+    ['Why can a stationary front bring days of cloud and rain?',
+     'The gentle overrunning keeps going in the <strong>same place</strong> for days instead of sweeping past in hours, so rainfall totals can be far higher than at a moving front — a common flood setup.'],
+    ['What often develops along a stationary front?',
+     'Areas of <strong>low pressure</strong> form and travel along the boundary, which is why a stationary front is often the birthplace of the next mid-latitude cyclone.'],
+    ['How is a stationary front drawn on a weather map?',
+     '<strong>Alternating</strong> blue triangles and red semicircles pointing in <strong>opposite</strong> directions — triangles toward the warm side, semicircles toward the cold side.']
+  ]
+},
+
+occluded: {
+  key:'occluded', name:'Occluded Front', short:'OCCL',
+  color: COL.purple, symbol:'both', symbolSide:+1,
+  speedKmh: 35, slope: 1/110, slopeText:'1 : 110 behind, 1 : 200 ahead',
+  coldOn:'both',
+  planAngle: -56, planHeading:'east', planCompass: 75,
+  behind: { label:'cP — coldest air', sub:'cold &amp; dry', col: COL.cold },
+  ahead:  { label:'cP (modified)', sub:'cool &amp; moist', col: COL.cool },
+  tagline:'The cold front has caught the warm front. The warm air is <em>lifted completely off the ground</em> and pinched aloft.',
+  word:{noun:'occlusion', ahead:'Ahead of the occlusion', behind:'Behind the occlusion', at:'The occlusion is going through'},
+  T:   [[-900,36],[-200,38],[0,42],[200,45],[900,46]],
+  Td:  [[-900,30],[-200,32],[0,38],[200,41],[900,42]],
+  P:   [[-900,1008.4],[-350,1005.0],[-60,1001.6],[0,1001.2],[80,1002.0],[350,1005.6],[900,1009.6]],
+  WD:  [[-900,305],[-150,300],[0,205],[150,120],[900,110]],
+  WS:  [[-900,20],[-100,23],[0,19],[200,15],[900,13]],
+  SKY: [[-900,2],[-420,5],[-260,8],[300,8],[520,6],[760,3],[1000,1]],
+  PR:  [[-900,0],[-300,0.15],[-120,0.5],[120,0.6],[300,0.4],[480,0.1],[600,0]],
+  wx: d => (d > -320 && d < 460) ? ((d > -140 && d < 120) ? 'tstm' : 'rain') : 'none',
+  clouds: [
+    {type:'layer', name:'Nimbostratus', x0:-340, x1:340, z0:0.5, z1:6.8, dens:1.0},
+    {type:'cb',    name:'Cumulonimbus',x0:-120, x1:60,  z0:1.0, z1:10.5},
+    {type:'layer', name:'Altostratus', x0:300,  x1:660, z0:4.0, z1:7.2, dens:0.6},
+    {type:'layer', name:'Cirrus',      x0:620,  x1:980, z0:7.6, z1:10.0,dens:0.35}
+  ],
+  qa: [
+    ['How does an occluded front form?',
+     'A <strong>cold front travels faster than the warm front ahead of it</strong> and catches up. Three air masses meet — a warm air mass is pinched between a cold and a cool one — and the warm air is lifted <strong>completely off the ground</strong>.'],
+    ['Why is the temperature change across an occluded front usually small?',
+     'Both air masses at the surface are cold; only the <strong>degree</strong> of coldness differs. The really warm air is aloft, so the surface temperature contrast is weak even though the weather is active.'],
+    ['What does an occlusion tell you about the storm?',
+     'That the cyclone is <strong>mature and beginning to weaken</strong>. Once the warm air is lifted away from the surface, the storm loses its energy supply.'],
+    ['Where is the heaviest weather?',
+     'Near and just <strong>ahead of the surface occlusion</strong>, where the lifted warm air is deepest — a broad band of cloud and precipitation wrapped around the low.']
+  ]
+}
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════════ */
+const S = {
+  front: 'cold',
+  xf: -400,          // front position, km (station is at x = 0)
+  ve: 50,            // vertical exaggeration
+  playing: false,
+  layers: { airmass:true, motion:true, clouds:true, labels:true, planview:true, meteogram:true }
+};
+const ZMAX = 12;      // km shown vertically
+let dpr = window.devicePixelRatio || 1;
+
+/* ── deterministic pseudo-random (stable across redraws) ────────── */
+function rng(seed){ let s = seed>>>0; return () => { s = (s*1664525 + 1013904223)>>>0; return s/4294967296; }; }
+
+/* ── generic canvas helpers ─────────────────────────────────────── */
+function setup(cv, W, H, scale){
+  cv.width = Math.round(W*scale); cv.height = Math.round(H*scale);
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(scale,0,0,scale,0,0);
+  ctx.clearRect(0,0,W,H);
+  return ctx;
+}
+function txt(ctx, s, x, y, font, color, align, base){
+  ctx.font = font; ctx.fillStyle = color;
+  ctx.textAlign = align || 'left'; ctx.textBaseline = base || 'alphabetic';
+  ctx.fillText(s, x, y);
+}
+function line(ctx, x1,y1,x2,y2, color, w, dash){
+  ctx.save(); ctx.beginPath(); ctx.setLineDash(dash||[]);
+  ctx.strokeStyle = color; ctx.lineWidth = w||1;
+  ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore();
+}
+function arrow(ctx, x1,y1,x2,y2, color, w, head){
+  const a = Math.atan2(y2-y1, x2-x1), h = head||7;
+  ctx.save(); ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = w||2;
+  ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2 - Math.cos(a)*h*0.7, y2 - Math.sin(a)*h*0.7); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2,y2);
+  ctx.lineTo(x2 - Math.cos(a-0.42)*h, y2 - Math.sin(a-0.42)*h);
+  ctx.lineTo(x2 - Math.cos(a+0.42)*h, y2 - Math.sin(a+0.42)*h);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+function hexA(hex, a){
+  const n = parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   FRONTAL SURFACE GEOMETRY
+   Returns the height (km) of the frontal surface at horizontal
+   distance dx (km) back from the surface front position, along the
+   side that holds the cold air. Includes the blunt nose that real
+   cold fronts have in the lowest kilometre.
+   ═══════════════════════════════════════════════════════════════════ */
+function surfaceZ(F, dx, arm){
+  if (dx <= 0) return 0;
+  if (F.key === 'cold')       return F.slope*dx + 0.55*(1 - Math.exp(-dx/22));
+  if (F.key === 'occluded')   return arm === 'back' ? (1/110)*dx + 0.45*(1-Math.exp(-dx/25)) : (1/200)*dx;
+  return F.slope*dx;                       // warm & stationary: gentle all the way
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CROSS-SECTION
+   ═══════════════════════════════════════════════════════════════════ */
+function drawXS(ctx, W, H){
+  const F = FRONTS[S.front];
+  const M = {l:66, r:26, t:22, b:56};
+  const Wp = W - M.l - M.r, Hp = H - M.t - M.b;
+  const Xr = S.ve * ZMAX * (Wp/Hp);
+  const xmin = -Xr/2, xmax = Xr/2;
+  const PX = x => M.l + (x - xmin)/Xr*Wp;
+  const PY = z => M.t + (1 - z/ZMAX)*Hp;
+  const KMPX = Wp/Xr;                        // px per km horizontally
+  const xf = S.xf;
+
+  ctx.save();
+
+  /* sky */
+  const sky = ctx.createLinearGradient(0, M.t, 0, M.t+Hp);
+  sky.addColorStop(0, '#151d29'); sky.addColorStop(0.55,'#1d2733'); sky.addColorStop(1,'#283230');
+  ctx.fillStyle = sky; ctx.fillRect(M.l, M.t, Wp, Hp);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(M.l, M.t, Wp, Hp); ctx.clip();
+
+  /* ── air-mass regions ─────────────────────────────────────────── */
+  const coldFill = hexA(F.behind.col === COL.warm ? COL.cold : F.behind.col, 0.26);
+  if (S.layers.airmass){
+    ctx.save();
+    if (F.key === 'occluded'){
+      // coldest air: left of xf, under the back arm ; cool air: right of xf under the fwd arm
+      ctx.beginPath(); ctx.moveTo(PX(xmin), PY(0));
+      for (let x = xmin; x <= xf; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, xf-x, 'back')));
+      ctx.lineTo(PX(xf), PY(0)); ctx.closePath();
+      ctx.fillStyle = hexA(COL.cold, 0.34); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(PX(xf), PY(0));
+      for (let x = xf; x <= xmax; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, x-xf, 'fwd')));
+      ctx.lineTo(PX(xmax), PY(0)); ctx.closePath();
+      ctx.fillStyle = hexA(COL.cool, 0.24); ctx.fill();
+      // warm air aloft
+      ctx.beginPath(); ctx.moveTo(PX(xmin), PY(ZMAX));
+      ctx.lineTo(PX(xmin), PY(surfaceZ(F, xf-xmin,'back')));
+      for (let x = xmin; x <= xf; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, xf-x,'back')));
+      for (let x = xf; x <= xmax; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, x-xf,'fwd')));
+      ctx.lineTo(PX(xmax), PY(ZMAX)); ctx.closePath();
+      ctx.fillStyle = hexA(COL.warm, 0.10); ctx.fill();
+    } else {
+      const left = (F.coldOn === 'left');
+      ctx.beginPath();
+      if (left){
+        ctx.moveTo(PX(xmin), PY(0));
+        for (let x = xmin; x <= xf; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, xf-x)));
+        ctx.lineTo(PX(xf), PY(0));
+      } else {
+        ctx.moveTo(PX(xmax), PY(0));
+        for (let x = xmax; x >= xf; x -= Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, x-xf)));
+        ctx.lineTo(PX(xf), PY(0));
+      }
+      ctx.closePath(); ctx.fillStyle = hexA(COL.cold, 0.30); ctx.fill();
+      // warm air = the rest
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath(); ctx.rect(M.l, M.t, Wp, Hp);
+      if (left){
+        ctx.moveTo(PX(xmin), PY(0));
+        for (let x = xmin; x <= xf; x += Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, xf-x)));
+        ctx.lineTo(PX(xf), PY(0));
+      } else {
+        ctx.moveTo(PX(xmax), PY(0));
+        for (let x = xmax; x >= xf; x -= Xr/300) ctx.lineTo(PX(x), PY(surfaceZ(F, x-xf)));
+        ctx.lineTo(PX(xf), PY(0));
+      }
+      ctx.closePath();
+      ctx.fillStyle = hexA(COL.warm, 0.085); ctx.fill('evenodd');
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /* ── clouds & precipitation ───────────────────────────────────── */
+  function puff(px, py, rx, ry, alpha){
+    const rr = Math.max(rx, ry);
+    ctx.save();
+    ctx.translate(px, py); ctx.scale(rx/rr, ry/rr);
+    const g = ctx.createRadialGradient(0,0,0,0,0,rr);
+    g.addColorStop(0,   `rgba(228,234,242,${alpha})`);
+    g.addColorStop(0.5, `rgba(208,216,228,${alpha*0.78})`);
+    g.addColorStop(1,   'rgba(200,210,222,0)');
+    ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.fillStyle = g; ctx.fill();
+    ctx.restore();
+  }
+  const trueScale = S.ve < 6;
+  if (S.layers.clouds){
+    const R = rng(9137 + F.key.length*77);
+    F.clouds.forEach(cl => {
+      const a0 = PX(xf + cl.x0), a1 = PX(xf + cl.x1);
+      const wpx = a1-a0;
+      if (a1 < M.l-120 || a0 > M.l+Wp+120 || wpx < 2) return;
+      const zb = PY(cl.z0), zt = PY(cl.z1), hpx = zb-zt;
+      if (cl.type === 'cb'){
+        const cx0 = (a0+a1)/2;
+        for (let i=0;i<54;i++){
+          const t = i/53;
+          const y = zb - hpx*t;
+          let w = wpx*0.5*(1.0 - 0.34*Math.sin(t*Math.PI*0.72));
+          if (t > 0.78) w = wpx*0.5*(0.68 + 2.8*(t-0.78));
+          w = Math.max(w, 16);
+          const lean = wpx*0.22*t*t;
+          puff(cx0 + lean + (R()-0.5)*w*0.5, y, Math.max(10,w*0.68), Math.max(9,hpx*0.085), 0.135);
+        }
+      } else if (cl.type === 'anvil'){
+        for (let i=0;i<36;i++){
+          const t = i/35, x = a0 + wpx*t;
+          const h = hpx*(1 - 0.5*t);
+          puff(x, zt + h*0.5, Math.max(12,wpx/18), Math.max(6,h*0.5), 0.10*(1-t*0.6));
+        }
+      } else {
+        const n = Math.max(10, Math.min(60, Math.round(wpx/22)));
+        for (let i=0;i<n;i++){
+          const t = i/(n-1), x = a0 + wpx*t;
+          const taper = 0.55 + 0.45*Math.sin(Math.PI*Math.min(1,Math.max(0,t)));
+          const h = hpx*taper;
+          const cy = zb - h*0.5 + (R()-0.5)*hpx*0.06;
+          puff(x, cy, Math.max(11, wpx/(n*0.58)), Math.max(7, h*0.55), 0.105*cl.dens);
+        }
+      }
+    });
+
+    /* precipitation streaks */
+    const RP = rng(4421);
+    for (let x = xmin; x <= xmax; x += Xr/(trueScale ? 40 : 260)){
+      const d = x - xf, inten = tbl(F.PR, d);
+      if (inten <= 0.02) continue;
+      const n = Math.max(1, Math.round(inten*4));
+      for (let k=0;k<n;k++){
+        const px = PX(x) + (RP()-0.5)*(Wp/460)*4;
+        const baseKm = Math.min(4.2, 0.55 + inten*2.2);
+        const top = PY(baseKm) + RP()*(PY(0.12) - PY(baseKm));
+        const len = 16 + RP()*26;
+        const tilt = len*(F.key==='cold' ? 0.34 : 0.20);
+        ctx.strokeStyle = `rgba(118,208,186,${0.22 + inten*0.36})`;
+        ctx.lineWidth = inten > 0.7 ? 1.5 : 1.0;
+        ctx.beginPath(); ctx.moveTo(px, top); ctx.lineTo(px - tilt, top + len); ctx.stroke();
+      }
+    }
+    if (F.key === 'cold' || F.key === 'occluded'){
+      const lx = PX(xf + (F.key==='cold' ? 25 : -30)), ly0 = PY(7.4), ly1 = PY(1.2);
+      ctx.save(); ctx.strokeStyle = 'rgba(240,214,130,0.85)'; ctx.lineWidth = 1.8; ctx.lineJoin='round';
+      const seg = (ly1-ly0);
+      ctx.beginPath(); ctx.moveTo(lx, ly0);
+      ctx.lineTo(lx-7, ly0+seg*0.30); ctx.lineTo(lx+3, ly0+seg*0.40);
+      ctx.lineTo(lx-5, ly0+seg*0.72); ctx.lineTo(lx+4, ly0+seg*0.80);
+      ctx.lineTo(lx-3, ly1);
+      ctx.stroke(); ctx.restore();
+    }
+  }
+
+  /* ── the frontal surface itself ───────────────────────────────── */
+  function strokeSurface(arm, dir, color){
+    ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.lineJoin='round';
+    ctx.shadowColor = hexA(color, 0.6); ctx.shadowBlur = 8;
+    ctx.beginPath();
+    let started = false;
+    for (let k=0;k<=340;k++){
+      const dx = (Xr*1.1)*(k/340);
+      const x = dir<0 ? xf-dx : xf+dx;
+      const z = surfaceZ(F, dx, arm);
+      if (z > ZMAX*1.05) break;
+      const px = PX(x), py = PY(z);
+      if (!started){ ctx.moveTo(px,py); started = true; } else ctx.lineTo(px,py);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+  if (F.key === 'occluded'){
+    strokeSurface('back', -1, COL.cold);
+    strokeSurface('fwd',  +1, COL.warm);
+  } else if (F.coldOn === 'left'){
+    strokeSurface(null, -1, F.color);
+  } else {
+    strokeSurface(null, +1, F.color);
+  }
+
+  /* ── air-motion arrows ────────────────────────────────────────── */
+  if (S.layers.motion && !trueScale){
+    const upCol = 'rgba(232,170,120,0.95)', coldCol = 'rgba(140,180,235,0.92)';
+    // warm air riding the frontal surface
+    const dirSign = (F.coldOn === 'left') ? -1 : +1;
+    const arms = (F.key === 'occluded') ? [['back',-1],['fwd',+1]] : [[null, dirSign]];
+    arms.forEach(([arm, sgn]) => {
+      for (let i=1;i<=5;i++){
+        const dx = (i/5.4)*Math.min(Xr*0.46, ZMAX/ (F.key==='occluded' ? (arm==='back'?1/110:1/200) : F.slope));
+        const z0 = surfaceZ(F, dx, arm);
+        if (z0 > ZMAX*0.92) continue;
+        const dx2 = dx*1.30;
+        const z1 = surfaceZ(F, dx2, arm);
+        const x0 = xf + sgn*dx, x1 = xf + sgn*dx2;
+        const off = 12;
+        // for a cold front the warm air is on the far side of the wedge, so
+        // offset the arrow up-and-away from the sloping surface
+        arrow(ctx, PX(x0), PY(z0)-off, PX(x1), PY(z1)-off-4, upCol, 2.4, 8);
+      }
+    });
+    // low-level flow in each air mass
+    if (F.key !== 'occluded'){
+      // the air mass BEHIND (left) is the one advancing — bold arrows to the right
+      const behCol = F.behind.col === COL.warm ? upCol : coldCol;
+      const ahdCol = F.ahead.col  === COL.warm ? upCol : 'rgba(150,190,235,0.75)';
+      for (let i=0;i<3;i++){
+        const xc = xf - (Xr*0.13 + i*Xr*0.11);
+        const zz = Math.min(surfaceZ(F, Math.abs(xc-xf), null)*0.40, ZMAX*0.20);
+        arrow(ctx, PX(xc)-32, PY(zz+0.35), PX(xc)+32, PY(zz+0.35), behCol, 2.6, 8);
+      }
+      for (let i=0;i<2;i++){
+        const xw = xf + (Xr*0.15 + i*Xr*0.13);
+        arrow(ctx, PX(xw)-30, PY(0.8), PX(xw)+30, PY(0.8), ahdCol, 2.0, 7);
+      }
+    } else {
+      for (let i=0;i<2;i++) arrow(ctx, PX(xf-Xr*0.30+i*Xr*0.10)-26, PY(0.6), PX(xf-Xr*0.30+i*Xr*0.10)+26, PY(0.6), coldCol, 2.2, 7);
+      for (let i=0;i<2;i++) arrow(ctx, PX(xf+Xr*0.30-i*Xr*0.10)+26, PY(0.6), PX(xf+Xr*0.30-i*Xr*0.10)-26, PY(0.6), 'rgba(160,196,240,0.9)', 2.2, 7);
+      arrow(ctx, PX(xf), PY(1.2), PX(xf), PY(ZMAX*0.72), upCol, 2.6, 9);
+    }
+    // stationary front: winds are parallel to the boundary → into / out of page
+    if (F.key === 'stationary'){
+      const mark = (px, py, into, col) => {
+        ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(px,py,10,0,7); ctx.stroke();
+        if (into){ line(ctx,px-6,py-6,px+6,py+6,col,2); line(ctx,px+6,py-6,px-6,py+6,col,2); }
+        else { ctx.beginPath(); ctx.arc(px,py,3.2,0,7); ctx.fill(); }
+        ctx.restore();
+      };
+      const wx1 = PX((xmin + Math.min(xf, xmax))/2), wx2 = PX((Math.max(xf, xmin) + xmax)/2);
+      mark(wx1, PY(3.4), false, upCol);
+      mark(wx2, PY(3.4), true,  coldCol);
+      const chip = (t, x, y, col) => {
+        ctx.save(); ctx.font = `11px ${FONT.mono}`;
+        const w = ctx.measureText(t).width;
+        ctx.fillStyle = 'rgba(24,29,26,0.9)'; roundRect(ctx, x-w/2-7, y-14, w+14, 19, 4); ctx.fill();
+        ctx.restore(); txt(ctx, t, x, y, `11px ${FONT.mono}`, col, 'center');
+      };
+      chip('warm air flows OUT of page', wx1, PY(3.4)-20, 'rgba(238,180,132,0.98)');
+      chip('cool air flows INTO page',   wx2, PY(3.4)-20, 'rgba(160,198,244,0.98)');
+    }
+  }
+
+  if (S.layers.labels && F.key === 'occluded' && !trueScale){
+    const wy = PY(9.0), wx0 = PX(xf);
+    ctx.save(); ctx.font = `700 12px ${FONT.body}`;
+    const t = 'warm air — lifted completely off the ground';
+    const w = ctx.measureText(t).width;
+    const bx = clamp(wx0 - w/2 - 8, M.l+8, M.l+Wp-w-24);
+    ctx.fillStyle = 'rgba(217,96,63,0.22)'; roundRect(ctx, bx, wy-14, w+16, 24, 4); ctx.fill();
+    ctx.strokeStyle = hexA(COL.warm,0.55); ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+    txt(ctx, t, bx+8+w/2, wy+3, `700 12px ${FONT.body}`, '#F0A98C', 'center');
+  }
+
+  /* ── cloud name labels ────────────────────────────────────────── */
+  if (S.layers.clouds && S.layers.labels && !trueScale){
+    F.clouds.forEach(cl => {
+      if (cl.type === 'anvil') return;
+      const cx = PX(xf + (cl.x0+cl.x1)/2), cy = PY((cl.z0+cl.z1)/2);
+      if (cx < M.l+30 || cx > M.l+Wp-30) return;
+      ctx.save();
+      ctx.font = `600 12px ${FONT.body}`;
+      const w = ctx.measureText(cl.name).width;
+      ctx.fillStyle = 'rgba(30,35,32,0.72)';
+      roundRect(ctx, cx-w/2-7, cy-10, w+14, 20, 4); ctx.fill();
+      txt(ctx, cl.name, cx, cy+4, `600 12px ${FONT.body}`, '#E8E4D9', 'center');
+      ctx.restore();
+    });
+  }
+  if (trueScale){
+    const msgs = [
+      'TRUE SCALE — no vertical exaggeration',
+      `You are looking at ${Math.round(Xr)} km of a boundary that runs for over 1000 km.`,
+      `A ${F.name.toLowerCase()} rises ${F.slopeText.replace(/about /,'')} — less than a degree from flat.`,
+      'Every textbook cross-section stretches the vertical by 50–100× to make the slope visible.'
+    ];
+    ctx.save(); ctx.font = `600 15px ${FONT.body}`;
+    let bw = 0; msgs.forEach(m => bw = Math.max(bw, ctx.measureText(m).width));
+    bw += 40;
+    const bh = 34 + msgs.length*23, bx = M.l+Wp/2-bw/2, by = M.t+Hp*0.30;
+    ctx.fillStyle = 'rgba(24,29,26,0.90)'; roundRect(ctx, bx, by, bw, bh, 6); ctx.fill();
+    ctx.strokeStyle = 'rgba(60,163,174,0.55)'; ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
+    msgs.forEach((m,i) => txt(ctx, m, M.l+Wp/2, by+30+i*23,
+      i===0 ? `700 13px ${FONT.mono}` : `15px ${FONT.body}`,
+      i===0 ? COL.accent : COL.text2, 'center'));
+  }
+
+  ctx.restore();  /* end plot clip */
+
+  /* ── ground ───────────────────────────────────────────────────── */
+  const gy = PY(0);
+  ctx.fillStyle = '#3A423B'; ctx.fillRect(M.l, gy, Wp, M.b-2);
+  line(ctx, M.l, gy, M.l+Wp, gy, COL.borderH, 2);
+
+  /* ── axes ─────────────────────────────────────────────────────── */
+  for (let z=0; z<=ZMAX; z+=2){
+    const y = PY(z);
+    line(ctx, M.l-5, y, M.l, y, COL.muted, 1);
+    if (z>0) line(ctx, M.l, y, M.l+Wp, y, 'rgba(232,228,217,0.05)', 1);
+    txt(ctx, z+'', M.l-9, y+4, `12px ${FONT.mono}`, COL.muted, 'right');
+  }
+  ctx.save(); ctx.translate(15, M.t+Hp/2); ctx.rotate(-Math.PI/2);
+  txt(ctx, 'ALTITUDE (km)', 0, 0, `11px ${FONT.mono}`, COL.muted, 'center'); ctx.restore();
+  const niceSteps = [1,2,5,10,20,50,100,200,500,1000,2000];
+  const target = Xr/8;
+  const stepKm = niceSteps.reduce((a,b)=> Math.abs(b-target)<Math.abs(a-target)?b:a, niceSteps[0]);
+  for (let x = Math.ceil(xmin/stepKm)*stepKm; x <= xmax; x += stepKm){
+    const px = PX(x);
+    line(ctx, px, gy, px, gy+5, COL.muted, 1);
+    txt(ctx, (x===0?'0':(x>0?'+':'')+Math.round(x)), px, gy+19, `11px ${FONT.mono}`, COL.muted, 'center');
+  }
+  txt(ctx, 'DISTANCE FROM THE STATION (km)  →  direction the front is moving',
+      M.l+Wp/2, gy+38, `11px ${FONT.mono}`, COL.muted, 'center');
+
+  /* ── station marker ───────────────────────────────────────────── */
+  const sx = PX(0);
+  line(ctx, sx, M.t, sx, gy, 'rgba(60,163,174,0.45)', 1.5, [4,4]);
+  ctx.save(); ctx.fillStyle = COL.accent;
+  ctx.beginPath(); ctx.moveTo(sx, gy-14); ctx.lineTo(sx-9, gy+2); ctx.lineTo(sx+9, gy+2); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  txt(ctx, 'STATION', sx, M.t+13, `700 11px ${FONT.mono}`, COL.accent, 'center');
+
+  /* ── surface-front position + ESSRT symbol on the ground line ─── */
+  txt(ctx, 'A', M.l+7, gy-9, `700 16px ${FONT.disp}`, COL.text2, 'left');
+  txt(ctx, 'A′', M.l+Wp-7, gy-9, `700 16px ${FONT.disp}`, COL.text2, 'right');
+  const fx = PX(xf);
+  if (fx > M.l-60 && fx < M.l+Wp+60){
+    ctx.save(); ctx.beginPath(); ctx.rect(M.l, gy-26, Wp, M.b+26); ctx.clip();
+    drawFrontSymbolLine(ctx, fx-52, gy, fx+52, gy, F, -1, 1.25);
+    ctx.restore();
+    ctx.save(); ctx.font = `700 11px ${FONT.mono}`;
+    const sfw = ctx.measureText('SURFACE FRONT').width;
+    ctx.fillStyle = 'rgba(30,35,32,0.85)'; roundRect(ctx, fx-sfw/2-7, gy-34, sfw+14, 18, 4); ctx.fill();
+    ctx.restore();
+    txt(ctx, 'SURFACE FRONT', fx, gy - 21, `700 11px ${FONT.mono}`, F.color, 'center');
+  }
+
+  /* ── scale caption ────────────────────────────────────────────── */
+  const capt = S.ve <= 3
+    ? `TRUE SCALE — this window is only ${Math.round(Xr)} km wide`
+    : `VERTICAL EXAGGERATION ${Math.round(S.ve)}×  ·  real slope ${F.slopeText}`;
+  ctx.save();
+  ctx.font = `11px ${FONT.mono}`;
+  const cw = ctx.measureText(capt).width;
+  ctx.fillStyle = 'rgba(30,35,32,0.82)';
+  roundRect(ctx, M.l+8, M.t+6, cw+14, 20, 4); ctx.fill();
+  txt(ctx, capt, M.l+15, M.t+20, `11px ${FONT.mono}`, COL.text2, 'left');
+  ctx.restore();
+
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ESSRT FRONT SYMBOLS along an arbitrary segment
+   side = +1 puts the symbols on the left of the direction of travel
+   ═══════════════════════════════════════════════════════════════════ */
+function drawFrontSymbolLine(ctx, x1,y1,x2,y2, F, side, scale){
+  const dx = x2-x1, dy = y2-y1, len = Math.hypot(dx,dy);
+  if (len < 1) return;
+  const ux = dx/len, uy = dy/len;
+  const nx = -uy*side, ny = ux*side;         // normal, symbols point this way
+  const s = 8*(scale||1);
+  ctx.save();
+  ctx.lineWidth = 3*(scale||1); ctx.lineJoin='round';
+  const isStn = F.symbol === 'alternating';
+  const isBoth = F.symbol === 'both';
+  const baseCol = isStn || isBoth ? COL.purple : F.color;
+  ctx.strokeStyle = baseCol;
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+
+  const spacing = s*3.1;
+  const n = Math.max(1, Math.floor(len/spacing));
+  const pad = (len - n*spacing)/2;
+  for (let i=0;i<n;i++){
+    const t = pad + spacing*(i+0.5);
+    const cx = x1 + ux*t, cy = y1 + uy*t;
+    let kind, sgn = 1, col;
+    if (isStn){ kind = (i%2===0) ? 'tri' : 'semi'; sgn = (i%2===0) ? -1 : 1; col = (kind==='tri')?COL.cold:COL.warm; }
+    else if (isBoth){ kind = (i%2===0) ? 'tri' : 'semi'; col = COL.purple; }
+    else { kind = (F.symbol === 'triangles') ? 'tri' : 'semi'; col = F.color; }
+    const mx = nx*sgn, my = ny*sgn;
+    ctx.fillStyle = col; ctx.strokeStyle = col;
+    if (kind === 'tri'){
+      ctx.beginPath();
+      ctx.moveTo(cx - ux*s, cy - uy*s);
+      ctx.lineTo(cx + mx*s*1.35, cy + my*s*1.35);
+      ctx.lineTo(cx + ux*s, cy + uy*s);
+      ctx.closePath(); ctx.fill();
+    } else {
+      const a = Math.atan2(my, mx);
+      ctx.beginPath(); ctx.arc(cx, cy, s, a-Math.PI/2, a+Math.PI/2); ctx.closePath(); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PLAN VIEW — the same front seen from above
+   ═══════════════════════════════════════════════════════════════════ */
+function drawPlan(ctx, W, H){
+  const F = FRONTS[S.front];
+  const M = {l:20, r:20, t:34, b:20};
+  const Wp = W-M.l-M.r, Hp = H-M.t-M.b;
+  const SPAN = 1900;                                   // km across the plan view
+  const PPX = x => M.l + Wp/2 + x*(Wp/SPAN);
+  const midY = M.t + Hp*0.52;
+
+  ctx.save();
+  ctx.fillStyle = '#232A26'; ctx.fillRect(M.l, M.t, Wp, Hp);
+  ctx.beginPath(); ctx.rect(M.l, M.t, Wp, Hp); ctx.clip();
+
+  const th = F.planAngle*Math.PI/180;
+  const ux = Math.cos(th), uy = -Math.sin(th);         // along the front
+  let nx = -uy, ny = ux;                                // normal
+  if (nx < 0){ nx = -nx; ny = -ny; }                    // normal points toward +x (direction of travel)
+  const cx = PPX(S.xf), cy = midY;
+  const big = 3000;
+  const p1 = [cx - ux*big, cy - uy*big], p2 = [cx + ux*big, cy + uy*big];
+
+  /* sector fills */
+  const fillSide = (sign, col, alpha) => {
+    ctx.save(); ctx.beginPath();
+    ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]);
+    ctx.lineTo(p2[0]+nx*sign*big, p2[1]+ny*sign*big);
+    ctx.lineTo(p1[0]+nx*sign*big, p1[1]+ny*sign*big);
+    ctx.closePath(); ctx.fillStyle = hexA(col, alpha); ctx.fill(); ctx.restore();
+  };
+  fillSide(+1, F.ahead.col === COL.cool ? COL.cool : F.ahead.col, 0.20);   // ahead
+  fillSide(-1, F.behind.col, 0.24);                                        // behind
+
+  /* A—A′ slice line */
+  line(ctx, M.l+8, midY, M.l+Wp-8, midY, 'rgba(60,163,174,0.55)', 1.5, [6,5]);
+  txt(ctx, 'A',  M.l+12, midY-8, `700 14px ${FONT.disp}`, COL.accent, 'left');
+  txt(ctx, 'A′', M.l+Wp-12, midY-8, `700 14px ${FONT.disp}`, COL.accent, 'right');
+
+  /* the front */
+  drawFrontSymbolLine(ctx, p1[0],p1[1],p2[0],p2[1], F, (nx*(-uy)+ny*ux) >= 0 ? 1 : -1, 1);
+
+  /* low-pressure centre — placed up the front line, inside the panel */
+  const bounds = {x0:M.l+34, x1:M.l+Wp-34, y0:M.t+34, y1:M.t+Hp-34};
+  function tToEdge(sgn){
+    let best = Infinity;
+    const cand = [];
+    if (Math.abs(ux) > 1e-6) cand.push((bounds.x0-cx)/ux, (bounds.x1-cx)/ux);
+    if (Math.abs(uy) > 1e-6) cand.push((bounds.y0-cy)/uy, (bounds.y1-cy)/uy);
+    cand.forEach(t => { if (Math.sign(t) === sgn && Math.abs(t) < best) best = Math.abs(t); });
+    return isFinite(best) ? best : 0;
+  }
+  const upSign = uy > 0 ? -1 : 1;                 // walk toward the top of the panel
+  const tL = tToEdge(upSign)*0.92*upSign;
+  const Lx = cx + ux*tL, Ly = cy + uy*tL;
+  if (F.key !== 'stationary'){
+    ctx.save();
+    ctx.beginPath(); ctx.arc(Lx, Ly, 19, 0, 7);
+    ctx.fillStyle = 'rgba(30,35,32,0.85)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(227,106,92,0.7)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+    txt(ctx, 'L', Lx, Ly+10, `700 26px ${FONT.disp}`, '#E36A5C', 'center');
+    txt(ctx, 'LOW', Lx, Ly+32, `10px ${FONT.mono}`, 'rgba(227,106,92,0.9)', 'center');
+  }
+
+  /* motion arrow */
+  if (F.key !== 'stationary'){
+    const ax = cx + nx*46, ay = cy + ny*46;
+    arrow(ctx, ax, ay, ax + nx*54, ay + ny*54, '#E8E4D9', 2.4, 9);
+    txt(ctx, 'moves ' + F.planHeading, ax + nx*62, ay + ny*62 - 10, `11px ${FONT.mono}`, COL.text2, 'left');
+  } else {
+    txt(ctx, 'not moving', cx + nx*58, cy + ny*58, `11px ${FONT.mono}`, COL.text2, 'left');
+  }
+
+  /* station */
+  ctx.save(); ctx.fillStyle = COL.accent;
+  ctx.beginPath(); ctx.moveTo(PPX(0), midY-11); ctx.lineTo(PPX(0)-8, midY+5); ctx.lineTo(PPX(0)+8, midY+5); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  /* air-mass labels */
+  const strip = (label, sub, col, side) => {
+    const reach = Math.min(250, Wp*0.22);
+    const px = clamp(cx + nx*side*reach, M.l+92, M.l+Wp-92);
+    const py = M.t + Hp*(side<0 ? 0.22 : 0.80);
+    ctx.save(); ctx.font = `700 13px ${FONT.body}`;
+    const t1 = label.replace(/&amp;/g,'&'), t2 = sub.replace(/&amp;/g,'&');
+    const w = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + 20;
+    const bx = clamp(px - w/2, M.l+6, M.l+Wp-w-6);
+    const byTop = clamp(py-20, M.t+4, M.t+Hp-42);
+    ctx.fillStyle = 'rgba(30,35,32,0.85)'; roundRect(ctx, bx, byTop, w, 38, 5); ctx.fill();
+    ctx.strokeStyle = hexA(col,0.5); ctx.lineWidth=1; ctx.stroke();
+    txt(ctx, t1, bx+w/2, byTop+16, `700 13px ${FONT.body}`, col, 'center');
+    txt(ctx, t2, bx+w/2, byTop+32, `12px ${FONT.body}`, COL.text2, 'center');
+    ctx.restore();
+  };
+  strip(F.behind.label, F.behind.sub, F.behind.col, -1);
+  strip(F.ahead.label,  F.ahead.sub,  F.ahead.col,  +1);
+
+  ctx.restore();
+
+  /* compass rose — ties "right on the cross-section" to a real direction */
+  if (F.planCompass !== null){
+    const rx = M.l+Wp-40, ry = M.t+34, R = 20;
+    ctx.save();
+    ctx.strokeStyle = COL.border; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(rx, ry, R, 0, 7); ctx.stroke();
+    const phi = (0 - F.planCompass)*Math.PI/180;        // screen angle of North
+    const nx2 = Math.cos(phi), ny2 = Math.sin(phi);
+    arrow(ctx, rx - nx2*R*0.75, ry - ny2*R*0.75, rx + nx2*R*0.85, ry + ny2*R*0.85, COL.text2, 1.6, 6);
+    txt(ctx, 'N', rx + nx2*(R+9), ry + ny2*(R+9)+4, `700 11px ${FONT.mono}`, COL.text2, 'center');
+    ctx.restore();
+  }
+  txt(ctx, F.name.toUpperCase() + ' — SURFACE ANALYSIS', M.l+2, M.t-12, `11px ${FONT.mono}`, COL.muted, 'left');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   STATION MODEL  (ESSRT p.18 conventions)
+   ═══════════════════════════════════════════════════════════════════ */
+function drawStationModel(ctx, W, H, o){
+  const cx = W*0.51, cy = H*0.50, r = Math.min(W,H)*0.135;
+  ctx.save();
+  ctx.clearRect(0,0,W,H);
+
+  /* wind barb (points toward the direction the wind is coming FROM) */
+  const a = (o.wdir - 90)*Math.PI/180;                 // 0°=N → up
+  const dx = Math.cos(a), dy = Math.sin(a);
+  const L = r*2.7;
+  const bx = cx + dx*r, by = cy + dy*r;
+  const ex = cx + dx*(r+L), ey = cy + dy*(r+L);
+  if (o.wspd >= 3){
+    ctx.strokeStyle = COL.text; ctx.lineWidth = 2.6; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(ex,ey); ctx.stroke();
+    let rem = Math.round(o.wspd/5)*5, pos = 0;
+    const px2 = -dy, py2 = dx;                          // perpendicular
+    const step = r*0.42;
+    while (rem >= 50 && pos < 4){
+      const p0 = [ex - dx*step*pos, ey - dy*step*pos];
+      const p1 = [ex - dx*step*(pos+1), ey - dy*step*(pos+1)];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]);
+      ctx.lineTo(p0[0]+px2*r*0.85, p0[1]+py2*r*0.85);
+      ctx.lineTo(p1[0],p1[1]); ctx.closePath();
+      ctx.fillStyle = COL.text; ctx.fill();
+      rem -= 50; pos += 1.15;
+    }
+    while (rem >= 10 && pos < 6){
+      const p0 = [ex - dx*step*pos, ey - dy*step*pos];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p0[0]+px2*r*0.85, p0[1]+py2*r*0.85); ctx.stroke();
+      rem -= 10; pos += 1;
+    }
+    if (rem >= 5){
+      const p0 = [ex - dx*step*Math.max(pos,0.9), ey - dy*step*Math.max(pos,0.9)];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p0[0]+px2*r*0.45, p0[1]+py2*r*0.45); ctx.stroke();
+    }
+  }
+
+  /* sky cover */
+  const e = clamp(Math.round(o.sky),0,8);
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,7);
+  ctx.fillStyle = '#1E2320'; ctx.fill();
+  ctx.strokeStyle = COL.text; ctx.lineWidth = 2.4; ctx.stroke();
+  if (e >= 8){
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fillStyle = COL.text; ctx.fill();
+  } else if (e > 0){
+    const frac = (e===7 ? 7.4 : e)/8;
+    ctx.beginPath(); ctx.moveTo(cx,cy);
+    ctx.arc(cx,cy,r, -Math.PI/2, -Math.PI/2 + frac*Math.PI*2);
+    ctx.closePath(); ctx.fillStyle = COL.text; ctx.fill();
+    if (e===1||e===3||e===5) line(ctx, cx, cy-r, cx, cy+r, COL.text, 2.2);
+  }
+
+  /* numbers */
+  const fs = Math.round(r*0.82);
+  txt(ctx, Math.round(o.T)+'',  cx - r*1.35, cy - r*0.42, `700 ${fs}px ${FONT.mono}`, COL.text, 'right');
+  txt(ctx, Math.round(o.Td)+'', cx - r*1.35, cy + r*1.18, `700 ${fs}px ${FONT.mono}`, COL.text, 'right');
+  const code = Math.round((o.P*10) % 1000).toString().padStart(3,'0');
+  txt(ctx, code, cx + r*1.35, cy - r*0.42, `700 ${fs}px ${FONT.mono}`, COL.text, 'left');
+
+  /* present weather */
+  if (o.wx && o.wx !== 'none'){
+    const wx = cx - r*0.05, wy = cy + r*1.72;
+    ctx.save(); ctx.fillStyle = COL.precip; ctx.strokeStyle = COL.precip;
+    if (o.wx === 'rain'){
+      for (let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(wx - r*0.3 + (i%2)*r*0.6, wy + Math.floor(i/2)*r*0.55, r*0.17, 0, 7); ctx.fill(); }
+    } else {
+      ctx.lineWidth = 2.4; ctx.lineJoin='round';
+      ctx.strokeStyle = '#D9B24C';
+      ctx.beginPath(); ctx.moveTo(wx+r*0.22, wy-r*0.5); ctx.lineTo(wx-r*0.28, wy+r*0.1); ctx.lineTo(wx+r*0.2, wy+r*0.2); ctx.lineTo(wx-r*0.3, wy+r*0.85); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   METEOGRAM — what one fixed station records as the front goes by
+   ═══════════════════════════════════════════════════════════════════ */
+function drawMeteo(ctx, W, H){
+  const F = FRONTS[S.front];
+  const M = {l:64, r:96, t:26, b:34};
+  const Wp = W-M.l-M.r;
+  const XF0 = -800, XF1 = 800;
+  const PX = xf => M.l + (xf-XF0)/(XF1-XF0)*Wp;
+  const panels = [
+    {y0:M.t,    y1:M.t+108, label:'°F'},
+    {y0:M.t+134,y1:M.t+210, label:'mb'},
+    {y0:M.t+228,y1:M.t+276, label:'wind'}
+  ];
+  ctx.save();
+  ctx.fillStyle = '#232A26'; ctx.fillRect(0,0,W,H);
+
+  /* sample */
+  const N = 260, samp = [];
+  for (let i=0;i<=N;i++){
+    const xf = XF0 + (XF1-XF0)*i/N, d = -xf;
+    samp.push({xf, d, T:tbl(F.T,d), Td:tbl(F.Td,d), P:tbl(F.P,d),
+               WD:tbl(F.WD,d), sky:tbl(F.SKY,d), pr:tbl(F.PR,d)});
+  }
+  const tAll = samp.flatMap(s=>[s.T,s.Td]);
+  let tMin = Math.floor(Math.min(...tAll)/5)*5 - 2, tMax = Math.ceil(Math.max(...tAll)/5)*5 + 2;
+  const pAll = samp.map(s=>s.P);
+  let pMin = Math.floor(Math.min(...pAll)*2)/2 - 0.6, pMax = Math.ceil(Math.max(...pAll)*2)/2 + 0.6;
+
+  panels.forEach(p => { ctx.fillStyle = '#262B27'; ctx.fillRect(M.l, p.y0, Wp, p.y1-p.y0);
+                        ctx.strokeStyle = COL.border; ctx.lineWidth=1; ctx.strokeRect(M.l+0.5, p.y0+0.5, Wp-1, p.y1-p.y0-1); });
+
+  /* frontal-passage marker */
+  const fz = PX(0);
+  panels.forEach(p => line(ctx, fz, p.y0, fz, p.y1, 'rgba(232,228,217,0.35)', 1.5, [5,4]));
+  txt(ctx, 'FRONT PASSES', fz, M.t-9, `700 11px ${FONT.mono}`, COL.text2, 'center');
+
+  /* panel 1 — temperature & dewpoint */
+  const P1 = panels[0], TY = v => P1.y1 - (v-tMin)/(tMax-tMin)*(P1.y1-P1.y0);
+  for (let v = Math.ceil(tMin/10)*10; v <= tMax; v += 10){
+    line(ctx, M.l, TY(v), M.l+Wp, TY(v), 'rgba(232,228,217,0.07)', 1);
+    txt(ctx, v+'', M.l-8, TY(v)+4, `11px ${FONT.mono}`, COL.muted, 'right');
+  }
+  const plot = (key, col, w) => {
+    ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineJoin='round'; ctx.beginPath();
+    samp.forEach((s,i) => { const x=PX(s.xf), y=TY(s[key]); i? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+    ctx.stroke(); ctx.restore();
+  };
+  plot('T', COL.warm, 2.4); plot('Td', COL.precip, 2.2);
+  txt(ctx, 'Temperature', M.l+Wp+9, P1.y0+16, `700 12px ${FONT.body}`, COL.warm, 'left');
+  txt(ctx, 'Dewpoint',    M.l+Wp+9, P1.y0+34, `700 12px ${FONT.body}`, COL.precip, 'left');
+  txt(ctx, '°F', M.l-8, P1.y0-6, `11px ${FONT.mono}`, COL.muted, 'right');
+
+  /* panel 2 — pressure */
+  const P2 = panels[1], PY2 = v => P2.y1 - (v-pMin)/(pMax-pMin)*(P2.y1-P2.y0);
+  for (let v = Math.ceil(pMin/2)*2; v <= pMax; v += 2){
+    line(ctx, M.l, PY2(v), M.l+Wp, PY2(v), 'rgba(232,228,217,0.07)', 1);
+    txt(ctx, v.toFixed(0), M.l-8, PY2(v)+4, `11px ${FONT.mono}`, COL.muted, 'right');
+  }
+  ctx.save(); ctx.strokeStyle = COL.gold; ctx.lineWidth = 2.4; ctx.beginPath();
+  samp.forEach((s,i) => { const x=PX(s.xf), y=PY2(s.P); i? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+  ctx.stroke(); ctx.restore();
+  txt(ctx, 'Air pressure', M.l+Wp+9, P2.y0+16, `700 12px ${FONT.body}`, COL.gold, 'left');
+  txt(ctx, 'mb', M.l-8, P2.y0-6, `11px ${FONT.mono}`, COL.muted, 'right');
+
+  /* panel 3 — wind direction + sky/precip band */
+  const P3 = panels[2];
+  for (let x = M.l+26; x < M.l+Wp-10; x += 44){
+    const xf = XF0 + (x-M.l)/Wp*(XF1-XF0), d = -xf;
+    const wd = tbl(F.WD,d), a = (wd+90)*Math.PI/180;   // arrow points downwind
+    const ax = Math.cos(a), ay = Math.sin(a), cy = P3.y0+22;
+    arrow(ctx, x-ax*11, cy-ay*11, x+ax*11, cy+ay*11, 'rgba(150,190,240,0.95)', 1.8, 6);
+  }
+  const bandY = P3.y1-16;
+  for (let x = M.l; x < M.l+Wp; x += 2){
+    const xf = XF0 + (x-M.l)/Wp*(XF1-XF0), d = -xf;
+    const sk = tbl(F.SKY,d)/8, pr = tbl(F.PR,d);
+    ctx.fillStyle = `rgba(200,208,216,${0.10+sk*0.42})`; ctx.fillRect(x, bandY, 2, 14);
+    if (pr > 0.03){ ctx.fillStyle = `rgba(79,183,154,${0.25+pr*0.6})`; ctx.fillRect(x, bandY+9, 2, 5); }
+  }
+  txt(ctx, 'Wind direction', M.l+Wp+9, P3.y0+18, `700 12px ${FONT.body}`, 'rgba(150,190,240,0.95)', 'left');
+  txt(ctx, 'Sky / precip',   M.l+Wp+9, bandY+11, `700 12px ${FONT.body}`, COL.text2, 'left');
+
+  /* time axis */
+  const hrs = xf => xf/F.speedKmh;
+  for (let xf = XF0; xf <= XF1; xf += 200){
+    const x = PX(xf);
+    line(ctx, x, P3.y1, x, P3.y1+5, COL.muted, 1);
+    const h = hrs(xf);
+    const lbl = (Math.abs(h) < 0.5) ? '0' : (h>0?'+':'') + h.toFixed(Math.abs(h)<10?1:0);
+    txt(ctx, lbl, x, P3.y1+18, `11px ${FONT.mono}`, COL.muted, 'center');
+  }
+  txt(ctx, `HOURS BEFORE / AFTER FRONTAL PASSAGE  (front moving ${F.speedKmh} km/h)`,
+      M.l+Wp/2, H-4, `11px ${FONT.mono}`, COL.muted, 'center');
+
+  /* "now" marker */
+  const nx = PX(clamp(S.xf, XF0, XF1));
+  line(ctx, nx, M.t-2, nx, P3.y1+2, COL.accent, 2);
+  ctx.save(); ctx.fillStyle = COL.accent;
+  ctx.beginPath(); ctx.moveTo(nx, M.t-2); ctx.lineTo(nx-6, M.t-11); ctx.lineTo(nx+6, M.t-11); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   OBSERVATION AT THE STATION
+   ═══════════════════════════════════════════════════════════════════ */
+function obsNow(){
+  const F = FRONTS[S.front], d = -S.xf;
+  return { d, T:tbl(F.T,d), Td:tbl(F.Td,d), P:tbl(F.P,d),
+           wdir:tbl(F.WD,d), wspd:tbl(F.WS,d), sky:tbl(F.SKY,d),
+           pr:tbl(F.PR,d), wx:F.wx(d) };
+}
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const dirName = deg => COMPASS[Math.round(((deg%360)+360)%360/22.5)%16];
+
+/* ═══════════════════════════════════════════════════════════════════
+   RENDER + WIRING
+   ═══════════════════════════════════════════════════════════════════ */
+const el = id => document.getElementById(id);
+const cvXS = el('xsCanvas'), cvPlan = el('planCanvas'), cvMet = el('meteoCanvas'), cvStn = el('stationCanvas');
+const DIMS = { xs:[1080,520], plan:[1080,300], meteo:[1080,348], stn:[400,260] };
+
+function paint(scale){
+  scale = scale || dpr;
+  drawXS  (setup(cvXS,   ...DIMS.xs,    scale), ...DIMS.xs);
+  drawPlan(setup(cvPlan, ...DIMS.plan,  scale), ...DIMS.plan);
+  drawMeteo(setup(cvMet, ...DIMS.meteo, scale), ...DIMS.meteo);
+  drawStationModel(setup(cvStn, ...DIMS.stn, scale), ...DIMS.stn, obsNow());
+}
+
+function legendHTML(){
+  const F = FRONTS[S.front];
+  const chip = (c, t) => `<span class="cc-legend-chip"><span class="cc-legend-dot" style="background:${c}"></span>${t}</span>`;
+  return chip(F.behind.col, F.behind.label.replace(/&amp;/g,'&') + ' (behind)')
+       + chip(F.ahead.col,  F.ahead.label.replace(/&amp;/g,'&') + ' (ahead)')
+       + chip(COL.cloud,   'cloud')
+       + chip(COL.precip,  'precipitation')
+       + chip(COL.accent,  'the station ▲');
+}
+
+function updateText(){
+  const F = FRONTS[S.front], o = obsNow(), d = o.d;
+  const ahead = d > 0;
+  const side  = ahead ? F.ahead : F.behind;
+  const W = F.word;
+  const passed = Math.abs(d) < 40 ? 'passing over the station right now'
+               : (ahead ? `${Math.round(d)} km away` : `${Math.round(-d)} km past the station`);
+  const hrs = (d/F.speedKmh);
+
+  el('xsReadout').innerHTML =
+    `The ${W.noun} is <em>${passed}</em>. The station sits in the <strong>${side.label.replace(/&amp;/g,'&')}</strong> air mass — ` +
+    `<strong>${Math.round(o.T)}°F</strong>, dewpoint <strong>${Math.round(o.Td)}°F</strong>, ` +
+    `wind from the <strong>${dirName(o.wdir)}</strong>, pressure <strong>${o.P.toFixed(1)} mb</strong>.`;
+
+  el('stationTag').textContent = side.label.replace(/&amp;/g,'&').toUpperCase();
+  const when = Math.abs(hrs) > 48 ? Math.round(Math.abs(hrs)/24)+' days' : Math.round(Math.abs(hrs))+' h';
+  el('obsTitle').textContent = Math.abs(d) < 40 ? W.at
+    : (ahead ? `${W.ahead} — ${when} before it arrives`
+             : `${W.behind} — ${when} after it passed`);
+
+  const skyWord = o.sky >= 7 ? 'overcast' : o.sky >= 5 ? 'mostly cloudy' : o.sky >= 3 ? 'partly cloudy' : o.sky >= 1 ? 'a few clouds' : 'clear';
+  const wxWord  = o.pr > 0.6 ? 'heavy precipitation' : o.pr > 0.25 ? 'steady precipitation' : o.pr > 0.05 ? 'light precipitation' : 'no precipitation';
+  el('obsBody').innerHTML =
+    `Skies are <strong>${skyWord}</strong> (${Math.round(o.sky)}/8) with <strong>${wxWord}</strong>. ` +
+    `Wind is from the <strong>${dirName(o.wdir)}</strong> at about <strong>${Math.round(o.wspd)} knots</strong>. ` + F.tagline;
+
+  const dT = tbl(F.T, -180) - tbl(F.T, 180);
+  const dTd = tbl(F.Td, -180) - tbl(F.Td, 180);
+  el('obsClue').innerHTML =
+    `<em>Map clue:</em> across 360 km spanning this front the temperature changes by <strong>${Math.abs(Math.round(dT))}°F</strong> ` +
+    `and the dewpoint by <strong>${Math.abs(Math.round(dTd))}°F</strong>, while the wind swings from ` +
+    `<strong>${dirName(tbl(F.WD,180))}</strong> to <strong>${dirName(tbl(F.WD,-180))}</strong>. ` +
+    `Those three jumps together are how you find this front on a surface map.`;
+
+  el('xsLegend').innerHTML = legendHTML();
+  el('posVal').textContent = (S.xf>0?'+':'') + Math.round(S.xf) + ' km';
+  el('veVal').textContent  = Math.round(S.ve) + '×';
+  el('veNote').textContent = S.ve <= 3
+    ? 'At true scale a front is a nearly flat sheet — the slope is only a few tenths of a degree.'
+    : `Real slope ${F.slopeText}. Textbook diagrams exaggerate the vertical by 50–100×.`;
+  el('stdNote').innerHTML =
+    `Built for <strong>HS-ESS2-8</strong> — “evaluate data and communicate information to explain how the movement and ` +
+    `interactions of air masses result in changes in weather conditions.” Front symbols follow the NYS ` +
+    `Earth &amp; Space Sciences Reference Tables (p. 18). Values are idealised, not a real observed case.`;
+}
+
+function buildQA(){
+  const F = FRONTS[S.front];
+  el('qaList').innerHTML = F.qa.map((q,i) => `
+    <div class="qa-item">
+      <div class="q">${i+1}. ${q[0]}</div>
+      <button class="cc-btn cc-btn-sm reveal-btn" data-qi="${i}">Show answer</button>
+      <div class="a" id="ans-${i}" hidden>${q[1]}</div>
+    </div>`).join('');
+  el('qaList').querySelectorAll('.reveal-btn').forEach(b => {
+    b.addEventListener('click', () => {
+      const a = el('ans-'+b.dataset.qi);
+      a.hidden = !a.hidden;
+      b.textContent = a.hidden ? 'Show answer' : 'Hide answer';
+      b.classList.toggle('is-active', !a.hidden);
+    });
+  });
+}
+
+function render(){ paint(); updateText(); }
+
+/* ── controls ─────────────────────────────────────────────────── */
+document.querySelectorAll('[data-front]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-front]').forEach(o => o.classList.remove('is-active'));
+  b.classList.add('is-active');
+  S.front = b.dataset.front;
+  S.xf = -400; el('posSlider').value = S.xf;
+  buildQA(); render();
+}));
+
+document.querySelectorAll('[data-layer]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.layer;
+  S.layers[k] = !S.layers[k];
+  b.classList.toggle('is-active', S.layers[k]);
+  if (k === 'planview')  el('planBlock').style.display  = S.layers[k] ? '' : 'none';
+  if (k === 'meteogram') el('meteoBlock').style.display = S.layers[k] ? '' : 'none';
+  render();
+}));
+
+el('posSlider').addEventListener('input', e => { S.xf = +e.target.value; stop(); render(); });
+el('veSlider').addEventListener('input',  e => { S.ve = +e.target.value; render(); });
+el('trueScaleBtn').addEventListener('click', () => {
+  S.ve = 1; el('veSlider').value = 1; S.xf = 0; el('posSlider').value = 0; stop(); render();
+});
+el('resetBtn').addEventListener('click', () => {
+  S.xf = -400; el('posSlider').value = -400; S.ve = 50; el('veSlider').value = 50; stop(); render();
+});
+
+/* drag on the cross-section to move the front */
+let dragging = false;
+function xfFromEvent(ev){
+  const rect = cvXS.getBoundingClientRect();
+  const t = (ev.clientX - rect.left)/rect.width;
+  const M = {l:66, r:26}, W = DIMS.xs[0];
+  const Wp = W - M.l - M.r;
+  const Xr = S.ve*ZMAX*(Wp/(DIMS.xs[1]-22-56));
+  return clamp(((t*W) - M.l)/Wp*Xr - Xr/2, -900, 900);
+}
+cvXS.addEventListener('pointerdown', e => { dragging = true; cvXS.setPointerCapture(e.pointerId); stop();
+  S.xf = xfFromEvent(e); el('posSlider').value = clamp(S.xf,-900,900); render(); });
+cvXS.addEventListener('pointermove', e => { if (!dragging) return;
+  S.xf = xfFromEvent(e); el('posSlider').value = clamp(S.xf,-900,900); render(); });
+cvXS.addEventListener('pointerup',   () => { dragging = false; });
+cvXS.addEventListener('pointercancel',() => { dragging = false; });
+
+/* ── animation ────────────────────────────────────────────────── */
+let raf = null, last = 0;
+function stop(){ if (raf) cancelAnimationFrame(raf); raf = null; S.playing = false; el('playBtn').textContent = '▶ Play'; }
+function step(ts){
+  if (!last) last = ts;
+  const dt = Math.min(0.05, (ts-last)/1000); last = ts;
+  S.xf += dt*(1700/24);                       // full sweep in ~24 s, any front type
+  if (S.xf > 800){ S.xf = 800; el('posSlider').value = 800; render(); stop(); return; }
+  el('posSlider').value = Math.round(S.xf);
+  render();
+  raf = requestAnimationFrame(step);
+}
+el('playBtn').addEventListener('click', () => {
+  if (S.playing){ stop(); return; }
+  if (S.xf >= 780){ S.xf = -800; el('posSlider').value = -800; }
+  S.playing = true; last = 0; el('playBtn').textContent = '❚❚ Pause';
+  raf = requestAnimationFrame(step);
+});
+
+/* ── PNG export — fixed high-res multiplier, never devicePixelRatio ── */
+el('pngBtn').addEventListener('click', () => {
+  const EXPORT_SCALE = 3;
+  const F = FRONTS[S.front];
+  const PAD = 26, TITLE = 92, GAP = 18, FOOT = 34;
+  const w = DIMS.xs[0] + PAD*2;
+  const parts = [DIMS.plan, DIMS.xs, DIMS.meteo];
+  const h = TITLE + parts.reduce((a,p)=>a+p[1]+GAP, 0) + FOOT + PAD;
+  const off = document.createElement('canvas');
+  off.width = w*EXPORT_SCALE; off.height = h*EXPORT_SCALE;
+  const oc = off.getContext('2d'); oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+  oc.fillStyle = '#1E2320'; oc.fillRect(0,0,w,h);
+  txt(oc, 'ANATOMY OF A FRONT', PAD, 40, `700 26px ${FONT.disp}`, COL.text, 'left');
+  txt(oc, F.name.toUpperCase() + '  ·  vertical exaggeration ' + Math.round(S.ve) + '×  ·  real slope ' + F.slopeText.replace(/<[^>]+>/g,''),
+      PAD, 64, `13px ${FONT.mono}`, COL.text2, 'left');
+  txt(oc, 'contextclimate.io', w-PAD, 40, `13px ${FONT.mono}`, COL.muted, 'right');
+  let y = TITLE;
+  const sub = (dims, fn) => {
+    oc.save(); oc.translate(PAD, y);
+    oc.beginPath(); oc.rect(0,0,dims[0],dims[1]); oc.clip();
+    oc.fillStyle = '#262B27'; oc.fillRect(0,0,dims[0],dims[1]);
+    fn(oc, dims[0], dims[1]);
+    oc.restore();
+    oc.strokeStyle = COL.border; oc.lineWidth = 1; oc.strokeRect(PAD+0.5, y+0.5, dims[0]-1, dims[1]-1);
+    y += dims[1] + GAP;
+  };
+  sub(DIMS.plan,  drawPlan);
+  sub(DIMS.xs,    drawXS);
+  sub(DIMS.meteo, drawMeteo);
+  txt(oc, 'Earth & Space Science · Synoptic Meteorology · idealised diagram, not an observed case',
+      PAD, h-PAD, `12px ${FONT.body}`, COL.muted, 'left');
+  const a = document.createElement('a');
+  a.download = 'front-cross-section-' + S.front + '.png';
+  a.href = off.toDataURL('image/png'); a.click();
+});
+
+window.addEventListener('resize', () => {
+  const nd = window.devicePixelRatio || 1;
+  if (nd !== dpr){ dpr = nd; render(); }
+});
+
+buildQA();
+render();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="core-sample-tools.css">
+<title>Find the Front — ContextClimate</title>
+<style>
+/* Tool-specific layout only — shared chrome lives in core-sample-tools.css. */
+:root { --tool-accent: var(--accent-earth); }
+/* CONTENT colors: ESSRT front conventions and the pre-lab's coloured-pencil
+   dewpoint groups. These encode meaning and are deliberately not themed. */
+:root {
+  --f-cold: #6D96D8;  --f-warm: #D9603F;  --f-stn: #A08CC6;
+  --dew-dry: #A98CD6;   /* dewpoints in the 20s / 30s / 40s — purple pencil */
+  --dew-wet: #E08A3C;   /* dewpoints in the 50s / 60s     — orange pencil */
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { display: flex; flex-direction: row; align-items: flex-start; padding: 0; }
+
+.sidebar {
+  width: 312px; flex-shrink: 0; position: sticky; top: 0; max-height: 100vh; overflow-y: auto;
+  background: var(--color-surface); border-right: 1px solid var(--color-border);
+  padding: 22px 20px 34px; display: flex; flex-direction: column; gap: 16px;
+}
+.sidebar-eyebrow { font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: -6px; }
+.scn-list { display: flex; flex-direction: column; gap: 6px; }
+.scn-list .cc-btn { text-align: left; padding: 9px 13px; line-height: 1.3; }
+.scn-list .cc-btn small { display: block; font-size: 11px; color: var(--color-text-muted); font-weight: 400; }
+.tool-list { display: flex; flex-direction: column; gap: 6px; }
+.tool-list .cc-btn { text-align: left; display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 8px 12px; }
+.tool-swatch { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.toggle-list { display: flex; flex-direction: column; gap: 6px; }
+.toggle-list .cc-btn { text-align: left; font-size: 13px; padding: 7px 12px; display: flex; align-items: center; gap: 9px; }
+.toggle-box { width: 13px; height: 13px; border: 1px solid var(--color-border-hover); border-radius: 2px; flex-shrink: 0; position: relative; }
+.cc-btn.is-active .toggle-box { background: var(--tool-accent); border-color: var(--tool-accent); }
+.cc-btn.is-active .toggle-box::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 4px; height: 7px;
+  border: solid var(--color-bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.btn-pair { display: flex; gap: 6px; }
+.btn-pair .cc-btn { flex: 1; text-align: center; }
+.divider { border: none; border-top: 1px solid var(--color-border); }
+.hint { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; font-style: italic; }
+
+.main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; padding: 24px 20px 72px; }
+header { text-align: center; padding: 0 0 18px; max-width: 900px; width: 100%; }
+header .cc-eyebrow { margin-bottom: 9px; }
+header .cc-title { margin: 0 auto 9px; font-size: clamp(30px, 6vw, 44px); }
+header .cc-subtitle { max-width: 620px; margin: 0 auto; }
+.stack { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 14px; }
+
+.canvas-block { width: 100%; border: 1px solid var(--color-border-hover); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--color-surface); position: relative; }
+.canvas-block canvas { width: 100%; height: auto; display: block; }
+#mapCanvas { cursor: crosshair; }
+.block-label { padding: 9px 18px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono);
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-muted);
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.block-label .bl-hint { text-transform: none; letter-spacing: .02em; font-family: var(--font-body); font-size: 12px; }
+.readout-strip { padding: 12px 20px; border-top: 1px solid var(--color-border); font-size: 14px;
+  color: var(--color-text-secondary); text-align: center; min-height: 1.6em; }
+.readout-strip strong { color: var(--color-text-primary); }
+.readout-strip em { color: var(--tool-accent); font-style: normal; font-weight: 600; }
+.legend-strip { padding: 12px 18px; border-top: 1px solid var(--color-border); }
+
+.fb { display: flex; flex-direction: column; gap: 12px; }
+.fb-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.fb-head h4 { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--color-text-primary); }
+.fb-grid { display: flex; gap: 10px; flex-wrap: wrap; }
+.fb-item { flex: 1 1 240px; background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 11px 14px; }
+.fb-item .cc-stat-label { display: block; margin-bottom: 3px; }
+.fb-item .v { font-family: var(--font-display); font-weight: 700; font-size: 22px; color: var(--color-text-primary); }
+.fb-item .n { font-size: 13px; color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px; }
+.fb-note { font-size: 14px; color: var(--color-text-secondary); }
+.fb-note strong { color: var(--color-text-primary); }
+.fb-note em { color: var(--tool-accent); font-style: normal; font-weight: 600; }
+
+.side-panels { display: flex; gap: 14px; flex-wrap: wrap; }
+.side-panels .cc-panel { flex: 1 1 300px; }
+.cc-panel h4 { font-family: var(--font-display); font-size: 18px; font-weight: 700; margin-bottom: 8px; color: var(--color-text-primary); }
+.cc-panel ol { margin: 0 0 0 18px; font-size: 14px; color: var(--color-text-secondary); }
+.cc-panel ol li { margin-bottom: 7px; }
+.cc-panel ol li strong { color: var(--color-text-primary); }
+#keyCanvas { width: 100%; max-width: 430px; height: auto; display: block; margin: 0 auto; }
+
+.std-note { display: block; margin-top: 18px; font-size: 13px; color: var(--color-text-muted);
+  text-align: center; font-style: italic; max-width: 880px; line-height: 1.65; }
+
+@media (max-width: 860px) {
+  body { flex-direction: column; }
+  .sidebar { width: 100%; position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--color-border); }
+}
+</style>
+</head>
+<body>
+
+<aside class="sidebar">
+  <p class="sidebar-eyebrow">Weather Map</p>
+  <div class="scn-list" id="scnList"></div>
+
+  <hr class="divider">
+
+  <p class="sidebar-eyebrow">Draw</p>
+  <div class="tool-list">
+    <button class="cc-btn is-active" data-tool="cold"><span class="tool-swatch" style="background:#6D96D8"></span>Cold front</button>
+    <button class="cc-btn" data-tool="warm"><span class="tool-swatch" style="background:#D9603F"></span>Warm front</button>
+    <button class="cc-btn" data-tool="low"><span class="tool-swatch" style="background:#E36A5C"></span>Low-pressure centre (L)</button>
+  </div>
+  <p class="hint">Click along the boundary, starting at the low and working outward. Symbols land on the side the front is moving toward.</p>
+  <div class="btn-pair">
+    <button class="cc-btn cc-btn-sm" id="undoBtn">↶ Undo point</button>
+    <button class="cc-btn cc-btn-sm" id="flipBtn">⇄ Flip symbols</button>
+  </div>
+  <div class="btn-pair">
+    <button class="cc-btn cc-btn-sm" id="clearBtn">Clear this front</button>
+    <button class="cc-btn cc-btn-sm" id="clearAllBtn">Clear all</button>
+  </div>
+
+  <hr class="divider">
+
+  <button class="cc-btn primary" id="checkBtn">Check my analysis</button>
+  <button class="cc-btn" id="answerBtn">Show the analysed fronts</button>
+
+  <hr class="divider">
+
+  <p class="sidebar-eyebrow">Clues</p>
+  <div class="toggle-list">
+    <button class="cc-btn is-active" data-layer="dew"><span class="toggle-box"></span>Dewpoint groups (colour)</button>
+    <button class="cc-btn" data-layer="wind"><span class="toggle-box"></span>Wind arrows</button>
+    <button class="cc-btn" data-layer="temp"><span class="toggle-box"></span>Temperature shading</button>
+    <button class="cc-btn is-active" data-layer="isobars"><span class="toggle-box"></span>Isobars</button>
+    <button class="cc-btn" data-layer="names"><span class="toggle-box"></span>Station names</button>
+  </div>
+
+  <hr class="divider">
+  <button class="cc-btn cc-btn-sm" id="pngBtn">↓ PNG</button>
+</aside>
+
+<div class="main-col">
+
+<header>
+  <p class="cc-eyebrow">Earth &amp; Space Science · Synoptic Meteorology</p>
+  <h1 class="cc-title">Find the Front</h1>
+  <p class="cc-subtitle">Fronts are never observed directly — you <em>infer</em> them. Read the station models, then draw where you think each boundary lies.</p>
+</header>
+
+<div class="stack">
+  <div class="canvas-block">
+    <div class="block-label"><span id="mapTitle">Surface Weather Map</span><span class="bl-hint" id="mapSub"></span></div>
+    <canvas id="mapCanvas" width="900" height="980"></canvas>
+    <div class="readout-strip" id="mapReadout"></div>
+    <div class="legend-strip"><div class="cc-legend-row" id="mapLegend"></div></div>
+  </div>
+
+  <div class="cc-panel cc-reveal" id="fbPanel"><div class="fb" id="fbBody"></div></div>
+
+  <div class="side-panels">
+    <div class="cc-panel">
+      <h4>Three clues that give a front away</h4>
+      <ol>
+        <li><strong>Temperature.</strong> Look for an abrupt change over a short distance.</li>
+        <li><strong>Wind direction.</strong> Look for a sudden shift in the barbs from one side of the boundary to the other.</li>
+        <li><strong>Dewpoint.</strong> Look for a jump in moisture — higher dewpoints mean more water vapour in the air.</li>
+      </ol>
+      <p class="hint" style="margin-top:10px">A real front shows all three at once. One clue alone is usually a coincidence.</p>
+    </div>
+    <div class="cc-panel">
+      <h4>Reading a station model</h4>
+      <canvas id="keyCanvas" width="760" height="420"></canvas>
+    </div>
+  </div>
+</div>
+
+<span class="std-note" id="stdNote"></span>
+
+</div>
+
+<script>
+const WATER = [
+ [[-87.62,45.1],[-87.65,44.6],[-87.9,44.0],[-87.72,43.4],[-87.8,42.9],[-87.6,42.49],[-87.6,41.9],[-87.2,41.63],[-86.8,41.72],[-86.5,41.9],[-86.22,42.3],[-86.25,43.0],[-86.4,43.6],[-86.5,44.2],[-86.05,44.75],[-85.6,45.1],[-85.0,45.4],[-85.5,45.75],[-86.5,45.65],[-87.1,45.4]],
+ [[-92.1,46.75],[-91.0,46.72],[-90.42,46.57],[-89.5,46.8],[-88.5,46.9],[-88.42,47.4],[-87.8,47.45],[-87.0,46.8],[-86.5,46.55],[-85.5,46.7],[-84.9,46.5],[-84.35,46.5],[-84.6,47.0],[-85.5,47.6],[-87.0,48.2],[-88.5,48.5],[-89.9,48.0],[-91.0,47.5]],
+ [[-84.35,46.0],[-83.4,46.1],[-83.5,45.8],[-84.0,45.8],[-83.5,45.35],[-83.3,44.9],[-83.3,44.3],[-82.6,43.9],[-82.4,43.0],[-82.0,43.4],[-81.5,44.5],[-81.7,45.2],[-83.0,45.85]],
+ [[-83.2,41.95],[-82.7,41.7],[-81.7,41.5],[-81.0,41.5],[-80.52,42.0],[-80.9,42.4],[-82.0,42.7],[-83.1,42.4]],
+ [[-95.9,28.6],[-95.2,29.0],[-94.7,29.32],[-93.7,29.77],[-92.5,29.58],[-91.5,29.3],[-90.9,29.15],[-89.9,29.2],[-89.35,29.1],[-89.4,30.0],[-89.62,30.18],[-88.85,30.36],[-88.1,30.36],[-87.5,30.3],[-85.5,29.8],[-84.0,29.9],[-83.0,28.3],[-95.9,28.3]]
+];
+const GEO = [[[-104.05,49.0],[-97.23,49.0]],[[-97.23,49.0],[-97.15,48.6],[-96.85,48.0],[-96.75,47.0],[-96.85,46.5],[-96.55,45.94]],[[-104.05,45.94],[-96.55,45.94]],[[-104.05,49.0],[-104.05,45.94]],[[-104.05,45.94],[-104.05,43.0]],[[-96.55,45.94],[-96.45,45.3],[-96.45,43.5]],[[-104.05,43.0],[-98.47,43.0]],[[-98.47,43.0],[-97.9,42.87],[-97.2,42.8],[-96.8,42.7],[-96.47,42.49]],[[-96.45,43.5],[-96.52,43.0],[-96.47,42.49]],[[-96.45,43.5],[-91.22,43.5]],[[-104.05,43.0],[-104.05,41.0]],[[-104.05,41.0],[-102.05,41.0],[-102.05,40.0]],[[-102.05,40.0],[-95.31,40.0]],[[-96.47,42.49],[-96.35,42.0],[-96.1,41.6],[-95.93,41.0],[-95.85,40.6],[-95.6,40.25],[-95.31,40.0],[-94.98,39.62],[-94.61,39.15]],[[-95.77,40.58],[-91.72,40.61]],[[-102.05,40.0],[-102.05,37.0]],[[-102.05,37.0],[-94.62,37.0]],[[-94.61,39.15],[-94.6,37.0]],[[-103.0,37.0],[-103.0,36.5],[-100.0,36.5]],[[-94.62,37.0],[-94.62,33.64]],[[-100.0,36.5],[-100.0,34.56],[-99.4,34.4],[-98.6,34.15],[-97.9,33.88],[-97.2,33.9],[-96.4,33.7],[-95.5,33.9],[-94.62,33.64],[-94.04,33.02]],[[-94.04,33.02],[-91.16,33.0]],[[-94.04,33.02],[-94.04,31.0],[-93.75,31.0],[-93.55,30.3],[-93.7,29.77]],[[-93.7,29.77],[-94.7,29.32],[-95.2,29.0],[-95.9,28.6]],[[-93.7,29.77],[-92.5,29.58],[-91.5,29.3],[-90.9,29.15],[-89.9,29.2],[-89.35,29.1],[-89.4,30.0],[-89.62,30.18]],[[-89.62,30.18],[-88.85,30.36],[-88.1,30.36],[-87.5,30.3]],[[-88.47,35.0],[-88.47,31.0],[-88.4,30.4],[-88.1,30.36]],[[-85.6,35.0],[-85.3,34.0],[-85.05,32.85],[-85.0,32.0],[-84.9,31.0],[-85.1,31.0]],[[-90.31,35.0],[-85.6,35.0]],[[-89.54,36.5],[-88.05,36.68],[-84.8,36.6],[-81.97,36.6]],[[-81.97,36.6],[-81.65,36.35],[-82.6,35.6],[-83.9,35.0],[-84.32,34.99]],[[-81.97,36.6],[-82.55,37.2],[-83.1,37.8],[-82.3,38.4]],[[-92.75,45.55],[-92.65,44.75],[-91.9,44.5],[-91.25,43.85],[-91.22,43.5],[-91.15,43.2],[-90.65,42.5],[-90.15,41.8],[-91.05,41.4],[-91.1,40.8],[-91.4,40.4],[-91.42,40.0],[-90.72,39.5],[-90.6,38.9],[-90.2,38.79],[-90.15,38.5],[-89.9,37.9],[-89.5,37.2],[-89.13,36.98],[-89.5,36.5],[-89.7,36.05],[-89.65,35.8],[-90.1,35.4],[-90.31,35.0],[-90.55,34.4],[-90.9,34.0],[-91.05,33.4],[-91.16,33.0],[-91.4,32.4],[-91.5,31.6],[-91.6,31.0],[-91.3,30.6],[-90.9,30.4]],[[-89.13,36.98],[-88.5,37.15],[-88.03,37.79],[-87.6,37.85],[-86.8,37.9],[-86.3,38.0],[-85.8,38.3],[-85.2,38.7],[-84.82,39.1],[-84.3,39.05],[-83.7,38.7],[-83.0,38.7],[-82.6,38.42],[-82.3,38.4],[-81.8,38.9],[-81.7,39.3],[-81.0,39.5],[-80.6,40.2],[-80.52,40.64]],[[-87.53,41.76],[-87.53,38.73],[-88.03,37.79]],[[-84.82,41.71],[-84.82,39.1]],[[-87.53,41.76],[-84.82,41.71]],[[-84.82,41.71],[-83.45,41.73]],[[-90.64,42.51],[-87.8,42.49]],[[-91.22,43.5],[-91.15,43.2]],[[-90.42,46.57],[-90.12,46.34],[-89.1,46.15],[-88.5,46.02],[-88.06,45.78],[-87.9,45.75],[-87.8,45.35],[-87.62,45.1]],[[-92.1,46.75],[-91.0,46.72],[-90.42,46.57],[-89.5,46.8],[-88.5,46.9],[-88.42,47.4],[-87.8,47.45],[-87.0,46.8],[-86.5,46.55],[-85.5,46.7],[-84.9,46.5],[-84.35,46.5]],[[-92.1,46.75],[-91.0,47.5],[-89.9,48.0]],[[-89.9,48.0],[-91.5,48.1],[-93.0,48.65],[-94.6,48.7],[-95.15,49.0],[-97.23,49.0]],[[-87.62,45.1],[-87.65,44.6],[-87.9,44.0],[-87.72,43.4],[-87.8,42.9],[-87.6,42.49],[-87.6,41.9],[-87.2,41.63],[-86.8,41.72],[-86.5,41.9],[-86.22,42.3],[-86.25,43.0],[-86.4,43.6],[-86.5,44.2],[-86.05,44.75],[-85.6,45.1],[-85.0,45.4],[-84.75,45.78]],[[-84.75,45.78],[-84.35,45.65],[-83.5,45.35],[-83.3,44.9],[-83.3,44.3],[-82.6,43.9],[-82.4,43.0],[-82.5,42.6],[-83.1,42.3],[-83.2,41.95]],[[-84.35,46.5],[-84.1,46.1],[-83.4,46.1],[-83.6,45.85],[-84.75,45.78]],[[-83.2,41.95],[-83.45,41.73],[-82.7,41.7],[-81.7,41.5],[-81.0,41.5],[-80.52,42.0]],[[-80.52,42.0],[-80.52,40.64]]];
+
+const SCEN = [{"id":"midwest","name":"Midwest Cyclone","sub":"Adapted from the Synoptic Meteorology pre-lab map","L":[-90.4,41.6],"cf":[[-90.4,41.6],[-93.0,39.5],[-94.5,36.8],[-95.6,34.0],[-96.4,31.0]],"wf":[[-90.4,41.6],[-88.0,41.3],[-85.0,40.9],[-82.5,40.3],[-80.0,39.9]],"st":[{"name":"Minot ND","lon":-101.3,"lat":48.23,"sector":"cold","T":38,"Td":36,"P":1014.1,"sky":0,"wd":25,"ws":10,"wx":"none","sCF":-1070,"sWF":-586,"dCF":1128,"dWF":1129},{"name":"Rapid City SD","lon":-103.06,"lat":44.08,"sector":"cold","T":39,"Td":36,"P":1014.2,"sky":0,"wd":20,"ws":15,"wx":"none","sCF":-958,"sWF":-205,"dCF":958,"dWF":1069},{"name":"North Platte NE","lon":-100.7,"lat":41.13,"sector":"cold","T":39,"Td":36,"P":1011.2,"sky":4,"wd":355,"ws":15,"wx":"none","sCF":-665,"sWF":191,"dCF":665,"dWF":862},{"name":"Grand Island NE","lon":-98.31,"lat":40.97,"sector":"cold","T":41,"Td":30,"P":1008.2,"sky":4,"wd":350,"ws":30,"wx":"none","sCF":-471,"sWF":176,"dCF":471,"dWF":665},{"name":"Dodge City KS","lon":-99.97,"lat":37.76,"sector":"cold","T":39,"Td":27,"P":1011.4,"sky":0,"wd":320,"ws":15,"wx":"none","sCF":-487,"sWF":548,"dCF":487,"dWF":923},{"name":"Wichita KS","lon":-97.43,"lat":37.65,"sector":"cold","T":42,"Td":36,"P":1009.1,"sky":0,"wd":320,"ws":25,"wx":"none","sCF":-271,"sWF":525,"dCF":271,"dWF":744},{"name":"Oklahoma City OK","lon":-97.51,"lat":35.39,"sector":"cold","T":44,"Td":29,"P":1010.5,"sky":0,"wd":310,"ws":10,"wx":"none","sCF":-210,"sWF":772,"dCF":210,"dWF":925},{"name":"Amarillo TX","lon":-101.83,"lat":35.22,"sector":"cold","T":45,"Td":20,"P":1012.7,"sky":0,"wd":310,"ws":5,"wx":"none","sCF":-576,"sWF":852,"dCF":576,"dWF":1221},{"name":"Abilene TX","lon":-99.68,"lat":32.41,"sector":"cold","T":46,"Td":27,"P":1012.6,"sky":0,"wd":315,"ws":5,"wx":"none","sCF":-332,"sWF":1127,"dCF":332,"dWF":1309},{"name":"Omaha NE","lon":-95.94,"lat":41.3,"sector":"cold","T":45,"Td":40,"P":1004.5,"sky":4,"wd":350,"ws":30,"wx":"none","sCF":-314,"sWF":108,"dCF":314,"dWF":463},{"name":"Sioux Falls SD","lon":-96.73,"lat":43.55,"sector":"cold","T":42,"Td":27,"P":1006.4,"sky":1,"wd":10,"ws":20,"wx":"none","sCF":-525,"sWF":-126,"dCF":525,"dWF":562},{"name":"Des Moines IA","lon":-93.62,"lat":41.6,"sector":"cold","T":45,"Td":30,"P":1000.9,"sky":5,"wd":350,"ws":10,"wx":"none","sCF":-195,"sWF":44,"dCF":195,"dWF":268},{"name":"Kansas City MO","lon":-94.58,"lat":39.1,"sector":"cold","T":49,"Td":34,"P":1003.5,"sky":2,"wd":325,"ws":25,"wx":"none","sCF":-107,"sWF":328,"dCF":107,"dWF":450},{"name":"Bemidji MN","lon":-94.88,"lat":47.51,"sector":"cold","T":45,"Td":43,"P":1009.5,"sky":8,"wd":40,"ws":15,"wx":"rain","sCF":-665,"sWF":-580,"dCF":744,"dWF":744},{"name":"Duluth MN","lon":-92.1,"lat":46.79,"sector":"cold","T":37,"Td":22,"P":1007.1,"sky":1,"wd":50,"ws":20,"wx":"none","sCF":-460,"sWF":-538,"dCF":590,"dWF":590},{"name":"Minneapolis MN","lon":-93.22,"lat":44.88,"sector":"cold","T":40,"Td":25,"P":1004.8,"sky":2,"wd":45,"ws":25,"wx":"none","sCF":-392,"sWF":-317,"dCF":429,"dWF":429},{"name":"La Crosse WI","lon":-91.24,"lat":43.81,"sector":"cold","T":46,"Td":45,"P":1001.6,"sky":8,"wd":30,"ws":20,"wx":"rain","sCF":-204,"sWF":-227,"dCF":254,"dWF":254},{"name":"Green Bay WI","lon":-88.02,"lat":44.48,"sector":"cold","T":39,"Td":39,"P":1002.0,"sky":8,"wd":135,"ws":20,"wx":"rain","sCF":-66,"sWF":-346,"dCF":373,"dWF":346},{"name":"Sault Ste Marie MI","lon":-84.35,"lat":46.5,"sector":"cold","T":39,"Td":39,"P":1006.6,"sky":4,"wd":110,"ws":10,"wx":"none","sCF":-3,"sWF":-617,"dCF":727,"dWF":617},{"name":"Houghton Lake MI","lon":-84.76,"lat":44.36,"sector":"cool","T":43,"Td":41,"P":1005.6,"sky":4,"wd":110,"ws":15,"wx":"rain","sCF":130,"sWF":-379,"dCF":551,"dWF":379},{"name":"Madison WI","lon":-89.38,"lat":43.07,"sector":"cold","T":52,"Td":48,"P":999.2,"sky":8,"wd":235,"ws":5,"wx":"rain","sCF":-44,"sWF":-174,"dCF":183,"dWF":174},{"name":"Chicago IL","lon":-87.65,"lat":41.98,"sector":"cool","T":52,"Td":48,"P":1000.5,"sky":8,"wd":145,"ws":25,"wx":"rain","sCF":135,"sWF":-79,"dCF":232,"dWF":79},{"name":"Fort Wayne IN","lon":-85.14,"lat":41.07,"sector":"cool","T":54,"Td":48,"P":1005.2,"sky":8,"wd":145,"ws":30,"wx":"rain","sCF":348,"sWF":-16,"dCF":444,"dWF":16},{"name":"Detroit MI","lon":-83.35,"lat":42.23,"sector":"cool","T":46,"Td":43,"P":1007.9,"sky":8,"wd":130,"ws":25,"wx":"rain","sCF":369,"sWF":-181,"dCF":588,"dWF":181},{"name":"Columbus OH","lon":-82.99,"lat":39.96,"sector":"warm","T":65,"Td":58,"P":1009.4,"sky":3,"wd":165,"ws":15,"wx":"none","sCF":558,"sWF":48,"dCF":650,"dWF":48},{"name":"Cleveland OH","lon":-81.7,"lat":41.41,"sector":"cool","T":46,"Td":31,"P":1010.2,"sky":4,"wd":140,"ws":10,"wx":"none","sCF":527,"sWF":-134,"dCF":726,"dWF":134},{"name":"Springfield IL","lon":-89.65,"lat":39.8,"sector":"warm","T":57,"Td":54,"P":1001.5,"sky":8,"wd":195,"ws":15,"wx":"rain","sCF":183,"sWF":186,"dCF":183,"dWF":186},{"name":"St Louis MO","lon":-90.2,"lat":38.63,"sector":"warm","T":61,"Td":57,"P":1003.8,"sky":8,"wd":220,"ws":25,"wx":"rain","sCF":238,"sWF":321,"dCF":238,"dWF":321},{"name":"Columbia MO","lon":-92.33,"lat":38.95,"sector":"warm","T":61,"Td":57,"P":1001.8,"sky":4,"wd":255,"ws":15,"wx":"rain","sCF":77,"sWF":313,"dCF":77,"dWF":336},{"name":"Indianapolis IN","lon":-86.15,"lat":39.77,"sector":"warm","T":68,"Td":61,"P":1005.5,"sky":3,"wd":200,"ws":30,"wx":"none","sCF":383,"sWF":140,"dCF":412,"dWF":140},{"name":"Louisville KY","lon":-85.74,"lat":38.25,"sector":"warm","T":66,"Td":53,"P":1008.9,"sky":4,"wd":195,"ws":30,"wx":"none","sCF":519,"sWF":299,"dCF":544,"dWF":299},{"name":"Lexington KY","lon":-84.5,"lat":37.98,"sector":"warm","T":66,"Td":55,"P":1011.0,"sky":2,"wd":215,"ws":15,"wx":"none","sCF":613,"sWF":295,"dCF":644,"dWF":295},{"name":"Nashville TN","lon":-86.78,"lat":36.17,"sector":"warm","T":71,"Td":60,"P":1011.1,"sky":4,"wd":220,"ws":20,"wx":"none","sCF":641,"sWF":540,"dCF":641,"dWF":540},{"name":"Memphis TN","lon":-90.05,"lat":35.15,"sector":"warm","T":70,"Td":59,"P":1010.1,"sky":4,"wd":225,"ws":20,"wx":"none","sCF":433,"sWF":699,"dCF":433,"dWF":699},{"name":"Little Rock AR","lon":-92.23,"lat":34.73,"sector":"warm","T":66,"Td":59,"P":1010.0,"sky":4,"wd":225,"ws":20,"wx":"none","sCF":265,"sWF":768,"dCF":265,"dWF":776},{"name":"Shreveport LA","lon":-93.75,"lat":32.45,"sector":"warm","T":66,"Td":55,"P":1011.6,"sky":0,"wd":220,"ws":10,"wx":"none","sCF":206,"sWF":1036,"dCF":206,"dWF":1055},{"name":"Jackson MS","lon":-90.18,"lat":32.3,"sector":"warm","T":69,"Td":61,"P":1013.0,"sky":2,"wd":220,"ws":15,"wx":"none","sCF":530,"sWF":1011,"dCF":530,"dWF":1011},{"name":"New Orleans LA","lon":-90.07,"lat":29.95,"sector":"warm","T":63,"Td":61,"P":1013.8,"sky":8,"wd":220,"ws":5,"wx":"rain","sCF":608,"sWF":1266,"dCF":608,"dWF":1266},{"name":"Birmingham AL","lon":-86.8,"lat":33.52,"sector":"warm","T":72,"Td":64,"P":1014.2,"sky":0,"wd":230,"ws":10,"wx":"none","sCF":776,"sWF":826,"dCF":776,"dWF":826}]},{"id":"plains","name":"Plains Cyclone","sub":"Low over Nebraska, dryline-style cold front into Texas","L":[-98.8,40.8],"cf":[[-98.8,40.8],[-99.6,37.8],[-99.2,34.8],[-98.4,31.6]],"wf":[[-98.8,40.8],[-96.0,40.2],[-92.6,39.5],[-88.8,38.9],[-85.4,38.6]],"st":[{"name":"Bismarck ND","lon":-100.78,"lat":46.81,"sector":"cold","T":37,"Td":22,"P":1009.5,"sky":0,"wd":85,"ws":15,"wx":"none","sCF":-263,"sWF":-585,"dCF":683,"dWF":683},{"name":"Rapid City SD","lon":-103.06,"lat":44.08,"sector":"cold","T":41,"Td":26,"P":1007.3,"sky":2,"wd":55,"ws":20,"wx":"none","sCF":-385,"sWF":-249,"dCF":504,"dWF":504},{"name":"Valentine NE","lon":-100.55,"lat":42.87,"sector":"cold","T":43,"Td":28,"P":1002.0,"sky":4,"wd":80,"ws":20,"wx":"none","sCF":-174,"sWF":-177,"dCF":271,"dWF":271},{"name":"Goodland KS","lon":-101.7,"lat":39.35,"sector":"cold","T":48,"Td":33,"P":1002.3,"sky":4,"wd":285,"ws":10,"wx":"none","sCF":-209,"sWF":218,"dCF":209,"dWF":294},{"name":"Pierre SD","lon":-100.35,"lat":44.37,"sector":"cold","T":41,"Td":26,"P":1004.7,"sky":3,"wd":75,"ws":25,"wx":"none","sCF":-187,"sWF":-339,"dCF":415,"dWF":415},{"name":"Alliance NE","lon":-102.87,"lat":42.1,"sector":"cold","T":44,"Td":29,"P":1003.7,"sky":3,"wd":40,"ws":20,"wx":"none","sCF":-338,"sWF":-44,"dCF":369,"dWF":369},{"name":"North Platte NE","lon":-100.7,"lat":41.13,"sector":"cold","T":46,"Td":31,"P":999.7,"sky":6,"wd":140,"ws":5,"wx":"rain","sCF":-153,"sWF":9,"dCF":164,"dWF":164},{"name":"Dodge City KS","lon":-99.97,"lat":37.76,"sector":"cold","T":54,"Td":41,"P":1001.3,"sky":3,"wd":240,"ws":15,"wx":"none","sCF":-32,"sWF":345,"dCF":32,"dWF":351},{"name":"Amarillo TX","lon":-101.83,"lat":35.22,"sector":"cold","T":55,"Td":40,"P":1007.7,"sky":1,"wd":275,"ws":20,"wx":"none","sCF":-229,"sWF":655,"dCF":229,"dWF":672},{"name":"Midland TX","lon":-102.08,"lat":31.99,"sector":"cold","T":60,"Td":45,"P":1011.4,"sky":0,"wd":260,"ws":10,"wx":"none","sCF":-326,"sWF":1002,"dCF":326,"dWF":1017},{"name":"Abilene TX","lon":-99.68,"lat":32.41,"sector":"cold","T":59,"Td":44,"P":1009.3,"sky":0,"wd":285,"ws":15,"wx":"none","sCF":-98,"sWF":915,"dCF":98,"dWF":915},{"name":"San Angelo TX","lon":-100.45,"lat":31.44,"sector":"cold","T":60,"Td":45,"P":1011.1,"sky":0,"wd":305,"ws":10,"wx":"none","sCF":-191,"sWF":1037,"dCF":191,"dWF":1037},{"name":"Sioux Falls SD","lon":-96.73,"lat":43.55,"sector":"cool","T":49,"Td":46,"P":1002.1,"sky":7,"wd":60,"ws":15,"wx":"rain","sCF":103,"sWF":-339,"dCF":349,"dWF":339},{"name":"Omaha NE","lon":-95.94,"lat":41.3,"sector":"cool","T":53,"Td":50,"P":1001.1,"sky":7,"wd":125,"ws":15,"wx":"rain","sCF":211,"sWF":-118,"dCF":246,"dWF":118},{"name":"Wichita KS","lon":-97.43,"lat":37.65,"sector":"warm","T":71,"Td":64,"P":1003.2,"sky":5,"wd":190,"ws":25,"wx":"none","sCF":187,"sWF":304,"dCF":187,"dWF":304},{"name":"Oklahoma City OK","lon":-97.51,"lat":35.39,"sector":"warm","T":74,"Td":67,"P":1006.5,"sky":5,"wd":215,"ws":25,"wx":"none","sCF":157,"sWF":546,"dCF":157,"dWF":546},{"name":"Dallas TX","lon":-96.85,"lat":32.85,"sector":"warm","T":78,"Td":71,"P":1010.3,"sky":4,"wd":200,"ws":20,"wx":"none","sCF":168,"sWF":805,"dCF":168,"dWF":805},{"name":"Houston TX","lon":-95.36,"lat":29.76,"sector":"warm","T":83,"Td":76,"P":1013.2,"sky":2,"wd":180,"ws":10,"wx":"none","sCF":242,"sWF":1102,"dCF":352,"dWF":1102},{"name":"Kansas City MO","lon":-94.58,"lat":39.1,"sector":"warm","T":68,"Td":61,"P":1003.7,"sky":3,"wd":185,"ws":25,"wx":"none","sCF":385,"sWF":86,"dCF":391,"dWF":86},{"name":"Springfield MO","lon":-93.3,"lat":37.22,"sector":"warm","T":72,"Td":65,"P":1008.3,"sky":1,"wd":185,"ws":30,"wx":"none","sCF":546,"sWF":258,"dCF":546,"dWF":258},{"name":"Tulsa OK","lon":-95.99,"lat":36.15,"sector":"warm","T":73,"Td":66,"P":1007.1,"sky":1,"wd":190,"ws":25,"wx":"none","sCF":300,"sWF":432,"dCF":300,"dWF":432},{"name":"Little Rock AR","lon":-92.23,"lat":34.73,"sector":"warm","T":75,"Td":68,"P":1012.6,"sky":0,"wd":180,"ws":25,"wx":"none","sCF":622,"sWF":510,"dCF":622,"dWF":510},{"name":"Shreveport LA","lon":-93.75,"lat":32.45,"sector":"warm","T":79,"Td":72,"P":1013.2,"sky":0,"wd":180,"ws":20,"wx":"none","sCF":441,"sWF":785,"dCF":441,"dWF":785},{"name":"New Orleans LA","lon":-90.07,"lat":29.95,"sector":"warm","T":83,"Td":76,"P":1016.2,"sky":0,"wd":155,"ws":5,"wx":"none","sCF":741,"sWF":994,"dCF":805,"dWF":994},{"name":"Des Moines IA","lon":-93.62,"lat":41.6,"sector":"cool","T":52,"Td":49,"P":1004.7,"sky":7,"wd":105,"ws":25,"wx":"rain","sCF":383,"sWF":-201,"dCF":443,"dWF":201},{"name":"Minneapolis MN","lon":-93.22,"lat":44.88,"sector":"cool","T":47,"Td":44,"P":1007.8,"sky":3,"wd":70,"ws":25,"wx":"none","sCF":337,"sWF":-559,"dCF":641,"dWF":559},{"name":"Duluth MN","lon":-92.1,"lat":46.79,"sector":"cool","T":44,"Td":41,"P":1010.3,"sky":1,"wd":70,"ws":10,"wx":"none","sCF":374,"sWF":-785,"dCF":854,"dWF":785},{"name":"St Louis MO","lon":-90.2,"lat":38.63,"sector":"warm","T":67,"Td":61,"P":1009.9,"sky":3,"wd":160,"ws":25,"wx":"none","sCF":730,"sWF":53,"dCF":770,"dWF":53},{"name":"Memphis TN","lon":-90.05,"lat":35.15,"sector":"warm","T":75,"Td":68,"P":1014.4,"sky":0,"wd":185,"ws":20,"wx":"none","sCF":820,"sWF":427,"dCF":820,"dWF":427},{"name":"Jackson MS","lon":-90.18,"lat":32.3,"sector":"warm","T":79,"Td":72,"P":1015.9,"sky":0,"wd":185,"ws":15,"wx":"none","sCF":766,"sWF":738,"dCF":766,"dWF":738},{"name":"Chicago IL","lon":-87.65,"lat":41.98,"sector":"cool","T":52,"Td":49,"P":1012.1,"sky":4,"wd":120,"ws":15,"wx":"none","sCF":833,"sWF":-349,"dCF":940,"dWF":349},{"name":"Green Bay WI","lon":-88.02,"lat":44.48,"sector":"cool","T":48,"Td":45,"P":1011.6,"sky":2,"wd":120,"ws":15,"wx":"none","sCF":737,"sWF":-615,"dCF":972,"dWF":615},{"name":"Indianapolis IN","lon":-86.15,"lat":39.77,"sector":"cool","T":55,"Td":52,"P":1013.4,"sky":3,"wd":145,"ws":15,"wx":"none","sCF":1010,"sWF":-121,"dCF":1080,"dWF":121},{"name":"Nashville TN","lon":-86.78,"lat":36.17,"sector":"warm","T":73,"Td":66,"P":1016.4,"sky":0,"wd":200,"ws":15,"wx":"none","sCF":1106,"sWF":280,"dCF":1114,"dWF":280},{"name":"Birmingham AL","lon":-86.8,"lat":33.52,"sector":"warm","T":77,"Td":70,"P":1018.0,"sky":0,"wd":180,"ws":10,"wx":"none","sCF":1089,"sWF":571,"dCF":1089,"dWF":571},{"name":"Detroit MI","lon":-83.35,"lat":42.23,"sector":"cool","T":51,"Td":48,"P":1014.2,"sky":2,"wd":130,"ws":15,"wx":"none","sCF":1155,"sWF":-418,"dCF":1297,"dWF":434},{"name":"Louisville KY","lon":-85.74,"lat":38.25,"sector":"warm","T":67,"Td":61,"P":1014.3,"sky":2,"wd":190,"ws":10,"wx":"none","sCF":1088,"sWF":42,"dCF":1155,"dWF":42},{"name":"Cleveland OH","lon":-81.7,"lat":41.41,"sector":"cool","T":52,"Td":49,"P":1014.8,"sky":2,"wd":80,"ws":5,"wx":"none","sCF":1307,"sWF":-344,"dCF":1436,"dWF":438}]},{"id":"valley","name":"Mississippi Valley Low","sub":"Deep low over Missouri, fronts sweeping the Gulf states","L":[-92.6,37.4],"cf":[[-92.6,37.4],[-93.2,34.6],[-94.0,31.6],[-94.6,29.0]],"wf":[[-92.6,37.4],[-89.6,37.9],[-86.2,38.4],[-82.8,38.8],[-80.4,39.0]],"st":[{"name":"Minot ND","lon":-101.3,"lat":48.23,"sector":"cold","T":35,"Td":20,"P":1017.3,"sky":0,"wd":310,"ws":5,"wx":"none","sCF":-855,"sWF":-1332,"dCF":1392,"dWF":1392},{"name":"Bismarck ND","lon":-100.78,"lat":46.81,"sector":"cold","T":37,"Td":22,"P":1017.1,"sky":0,"wd":55,"ws":20,"wx":"none","sCF":-782,"sWF":-1169,"dCF":1241,"dWF":1241},{"name":"Rapid City SD","lon":-103.06,"lat":44.08,"sector":"cold","T":41,"Td":26,"P":1017.1,"sky":0,"wd":55,"ws":15,"wx":"none","sCF":-928,"sWF":-912,"dCF":1151,"dWF":1151},{"name":"Sioux Falls SD","lon":-96.73,"lat":43.55,"sector":"cold","T":42,"Td":27,"P":1011.9,"sky":0,"wd":55,"ws":20,"wx":"none","sCF":-427,"sWF":-745,"dCF":765,"dWF":765},{"name":"North Platte NE","lon":-100.7,"lat":41.13,"sector":"cold","T":46,"Td":31,"P":1012.7,"sky":0,"wd":45,"ws":20,"wx":"none","sCF":-711,"sWF":-551,"dCF":811,"dWF":811},{"name":"Omaha NE","lon":-95.94,"lat":41.3,"sector":"cold","T":46,"Td":31,"P":1007.7,"sky":1,"wd":55,"ws":25,"wx":"none","sCF":-332,"sWF":-486,"dCF":518,"dWF":518},{"name":"Dodge City KS","lon":-99.97,"lat":37.76,"sector":"cold","T":51,"Td":36,"P":1008.3,"sky":1,"wd":20,"ws":20,"wx":"none","sCF":-615,"sWF":-173,"dCF":647,"dWF":651},{"name":"Wichita KS","lon":-97.43,"lat":37.65,"sector":"cold","T":51,"Td":36,"P":1004.4,"sky":2,"wd":15,"ws":15,"wx":"none","sCF":-403,"sWF":-115,"dCF":425,"dWF":427},{"name":"Amarillo TX","lon":-101.83,"lat":35.22,"sector":"cold","T":55,"Td":40,"P":1009.5,"sky":0,"wd":345,"ws":10,"wx":"none","sCF":-777,"sWF":69,"dCF":777,"dWF":862},{"name":"Oklahoma City OK","lon":-97.51,"lat":35.39,"sector":"cold","T":54,"Td":39,"P":1005.0,"sky":2,"wd":325,"ws":10,"wx":"none","sCF":-395,"sWF":130,"dCF":395,"dWF":493},{"name":"Abilene TX","lon":-99.68,"lat":32.41,"sector":"cold","T":59,"Td":44,"P":1010.1,"sky":0,"wd":330,"ws":10,"wx":"none","sCF":-534,"sWF":414,"dCF":534,"dWF":850},{"name":"Dallas TX","lon":-96.85,"lat":32.85,"sector":"cold","T":58,"Td":43,"P":1007.5,"sky":1,"wd":325,"ws":15,"wx":"none","sCF":-287,"sWF":419,"dCF":287,"dWF":635},{"name":"Houston TX","lon":-95.36,"lat":29.76,"sector":"cold","T":63,"Td":48,"P":1008.6,"sky":0,"wd":280,"ws":5,"wx":"none","sCF":-88,"sWF":783,"dCF":88,"dWF":883},{"name":"Kansas City MO","lon":-94.58,"lat":39.1,"sector":"cold","T":49,"Td":34,"P":1002.4,"sky":5,"wd":65,"ws":25,"wx":"none","sCF":-190,"sWF":-222,"dCF":256,"dWF":256},{"name":"Des Moines IA","lon":-93.62,"lat":41.6,"sector":"cold","T":45,"Td":30,"P":1005.7,"sky":2,"wd":80,"ws":20,"wx":"none","sCF":-152,"sWF":-472,"dCF":473,"dWF":472},{"name":"Minneapolis MN","lon":-93.22,"lat":44.88,"sector":"cold","T":40,"Td":25,"P":1010.9,"sky":0,"wd":70,"ws":20,"wx":"none","sCF":-174,"sWF":-820,"dCF":829,"dWF":820},{"name":"Duluth MN","lon":-92.1,"lat":46.79,"sector":"cold","T":37,"Td":22,"P":1012.4,"sky":0,"wd":80,"ws":10,"wx":"none","sCF":-180,"sWF":-1004,"dCF":1039,"dWF":1004},{"name":"La Crosse WI","lon":-91.24,"lat":43.81,"sector":"cold","T":45,"Td":36,"P":1007.8,"sky":3,"wd":60,"ws":15,"wx":"none","sCF":-2,"sWF":-668,"dCF":718,"dWF":668},{"name":"Springfield MO","lon":-93.3,"lat":37.22,"sector":"cold","T":52,"Td":37,"P":998.4,"sky":7,"wd":115,"ws":5,"wx":"rain","sCF":-58,"sWF":7,"dCF":58,"dWF":65},{"name":"Little Rock AR","lon":-92.23,"lat":34.73,"sector":"warm","T":75,"Td":68,"P":1001.7,"sky":8,"wd":200,"ws":10,"wx":"rain","sCF":84,"sWF":297,"dCF":84,"dWF":297},{"name":"Shreveport LA","lon":-93.75,"lat":32.45,"sector":"warm","T":69,"Td":59,"P":1004.4,"sky":3,"wd":260,"ws":10,"wx":"none","sCF":2,"sWF":520,"dCF":2,"dWF":557},{"name":"New Orleans LA","lon":-90.07,"lat":29.95,"sector":"warm","T":83,"Td":76,"P":1011.1,"sky":0,"wd":200,"ws":10,"wx":"none","sCF":404,"sWF":854,"dCF":404,"dWF":854},{"name":"Jackson MS","lon":-90.18,"lat":32.3,"sector":"warm","T":79,"Td":72,"P":1008.4,"sky":1,"wd":195,"ws":20,"wx":"none","sCF":329,"sWF":597,"dCF":329,"dWF":597},{"name":"Memphis TN","lon":-90.05,"lat":35.15,"sector":"warm","T":75,"Td":68,"P":1004.7,"sky":4,"wd":155,"ws":25,"wx":"none","sCF":268,"sWF":290,"dCF":268,"dWF":290},{"name":"St Louis MO","lon":-90.2,"lat":38.63,"sector":"cool","T":57,"Td":54,"P":1002.1,"sky":6,"wd":90,"ws":20,"wx":"rain","sCF":175,"sWF":-90,"dCF":251,"dWF":90},{"name":"Springfield IL","lon":-89.65,"lat":39.8,"sector":"cool","T":55,"Td":52,"P":1004.6,"sky":7,"wd":55,"ws":35,"wx":"rain","sCF":198,"sWF":-207,"dCF":369,"dWF":207},{"name":"Chicago IL","lon":-87.65,"lat":41.98,"sector":"cool","T":52,"Td":49,"P":1009.9,"sky":5,"wd":75,"ws":20,"wx":"none","sCF":316,"sWF":-413,"dCF":660,"dWF":413},{"name":"Green Bay WI","lon":-88.02,"lat":44.48,"sector":"cool","T":48,"Td":45,"P":1011.5,"sky":2,"wd":70,"ws":15,"wx":"none","sCF":237,"sWF":-689,"dCF":872,"dWF":689},{"name":"Nashville TN","lon":-86.78,"lat":36.17,"sector":"warm","T":73,"Td":66,"P":1009.3,"sky":1,"wd":155,"ws":20,"wx":"none","sCF":508,"sWF":234,"dCF":535,"dWF":234},{"name":"Birmingham AL","lon":-86.8,"lat":33.52,"sector":"warm","T":77,"Td":70,"P":1011.2,"sky":0,"wd":155,"ws":25,"wx":"none","sCF":592,"sWF":522,"dCF":592,"dWF":522},{"name":"Indianapolis IN","lon":-86.15,"lat":39.77,"sector":"cool","T":55,"Td":52,"P":1009.8,"sky":6,"wd":75,"ws":30,"wx":"rain","sCF":482,"sWF":-149,"dCF":619,"dWF":149},{"name":"Louisville KY","lon":-85.74,"lat":38.25,"sector":"warm","T":65,"Td":60,"P":1009.7,"sky":4,"wd":105,"ws":20,"wx":"none","sCF":547,"sWF":22,"dCF":610,"dWF":22},{"name":"Fort Wayne IN","lon":-85.14,"lat":41.07,"sector":"cool","T":53,"Td":50,"P":1012.3,"sky":5,"wd":85,"ws":30,"wx":"none","sCF":535,"sWF":-279,"dCF":761,"dWF":279},{"name":"Detroit MI","lon":-83.35,"lat":42.23,"sector":"cool","T":51,"Td":48,"P":1014.4,"sky":4,"wd":110,"ws":20,"wx":"none","sCF":652,"sWF":-382,"dCF":954,"dWF":382},{"name":"Columbus OH","lon":-82.99,"lat":39.96,"sector":"cool","T":55,"Td":52,"P":1014.2,"sky":4,"wd":65,"ws":25,"wx":"none","sCF":733,"sWF":-129,"dCF":882,"dWF":129},{"name":"Cleveland OH","lon":-81.7,"lat":41.41,"sector":"cool","T":52,"Td":49,"P":1015.8,"sky":4,"wd":70,"ws":5,"wx":"none","sCF":802,"sWF":-277,"dCF":1037,"dWF":277},{"name":"Sault Ste Marie MI","lon":-84.35,"lat":46.5,"sector":"cool","T":45,"Td":42,"P":1013.7,"sky":0,"wd":75,"ws":5,"wx":"none","sCF":517,"sWF":-861,"dCF":1216,"dWF":861},{"name":"Atlanta GA","lon":-84.39,"lat":33.75,"sector":"warm","T":77,"Td":70,"P":1014.7,"sky":0,"wd":170,"ws":15,"wx":"none","sCF":802,"sWF":533,"dCF":802,"dWF":533}]}];
+(function(){
+'use strict';
+
+const COL = {
+  bg:'#1E2320', surf:'#262B27', surf2:'#2C322D',
+  border:'rgba(232,228,217,0.14)', borderH:'rgba(232,228,217,0.26)',
+  text:'#E8E4D9', text2:'#A6A499', muted:'#948F82', accent:'#3CA3AE',
+  cold:'#6D96D8', warm:'#D9603F', purple:'#A08CC6', gold:'#A69630',
+  dewDry:'#A98CD6', dewWet:'#E08A3C', low:'#E36A5C', green:'#4FB79A'
+};
+const FONT = { mono:"'Courier Prime', monospace", body:"'Public Sans', sans-serif", disp:"'Zilla Slab', serif" };
+const DOM = { lon0:-104.2, lon1:-79.8, lat0:28.3, lat1:49.2 };
+const KLON = Math.cos(38.5*Math.PI/180);
+
+let dpr = window.devicePixelRatio || 1;
+const el = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.min(b, Math.max(a,v));
+
+/* ── geodesy ────────────────────────────────────────────────────── */
+function kmXY(a,b){
+  return [ (b[0]-a[0])*Math.cos((a[1]+b[1])/2*Math.PI/180)*111.32, (b[1]-a[1])*110.57 ];
+}
+const kmDist = (a,b) => { const [x,y]=kmXY(a,b); return Math.hypot(x,y); };
+
+/* signed distance (km) from point p to polyline; + = LEFT of travel direction */
+function signedDist(poly, p){
+  let best = null;
+  for (let i=0;i<poly.length-1;i++){
+    const a = poly[i], b = poly[i+1];
+    const [tx,ty] = kmXY(a,b), L = Math.hypot(tx,ty) || 1e-9;
+    const [px,py] = kmXY(a,p);
+    const t = clamp((px*tx+py*ty)/(L*L), 0, 1);
+    const cx = px-tx*t, cy = py-ty*t;
+    const d = Math.hypot(cx,cy);
+    const z = (tx*py - ty*px)/L;
+    if (best === null || d < best.d) best = { d, s: (z>=0? d : -d) };
+  }
+  return best || { d:1e9, s:0 };
+}
+
+/* ── state ──────────────────────────────────────────────────────── */
+const S = {
+  scn: 0, tool: 'cold',
+  draw: { cold: [], warm: [] }, low: null,
+  flip: { cold: 1, warm: 1 },
+  layers: { dew:true, wind:false, temp:false, isobars:true, names:false },
+  showAnswer: false, checked: null
+};
+let FIELD = null;    // interpolated pressure / temperature grids for this scenario
+
+/* ── canvas helpers ─────────────────────────────────────────────── */
+function setup(cv, W, H, scale){
+  cv.width = Math.round(W*scale); cv.height = Math.round(H*scale);
+  const ctx = cv.getContext('2d'); ctx.setTransform(scale,0,0,scale,0,0);
+  ctx.clearRect(0,0,W,H); return ctx;
+}
+function txt(ctx,s,x,y,f,c,al,bl){ ctx.font=f; ctx.fillStyle=c; ctx.textAlign=al||'left'; ctx.textBaseline=bl||'alphabetic'; ctx.fillText(s,x,y); }
+function line(ctx,x1,y1,x2,y2,c,w,d){ ctx.save(); ctx.beginPath(); ctx.setLineDash(d||[]); ctx.strokeStyle=c; ctx.lineWidth=w||1; ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); ctx.restore(); }
+function arrow(ctx,x1,y1,x2,y2,c,w,h){
+  const a=Math.atan2(y2-y1,x2-x1); h=h||7;
+  ctx.save(); ctx.strokeStyle=c; ctx.fillStyle=c; ctx.lineWidth=w||2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2-Math.cos(a)*h*0.7, y2-Math.sin(a)*h*0.7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2,y2);
+  ctx.lineTo(x2-Math.cos(a-0.42)*h, y2-Math.sin(a-0.42)*h);
+  ctx.lineTo(x2-Math.cos(a+0.42)*h, y2-Math.sin(a+0.42)*h);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+/* ── projection ─────────────────────────────────────────────────── */
+function makeProj(W,H){
+  const M = { l:14, r:14, t:14, b:14 };
+  const uw = (DOM.lon1-DOM.lon0)*KLON, uh = DOM.lat1-DOM.lat0;
+  const sc = Math.min((W-M.l-M.r)/uw, (H-M.t-M.b)/uh);
+  const ox = M.l + ((W-M.l-M.r) - uw*sc)/2, oy = M.t + ((H-M.t-M.b) - uh*sc)/2;
+  const P  = (lon,lat) => [ ox + (lon-DOM.lon0)*KLON*sc, oy + (DOM.lat1-lat)*sc ];
+  const inv = (x,y)   => [ DOM.lon0 + (x-ox)/(KLON*sc), DOM.lat1 - (y-oy)/sc ];
+  return { P, inv, sc, ox, oy, w:uw*sc, h:uh*sc };
+}
+
+/* ── interpolated fields (inverse-distance, matching the analysis) ── */
+const GN = { nx:78, ny:88 };
+function buildField(){
+  const st = SCEN[S.scn].st;
+  const P = new Float32Array(GN.nx*GN.ny), T = new Float32Array(GN.nx*GN.ny);
+  for (let j=0;j<GN.ny;j++){
+    const lat = DOM.lat1 - (DOM.lat1-DOM.lat0)*j/(GN.ny-1);
+    for (let i=0;i<GN.nx;i++){
+      const lon = DOM.lon0 + (DOM.lon1-DOM.lon0)*i/(GN.nx-1);
+      let np=0, nt=0, den=0;
+      for (const s of st){
+        const d = kmDist([lon,lat],[s.lon,s.lat]);
+        const w = 1/(d*d + 130*130);
+        np += w*s.P; nt += w*s.T; den += w;
+      }
+      P[j*GN.nx+i] = np/den; T[j*GN.nx+i] = nt/den;
+    }
+  }
+  let pmin=1e9, pmax=-1e9, tmin=1e9, tmax=-1e9;
+  for (let k=0;k<P.length;k++){ pmin=Math.min(pmin,P[k]); pmax=Math.max(pmax,P[k]); tmin=Math.min(tmin,T[k]); tmax=Math.max(tmax,T[k]); }
+  FIELD = { P, T, pmin, pmax, tmin, tmax };
+}
+const gLon = i => DOM.lon0 + (DOM.lon1-DOM.lon0)*i/(GN.nx-1);
+const gLat = j => DOM.lat1 - (DOM.lat1-DOM.lat0)*j/(GN.ny-1);
+
+/* marching squares → line segments for one level */
+function contour(grid, level){
+  const segs = [];
+  const V = (i,j) => grid[j*GN.nx+i];
+  const ip = (v1,v2,a,b) => a + (b-a)*(level-v1)/(v2-v1);
+  for (let j=0;j<GN.ny-1;j++){
+    for (let i=0;i<GN.nx-1;i++){
+      const v = [V(i,j), V(i+1,j), V(i+1,j+1), V(i,j+1)];
+      let idx = 0; for (let k=0;k<4;k++) if (v[k] > level) idx |= (1<<k);
+      if (idx === 0 || idx === 15) continue;
+      const x0=gLon(i), x1=gLon(i+1), y0=gLat(j), y1=gLat(j+1);
+      const E = [
+        [ip(v[0],v[1],x0,x1), y0],           // top
+        [x1, ip(v[1],v[2],y0,y1)],           // right
+        [ip(v[3],v[2],x0,x1), y1],           // bottom
+        [x0, ip(v[0],v[3],y0,y1)]            // left
+      ];
+      const TBL = [[],[[3,0]],[[0,1]],[[3,1]],[[1,2]],[[3,0],[1,2]],[[0,2]],[[3,2]],
+                   [[2,3]],[[2,0]],[[0,1],[2,3]],[[2,1]],[[1,3]],[[1,0]],[[0,3]],[]];
+      for (const [a,b] of TBL[idx]) segs.push([E[a],E[b]]);
+    }
+  }
+  return segs;
+}
+
+/* ── colour ramps ───────────────────────────────────────────────── */
+const TRAMP = [[15,'#2E4A86'],[30,'#4878BE'],[42,'#7FAED2'],[50,'#BFC7C0'],
+               [58,'#E8CE86'],[68,'#DE9350'],[80,'#C4523A']];
+function rampColor(v){
+  if (v <= TRAMP[0][0]) return TRAMP[0][1];
+  for (let i=1;i<TRAMP.length;i++){
+    if (v <= TRAMP[i][0]){
+      const [a,ca] = TRAMP[i-1], [b,cb] = TRAMP[i], t = (v-a)/(b-a);
+      const pa = parseInt(ca.slice(1),16), pb = parseInt(cb.slice(1),16);
+      const m = (sh) => Math.round((((pa>>sh)&255)*(1-t) + ((pb>>sh)&255)*t));
+      return [m(16), m(8), m(0)];
+    }
+  }
+  const p = parseInt(TRAMP[TRAMP.length-1][1].slice(1),16);
+  return [(p>>16)&255,(p>>8)&255,p&255];
+}
+function rgbOf(c){ if (Array.isArray(c)) return c; const p = parseInt(c.slice(1),16); return [(p>>16)&255,(p>>8)&255,p&255]; }
+const dewCol = td => (td >= 50 ? COL.dewWet : COL.dewDry);
+
+/* ── station model ──────────────────────────────────────────────── */
+function stationModel(ctx, cx, cy, o, opt){
+  opt = opt || {};
+  const r = opt.r || 8.5, fs = opt.fs || 13;
+  const numCol = opt.plain ? COL.text : COL.text;
+  /* wind barb — points toward the direction the wind is coming FROM */
+  if (o.ws >= 3){
+    const a = (o.wd - 90)*Math.PI/180, dx = Math.cos(a), dy = Math.sin(a);
+    const L = r*2.9, bx = cx+dx*r, by = cy+dy*r, ex = cx+dx*(r+L), ey = cy+dy*(r+L);
+    ctx.save(); ctx.strokeStyle = COL.text; ctx.lineWidth = Math.max(1.4, r*0.18); ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(ex,ey); ctx.stroke();
+    let rem = Math.round(o.ws/5)*5, pos = 0;
+    const px = -dy, py = dx, step = r*0.44;
+    while (rem >= 50 && pos < 4){
+      const p0=[ex-dx*step*pos, ey-dy*step*pos], p1=[ex-dx*step*(pos+1), ey-dy*step*(pos+1)];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p0[0]+px*r*0.95,p0[1]+py*r*0.95); ctx.lineTo(p1[0],p1[1]);
+      ctx.closePath(); ctx.fillStyle = COL.text; ctx.fill(); rem -= 50; pos += 1.2;
+    }
+    while (rem >= 10 && pos < 6){
+      const p0=[ex-dx*step*pos, ey-dy*step*pos];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p0[0]+px*r*0.95,p0[1]+py*r*0.95); ctx.stroke();
+      rem -= 10; pos += 1;
+    }
+    if (rem >= 5){
+      const p0=[ex-dx*step*Math.max(pos,0.9), ey-dy*step*Math.max(pos,0.9)];
+      ctx.beginPath(); ctx.moveTo(p0[0],p0[1]); ctx.lineTo(p0[0]+px*r*0.5,p0[1]+py*r*0.5); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  /* sky cover */
+  const e = clamp(Math.round(o.sky),0,8);
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fillStyle = '#1B201D'; ctx.fill();
+  ctx.strokeStyle = COL.text; ctx.lineWidth = Math.max(1.3, r*0.19); ctx.stroke();
+  if (e >= 8){ ctx.beginPath(); ctx.arc(cx,cy,r,0,7); ctx.fillStyle = COL.text; ctx.fill(); }
+  else if (e > 0){
+    const frac = (e===7?7.4:e)/8;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+frac*Math.PI*2); ctx.closePath();
+    ctx.fillStyle = COL.text; ctx.fill();
+    if (e===1||e===3||e===5) line(ctx,cx,cy-r,cx,cy+r,COL.text,Math.max(1.2,r*0.18));
+  }
+  /* numbers */
+  const tdC = (opt.dewColour === false) ? COL.text : dewCol(o.Td);
+  txt(ctx, String(o.T),  cx-r*1.45, cy-r*0.30, `700 ${fs}px ${FONT.mono}`, COL.text, 'right');
+  txt(ctx, String(o.Td), cx-r*1.45, cy+r*1.42, `700 ${fs}px ${FONT.mono}`, tdC, 'right');
+  const code = String(Math.round(o.P*10) % 1000).padStart(3,'0');
+  txt(ctx, code, cx+r*1.45, cy-r*0.30, `700 ${fs}px ${FONT.mono}`, COL.text, 'left');
+  if (o.wx === 'rain'){
+    ctx.save(); ctx.fillStyle = COL.green;
+    for (let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(cx-r*0.34+(i%2)*r*0.68, cy+r*1.62+Math.floor(i/2)*r*0.62, r*0.19, 0, 7); ctx.fill(); }
+    ctx.restore();
+  }
+}
+
+/* ── ESSRT front symbols along a projected polyline ─────────────── */
+function frontLine(ctx, pts, kind, side, scale){
+  if (pts.length < 2) return;
+  const col = kind === 'cold' ? COL.cold : COL.warm;
+  const s = 7*(scale||1);
+  ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 3.2*(scale||1); ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  /* walk the line at fixed spacing, dropping symbols */
+  const spacing = s*3.4;
+  let carry = spacing*0.6;
+  for (let i=0;i<pts.length-1;i++){
+    const [x1,y1] = pts[i], [x2,y2] = pts[i+1];
+    const dx = x2-x1, dy = y2-y1, L = Math.hypot(dx,dy);
+    if (L < 1e-6) continue;
+    const ux = dx/L, uy = dy/L;
+    const nx = -uy*side, ny = ux*side;
+    for (let t = carry; t < L; t += spacing){
+      const cx = x1+ux*t, cy = y1+uy*t;
+      ctx.fillStyle = col;
+      if (kind === 'cold'){
+        ctx.beginPath();
+        ctx.moveTo(cx-ux*s, cy-uy*s);
+        ctx.lineTo(cx+nx*s*1.4, cy+ny*s*1.4);
+        ctx.lineTo(cx+ux*s, cy+uy*s);
+        ctx.closePath(); ctx.fill();
+      } else {
+        const a = Math.atan2(ny,nx);
+        ctx.beginPath(); ctx.arc(cx,cy,s,a-Math.PI/2,a+Math.PI/2); ctx.closePath(); ctx.fill();
+      }
+    }
+    carry = spacing - ((L - carry) % spacing);
+    if (carry >= spacing) carry -= spacing;
+  }
+  ctx.restore();
+}
+
+/* ── the map ────────────────────────────────────────────────────── */
+function drawMap(ctx, W, H, opt){
+  opt = opt || {};
+  const sc = SCEN[S.scn], PR = makeProj(W,H);
+  const P = PR.P;
+  ctx.save();
+  ctx.fillStyle = '#232A26'; ctx.fillRect(0,0,W,H);
+  ctx.beginPath(); ctx.rect(PR.ox, PR.oy, PR.w, PR.h); ctx.clip();
+  ctx.fillStyle = '#202622'; ctx.fillRect(PR.ox, PR.oy, PR.w, PR.h);
+
+  /* temperature shading */
+  if (S.layers.temp){
+    const off = document.createElement('canvas');
+    off.width = GN.nx; off.height = GN.ny;
+    const octx = off.getContext('2d'), img = octx.createImageData(GN.nx, GN.ny);
+    for (let k=0;k<GN.nx*GN.ny;k++){
+      const c = rgbOf(rampColor(FIELD.T[k]));
+      img.data[k*4] = c[0]; img.data[k*4+1] = c[1]; img.data[k*4+2] = c[2]; img.data[k*4+3] = 132;
+    }
+    octx.putImageData(img,0,0);
+    ctx.save(); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+    const a = P(DOM.lon0, DOM.lat1), b = P(DOM.lon1, DOM.lat0);
+    ctx.drawImage(off, a[0], a[1], b[0]-a[0], b[1]-a[1]); ctx.restore();
+  }
+
+  /* lakes and the Gulf */
+  ctx.save();
+  WATER.forEach(poly => {
+    ctx.beginPath();
+    poly.forEach((p,i) => { const q = P(p[0],p[1]); i? ctx.lineTo(q[0],q[1]) : ctx.moveTo(q[0],q[1]); });
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(44,62,74,0.72)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(150,186,206,0.30)'; ctx.lineWidth = 1; ctx.stroke();
+  });
+  ctx.restore();
+
+  /* state / coast outlines */
+  ctx.save(); ctx.strokeStyle = 'rgba(232,228,217,0.42)'; ctx.lineWidth = 1.1; ctx.lineJoin='round';
+  GEO.forEach(seg => {
+    ctx.beginPath();
+    seg.forEach((p,i) => { const q = P(p[0],p[1]); i? ctx.lineTo(q[0],q[1]) : ctx.moveTo(q[0],q[1]); });
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  /* isobars */
+  if (S.layers.isobars){
+    const lo = Math.ceil(FIELD.pmin/4)*4, hi = Math.floor(FIELD.pmax/4)*4;
+    for (let lev = lo; lev <= hi; lev += 4){
+      const segs = contour(FIELD.P, lev);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(232,228,217,0.52)'; ctx.lineWidth = 1.5; ctx.lineCap='round';
+      ctx.beginPath();
+      segs.forEach(([a,b]) => { const p1=P(a[0],a[1]), p2=P(b[0],b[1]); ctx.moveTo(p1[0],p1[1]); ctx.lineTo(p2[0],p2[1]); });
+      ctx.stroke(); ctx.restore();
+      /* label along each contour branch, keeping labels well separated */
+      if (segs.length){
+        const placed = [];
+        const every = Math.max(1, Math.round(segs.length/6));
+        for (let si = Math.floor(every/2); si < segs.length; si += every){
+          const a = segs[si][0], b = segs[si][1];
+          const p1 = P(a[0],a[1]), p2 = P(b[0],b[1]);
+          const mx = (p1[0]+p2[0])/2, my = (p1[1]+p2[1])/2;
+          if (mx < PR.ox+26 || mx > PR.ox+PR.w-26 || my < PR.oy+18 || my > PR.oy+PR.h-18) continue;
+          if (placed.some(q => Math.hypot(q[0]-mx, q[1]-my) < 150)) continue;
+          if (sc.st.some(st => { const sp = P(st.lon, st.lat); return Math.hypot(sp[0]-mx, sp[1]-my) < 40; })) continue;
+          placed.push([mx,my]);
+          ctx.save(); ctx.font = `700 12px ${FONT.mono}`;
+          const t = String(lev), tw = ctx.measureText(t).width;
+          ctx.fillStyle = '#202622'; ctx.fillRect(mx-tw/2-3, my-7, tw+6, 14); ctx.restore();
+          txt(ctx, t, mx, my+4.5, `700 12px ${FONT.mono}`, 'rgba(232,228,217,0.78)', 'center');
+        }
+      }
+    }
+  }
+
+  /* analysed answer */
+  if (S.showAnswer){
+    const cf = sc.cf.map(p => P(p[0],p[1])), wf = sc.wf.map(p => P(p[0],p[1]));
+    ctx.save(); ctx.globalAlpha = 0.85;
+    frontLine(ctx, cf, 'cold', sideOf(sc.cf), 1.0);
+    frontLine(ctx, wf, 'warm', sideOf(sc.wf), 1.0);
+    ctx.restore();
+    const l = P(sc.L[0], sc.L[1]);
+    ctx.save(); ctx.beginPath(); ctx.arc(l[0],l[1],15,0,7);
+    ctx.fillStyle = 'rgba(30,35,32,0.8)'; ctx.fill();
+    ctx.strokeStyle = COL.low; ctx.lineWidth = 1.5; ctx.stroke(); ctx.restore();
+    txt(ctx,'L', l[0], l[1]+9, `700 25px ${FONT.disp}`, COL.low, 'center');
+  }
+
+  /* wind arrows — the pre-lab's step 2, coloured by dewpoint group */
+  if (S.layers.wind){
+    sc.st.forEach(s => {
+      const p = P(s.lon, s.lat);
+      const a = (s.wd + 90)*Math.PI/180;           // arrow points where the wind is going
+      const ax = Math.cos(a), ay = Math.sin(a), L = 44;
+      arrow(ctx, p[0]-ax*L*0.42, p[1]-ay*L*0.42, p[0]+ax*L*0.78, p[1]+ay*L*0.78, dewCol(s.Td), 2.6, 9);
+    });
+  }
+
+  /* the student's fronts */
+  ['cold','warm'].forEach(k => {
+    const pts = S.draw[k].map(p => P(p[0],p[1]));
+    if (pts.length >= 2) frontLine(ctx, pts, k, S.flip[k]*sideOf(S.draw[k]), 1.05);
+    else if (pts.length === 1){
+      ctx.save(); ctx.fillStyle = k==='cold'?COL.cold:COL.warm;
+      ctx.beginPath(); ctx.arc(pts[0][0],pts[0][1],4,0,7); ctx.fill(); ctx.restore();
+    }
+    pts.forEach(q => { ctx.save(); ctx.strokeStyle='rgba(232,228,217,0.65)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(q[0],q[1],3,0,7); ctx.stroke(); ctx.restore(); });
+  });
+
+  /* stations */
+  sc.st.forEach(s => {
+    const p = P(s.lon, s.lat);
+    stationModel(ctx, p[0], p[1], s, { r:8.5, fs:13, dewColour: S.layers.dew });
+    if (S.layers.names) txt(ctx, s.name, p[0], p[1]+24, `10px ${FONT.body}`, 'rgba(166,164,153,0.85)', 'center');
+  });
+
+  /* the student's L */
+  if (S.low){
+    const l = P(S.low[0], S.low[1]);
+    ctx.save(); ctx.beginPath(); ctx.arc(l[0],l[1],15,0,7);
+    ctx.fillStyle = 'rgba(30,35,32,0.72)'; ctx.fill();
+    ctx.strokeStyle = COL.low; ctx.lineWidth = 2; ctx.setLineDash([3,3]); ctx.stroke(); ctx.restore();
+    txt(ctx,'L', l[0], l[1]+9, `700 25px ${FONT.disp}`, COL.low, 'center');
+  }
+
+  ctx.restore();
+  ctx.strokeStyle = COL.borderH; ctx.lineWidth = 1; ctx.strokeRect(PR.ox+0.5, PR.oy+0.5, PR.w-1, PR.h-1);
+  return PR;
+}
+
+/* symbols sit on the LEFT of the direction the line is drawn */
+function sideOf(){ return -1; }
+
+/* ── station-model key ──────────────────────────────────────────── */
+function drawKey(ctx, W, H){
+  ctx.save();
+  ctx.fillStyle = '#232A26'; ctx.fillRect(0,0,W,H);
+  const cx = 372, cy = 212, r = 34;
+  stationModel(ctx, cx, cy, {T:52,Td:48,P:1002.6,sky:8,wd:120,ws:15,wx:'rain'}, {r:r, fs:48, dewColour:false});
+  const F = `600 20px ${FONT.body}`;
+  function lab(t, ax, ay, side, ly){
+    const lx = side < 0 ? 22 : W-22;
+    const hook = side < 0 ? lx + ctx.measureText(t).width : lx;
+    ctx.save(); ctx.font = F;
+    const w = ctx.measureText(t).width;
+    const startX = side < 0 ? 22 + w + 10 : W - 22 - w - 10;
+    ctx.restore();
+    line(ctx, startX, ly, ax, ay, 'rgba(60,163,174,0.6)', 1.4);
+    ctx.beginPath(); ctx.arc(ax, ay, 3.6, 0, 7); ctx.fillStyle = COL.accent; ctx.fill();
+    txt(ctx, t, lx, ly, F, COL.text2, side < 0 ? 'left' : 'right', 'middle');
+  }
+  /* left column, ordered top→bottom to match their targets */
+  lab('Air temperature (°F)', cx-r*1.75, cy-r*0.52, -1,  74);
+  lab('Precipitation',        cx-r*0.05, cy+r*1.95, -1, 352);
+  lab('Dewpoint (°F)',        cx-r*1.75, cy+r*1.22, -1, 214);
+  /* right column */
+  lab('Pressure code',        cx+r*1.75, cy-r*0.52, +1,  74);
+  lab('Sky cover (eighths)',  cx+r*0.95, cy+r*0.30, +1, 212);
+  lab('Wind barb',            cx+r*2.30, cy+r*1.35, +1, 350);
+  txt(ctx, 'code 026  →  1002.6 mb          a full barb = 10 knots', W/2, H-16,
+      `15px ${FONT.mono}`, COL.muted, 'center');
+  ctx.restore();
+}
+
+/* ── evaluation ─────────────────────────────────────────────────── */
+function resample(poly, n){
+  const segLen = [];
+  let total = 0;
+  for (let i=0;i<poly.length-1;i++){ const L = kmDist(poly[i],poly[i+1]); segLen.push(L); total += L; }
+  if (total === 0) return [poly[0]];
+  const out = [];
+  for (let k=0;k<=n;k++){
+    let target = total*k/n, i = 0;
+    while (i < segLen.length-1 && target > segLen[i]){ target -= segLen[i]; i++; }
+    const t = segLen[i] ? target/segLen[i] : 0;
+    out.push([ poly[i][0] + (poly[i+1][0]-poly[i][0])*t, poly[i][1] + (poly[i+1][1]-poly[i][1])*t ]);
+  }
+  return out;
+}
+const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+
+function evaluate(){
+  const sc = SCEN[S.scn], res = { fronts:{}, low:null, evidence:{} };
+  ['cold','warm'].forEach(k => {
+    const drawn = S.draw[k];
+    const key = (k === 'cold') ? sc.cf : sc.wf;
+    const dk = (k === 'cold') ? 'dCF' : 'dWF', sk = (k === 'cold') ? 'sCF' : 'sWF';
+    const near = sc.st.filter(s => s[dk] < 430);
+    /* what the data actually shows across the analysed front */
+    const wS = near.filter(s => s[sk] > 0), cS = near.filter(s => s[sk] <= 0);
+    if (wS.length && cS.length){
+      res.evidence[k] = {
+        dT: Math.round(mean(wS.map(s=>s.T)) - mean(cS.map(s=>s.T))),
+        dTd: Math.round(mean(wS.map(s=>s.Td)) - mean(cS.map(s=>s.Td))),
+        wdW: Math.round(mean(wS.map(s=>s.wd))), wdC: Math.round(mean(cS.map(s=>s.wd)))
+      };
+    }
+    if (drawn.length < 2) return;
+    const d1 = mean(resample(drawn,26).map(p => signedDist(key,p).d));
+    const d2 = mean(resample(key,26).map(p => signedDist(drawn,p).d));
+    const meanD = Math.round((d1+d2)/2);
+    let right = 0;
+    const wrongA = [], wrongB = [];
+    near.forEach(s => {
+      const sd = signedDist(drawn, [s.lon,s.lat]).s;
+      if (Math.sign(sd) === Math.sign(s[sk])) { right++; wrongB.push(s.name); }
+      else wrongA.push(s.name);
+    });
+    let wrong = wrongA;
+    if (right < near.length/2){ right = near.length - right; wrong = wrongB; }
+    res.fronts[k] = { meanD, right, total: near.length, wrong };
+  });
+  if (S.low) res.low = Math.round(kmDist(S.low, sc.L));
+  return res;
+}
+
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+const dirName = d => COMPASS[Math.round(((d%360)+360)%360/22.5)%16];
+
+function badge(txtS, tone){
+  const c = tone==='good' ? '#2AA87E' : tone==='ok' ? '#A69630' : '#C86A55';
+  return `<span class="cc-badge" style="background:${c}22;color:${c};border:1px solid ${c}66">${txtS}</span>`;
+}
+function renderFeedback(){
+  const r = S.checked, sc = SCEN[S.scn];
+  if (!r) return;
+  const NAME = { cold:'Cold front', warm:'Warm front' };
+  let html = `<div class="fb-head"><h4>Your analysis of the ${sc.name}</h4></div><div class="fb-grid">`;
+  let any = false;
+  ['cold','warm'].forEach(k => {
+    const f = r.fronts[k];
+    if (!f){
+      html += `<div class="fb-item"><span class="cc-stat-label">${NAME[k]}</span>
+        <div class="v">—</div><div class="n">Not drawn yet. Pick “${NAME[k]}” in the sidebar and click along the boundary.</div></div>`;
+      return;
+    }
+    any = true;
+    const pct = Math.round(100*f.right/Math.max(1,f.total));
+    const tone = (f.meanD < 160 && pct >= 88) ? 'good' : (f.meanD < 300 || pct >= 72) ? 'ok' : 'bad';
+    const verdict = tone==='good' ? 'ON TARGET' : tone==='ok' ? 'CLOSE' : 'NOT YET';
+    const wrongTxt = f.wrong.length
+      ? `On the wrong side of your line: <strong>${f.wrong.slice(0,4).join(', ')}</strong>${f.wrong.length>4?` and ${f.wrong.length-4} more`:''}.`
+      : 'Every nearby station is on the correct side.';
+    html += `<div class="fb-item"><span class="cc-stat-label">${NAME[k]}</span> ${badge(verdict,tone)}
+      <div class="v">${f.right} / ${f.total}</div>
+      <div class="n">stations correctly separated. Your line averages <strong>${f.meanD} km</strong> from the analysed position. ${wrongTxt}</div></div>`;
+  });
+  if (r.low !== null){
+    const tone = r.low < 180 ? 'good' : r.low < 350 ? 'ok' : 'bad';
+    html += `<div class="fb-item"><span class="cc-stat-label">Low centre</span> ${badge(tone==='good'?'ON TARGET':tone==='ok'?'CLOSE':'NOT YET',tone)}
+      <div class="v">${r.low} km</div><div class="n">from the analysed centre of low pressure.</div></div>`;
+  }
+  html += `</div>`;
+  ['cold','warm'].forEach(k => {
+    const e = r.evidence[k];
+    if (!e) return;
+    html += `<p class="fb-note"><em>What the data shows across the analysed ${NAME[k].toLowerCase()}:</em>
+      temperature changes by <strong>${Math.abs(e.dT)}°F</strong>, dewpoint by <strong>${Math.abs(e.dTd)}°F</strong>,
+      and the wind shifts from <strong>${dirName(e.wdC)}</strong> on the cool side to
+      <strong>${dirName(e.wdW)}</strong> on the warm side.</p>`;
+  });
+  if (!any) html += `<p class="fb-note">Draw at least one front, then check again.</p>`;
+  el('fbBody').innerHTML = html;
+  el('fbPanel').classList.add('is-visible');
+}
+
+/* ── render ─────────────────────────────────────────────────────── */
+const DIMS = { map:[980,1110], key:[760,420] };
+let PROJ = null;
+function paint(scale){
+  scale = scale || dpr;
+  PROJ = drawMap(setup(el('mapCanvas'), ...DIMS.map, scale), ...DIMS.map);
+  drawKey(setup(el('keyCanvas'), ...DIMS.key, scale), ...DIMS.key);
+}
+function legendHTML(){
+  const chip = (c,t) => `<span class="cc-legend-chip"><span class="cc-legend-dot" style="background:${c}"></span>${t}</span>`;
+  return chip(COL.dewDry,'dewpoint 20s–40s (drier air)')
+       + chip(COL.dewWet,'dewpoint 50s–60s (moister air)')
+       + chip(COL.cold,'cold front')
+       + chip(COL.warm,'warm front')
+       + chip(COL.low,'low-pressure centre');
+}
+function updateText(){
+  const sc = SCEN[S.scn];
+  el('mapTitle').textContent = sc.name;
+  el('mapSub').textContent = sc.sub;
+  el('mapLegend').innerHTML = legendHTML();
+  const nC = S.draw.cold.length, nW = S.draw.warm.length;
+  const tn = { cold:'cold front', warm:'warm front', low:'low-pressure centre' }[S.tool];
+  el('mapReadout').innerHTML =
+    `Drawing the <em>${tn}</em>. Cold front: <strong>${nC}</strong> point${nC===1?'':'s'} · ` +
+    `Warm front: <strong>${nW}</strong> point${nW===1?'':'s'} · ` +
+    `L: <strong>${S.low ? 'placed' : 'not placed'}</strong>. Hover a station to decode it.`;
+  el('stdNote').innerHTML =
+    `Built for <strong>HS-ESS2-8</strong> — “evaluate data and communicate information to explain how the movement and ` +
+    `interactions of air masses result in changes in weather conditions.” Station-model and front-symbol conventions follow ` +
+    `the NYS Earth &amp; Space Sciences Reference Tables (p. 18). The Midwest map is adapted from the Synoptic Meteorology pre-lab; ` +
+    `pressures, winds and isobars are a single consistent analysis, so the isobars always match the plotted codes.`;
+}
+function render(){ paint(); updateText(); }
+
+/* ── scenario list ──────────────────────────────────────────────── */
+el('scnList').innerHTML = SCEN.map((s,i) =>
+  `<button class="cc-btn${i===0?' is-active':''}" data-scn="${i}">${s.name}<small>${s.sub}</small></button>`).join('');
+el('scnList').querySelectorAll('[data-scn]').forEach(b => b.addEventListener('click', () => {
+  el('scnList').querySelectorAll('[data-scn]').forEach(o => o.classList.remove('is-active'));
+  b.classList.add('is-active');
+  S.scn = +b.dataset.scn;
+  S.draw = { cold:[], warm:[] }; S.low = null; S.flip = { cold:1, warm:1 };
+  S.showAnswer = false; S.checked = null;
+  el('answerBtn').classList.remove('is-active');
+  el('answerBtn').textContent = 'Show the analysed fronts';
+  el('fbPanel').classList.remove('is-visible');
+  buildField(); render();
+}));
+
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('[data-tool]').forEach(o => o.classList.remove('is-active'));
+  b.classList.add('is-active'); S.tool = b.dataset.tool; updateText();
+}));
+document.querySelectorAll('[data-layer]').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.layer; S.layers[k] = !S.layers[k];
+  b.classList.toggle('is-active', S.layers[k]); render();
+}));
+
+el('undoBtn').addEventListener('click', () => {
+  if (S.tool === 'low') S.low = null; else S.draw[S.tool].pop();
+  render();
+});
+el('clearBtn').addEventListener('click', () => {
+  if (S.tool === 'low') S.low = null; else S.draw[S.tool] = [];
+  render();
+});
+el('clearAllBtn').addEventListener('click', () => {
+  S.draw = { cold:[], warm:[] }; S.low = null; S.checked = null;
+  el('fbPanel').classList.remove('is-visible'); render();
+});
+el('flipBtn').addEventListener('click', () => {
+  if (S.tool !== 'low'){ S.flip[S.tool] *= -1; render(); }
+});
+el('checkBtn').addEventListener('click', () => { S.checked = evaluate(); renderFeedback();
+  el('fbPanel').scrollIntoView({behavior:'smooth', block:'nearest'}); });
+el('answerBtn').addEventListener('click', () => {
+  S.showAnswer = !S.showAnswer;
+  el('answerBtn').classList.toggle('is-active', S.showAnswer);
+  el('answerBtn').textContent = S.showAnswer ? 'Hide the analysed fronts' : 'Show the analysed fronts';
+  render();
+});
+
+/* ── map interaction ────────────────────────────────────────────── */
+function evLonLat(ev){
+  const cv = el('mapCanvas'), rect = cv.getBoundingClientRect();
+  const x = (ev.clientX-rect.left)/rect.width*DIMS.map[0];
+  const y = (ev.clientY-rect.top)/rect.height*DIMS.map[1];
+  return { ll: PROJ.inv(x,y), x, y };
+}
+el('mapCanvas').addEventListener('click', ev => {
+  const { ll } = evLonLat(ev);
+  if (ll[0] < DOM.lon0 || ll[0] > DOM.lon1 || ll[1] < DOM.lat0 || ll[1] > DOM.lat1) return;
+  if (S.tool === 'low') S.low = ll; else S.draw[S.tool].push(ll);
+  render();
+});
+el('mapCanvas').addEventListener('contextmenu', ev => {
+  ev.preventDefault();
+  if (S.tool === 'low') S.low = null; else S.draw[S.tool].pop();
+  render();
+});
+el('mapCanvas').addEventListener('mousemove', ev => {
+  const { x, y } = evLonLat(ev);
+  const sc = SCEN[S.scn];
+  let best = null, bd = 26;
+  sc.st.forEach(s => {
+    const p = PROJ.P(s.lon, s.lat), d = Math.hypot(p[0]-x, p[1]-y);
+    if (d < bd){ bd = d; best = s; }
+  });
+  if (best){
+    el('mapReadout').innerHTML =
+      `<strong>${best.name}</strong> — temperature <em>${best.T}°F</em>, dewpoint <em>${best.Td}°F</em>, ` +
+      `air pressure <em>${best.P.toFixed(1)} mb</em> (code ${String(Math.round(best.P*10)%1000).padStart(3,'0')}), ` +
+      `sky <em>${best.sky}/8</em>, wind from the <em>${dirName(best.wd)}</em> at <em>${best.ws} kt</em>` +
+      (best.wx==='rain' ? ', precipitation falling.' : '.');
+  } else updateText();
+});
+el('mapCanvas').addEventListener('mouseleave', updateText);
+
+/* ── PNG export — fixed high-res multiplier, never devicePixelRatio ── */
+el('pngBtn').addEventListener('click', () => {
+  const EXPORT_SCALE = 3, sc = SCEN[S.scn];
+  const PAD = 26, TITLE = 86, FOOT = 34;
+  const w = DIMS.map[0] + PAD*2, h = TITLE + DIMS.map[1] + FOOT + PAD;
+  const off = document.createElement('canvas');
+  off.width = w*EXPORT_SCALE; off.height = h*EXPORT_SCALE;
+  const oc = off.getContext('2d'); oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+  oc.fillStyle = '#1E2320'; oc.fillRect(0,0,w,h);
+  txt(oc, 'SURFACE WEATHER MAP — ' + sc.name.toUpperCase(), PAD, 40, `700 24px ${FONT.disp}`, COL.text, 'left');
+  txt(oc, sc.sub, PAD, 62, `13px ${FONT.mono}`, COL.text2, 'left');
+  txt(oc, 'contextclimate.io', w-PAD, 40, `13px ${FONT.mono}`, COL.muted, 'right');
+  oc.save(); oc.translate(PAD, TITLE);
+  drawMap(oc, ...DIMS.map);
+  oc.restore();
+  txt(oc, 'Earth & Space Science · locate the fronts from temperature, dewpoint and wind shift',
+      PAD, h-PAD, `12px ${FONT.body}`, COL.muted, 'left');
+  const a = document.createElement('a');
+  a.download = 'surface-map-' + sc.id + '.png';
+  a.href = off.toDataURL('image/png'); a.click();
+});
+
+window.addEventListener('resize', () => {
+  const nd = window.devicePixelRatio || 1;
+  if (nd !== dpr){ dpr = nd; render(); }
+});
+
+buildField();
+render();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(render);
+
+})();
+</script>
+</body>
+</html>
