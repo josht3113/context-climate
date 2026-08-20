@@ -286,13 +286,13 @@ const CAP_B=1400, CAP_T=2400, CAP_A=5.5;
 // underneath (which is where the moisture came from in the first place). The
 // sliders stay live afterwards — these are starting points, not fixed scenarios.
 const RECIPES={
-  fair:{ t:24, d:12, air:'stable', cap:false, surf:'forest', icon:'⛅', name:'Fair-Weather Cumulus',
+  fair:{ t:24, d:12, air:'stable', cap:false, icon:'⛅', name:'Fair-Weather Cumulus',
     blurb:'Modest moisture over a warm field. Dry, stable air a couple of kilometres up caps the cloud almost as soon as it forms.' },
-  towering:{ t:29, d:21, air:'unstable', cap:false, surf:'lake', icon:'☁', name:'Towering Cumulus',
+  towering:{ t:29, d:21, air:'unstable', cap:false, icon:'☁', name:'Towering Cumulus',
     blurb:'Humid air and a deeper unstable layer. The cloud builds past the freezing level and starts to rain hard, but the top never fully glaciates.' },
-  cb:{ t:32, d:24, air:'very', cap:false, surf:'ocean', icon:'⛈', name:'Cumulonimbus',
+  cb:{ t:32, d:24, air:'very', cap:false, icon:'⛈', name:'Cumulonimbus',
     blurb:'Very warm, very humid, and unstable to the tropopause. The updraft runs out of atmosphere before it runs out of energy.' },
-  capped:{ t:31, d:23, air:'very', cap:true, surf:'urban', icon:'🚫', name:'Capped — No Storms',
+  capped:{ t:31, d:23, air:'very', cap:true, icon:'🚫', name:'Capped — No Storms',
     blurb:'Almost the same steamy surface air as the thunderstorm — but a warm layer at 1.5 km acts as a lid, and nothing gets through it.' }
 };
 
@@ -301,7 +301,7 @@ const RECIPES={
 // ════════════════════════════════════════
 function mkS(recipe='fair'){
   const r=RECIPES[recipe];
-  return{temp:r.t,dp:r.d,surf:r.surf,recipe,air:r.air,cap:r.cap,night:false,_pp:null,
+  return{temp:r.t,dp:r.d,recipe,air:r.air,cap:r.cap,night:false,_pp:null,
     run:false,alt:0,cloud:false,cBase:null,cTop:null,cAge:0,cloudType:null,
     rain:[],fog:0,evap:[],stars:null,_cs:null};
 }
@@ -462,16 +462,22 @@ function stopReason(s){
 let VM=4000;
 function sceneViewTarget(s){
   const L=lclH(s);
-  let top=Math.max(2200,L*1.3);
+  // Before the cloud forms, frame the surface-to-cloud-base layer. That is
+  // where the expansion and cooling happens, and it needs room to be read.
+  let top=Math.max(1200,L*1.52);
+  if(s.run&&!s.cloud) top=Math.max(top,s.alt*1.55);
   if(s.cloud){
-    const depth=Math.max(350,(s.cTop||s.cBase+700)-s.cBase); // visual floor — see note below
-    top=Math.max(top,(s.cBase+depth)*1.18);
-  } else if(s.run){
-    top=Math.max(top,s.alt*1.22);
+    const depth=Math.max(350,(s.cTop||s.cBase+700)-s.cBase);
+    top=Math.max(top,(s.cBase+depth)*1.16);
+    const fz=frzA(s);
+    // Only zoom out for the freeze level once the cloud is actually near it —
+    // otherwise a shallow cumulus gets framed against an irrelevant 4 km line
+    // and its base ends up squashed against the bottom of the scene.
+    if(s.cTop&&s.cTop>fz*0.88&&fz<PHYS_MAX*0.95) top=Math.max(top,Math.min(fz,PHYS_MAX)*1.06);
+    // shallow clouds keep their base comfortably clear of the bottom edge
+    if(L>200&&(s.cTop||0)<4000) top=Math.min(top,Math.max(2000,L/0.13));
   }
-  const fz=frzA(s);
-  if(fz<PHYS_MAX*0.92) top=Math.max(top,Math.min(fz,PHYS_MAX)*1.08);
-  return Math.min(PHYS_MAX,Math.max(2200,top));
+  return Math.min(PHYS_MAX,Math.max(1200,top));
 }
 function currentViewTarget(){
   return MODE==='compare'?Math.max(sceneViewTarget(SA),sceneViewTarget(SB)):sceneViewTarget(S);
@@ -762,7 +768,7 @@ function getCloudSprite(s,halfW,depthPix,kind,mix,th){
   // several-hundred-blob sprite on every single frame.
   const key=[Math.round(halfW/4),Math.round(depthPix/6),kind,Math.round(mix*8),s.night?1:0].join('|');
   if(s._cs&&s._cs.key===key) return s._cs;
-  const seed=(s.cBase||0)*0.013+{ocean:3.1,lake:5.3,urban:7.7,forest:1.9}[s.surf]||1.9;
+  const seed=(s.cBase||0)*0.013+((s.temp*7+s.dp*3)%11);
   s._cs=buildCloudSprite(halfW,depthPix,kind,mix,seed,th,s.night);
   s._cs.key=key;
   return s._cs;
@@ -873,9 +879,17 @@ function drawParcelCloud(s,x0,sw,H,now){
   if(showParcel>0.03&&s.run&&!s.cloud){
     const pt=pT(s.alt,s);
     CX.globalAlpha=showParcel;
-    CX.fillStyle='rgba(20,24,21,.85)';CX.beginPath();CX.roundRect(cx2+fW+12,baseY-16,150,30,7);CX.fill();
-    CX.fillStyle='#ffd54f';CX.font='700 16px "Courier Prime",monospace';
-    CX.fillText(`${(s.alt/1000).toFixed(2)} km · ${pt.toFixed(1)}°C`,cx2+fW+20,baseY+4);
+    // the whole point of the dry leg: how much the parcel has cooled, and the
+    // fixed rate it is cooling at
+    const drop=s.temp-pt;
+    CX.fillStyle='rgba(20,24,21,.88)';CX.beginPath();CX.roundRect(cx2+fW+12,baseY-32,206,62,7);CX.fill();
+    CX.strokeStyle='rgba(255,213,79,.35)';CX.lineWidth=1;CX.stroke();
+    CX.fillStyle='#ffd54f';CX.font='700 18px "Courier Prime",monospace';
+    CX.fillText(`${(s.alt/1000).toFixed(2)} km · ${pt.toFixed(1)}°C`,cx2+fW+22,baseY-10);
+    CX.fillStyle='rgba(255,255,255,.72)';CX.font='600 13px "Public Sans",sans-serif';
+    CX.fillText(`cooled ${drop.toFixed(1)}°C since the surface`,cx2+fW+22,baseY+8);
+    CX.fillStyle='rgba(255,213,79,.78)';CX.font='600 12px "Courier Prime",monospace';
+    CX.fillText('expanding · 9.8 °C per km',cx2+fW+22,baseY+24);
     CX.globalAlpha=1;
   }
   const showBaseLbl=g>0.1?clamp01(1-(g-0.1)/0.4):g/0.1;
@@ -888,7 +902,7 @@ function drawParcelCloud(s,x0,sw,H,now){
   if(mix<0.8){
     const pt=pT(Math.min(s.alt,L||s.alt),s);
     CX.globalAlpha=clamp01(1-mix/0.8);
-    const fs=Math.max(16,Math.round(14+fW*.07));
+    const fs=Math.max(19,Math.round(17+fW*.07));
     CX.fillStyle='rgba(255,255,255,.95)';CX.font=`700 ${fs}px "Courier Prime",monospace`;CX.textAlign='center';
     CX.fillText(`${pt.toFixed(1)}°C`,cx2,baseY+fs*.36);CX.textAlign='left';
     CX.globalAlpha=1;
@@ -917,7 +931,7 @@ function drawScene(s,x0,sw){
 
   const sky=CX.createLinearGradient(0,0,0,H);
   if(s.night){sky.addColorStop(0,'#010408');sky.addColorStop(.3,'#020c1a');sky.addColorStop(.75,'#051525');sky.addColorStop(1,'#0a1c32');}
-  else{sky.addColorStop(0,'#020b1f');sky.addColorStop(.1,'#071b4e');sky.addColorStop(.38,'#0e50b2');sky.addColorStop(.65,'#187add');sky.addColorStop(.85,'#3ea5ea');sky.addColorStop(1,s.surf==='urban'?'#c47b4c':'#74c8ee');}
+  else{sky.addColorStop(0,'#020b1f');sky.addColorStop(.1,'#071b4e');sky.addColorStop(.38,'#0e50b2');sky.addColorStop(.65,'#187add');sky.addColorStop(.85,'#3ea5ea');sky.addColorStop(1,'#74c8ee');}
   CX.fillStyle=sky; CX.fillRect(x0,0,sw,H);
 
   drawSurf(s,x0,sw,H,now);
@@ -950,7 +964,7 @@ function drawScene(s,x0,sw){
   }
 
   if(MODE==='fog') drawFog(s,x0,sw,H);
-  if(!s.night||s.surf==='ocean') drawEvap(s,x0,sw,H,now);
+  if(!s.night) drawEvap(s,x0,sw,H,now);
 
   drawParcelCloud(s,x0,sw,H,now);
   if(s.rain.length) drawRain(s,x0,sw,H);
@@ -969,23 +983,35 @@ function drawScene(s,x0,sw){
 // ────────────────────────────────────────
 function drawSurf(s,x0,sw,H,now){
   const sH=55,sY=H-sH;
-  const C={ocean:['#0c3e8a','#1253b3'],lake:['#1253b3','#1668c7'],forest:['#1a5120','#266b2b'],urban:['#323d44','#3e4f58']};
-  const[c1,c2]=C[s.surf]||C.forest;
-  const sg=CX.createLinearGradient(0,sY,0,H); sg.addColorStop(0,c1); sg.addColorStop(1,c2);
+  const sg=CX.createLinearGradient(0,sY,0,H);
+  if(s.night){ sg.addColorStop(0,'#1c2a20'); sg.addColorStop(1,'#16211a'); }
+  else       { sg.addColorStop(0,'#3d6b34'); sg.addColorStop(1,'#2c5228'); }
   CX.fillStyle=sg; CX.fillRect(x0,sY,sw,sH);
-  if(s.surf==='ocean'||s.surf==='lake'){
-    CX.strokeStyle='rgba(255,255,255,.13)'; CX.lineWidth=1.4;
-    for(let xi=x0;xi<x0+sw;xi+=26){const ph=(now*.45+xi*.05)%(Math.PI*2);CX.beginPath();CX.moveTo(xi,sY+7+Math.sin(ph)*2.5);CX.bezierCurveTo(xi+8,sY+4+Math.sin(ph)*2.5,xi+18,sY+10+Math.sin(ph)*2.5,xi+26,sY+7+Math.sin(ph)*2.5);CX.stroke();}
-  } else if(s.surf==='forest'){
-    CX.fillStyle='#256228';
-    for(let xi=x0+10;xi<x0+sw-10;xi+=30){const th=22+Math.sin(xi*.2)*8;CX.beginPath();CX.moveTo(xi,sY);CX.lineTo(xi-10,sY+13);CX.lineTo(xi-4,sY+13);CX.lineTo(xi-4,sY+th);CX.lineTo(xi+4,sY+th);CX.lineTo(xi+4,sY+13);CX.lineTo(xi+10,sY+13);CX.closePath();CX.fill();}
-  } else {
-    CX.fillStyle='#4a5e69';
-    for(let xi=x0+8;xi<x0+sw-10;xi+=36){const bh=16+(xi%26);CX.fillRect(xi,sY-bh,22,bh+4);}
-    CX.fillStyle='rgba(255,213,79,.55)';
-    for(let xi=x0+8;xi<x0+sw-10;xi+=36){const bh=16+(xi%26);for(let wy=sY-bh+4;wy<sY-2;wy+=6){CX.fillRect(xi+3,wy,3,3);CX.fillRect(xi+12,wy,3,3);}}
+
+  // low rolling ground — deliberately generic, so nothing suggests that a
+  // given cloud type belongs to a particular kind of surface
+  CX.save(); CX.beginPath(); CX.moveTo(x0,sY+9);
+  for(let xi=x0;xi<=x0+sw;xi+=18) CX.lineTo(xi, sY+9+Math.sin(xi*0.014)*4+Math.sin(xi*0.041)*2);
+  CX.lineTo(x0+sw,H); CX.lineTo(x0,H); CX.closePath();
+  CX.fillStyle=s.night?'#223325':'#4a7d3c'; CX.fill(); CX.restore();
+  CX.strokeStyle=s.night?'rgba(190,215,190,.10)':'rgba(255,255,255,.13)'; CX.lineWidth=1;
+  CX.beginPath(); CX.moveTo(x0,sY); CX.lineTo(x0+sw,sY); CX.stroke();
+
+  // heated ground: the shimmer that launches the thermal in the first place
+  if(!s.night){
+    CX.strokeStyle='rgba(255,226,150,.16)'; CX.lineWidth=1.3;
+    for(let xi=x0+14;xi<x0+sw-8;xi+=34){
+      const ph=now*1.5+xi*0.09;
+      CX.beginPath();
+      CX.moveTo(xi,sY-2);
+      CX.quadraticCurveTo(xi+4+Math.sin(ph)*3,sY-11,xi,sY-20);
+      CX.quadraticCurveTo(xi-4+Math.sin(ph+1)*3,sY-29,xi,sY-37);
+      CX.stroke();
+    }
+    const wg=CX.createLinearGradient(0,sY-56,0,sY);
+    wg.addColorStop(0,'rgba(255,196,92,0)'); wg.addColorStop(1,'rgba(255,196,92,.10)');
+    CX.fillStyle=wg; CX.fillRect(x0,sY-56,sw,56);
   }
-  if(!s.night){const wc=s.surf==='urban'?'255,100,30':s.surf==='forest'?'60,175,50':'40,130,255';const wg=CX.createLinearGradient(0,sY-50,0,sY);wg.addColorStop(0,`rgba(${wc},0)`);wg.addColorStop(1,`rgba(${wc},.09)`);CX.fillStyle=wg;CX.fillRect(x0,sY-50,sw,50);}
 }
 
 function drawEvap(s,x0,sw,H,now){
@@ -1313,10 +1339,24 @@ function doReset(){
   VM=4000;
   updDV(S);
 }
-function tick(s){
+// The dry ascent is the whole lesson: the parcel expands and cools as it rises,
+// and does it at a fixed 9.8 °C/km whatever the weather. It has to be slow
+// enough to watch the temperature readout fall. Timings are in seconds, not
+// per-frame steps, so the pace is the same on any machine.
+const T_DRY=12.0;    // surface → cloud base
+const T_MOIST=11.0;  // cloud base → cloud top
+function tick(s,dt){
   if(!s.run||MODE==='fog')return;
   const L=lclH(s),pt=pT(s.alt,s),et=eT(s.alt,s),buy=pt-et;
-  s.alt+=Math.max(20,64+buy*13)*(1+Math.min(1.7,(s.cTop||3000)/6000));
+  const top=s.cTop||cTopF(s)||L+700;
+  let v;
+  if(!s.cloud){
+    v=Math.max(40,Math.min(330,L/T_DRY));                 // steady and legible
+  }else{
+    const base=Math.max(70,(top-(s.cBase||L))/T_MOIST);
+    v=base*(0.80+0.60*clamp01((buy+0.6)/3));              // faster where buoyant
+  }
+  s.alt+=v*dt;
   if(s.alt>=L&&!s.cloud){
     s.cloud=true;s.cBase=L;s.cTop=cTopF(s);s.cAge=0;
     s.cloudType=classifyCloud(s);
@@ -1331,7 +1371,7 @@ function tick(s){
     const depth=(s.cTop||L+700)-L;
     if(depth>2200)setTimeout(()=>{if(s.cloud){s.rain=Array.from({length:28},()=>({x:Math.random()*LW(),y:aY(L,LH()),sp:3.5+Math.random()*3}));toast('🌧 Precipitation developing!');}},3500);
   }
-  if(s.alt>=(s.cTop||PHYS_MAX)-40){
+  if(s.alt>=(s.cTop||PHYS_MAX)-25){
     s.run=false;document.getElementById('bgo').textContent='↑ Launch Parcel';document.getElementById('bgo').disabled=false;
     if(!s.cloud)toast('Too dry — no cloud formed!',3500);
   }
@@ -1397,7 +1437,7 @@ function bindCtrl(){
 }
 function setRecipe(btn){
   const k=btn.dataset.r, r=RECIPES[k];
-  S.recipe=k; S.temp=r.t; S.dp=r.d; S.air=r.air; S.cap=r.cap; S.surf=r.surf;
+  S.recipe=k; S.temp=r.t; S.dp=r.d; S.air=r.air; S.cap=r.cap;
   S.stars=null; S._pp=null; S._cs=null;
   doReset(); syncCtrl(S);
   toast(`${r.icon} ${r.name} — ${r.blurb}`,5600);
@@ -1427,7 +1467,7 @@ let LT=0,LTF=0;
 function loop(ts){
   requestAnimationFrame(loop);
   const dtFrame=Math.min(0.12,(ts-(LTF||ts))/1000); LTF=ts;
-  if(ts-LT>65){tick(SA);if(MODE==='compare')tick(SB);LT=ts;}
+  tick(SA,dtFrame); if(MODE==='compare') tick(SB,dtFrame);
   updateCloudAge(SA,dtFrame); if(MODE==='compare') updateCloudAge(SB,dtFrame);
   VM=LRP(VM,currentViewTarget(),0.045);
 
@@ -1470,8 +1510,7 @@ function downloadPNG(){
   oc.fillStyle='#E8E4D9'; oc.font='bold 21px "Zilla Slab",serif';
   oc.fillText('Cloud Formation Lab',PAD,34);
 
-  const preset=S.surf.charAt(0).toUpperCase()+S.surf.slice(1);
-  const contextLine=`${preset} · ${S.temp.toFixed(1)}°C / ${S.dp.toFixed(1)}°C dew point · ${S.cloud?(S.cloudType||'Cloud forming'):'No cloud yet'}`;
+  const contextLine=`${S.temp.toFixed(1)}°C / ${S.dp.toFixed(1)}°C dew point · ${(AIR[S.air]||AIR.stable).label} aloft${S.cap?' · capping inversion':''} · ${S.cloud?(S.cloudType||'Cloud forming'):'No cloud yet'}`;
   oc.fillStyle='#A6A499'; oc.font='13px "Public Sans",sans-serif';
   oc.fillText(contextLine,PAD,56);
 
@@ -1501,7 +1540,7 @@ function downloadPNG(){
   oc.fillStyle='#3CA3AE'; oc.fillRect(0,oh-2,ow,2);
 
   const link=document.createElement('a');
-  link.download=`cloud-formation-${S.surf}.png`;
+  link.download=`cloud-formation-${S.cloud?(S.cloudType||'cloud').toLowerCase().replace(/[^a-z]+/g,'-'):'sounding'}.png`;
   link.href=off.toDataURL('image/png');
   link.click();
 }
