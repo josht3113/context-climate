@@ -258,7 +258,7 @@ function mkS(surf='forest'){
   const p=PRESETS[surf];
   return{temp:p.t,dp:p.d,surf,unstable:false,cap:false,night:false,
     run:false,alt:0,cloud:false,cBase:null,cTop:null,cAge:0,cloudType:null,
-    rain:[],fog:0,evap:[],stars:null};
+    rain:[],fog:0,evap:[],stars:null,_cs:null};
 }
 let SA=mkS('forest'),SB=mkS('ocean'),MODE='single',AB='A',S=SA;
 
@@ -266,6 +266,14 @@ let SA=mkS('forest'),SB=mkS('ocean'),MODE='single',AB='A',S=SA;
 //  CANVAS REFS
 // ════════════════════════════════════════
 const CV=document.getElementById('scene'),CX=CV.getContext('2d');
+// RS is the render scale of the scene canvas: it follows the display on
+// screen (so the scene is sharp on a retina panel) and is temporarily raised
+// to a FIXED multiplier for PNG export, so the downloaded image is crisp on
+// every machine — export resolution must never be derived from the viewing
+// screen's devicePixelRatio.
+const SCREEN_RS=()=>Math.min(2,window.devicePixelRatio||1);
+let RS=SCREEN_RS();
+const LW=()=>CV.width/RS, LH=()=>CV.height/RS;
 const SK=document.getElementById('sk'),SX=SK.getContext('2d');
 const ZS=document.getElementById('zcs').getContext('2d');
 const ZP=document.getElementById('zcp').getContext('2d');
@@ -366,10 +374,12 @@ function altStep(vm){return vm<=3000?500:(vm<=6000?1000:1500);}
 // ════════════════════════════════════════
 function resize(){
   const w=document.getElementById('sww');
-  CV.width=w.clientWidth; CV.height=w.clientHeight;
+  CV.width=Math.round(w.clientWidth*RS); CV.height=Math.round(w.clientHeight*RS);
+  CX.setTransform(RS,0,0,RS,0,0);
+  SA._cs=null; SB._cs=null;
   initEvap(SA); initEvap(SB);
 }
-const aY=(a,H)=>(H||CV.height)-(Math.min(a,VM)/VM)*(H||CV.height);
+const aY=(a,H)=>(H||LH())-(Math.min(a,VM)/VM)*(H||LH());
 
 // ════════════════════════════════════════
 //  GROWTH SIGNAL — single continuous 0→1 driver spanning the whole
@@ -398,39 +408,255 @@ function ascentColor(s){
   return{r,g,b,a,ap};
 }
 
-// the cloud's cross-sectional width as a fraction of base width, as a
-// function of normalized height (0 = base, 1 = current top). Bulges at
-// the base, tapers through the trunk, narrows toward a rounded top —
-// or flares back out into an anvil if the storm is genuinely deep.
-function towerWidthProfile(frac,hasAnvil){
-  if(frac<0.12) return 1.0+frac*0.4;
-  if(frac<0.7){
-    const t=(frac-0.12)/0.58;
-    return 1.05-t*0.25;
-  }
-  if(hasAnvil&&frac>0.88){
-    const at=(frac-0.88)/0.12;
-    return 0.55+at*0.95;
-  }
-  const t=(frac-0.7)/0.3;
-  return 0.80-t*0.30;
-}
+// ════════════════════════════════════════
+//  CLOUD SILHOUETTE + LIGHTING
+//  A cloud reads as real when it is ONE soft-edged mass that is lit from
+//  above — not a pile of hard-edged circles. So the cloud is built on an
+//  offscreen sprite in three passes:
+//    1. accumulate soft radial blobs   → the silhouette (alpha only)
+//    2. 'source-in' a vertical ramp    → sunlit crown down to shadowed base
+//    3. 'source-atop' lobes            → sun-side highlight, crevices, rim
+//  The sun sits in the upper right of this scene, so the light comes from
+//  there. The sprite is cached on the scene object and rebuilt only when the
+//  shape actually changes, so a static frame costs one drawImage.
+// ════════════════════════════════════════
 
 // deterministic pseudo-random hash — same seed always gives the same value,
-// so per-puff texture stays stable frame to frame instead of flickering.
+// so the cloud's texture stays stable frame to frame instead of flickering.
 function rnd(n){const x=Math.sin(n*12.9898)*43758.5453;return x-Math.floor(x);}
-// one puff's gray→white tone + density. brightBias sets a row's average
-// tone (shadowed underside vs sunlit crown); mixVal (condensation progress)
-// keeps still-forming puffs cooler/grayer overall, like the radiation-fog band.
-function puffShade(seed,mixVal,brightBias){
-  const j=rnd(seed*0.731+1.3);
-  let t=clamp01(brightBias+(j-0.5)*0.5);
-  t=LRP(t*0.55,t,mixVal);
-  const r=Math.round(160+(255-160)*t);
-  const g=Math.round(174+(255-174)*t);
-  const b=Math.round(196+(255-196)*t);
-  const a=clamp01(0.6+0.34*t+(j-0.5)*0.14);
-  return[r,g,b,a];
+
+// half-width multiplier at height fraction 0 (base) → 1 (top)
+function cloudProfile(frac,kind){
+  if(kind==='flat'){
+    if(frac<0.58) return 1.0;
+    return 1.0-(frac-0.58)/0.42*0.30;
+  }
+  if(kind==='anvil'){
+    if(frac<0.10) return 0.95+frac*0.45;
+    if(frac<0.68){const t=(frac-0.10)/0.58; return 1.00-t*0.28;}
+    if(frac<0.82){const t=(frac-0.68)/0.14; return 0.72+t*0.12;}
+    const t=(frac-0.82)/0.18; return 0.84+t*0.86;          // the anvil flare
+  }
+  if(frac<0.12) return 0.97+frac*0.34;
+  if(frac<0.62){const t=(frac-0.12)/0.50; return 1.01-t*0.09;}
+  const t=(frac-0.62)/0.38; return 0.92-t*0.60;            // rounded crown
+}
+
+// blob field for one cloud, in local coords: (0,0) is the centre of the base,
+// negative y is up. Lobe radius shrinks with height, which is what gives a
+// cumulus its cauliflower crown; a cumulonimbus is built as a tower plus a
+// separate wide, flat-topped anvil lens so the anvil fuses into a slab instead
+// of reading as a row of separate bubbles.
+function cloudBlobs(halfW,depthPix,kind,seed){
+  const out=[];
+  const R0=kind==='flat'
+    ? Math.max(12,Math.min(halfW*0.30,Math.max(16,depthPix*0.58)))
+    : Math.max(10,halfW*0.40);
+  const put=(x,y,r,ex,ey)=>out.push({x,y,r,ex:ex||1,ey:ey||1});
+
+  // ── a row of overlapping lobes at height y, spanning ±hw
+  function row(y,hw,r,tag,turret,ex,ey){
+    ex=ex||1; ey=ey||1;
+    const n=Math.max(2,Math.round(hw/(r*ex*0.52)));
+    for(let j=0;j<n;j++){
+      const t=n===1?0.5:j/(n-1);
+      const sd=seed+tag*17.31+j*4.13;
+      const jx=(rnd(sd)-0.5)*r*0.5, jy=(rnd(sd+0.31)-0.5)*r*ey*0.45;
+      let rr=r*(0.74+rnd(sd+0.77)*0.56);
+      if(turret&&rnd(sd+1.4)>0.78) rr*=1.45;          // occasional bulging turret
+      put((t-0.5)*2*Math.max(0,hw-r*ex*0.28)+jx, y+jy, rr, ex, ey);
+    }
+  }
+
+  if(kind==='anvil'){
+    const aFrac=0.72;                                  // where the anvil starts
+    const towerTop=depthPix*aFrac, aH=depthPix-towerTop;
+    const rows=Math.max(3,Math.round(towerTop/(R0*0.52)));
+    for(let i=0;i<rows;i++){
+      const f=i/(rows-1);
+      // a cumulonimbus tower widens with height, with turrets bulging out
+      const hw=halfW*0.80*(0.90+f*0.36+0.06*Math.sin(f*7.1+seed));
+      row(-f*towerTop, hw, R0*(1-0.10*f), i, true);
+    }
+    // The anvil is built from wide, flat lenses rather than circles — an
+    // anvil's top is a smooth glaciated shelf, and circles would scallop it.
+    const aRows=Math.max(4,Math.round(aH/(R0*0.30)));
+    for(let i=0;i<=aRows;i++){
+      const f=i/aRows;
+      const sm=f<0.6?(f/0.6)*(f/0.6)*(3-2*(f/0.6)):1;  // flares fast, then flat
+      const spread=halfW*(1.10+1.15*sm);
+      const flat=1+1.5*f;                              // flatter toward the top
+      row(-towerTop-f*aH*0.94, spread, R0*(0.62-0.10*f), 40+i, false, flat, 1-0.42*f);
+    }
+    return out;
+  }
+
+  const rows=Math.max(2,Math.round(depthPix/(R0*0.56))+2);
+  for(let i=0;i<rows;i++){
+    const frac=rows===1?0:i/(rows-1);
+    const hw=Math.max(R0*0.7,halfW*cloudProfile(frac,kind));
+    const r=kind==='flat'?R0*(1-0.14*frac):R0*(1-0.32*frac);
+    row(-frac*depthPix, hw, r, i, kind==='cumulus'&&frac>0.25&&frac<0.9);
+  }
+  // crown lobes — oversized bulges so the top reads as billowing turrets
+  if(kind==='cumulus'){
+    for(let k=0;k<3;k++){
+      const sd=seed+91+k*5.7;
+      const hw=halfW*cloudProfile(0.86,kind);
+      put((k-1)*hw*0.80+(rnd(sd)-0.5)*10,
+          -depthPix*(0.88+rnd(sd+0.2)*0.11),
+          R0*(0.58+rnd(sd+0.5)*0.30));
+    }
+  }
+  // base slab — pushed below the origin so its opaque core crosses the clip
+  // line, which is what gives a cumulus its characteristically flat base.
+  {
+    const r=R0*0.92, n=Math.max(2,Math.round(halfW/(r*0.55)));
+    for(let j=0;j<n;j++){
+      const t=n===1?0.5:j/(n-1);
+      const sd=seed+301+j*3.7;
+      put((t-0.5)*2*Math.max(0,halfW-r*0.25)+(rnd(sd)-0.5)*r*0.3,
+          r*0.34+(rnd(sd+0.5)-0.5)*r*0.12,
+          r*(0.86+rnd(sd+0.9)*0.3));
+    }
+  }
+  return out;
+}
+
+const CPAL={
+  day:   {top:'#FDFEFF',mid:'#ECF2FA',low:'#BCCADD',base:'#8496B0',shade:0.50},
+  storm: {top:'#F8FAFE',mid:'#DCE4F0',low:'#A2B1C8',base:'#6B7D97',shade:0.62},
+  night: {top:'#B9C7DA',mid:'#94A5BC',low:'#6D7E97',base:'#4B5A72',shade:0.48}
+};
+function mixHex(hex,rgb,t){
+  const n=parseInt(hex.slice(1),16);
+  const r=Math.round(((n>>16)&255)*(1-t)+rgb[0]*t);
+  const g=Math.round(((n>>8)&255)*(1-t)+rgb[1]*t);
+  const b=Math.round((n&255)*(1-t)+rgb[2]*t);
+  return `rgb(${r},${g},${b})`;
+}
+
+function buildCloudSprite(halfW,depthPix,kind,mix,seed,th,night){
+  const blobs=cloudBlobs(halfW,depthPix,kind,seed);
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  blobs.forEach(b=>{const rx=b.r*(b.ex||1),ry=b.r*(b.ey||1);
+                    minX=Math.min(minX,b.x-rx);maxX=Math.max(maxX,b.x+rx);
+                    minY=Math.min(minY,b.y-ry);maxY=Math.max(maxY,b.y+ry);});
+  const pad=8;
+  const W=Math.max(8,Math.ceil(maxX-minX)+pad*2), H=Math.max(8,Math.ceil(maxY-minY)+pad*2);
+  const ox=-minX+pad, oy=-minY+pad;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const c=cv.getContext('2d');
+
+  // ── pass 1: silhouette. Each blob is opaque out to 0.62r then feathers to
+  // nothing, so overlaps fuse into one solid mass with a soft outer edge.
+  blobs.forEach(b=>{
+    const bx=b.x+ox, by=b.y+oy, ex=b.ex||1, ey=b.ey||1;
+    c.save(); c.translate(bx,by); c.scale(ex,ey);
+    const g=c.createRadialGradient(0,0,0,0,0,b.r);
+    g.addColorStop(0,'rgba(255,255,255,1)');
+    g.addColorStop(0.70,'rgba(255,255,255,1)');
+    g.addColorStop(0.88,'rgba(255,255,255,0.50)');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    c.fillStyle=g; c.beginPath(); c.arc(0,0,b.r,0,Math.PI*2); c.fill();
+    c.restore();
+  });
+
+  // ── pass 2: lighting, painted through the silhouette's alpha
+  const P=night?CPAL.night:(kind==='anvil'?CPAL.storm:CPAL.day);
+  const tB=clamp01((1-mix)*0.55);                    // still condensing → keep the parcel's colour
+  const rgb=[th.r,th.g,th.b];
+  c.globalCompositeOperation='source-in';
+  const lg=c.createLinearGradient(0,0,0,H);
+  lg.addColorStop(0,   mixHex(P.top,rgb,tB));
+  lg.addColorStop(0.30,mixHex(P.mid,rgb,tB));
+  lg.addColorStop(0.70,mixHex(P.low,rgb,tB));
+  lg.addColorStop(1,   mixHex(P.base,rgb,tB));
+  c.fillStyle=lg; c.fillRect(0,0,W,H);
+
+  // ── pass 3: form. Sun-side highlight, opposite-side shadow, dark flat base.
+  c.globalCompositeOperation='source-atop';
+  const R=Math.max(W,H);
+  // sunlight comes from the upper right of the scene, so run a diagonal ramp
+  // across the whole mass — this is what gives a tall tower a lit flank and a
+  // shaded one instead of reading as a flat grey wall.
+  const dl=c.createLinearGradient(0,H,W,0);
+  dl.addColorStop(0,`rgba(52,70,98,${night?0.30:0.26})`);
+  dl.addColorStop(0.5,'rgba(120,140,170,0)');
+  dl.addColorStop(1,`rgba(255,252,242,${night?0.10:0.30})`);
+  c.fillStyle=dl; c.fillRect(0,0,W,H);
+  const hg=c.createRadialGradient(W*0.68,H*0.18,0,W*0.68,H*0.18,R*0.62);
+  hg.addColorStop(0,`rgba(255,253,247,${night?0.20:0.55})`);
+  hg.addColorStop(0.45,`rgba(255,252,244,${night?0.08:0.20})`);
+  hg.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=hg; c.fillRect(0,0,W,H);
+
+  const sg=c.createRadialGradient(W*0.28,H*0.92,0,W*0.28,H*0.92,R*0.74);
+  sg.addColorStop(0,'rgba(56,74,100,0.40)');
+  sg.addColorStop(0.5,'rgba(68,88,116,0.16)');
+  sg.addColorStop(1,'rgba(80,100,130,0)');
+  c.fillStyle=sg; c.fillRect(0,0,W,H);
+
+  // lobe modelling — a soft shadow under each blob and a catchlight on its
+  // sunlit shoulder. This is what turns a flat blob into cauliflower.
+  const modelStride=Math.max(1,Math.ceil(blobs.length/70));
+  blobs.forEach((b,i)=>{
+    if(b.r<7||i%modelStride!==0) return;
+    const bx=b.x+ox, by=b.y+oy;
+    const sx=bx-b.r*0.20, sy=by+b.r*0.26;
+    const a=0.07+0.07*rnd(seed+i*2.3);
+    const d=c.createRadialGradient(sx,sy,0,sx,sy,b.r*0.74);
+    d.addColorStop(0,`rgba(72,92,122,${a})`); d.addColorStop(1,'rgba(72,92,122,0)');
+    c.fillStyle=d; c.beginPath(); c.arc(sx,sy,b.r*0.74,0,Math.PI*2); c.fill();
+    if(!night&&(i%2===0)){
+      const lx=bx+b.r*0.26, ly=by-b.r*0.30;
+      const l=c.createRadialGradient(lx,ly,0,lx,ly,b.r*0.66);
+      l.addColorStop(0,'rgba(255,255,252,0.30)'); l.addColorStop(1,'rgba(255,255,255,0)');
+      c.fillStyle=l; c.beginPath(); c.arc(lx,ly,b.r*0.66,0,Math.PI*2); c.fill();
+    }
+  });
+
+  // Flat, shadowed base. The band is anchored to the base line (local y = 0,
+  // sprite y = oy) rather than the sprite's bottom edge, because everything
+  // below the base line gets clipped away when the sprite is drawn — anchoring
+  // to H would throw the darkest part of the ramp into the clipped region and
+  // leave the visible underside looking lit from below.
+  const bandH=Math.max(26,Math.min(oy*0.85,38+depthPix*0.26));
+  const bg2=c.createLinearGradient(0,oy-bandH,0,oy);
+  bg2.addColorStop(0,'rgba(50,66,92,0)');
+  bg2.addColorStop(0.45,`rgba(48,64,90,${P.shade*0.24})`);
+  bg2.addColorStop(0.80,`rgba(45,61,87,${P.shade*0.66})`);
+  bg2.addColorStop(1,`rgba(42,58,84,${P.shade})`);
+  c.fillStyle=bg2; c.fillRect(0,0,W,H);
+
+  // rim light along the crown
+  const rimH=Math.max(14,H*0.14);
+  const rg=c.createLinearGradient(0,0,0,rimH);
+  rg.addColorStop(0,`rgba(255,255,255,${night?0.16:0.36})`);
+  rg.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle=rg; c.fillRect(0,0,W,H);
+
+  c.globalCompositeOperation='source-over';
+  return {cv,ox,oy,W,H};
+}
+
+function cloudKindOf(s,visDepth,towerFrac){
+  if(s.cloudType==='Capped & Flat') return 'flat';
+  if((s.cBase||0)<150 && visDepth<1100) return 'flat';        // surface-based stratus / fog
+  if(s.cloudType==='Cumulonimbus' && towerFrac>0.70) return 'anvil';
+  return 'cumulus';
+}
+
+function getCloudSprite(s,halfW,depthPix,kind,mix,th){
+  // Coarse key: the sprite only has to change when the shape visibly changes.
+  // Quantising here is what keeps a growing cumulonimbus from rebuilding its
+  // several-hundred-blob sprite on every single frame.
+  const key=[Math.round(halfW/4),Math.round(depthPix/6),kind,Math.round(mix*8),s.night?1:0].join('|');
+  if(s._cs&&s._cs.key===key) return s._cs;
+  const seed=(s.cBase||0)*0.013+{ocean:3.1,lake:5.3,urban:7.7,forest:1.9}[s.surf]||1.9;
+  s._cs=buildCloudSprite(halfW,depthPix,kind,mix,seed,th,s.night);
+  s._cs.key=key;
+  return s._cs;
 }
 
 // ════════════════════════════════════════
@@ -471,86 +697,63 @@ function drawParcelCloud(s,x0,sw,H,now){
   const curDepthPix=depthPixFull*towerFrac;
 
   const clipped=g>0.05;
-  if(clipped){CX.save();CX.beginPath();CX.rect(0,0,CV.width,baseY);CX.clip();}
+  if(clipped){CX.save();CX.beginPath();CX.rect(0,0,LW(),baseY);CX.clip();}
 
-  CX.beginPath();CX.ellipse(cx2,baseY,fW,fH,0,0,Math.PI*2);
-  const ig=CX.createRadialGradient(cx2,baseY-fH*.25,0,cx2,baseY,fW*1.3);
-  ig.addColorStop(0,`rgba(${cr},${cg},${cb},${ca})`);
-  ig.addColorStop(.55,`rgba(${cr},${cg},${cb},${ca*.7})`);
-  ig.addColorStop(1,`rgba(${cr},${cg},${cb},0)`);
-  CX.fillStyle=ig;CX.fill();
-  CX.strokeStyle=`rgba(${Math.min(255,cr+30)},${Math.min(255,cg+24)},${cb},${ca*.85})`;
-  CX.lineWidth=2.2;CX.stroke();
+  // the rising parcel is still a bubble; it dissolves as the cloud takes over
+  const parcelFade=clamp01(1-(g-0.10)/0.20);
+  if(parcelFade>0.01){
+    CX.save(); CX.globalAlpha=parcelFade;
+    CX.beginPath();CX.ellipse(cx2,baseY,fW,fH,0,0,Math.PI*2);
+    const ig=CX.createRadialGradient(cx2,baseY-fH*.25,0,cx2,baseY,fW*1.3);
+    ig.addColorStop(0,`rgba(${cr},${cg},${cb},${ca})`);
+    ig.addColorStop(.55,`rgba(${cr},${cg},${cb},${ca*.7})`);
+    ig.addColorStop(1,`rgba(${cr},${cg},${cb},0)`);
+    CX.fillStyle=ig;CX.fill();
+    CX.strokeStyle=`rgba(${Math.min(255,cr+30)},${Math.min(255,cg+24)},${cb},${ca*.85})`;
+    CX.lineWidth=2.2;CX.stroke();
 
-  if(mix<.7){
-    const ha=(1-mix/.7)*.55;
-    const hg=CX.createRadialGradient(cx2-fW*.22,baseY-fH*.25,0,cx2,baseY,fW*.95);
-    hg.addColorStop(0,`rgba(255,255,255,${ha})`);hg.addColorStop(1,'rgba(255,255,255,0)');
-    CX.fillStyle=hg;CX.fill();
+    if(mix<.7){
+      const ha=(1-mix/.7)*.55;
+      const hg=CX.createRadialGradient(cx2-fW*.22,baseY-fH*.25,0,cx2,baseY,fW*.95);
+      hg.addColorStop(0,`rgba(255,255,255,${ha})`);hg.addColorStop(1,'rgba(255,255,255,0)');
+      CX.fillStyle=hg;CX.fill();
+    }
+
+    if(ap>.07&&mix<.55){
+      const af=1-mix/.55;
+      const pal=Math.min(ap*2,.7)*(0.4+Math.sin(now*2.4)*.28)*af;
+      const dirs=[{ex:cx2,ey:baseY-fH,dx:0,dy:-1},{ex:cx2,ey:baseY+fH,dx:0,dy:1},{ex:cx2-fW,ey:baseY,dx:-1,dy:0},{ex:cx2+fW,ey:baseY,dx:1,dy:0}];
+      dirs.forEach(({ex,ey,dx,dy})=>{
+        const sx=ex+dx*4,sy=ey+dy*4,tx=ex+dx*16,ty=ey+dy*16;
+        CX.strokeStyle=`rgba(${cr},${cg},${cb},${pal})`;CX.fillStyle=`rgba(${cr},${cg},${cb},${pal})`;CX.lineWidth=2;
+        CX.beginPath();CX.moveTo(sx,sy);CX.lineTo(tx,ty);CX.stroke();
+        const ang=Math.atan2(dy,dx);
+        CX.beginPath();CX.moveTo(tx,ty);CX.lineTo(tx-7*Math.cos(ang-.42),ty-7*Math.sin(ang-.42));CX.lineTo(tx-7*Math.cos(ang+.42),ty-7*Math.sin(ang+.42));CX.closePath();CX.fill();
+      });
+    }
+    CX.restore();
   }
 
-  if(ap>.07&&mix<.55){
-    const af=1-mix/.55;
-    const pal=Math.min(ap*2,.7)*(0.4+Math.sin(now*2.4)*.28)*af;
-    const dirs=[{ex:cx2,ey:baseY-fH,dx:0,dy:-1},{ex:cx2,ey:baseY+fH,dx:0,dy:1},{ex:cx2-fW,ey:baseY,dx:-1,dy:0},{ex:cx2+fW,ey:baseY,dx:1,dy:0}];
-    dirs.forEach(({ex,ey,dx,dy})=>{
-      const sx=ex+dx*4,sy=ey+dy*4,tx=ex+dx*16,ty=ey+dy*16;
-      CX.strokeStyle=`rgba(${cr},${cg},${cb},${pal})`;CX.fillStyle=`rgba(${cr},${cg},${cb},${pal})`;CX.lineWidth=2;
-      CX.beginPath();CX.moveTo(sx,sy);CX.lineTo(tx,ty);CX.stroke();
-      const ang=Math.atan2(dy,dx);
-      CX.beginPath();CX.moveTo(tx,ty);CX.lineTo(tx-7*Math.cos(ang-.42),ty-7*Math.sin(ang-.42));CX.lineTo(tx-7*Math.cos(ang+.42),ty-7*Math.sin(ang+.42));CX.closePath();CX.fill();
-    });
-  }
-
-  // puffs: density still comes from the time-based growth signal, but how
-  // far up they're allowed to build now comes from the real physical depth.
-  // Each puff gets its own gray→white tone and density (a field of varying
-  // shades, the way the radiation-fog band reads, instead of one flat white).
-  const puffN=g*9;
-  if(puffN>0.3){
-    const shdA=clamp01((g-0.15)/0.4)*.45;
-    if(shdA>0){
-      const shd=CX.createLinearGradient(0,baseY-26,0,baseY);
-      shd.addColorStop(0,'rgba(108,136,168,0)');shd.addColorStop(1,`rgba(88,116,152,${shdA})`);
-      CX.fillStyle=shd;CX.fillRect(cx2-fW*1.6,baseY-26,fW*3.2,26);
-    }
-    const rowSeed=(s.cBase||0)*0.01+ap*7;
-    const npB=Math.max(1,Math.ceil(puffN*0.6));
-    for(let i=0;i<npB;i++){
-      const px=cx2+(i-npB/2+.5)*(fW*1.9/Math.max(npB,1));
-      const pr=Math.min(22,10+puffN*1.6+Math.sin(i*2.2)*4);
-      const[pr_,pg_,pb_,pa_]=puffShade(i+rowSeed*1.1,mix,0.34);
-      CX.fillStyle=`rgba(${pr_},${pg_},${pb_},${pa_})`;
-      CX.beginPath();CX.arc(px,baseY-pr*.5,Math.max(2,pr),0,Math.PI*2);CX.fill();
-    }
-
-    // continuous tower — fills the whole built height with many overlapping
-    // tiers instead of a few widely-spaced bands, so a tall cloud reads as
-    // one connected mass rather than floating disconnected rows.
-    if(curDepthPix>16){
-      const hasAnvil=visDepth>2600;
-      const tierH=15;
-      const tierCount=Math.min(34,Math.max(1,Math.round(curDepthPix/tierH)));
-      const density=clamp01(0.35+0.65*towerFrac);
-      for(let ti=0;ti<=tierCount;ti++){
-        const frac=ti/tierCount;
-        const py=baseY-frac*curDepthPix;
-        const widthMul=towerWidthProfile(frac,hasAnvil);
-        const tierW=Math.max(10,fW*widthMul*(0.75+tallness*0.5));
-        const brightBias=0.36+frac*0.56;
-        const nPuff=Math.max(1,Math.round((tierW*2/24)*density));
-        for(let j=0;j<nPuff;j++){
-          const seed=ti*13.7+j*3.1+rowSeed*2.9;
-          const jx=(rnd(seed+0.4)-0.5)*10;
-          const jy=(rnd(seed+0.9)-0.5)*8;
-          const px=cx2+(j-(nPuff-1)/2)*(tierW*2/Math.max(nPuff,1))+jx;
-          const pr=Math.min(24,12+6*density+rnd(seed)*7);
-          const[pr_,pg_,pb_,pa_]=puffShade(seed,mix,brightBias);
-          CX.fillStyle=`rgba(${pr_},${pg_},${pb_},${pa_})`;
-          CX.beginPath();CX.arc(px,py+jy,Math.max(2,pr),0,Math.PI*2);CX.fill();
-        }
-      }
-    }
+  // the cloud itself — one lit mass, faded in as condensation takes hold
+  const cloudVis=clamp01((g-0.04)/0.18);
+  if(cloudVis>0.012){
+    const kind=cloudKindOf(s,visDepth,towerFrac);
+    // Saturated right at the surface means a stratus/fog deck, which spreads
+    // across the whole sky rather than growing as an isolated bubble.
+    const deck=s.cloud&&(s.cBase||0)<150;
+    // Cap the width against the panel so a mature cumulonimbus (whose anvil
+    // spreads to ~2.25x the tower) still reads as a cloud in the sky rather
+    // than filling the frame — this matters most in compare mode and on
+    // narrow screens, where sw is half the scene.
+    const wCap=sw*(kind==='anvil'?0.19:kind==='flat'?0.40:0.32);
+    const halfW=deck
+      ? sw*0.56*(0.5+0.5*towerFrac)
+      : Math.min(wCap,fW*(kind==='flat'?1.30:1.00)*(0.92+tallness*0.30));
+    const depthPix=Math.max(fH*0.85,curDepthPix+fH*0.5);
+    const sp=getCloudSprite(s,halfW,depthPix,kind,mix,th);
+    CX.save(); CX.globalAlpha=cloudVis;
+    CX.drawImage(sp.cv, cx2-sp.ox*breath, baseY-sp.oy*breath, sp.W*breath, sp.H*breath);
+    CX.restore();
   }
 
   if(clipped) CX.restore();
@@ -587,8 +790,8 @@ function drawParcelCloud(s,x0,sw,H,now){
 // ════════════════════════════════════════
 function initEvap(s){
   s.evap=Array.from({length:20},()=>({
-    x:Math.random()*(CV.width||600),
-    y:(CV.height||500)-50-Math.random()*25,
+    x:Math.random()*(LW()||600),
+    y:(LH()||500)-50-Math.random()*25,
     vy:.28+Math.random()*.32,wobble:1+Math.random()*2,
     ph:Math.random()*Math.PI*2,life:Math.random()
   }));
@@ -598,7 +801,7 @@ function initEvap(s){
 //  DRAW FULL SCENE
 // ════════════════════════════════════════
 function drawScene(s,x0,sw){
-  const H=CV.height,now=Date.now()/1000;
+  const H=LH(),now=Date.now()/1000;
   const L=lclH(s),lclY=aY(L,H),fz=frzA(s),fzY=aY(fz,H);
   CX.save(); CX.beginPath(); CX.rect(x0,0,sw,H); CX.clip();
 
@@ -938,7 +1141,7 @@ function updateMarkers(s){
   const wrap=document.getElementById('sww');
   const cr=CV.getBoundingClientRect(),wr=wrap.getBoundingClientRect();
   const ox=cr.left-wr.left, oy=cr.top-wr.top;
-  const W=CV.width,H=CV.height;
+  const W=LW(),H=LH();
   const L=lclH(s);
   const scW=MODE==='compare'?W/2:W;
   const x0s=MODE==='compare'&&AB==='B'?W/2:0;
@@ -981,8 +1184,8 @@ function launch(){
   const s=S;
   if(MODE==='fog'){runFog(s);return;}
   const L=lclH(s);
-  if(L===0){toast('Surface already saturated — fog/stratus!');s.cloud=true;s.cBase=0;s.cTop=cTopF(s)||1000;s.cAge=0;s.cloudType=classifyCloud(s);return;}
-  s.run=true;s.alt=10;s.cloud=false;s.cBase=null;s.cTop=null;s.cAge=0;s.cloudType=null;s.rain=[];
+  if(L===0){toast('Surface already saturated — fog/stratus!');s.cloud=true;s.cBase=0;s.cTop=cTopF(s)||1000;s.cAge=0;s._cs=null;s.cloudType=classifyCloud(s);return;}
+  s.run=true;s.alt=10;s.cloud=false;s.cBase=null;s.cTop=null;s.cAge=0;s.cloudType=null;s.rain=[];s._cs=null;
   document.getElementById('bgo').textContent='↑ Rising…';
   document.getElementById('bgo').disabled=true;
   updDV(s);
@@ -992,7 +1195,7 @@ function runFog(s){
   const iv=setInterval(()=>{s.fog=Math.min(1,s.fog+.022);if(s.fog>=1){clearInterval(iv);toast('Radiation fog formed!');s.run=false;}},50);
 }
 function doReset(){
-  [SA,SB].forEach(s=>{s.run=false;s.alt=0;s.cloud=false;s.cBase=null;s.cTop=null;s.cAge=0;s.cloudType=null;s.rain=[];s.fog=0;});
+  [SA,SB].forEach(s=>{s.run=false;s.alt=0;s.cloud=false;s.cBase=null;s.cTop=null;s.cAge=0;s.cloudType=null;s.rain=[];s.fog=0;s._cs=null;});
   document.getElementById('bgo').textContent='↑ Launch Parcel';
   document.getElementById('bgo').disabled=false;
   initCond();
@@ -1017,7 +1220,7 @@ function tick(s){
     }
     toast(msg);
     const depth=(s.cTop||L+700)-L;
-    if(depth>1800)setTimeout(()=>{if(s.cloud){s.rain=Array.from({length:28},()=>({x:Math.random()*CV.width,y:aY(L,CV.height),sp:3.5+Math.random()*3}));toast('🌧 Precipitation developing!');}},3500);
+    if(depth>1800)setTimeout(()=>{if(s.cloud){s.rain=Array.from({length:28},()=>({x:Math.random()*LW(),y:aY(L,LH()),sp:3.5+Math.random()*3}));toast('🌧 Precipitation developing!');}},3500);
   }
   if(s.alt>=(s.cTop||PHYS_MAX)-40){
     s.run=false;document.getElementById('bgo').textContent='↑ Launch Parcel';document.getElementById('bgo').disabled=false;
@@ -1094,18 +1297,22 @@ function loop(ts){
   updateCloudAge(SA,dtFrame); if(MODE==='compare') updateCloudAge(SB,dtFrame);
   VM=LRP(VM,currentViewTarget(),0.045);
 
-  CX.clearRect(0,0,CV.width,CV.height);
-  if(MODE==='compare'){
-    const hw=Math.floor(CV.width/2);
-    drawScene(SA,0,hw);drawScene(SB,hw,hw);
-    CX.strokeStyle='rgba(60,163,174,.3)';CX.lineWidth=1.5;CX.beginPath();CX.moveTo(hw,0);CX.lineTo(hw,CV.height);CX.stroke();
-    CX.fillStyle='rgba(60,163,174,.85)';CX.font='700 14px "Courier Prime",monospace';CX.fillText('SCENE A',8,20);CX.fillText('SCENE B',hw+8,20);
-  } else {
-    drawScene(S,0,CV.width);
-  }
+  drawFrame();
   drawSkewt(S);
   dzSurf();dzParcel(S);dzLcl();dzCloud(S);
   updateMarkers(S);
+}
+
+function drawFrame(){
+  CX.clearRect(0,0,LW(),LH());
+  if(MODE==='compare'){
+    const hw=Math.floor(LW()/2);
+    drawScene(SA,0,hw);drawScene(SB,hw,hw);
+    CX.strokeStyle='rgba(60,163,174,.3)';CX.lineWidth=1.5;CX.beginPath();CX.moveTo(hw,0);CX.lineTo(hw,LH());CX.stroke();
+    CX.fillStyle='rgba(60,163,174,.85)';CX.font='700 14px "Courier Prime",monospace';CX.fillText('SCENE A',8,20);CX.fillText('SCENE B',hw+8,20);
+  } else {
+    drawScene(S,0,LW());
+  }
 }
 
 // ════════════════════════════════════════
@@ -1113,7 +1320,7 @@ function loop(ts){
 // ════════════════════════════════════════
 function downloadPNG(){
   const PAD=24, HDR=90, FTR=30, GAP=12;
-  const IMG_W=900, IMG_H=Math.round(IMG_W*(CV.height/CV.width));
+  const IMG_W=900, IMG_H=Math.round(IMG_W*(LH()/LW()));
   const SKW=150, SKH=Math.round(SKW*(SK.height/SK.width));
   const ow=PAD*2+IMG_W;
   const oh=HDR+IMG_H+GAP+FTR;
@@ -1137,7 +1344,12 @@ function downloadPNG(){
   oc.fillStyle='#948F82'; oc.font='12px "Courier Prime",monospace';
   oc.textAlign='right'; oc.fillText('contextclimate.io',ow-PAD,34); oc.textAlign='left';
 
+  // Re-render the scene at a fixed multiplier so the export is pixel-crisp on
+  // any display, then restore the on-screen resolution.
+  const EXPORT_SCALE=3;
+  RS=EXPORT_SCALE; resize(); drawFrame();
   oc.drawImage(CV,PAD,HDR,IMG_W,IMG_H);
+  RS=SCREEN_RS(); resize(); drawFrame();
   oc.strokeStyle='rgba(232,228,217,0.14)'; oc.lineWidth=1;
   oc.strokeRect(PAD,HDR,IMG_W,IMG_H);
 
