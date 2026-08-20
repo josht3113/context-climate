@@ -561,13 +561,36 @@ function parseCSVInto(text,y1,y2,single,accum){
     const valid=parts[1];if(!valid)continue;
     const sp=valid.indexOf(' ');if(sp<1)continue;
     const dp=valid.substring(0,sp).split('-');if(dp.length<3)continue;
-    const yr=parseInt(dp[0]),mo=parseInt(dp[1]),dy=parseInt(dp[2]);
-    const h=parseInt(valid.substring(sp+1));
+    let yr=parseInt(dp[0]),mo=parseInt(dp[1]),dy=parseInt(dp[2]);
+    const hm=valid.substring(sp+1).split(':');
+    let h=parseInt(hm[0]);
+    // p01i is always an accumulation since the top of the hour printed in
+    // the ob's own timestamp, so every reading is rolled forward one hour
+    // uniformly (matches precipheatmapmonthly.html) — attributing it to the
+    // hour it finished accumulating for, not the hour digit in the
+    // timestamp. This must be unconditional (not just for obs timed near
+    // the top of the hour) so every ob from one accumulation cycle lands in
+    // the same bucket; otherwise an early SPECI stays in the wrong bucket
+    // and the max-merge below can clobber it with an unrelated hour's value.
+    h+=1;
+    if(h>23){
+      h=0;
+      const nd=new Date(Date.UTC(yr,mo-1,dy+1));
+      yr=nd.getUTCFullYear();
+      mo=nd.getUTCMonth()+1;
+      dy=nd.getUTCDate();
+    }
     if(isNaN(yr)||isNaN(mo)||isNaN(dy)||isNaN(h))continue;
     if(yr<y1||yr>y2)continue;if(h<0||h>23)continue;
     const doy=getDOY(yr,mo,dy);if(doy<0||doy>365)continue;
     const idx=doy*24+h;const v=parseP01i(parts[p01iI]);
-    if(single&&v!=null)single.p01i[idx]=v;
+    // Multiple ASOS obs (routine + SPECI) can land in the same clock hour
+    // during active rain. IEM's p01i for a SPECI is a running total since
+    // the top of the hour, not a delta since the previous ob — so summing
+    // obs double-counts the same rain, and a naive overwrite can lose the
+    // largest reading if a later ob in the hour reports a smaller partial
+    // total. Taking the max per hour avoids both failure modes.
+    if(single&&v!=null)single.p01i[idx]=isNaN(single.p01i[idx])?v:Math.max(single.p01i[idx],v);
     if(accum&&v!=null){accum.p01i.sum[idx]+=v;accum.p01i.sum2[idx]+=v*v;accum.p01i.cnt[idx]++;}
   }
 }
