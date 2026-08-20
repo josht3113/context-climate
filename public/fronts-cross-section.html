@@ -364,10 +364,10 @@ warm: {
   PR:  [[-900,0],[-120,0.05],[0,0.4],[120,0.65],[300,0.5],[430,0.15],[560,0]],
   wx: d => (d > -60 && d < 420) ? 'rain' : 'none',
   clouds: [
-    {type:'layer', name:'Nimbostratus',  x0:-90, x1:330,  z0:0.5, z1:5.4, dens:1.0},
-    {type:'layer', name:'Altostratus',   x0:300, x1:720,  z0:3.4, z1:6.4, dens:0.75},
-    {type:'layer', name:'Cirrostratus',  x0:680, x1:1020, z0:5.8, z1:8.4, dens:0.5},
-    {type:'layer', name:'Cirrus',        x0:980, x1:1400, z0:7.8, z1:10.4,dens:0.35},
+    {type:'layer', name:'Nimbostratus',  x0:-110,x1:400,  z0:0.5, z1:5.4, dens:1.0},
+    {type:'layer', name:'Altostratus',   x0:250, x1:790,  z0:3.4, z1:6.4, dens:0.75},
+    {type:'layer', name:'Cirrostratus',  x0:620, x1:1090, z0:5.8, z1:8.4, dens:0.5},
+    {type:'layer', name:'Cirrus',        x0:930, x1:1460, z0:7.8, z1:10.4,dens:0.35},
     {type:'layer', name:'Stratus',       x0:-260,x1:-60,  z0:0.4, z1:1.5, dens:0.55}
   ],
   qa: [
@@ -401,9 +401,9 @@ stationary: {
   PR:  [[-900,0],[-160,0.1],[-30,0.45],[180,0.45],[380,0.2],[520,0]],
   wx: d => (d > -180 && d < 400) ? 'rain' : 'none',
   clouds: [
-    {type:'layer', name:'Nimbostratus', x0:-200, x1:300, z0:0.5, z1:5.0, dens:0.95},
-    {type:'layer', name:'Altostratus',  x0:250,  x1:650, z0:3.2, z1:6.0, dens:0.65},
-    {type:'layer', name:'Cirrostratus', x0:600,  x1:950, z0:5.6, z1:8.0, dens:0.4}
+    {type:'layer', name:'Nimbostratus', x0:-230, x1:340, z0:0.5, z1:5.0, dens:0.95},
+    {type:'layer', name:'Altostratus',  x0:210,  x1:690, z0:3.2, z1:6.0, dens:0.65},
+    {type:'layer', name:'Cirrostratus', x0:560,  x1:1000,z0:5.6, z1:8.0, dens:0.4}
   ],
   qa: [
     ['Why does a stationary front stay put?',
@@ -436,10 +436,10 @@ occluded: {
   PR:  [[-900,0],[-300,0.15],[-120,0.5],[120,0.6],[300,0.4],[480,0.1],[600,0]],
   wx: d => (d > -320 && d < 460) ? ((d > -140 && d < 120) ? 'tstm' : 'rain') : 'none',
   clouds: [
-    {type:'layer', name:'Nimbostratus', x0:-340, x1:340, z0:0.5, z1:6.8, dens:1.0},
+    {type:'layer', name:'Nimbostratus', x0:-370, x1:380, z0:0.5, z1:6.8, dens:1.0},
     {type:'cb',    name:'Cumulonimbus',x0:-120, x1:60,  z0:1.0, z1:10.5},
-    {type:'layer', name:'Altostratus', x0:300,  x1:660, z0:4.0, z1:7.2, dens:0.6},
-    {type:'layer', name:'Cirrus',      x0:620,  x1:980, z0:7.6, z1:10.0,dens:0.35}
+    {type:'layer', name:'Altostratus', x0:260,  x1:700, z0:4.0, z1:7.2, dens:0.6},
+    {type:'layer', name:'Cirrus',      x0:580,  x1:1020,z0:7.6, z1:10.0,dens:0.35}
   ],
   qa: [
     ['How does an occluded front form?',
@@ -524,6 +524,182 @@ function surfaceZ(F, dx, arm){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   CLOUD SPRITES
+   A cloud reads as real when it is ONE soft-edged mass that is lit from
+   above — not a wash of overlapping discs. Each cloud is built once on an
+   offscreen canvas in three passes and then cached by size:
+     1. accumulate soft blobs        → the silhouette (alpha only)
+     2. 'source-in' a vertical ramp  → bright top, shaded base
+     3. 'source-atop' form           → crown light, base shade, lobe modelling
+   Sprites depend only on a cloud's pixel size, never its position, so an
+   animating front redraws with a single drawImage per cloud.
+   ═══════════════════════════════════════════════════════════════════ */
+function crnd(n){ const x = Math.sin(n*12.9898)*43758.5453; return x - Math.floor(x); }
+
+const CLOUD_PAL = {
+  deck: { top:'#EFF4FA', mid:'#D6DFEA', low:'#A9B6C7', base:'#7E8C9E', shade:0.55 },
+  ice:  { top:'#F2F6FB', mid:'#E2E9F2', low:'#CBD5E1', base:'#B4C0CE', shade:0.14 },
+  cb:   { top:'#F4F8FD', mid:'#DDE5F0', low:'#A6B3C6', base:'#6F7E92', shade:0.62 }
+};
+
+/* blob field in sprite-local pixels; (0,0) is the sprite's top-left */
+function xsBlobs(kind, W, H, seed){
+  const out = [];
+  const put = (x,y,r,ex,ey) => out.push({x,y,r,ex:ex||1,ey:ey||1});
+
+  if (kind === 'cb'){
+    // a convective tower: widens a little with height, cauliflower lobes that
+    // shrink toward the crown, and occasional bulging turrets
+    const R0 = Math.max(5, Math.min(W*0.26, H*0.15));
+    const rows = Math.max(3, Math.round(H/(R0*0.62)));
+    for (let i=0;i<rows;i++){
+      const f = i/(rows-1);
+      const hw = (W/2)*(0.80 + 0.24*f + 0.06*Math.sin(f*6.7+seed));
+      const r  = R0*(1 - 0.30*f);
+      const n  = Math.max(2, Math.round(hw/(r*0.52)));
+      for (let j=0;j<n;j++){
+        const t = n===1?0.5:j/(n-1);
+        const sd = seed + i*17.3 + j*4.1;
+        let rr = r*(0.74 + crnd(sd+0.77)*0.55);
+        if (crnd(sd+1.4) > 0.80) rr *= 1.35;
+        put(W/2 + (t-0.5)*2*Math.max(0,hw-r*0.28) + (crnd(sd)-0.5)*r*0.5,
+            H - f*H*0.97 + (crnd(sd+0.31)-0.5)*r*0.45, rr);
+      }
+    }
+    return out;
+  }
+
+  if (kind === 'anvil'){
+    // wide flat lenses — circles would scallop what should be a smooth shelf
+    const R0 = Math.max(4, Math.min(H*0.50, W*0.085));
+    const rows = Math.max(2, Math.round(H/(R0*0.8)));
+    for (let i=0;i<rows;i++){
+      const f = rows===1?0:i/(rows-1);
+      const y = H - f*H*0.9 - R0*0.3;
+      const ex = 1.8 + f*0.9, ey = 0.82 - f*0.22;
+      const n = Math.max(4, Math.round(W/(R0*ex*0.5)));
+      for (let j=0;j<n;j++){
+        const t = n===1?0.5:j/(n-1);
+        const sd = seed + i*23.1 + j*3.7;
+        const fade = 0.45 + 0.55*Math.sin(Math.PI*Math.min(1,Math.max(0,t*1.05)));
+        put(t*W, y + (crnd(sd)-0.5)*R0*0.3, R0*fade*(0.8+crnd(sd+0.5)*0.4), ex, ey);
+      }
+    }
+    return out;
+  }
+
+  // A layered deck seen edge-on is a smooth lens, not a row of bubbles. Blobs
+  // are flattened (wide ex, small ey) and stacked in overlapping rows dense
+  // enough to fuse into a continuous sheet, with a flat base and a ragged top.
+  // High ice cloud is thinner, wispier and more streaked.
+  const ice = kind === 'ice';
+  const base = Math.max(3, Math.min(H*(ice?0.42:0.36), W*(ice?0.055:0.06)));
+  const EX = ice ? 3.6 : 2.4, EY = ice ? 0.62 : 0.92;
+  const ROWS = ice ? [[0.66,1.0,0.06],[0.40,0.72,0.14]]
+                   : [[0.80,1.00,0.05],[0.60,0.98,0.10],[0.40,0.78,0.18]];
+  ROWS.forEach(([yf,mul,rag],ri) => {
+    const n = Math.max(6, Math.round(W/(base*EX*0.30)));
+    for (let i=0;i<n;i++){
+      const t = n===1?0.5:i/(n-1);
+      const sd = seed + ri*211 + i*7.31;
+      const edge = Math.sin(Math.PI*Math.min(1,Math.max(0,t)));
+      const taper = (ri===0 ? 0.70 : 0.48) + (ri===0 ? 0.30 : 0.52)*edge;
+      const r = base*mul*taper*(0.86 + crnd(sd)*0.28);
+      put(t*W + (crnd(sd+0.2)-0.5)*base*EX*0.25,
+          H*yf + (crnd(sd+0.4)-0.5)*H*rag,
+          r, EX, EY);
+    }
+  });
+  return out;
+}
+
+const CLOUD_CACHE = new Map();
+function xsCloudSprite(kind, W, H, palKey, seed){
+  W = Math.max(8, Math.round(W)); H = Math.max(6, Math.round(H));
+  const key = kind+'|'+W+'|'+H+'|'+palKey+'|'+Math.round(seed);
+  const hit = CLOUD_CACHE.get(key);
+  if (hit) return hit;
+  if (CLOUD_CACHE.size > 90) CLOUD_CACHE.clear();
+
+  const blobs = xsBlobs(kind, W, H, seed);
+  // The sprite is sized to the blobs' real extent, not to the nominal W×H box.
+  // Sizing it to the box clips any lobe that overhangs the edge, and a clipped
+  // soft blob leaves a hard straight edge — which is exactly what makes a
+  // cloud read as a grey rectangle.
+  let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+  blobs.forEach(b=>{const rx=b.r*(b.ex||1), ry=b.r*(b.ey||1);
+    x0=Math.min(x0,b.x-rx); x1=Math.max(x1,b.x+rx);
+    y0=Math.min(y0,b.y-ry); y1=Math.max(y1,b.y+ry);});
+  const pad = 3;
+  const cw = Math.max(8, Math.ceil(x1-x0)+pad*2), ch = Math.max(6, Math.ceil(y1-y0)+pad*2);
+  const ox = -x0+pad, oy = -y0+pad;
+  const cv = document.createElement('canvas'); cv.width = cw; cv.height = ch;
+  const c = cv.getContext('2d');
+
+  /* 1 — silhouette */
+  blobs.forEach(b => {
+    const ex = b.ex||1, ey = b.ey||1;
+    c.save(); c.translate(b.x+ox, b.y+oy); c.scale(ex,ey);
+    const g = c.createRadialGradient(0,0,0,0,0,b.r);
+    g.addColorStop(0,'rgba(255,255,255,1)');
+    g.addColorStop(0.64,'rgba(255,255,255,1)');
+    g.addColorStop(0.85,'rgba(255,255,255,0.46)');
+    g.addColorStop(1,'rgba(255,255,255,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(0,0,b.r,0,7); c.fill(); c.restore();
+  });
+
+  /* 2 — lighting, painted through the silhouette's alpha */
+  const P = CLOUD_PAL[palKey] || CLOUD_PAL.deck;
+  c.globalCompositeOperation = 'source-in';
+  const lg = c.createLinearGradient(0,0,0,ch);
+  lg.addColorStop(0,P.top); lg.addColorStop(0.32,P.mid);
+  lg.addColorStop(0.72,P.low); lg.addColorStop(1,P.base);
+  c.fillStyle = lg; c.fillRect(0,0,cw,ch);
+
+  /* 3 — form */
+  c.globalCompositeOperation = 'source-atop';
+  const dl = c.createLinearGradient(0,ch,cw,0);
+  dl.addColorStop(0,'rgba(44,58,80,0.20)');
+  dl.addColorStop(0.5,'rgba(120,140,170,0)');
+  dl.addColorStop(1,'rgba(255,252,244,0.22)');
+  c.fillStyle = dl; c.fillRect(0,0,cw,ch);
+
+  if (kind === 'cb'){
+    const stride = Math.max(1, Math.ceil(blobs.length/44));
+    blobs.forEach((b,i) => {
+      if (b.r < 5 || i%stride) return;
+      const bx = b.x+ox, by = b.y+oy, rx = b.r*(b.ex||1);
+      const sxp = bx-rx*0.20, syp = by+b.r*0.28;
+      const d = c.createRadialGradient(sxp,syp,0,sxp,syp,rx*0.70);
+      d.addColorStop(0,'rgba(64,82,110,0.17)'); d.addColorStop(1,'rgba(64,82,110,0)');
+      c.fillStyle = d; c.beginPath(); c.arc(sxp,syp,rx*0.70,0,7); c.fill();
+      const lxp = bx+rx*0.24, lyp = by-b.r*0.32;
+      const l = c.createRadialGradient(lxp,lyp,0,lxp,lyp,rx*0.60);
+      l.addColorStop(0,'rgba(255,255,252,0.26)'); l.addColorStop(1,'rgba(255,255,255,0)');
+      c.fillStyle = l; c.beginPath(); c.arc(lxp,lyp,rx*0.60,0,7); c.fill();
+    });
+  }
+
+  const bandH = Math.max(6, ch*0.34);
+  const bg = c.createLinearGradient(0, ch-bandH, 0, ch);
+  bg.addColorStop(0,'rgba(48,62,86,0)');
+  bg.addColorStop(1,`rgba(44,58,84,${P.shade})`);
+  c.fillStyle = bg; c.fillRect(0,0,cw,ch);
+
+  const rimH = Math.max(4, ch*0.14);
+  const rg = c.createLinearGradient(0,0,0,rimH);
+  rg.addColorStop(0,'rgba(255,255,255,0.26)'); rg.addColorStop(1,'rgba(255,255,255,0)');
+  c.fillStyle = rg; c.fillRect(0,0,cw,ch);
+
+  c.globalCompositeOperation = 'source-over';
+  // dx/dy are the sprite's top-left in the generation frame, so the caller can
+  // place it against the cloud's nominal box without any clipping
+  const out = {cv, dx:x0-pad, dy:y0-pad, W, H};
+  CLOUD_CACHE.set(key, out);
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    CROSS-SECTION
    ═══════════════════════════════════════════════════════════════════ */
 function drawXS(ctx, W, H){
@@ -602,52 +778,29 @@ function drawXS(ctx, W, H){
   }
 
   /* ── clouds & precipitation ───────────────────────────────────── */
-  function puff(px, py, rx, ry, alpha){
-    const rr = Math.max(rx, ry);
-    ctx.save();
-    ctx.translate(px, py); ctx.scale(rx/rr, ry/rr);
-    const g = ctx.createRadialGradient(0,0,0,0,0,rr);
-    g.addColorStop(0,   `rgba(228,234,242,${alpha})`);
-    g.addColorStop(0.5, `rgba(208,216,228,${alpha*0.78})`);
-    g.addColorStop(1,   'rgba(200,210,222,0)');
-    ctx.beginPath(); ctx.arc(0,0,rr,0,7); ctx.fillStyle = g; ctx.fill();
-    ctx.restore();
-  }
   const trueScale = S.ve < 6;
   if (S.layers.clouds){
-    const R = rng(9137 + F.key.length*77);
-    F.clouds.forEach(cl => {
+    F.clouds.forEach((cl, ci) => {
       const a0 = PX(xf + cl.x0), a1 = PX(xf + cl.x1);
-      const wpx = a1-a0;
-      if (a1 < M.l-120 || a0 > M.l+Wp+120 || wpx < 2) return;
-      const zb = PY(cl.z0), zt = PY(cl.z1), hpx = zb-zt;
-      if (cl.type === 'cb'){
-        const cx0 = (a0+a1)/2;
-        for (let i=0;i<54;i++){
-          const t = i/53;
-          const y = zb - hpx*t;
-          let w = wpx*0.5*(1.0 - 0.34*Math.sin(t*Math.PI*0.72));
-          if (t > 0.78) w = wpx*0.5*(0.68 + 2.8*(t-0.78));
-          w = Math.max(w, 16);
-          const lean = wpx*0.22*t*t;
-          puff(cx0 + lean + (R()-0.5)*w*0.5, y, Math.max(10,w*0.68), Math.max(9,hpx*0.085), 0.135);
-        }
-      } else if (cl.type === 'anvil'){
-        for (let i=0;i<36;i++){
-          const t = i/35, x = a0 + wpx*t;
-          const h = hpx*(1 - 0.5*t);
-          puff(x, zt + h*0.5, Math.max(12,wpx/18), Math.max(6,h*0.5), 0.10*(1-t*0.6));
-        }
-      } else {
-        const n = Math.max(10, Math.min(60, Math.round(wpx/22)));
-        for (let i=0;i<n;i++){
-          const t = i/(n-1), x = a0 + wpx*t;
-          const taper = 0.55 + 0.45*Math.sin(Math.PI*Math.min(1,Math.max(0,t)));
-          const h = hpx*taper;
-          const cy = zb - h*0.5 + (R()-0.5)*hpx*0.06;
-          puff(x, cy, Math.max(11, wpx/(n*0.58)), Math.max(7, h*0.55), 0.105*cl.dens);
-        }
-      }
+      const zb = PY(cl.z0), zt = PY(cl.z1);
+      const w = a1 - a0, h = zb - zt;
+      if (w < 3 || h < 3) return;
+      if (a1 < M.l-140 || a0 > M.l+Wp+140) return;
+      // size is quantised so an animating front reuses one cached sprite
+      const qw = clamp(Math.round(w/6)*6, 8, 1200), qh = clamp(Math.round(h/4)*4, 6, 900);
+      const pal = cl.type === 'cb' ? 'cb' : (cl.z0 >= 5.6 ? 'ice' : 'deck');
+      const kind = cl.type === 'layer' && pal === 'ice' ? 'ice' : cl.type;
+      const seed = 13 + ci*29 + F.key.length*7;
+      const sp = xsCloudSprite(kind, qw, qh, pal, seed);
+      const alpha = kind === 'cb' ? 0.92
+                  : kind === 'anvil' ? 0.60
+                  : 0.34 + 0.58*(cl.dens || 0.6);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      const sx = w/qw, sy = h/qh;
+      ctx.drawImage(sp.cv, a0 + sp.dx*sx, zt + sp.dy*sy,
+                    sp.cv.width*sx, sp.cv.height*sy);
+      ctx.restore();
     });
 
     /* precipitation streaks */
@@ -752,17 +905,20 @@ function drawXS(ctx, W, H){
         else { ctx.beginPath(); ctx.arc(px,py,3.2,0,7); ctx.fill(); }
         ctx.restore();
       };
-      const wx1 = PX((xmin + Math.min(xf, xmax))/2), wx2 = PX((Math.max(xf, xmin) + xmax)/2);
-      mark(wx1, PY(3.4), false, upCol);
-      mark(wx2, PY(3.4), true,  coldCol);
+      // kept out toward the panel edges so they never collide with the
+      // cloud-name chips, which sit over the middle of each deck
+      const wx1 = PX(xmin + Xr*0.075), wx2 = PX(xmax - Xr*0.085);
+      mark(wx1, PY(1.6), false, upCol);
+      mark(wx2, PY(1.6), true,  coldCol);
       const chip = (t, x, y, col) => {
         ctx.save(); ctx.font = `11px ${FONT.mono}`;
         const w = ctx.measureText(t).width;
-        ctx.fillStyle = 'rgba(24,29,26,0.9)'; roundRect(ctx, x-w/2-7, y-14, w+14, 19, 4); ctx.fill();
-        ctx.restore(); txt(ctx, t, x, y, `11px ${FONT.mono}`, col, 'center');
+        const cx = clamp(x, M.l + w/2 + 12, M.l + Wp - w/2 - 12);
+        ctx.fillStyle = 'rgba(24,29,26,0.92)'; roundRect(ctx, cx-w/2-7, y-14, w+14, 19, 4); ctx.fill();
+        ctx.restore(); txt(ctx, t, cx, y, `11px ${FONT.mono}`, col, 'center');
       };
-      chip('warm air flows OUT of page', wx1, PY(3.4)-20, 'rgba(238,180,132,0.98)');
-      chip('cool air flows INTO page',   wx2, PY(3.4)-20, 'rgba(160,198,244,0.98)');
+      chip('warm air — OUT of page', wx1, PY(1.6)+32, 'rgba(238,180,132,0.98)');
+      chip('cool air — INTO page',   wx2, PY(1.6)+32, 'rgba(160,198,244,0.98)');
     }
   }
 
@@ -772,7 +928,7 @@ function drawXS(ctx, W, H){
     const t = 'warm air — lifted completely off the ground';
     const w = ctx.measureText(t).width;
     const bx = clamp(wx0 - w/2 - 8, M.l+8, M.l+Wp-w-24);
-    ctx.fillStyle = 'rgba(217,96,63,0.22)'; roundRect(ctx, bx, wy-14, w+16, 24, 4); ctx.fill();
+    ctx.fillStyle = 'rgba(26,31,28,0.92)'; roundRect(ctx, bx, wy-14, w+16, 24, 4); ctx.fill();
     ctx.strokeStyle = hexA(COL.warm,0.55); ctx.lineWidth=1; ctx.stroke(); ctx.restore();
     txt(ctx, t, bx+8+w/2, wy+3, `700 12px ${FONT.body}`, '#F0A98C', 'center');
   }
