@@ -347,6 +347,8 @@
     <span class="control-label" style="margin-left:6px">Presets:</span>
     <button class="cc-btn cc-btn-sm" onclick="setComparePreset(5)">Last 5 Years</button>
     <button class="cc-btn cc-btn-sm" onclick="setComparePreset(10)">Last 10 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(30)">Last 30 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setCompareAllYears()">All Years</button>
     <button class="cc-btn cc-btn-sm" onclick="clearCompareYears()">Clear</button>
   </div>
 
@@ -444,6 +446,12 @@ const MONTH_START_DOY = (() => {
 const BASE_FIELDS  = ['temp','td','clouds','wind'];
 const ANOM_FIELDS  = ['temp_anom','td_anom','temp_z','td_z'];
 const ALL_FIELDS   = [...BASE_FIELDS, ...ANOM_FIELDS];
+// Compare mode supports actual-minus-climatology anomalies (a per-day
+// daily-mean vs. daily-mean subtraction) but not the std-dev/z-score
+// fields -- those would need the climatology accumulator extended to
+// track the variance of DAILY means, not just hourly ones, which is a
+// materially different (and bigger) statistical calculation.
+const COMPARE_SUPPORTED_ANOM_FIELDS = ['temp_anom', 'td_anom'];
 
 const GRID_SIZE = 366 * 24;
 
@@ -798,9 +806,14 @@ function makeYearGrid() {
   return g;
 }
 
-function parseCSVInto(text, y1, y2, single, accum) {
-  // single: makeSingleData() or null (climo mode)
-  // accum:  makeClimoAccum() or null (single mode)
+function parseCSVInto(text, y1, y2, single, accum, compareOut) {
+  // single:     makeSingleData() or null (climo/compare mode)
+  // accum:      makeClimoAccum() or null (single/compare mode)
+  // compareOut: a Map to fill with year -> per-year grid (makeYearGrid()
+  //             shape), or null. Used by Compare Years mode to fetch
+  //             several years in one request (like climatology does) while
+  //             keeping each year's own grid instead of folding them all
+  //             into a running mean.
   const lines = text.split('\n');
   let tmpfI=2, dwpfI=3, skntI=4, skyc1I=5, skyc2I=6, skyc3I=7;
   let inData = false;
@@ -808,22 +821,27 @@ function parseCSVInto(text, y1, y2, single, accum) {
   // Climatology folds many years into one running sum, so a per-year
   // scratch buffer is despiked BEFORE it's added in -- otherwise a single
   // bad hour would still bias the mean, and would hit the std-dev even
-  // harder (sum2 squares it).
+  // harder (sum2 squares it). Compare mode reuses the same per-year
+  // scratch buffer, just to keep each year's despiked grid instead of
+  // accumulating it.
   let yearBuf = null, yearBufYr = null;
   function flushYearBuf() {
     if (!yearBuf) return;
     despikeGrid(yearBuf);
-    for (const f of BASE_FIELDS) {
-      const arr = yearBuf[f];
-      for (let i = 0; i < GRID_SIZE; i++) {
-        const v = arr[i];
-        if (!isNaN(v)) {
-          accum[f].sum[i]  += v;
-          accum[f].sum2[i] += v*v;
-          accum[f].cnt[i]++;
+    if (accum) {
+      for (const f of BASE_FIELDS) {
+        const arr = yearBuf[f];
+        for (let i = 0; i < GRID_SIZE; i++) {
+          const v = arr[i];
+          if (!isNaN(v)) {
+            accum[f].sum[i]  += v;
+            accum[f].sum2[i] += v*v;
+            accum[f].cnt[i]++;
+          }
         }
       }
     }
+    if (compareOut) compareOut.set(yearBufYr, yearBuf);
     yearBuf = null;
   }
 
@@ -892,7 +910,7 @@ function parseCSVInto(text, y1, y2, single, accum) {
         if (v != null) single[f][idx] = v;
       }
     }
-    if (accum) {
+    if (accum || compareOut) {
       if (yearBufYr !== yr) { flushYearBuf(); yearBuf = makeYearGrid(); yearBufYr = yr; }
       for (const f of BASE_FIELDS) {
         const v = vals[f];
@@ -1331,24 +1349,96 @@ async function loadClimatology(fy, ty) {
 // ═══════════════════════════════════════════════════════════
 function compareDataKey(year) { return `${activeStationId}_${year}`; }
 
-async function ensureCompareYearData(year) {
-  const key = compareDataKey(year);
-  if (compareData.has(key)) return;
-  const st = STATIONS[activeStationId];
-  const text = await fetchIEM(activeStationId, st.tz, year, year);
-  const grid = makeSingleData();
-  parseCSVInto(text, year, year, grid, null);
-  fillFeb29(grid, year);
-  compareData.set(key, grid);
+// Years within this many of each other get folded into one IEM request
+// (like climatology's single multi-year fetch) instead of one request per
+// year -- huge win for a contiguous run (e.g. "Last 30 Years"/"All Years"),
+// bounded waste for a scattered pick (e.g. 1985 + 2024 costs two requests,
+// not one 40-year one).
+const COMPARE_FETCH_MAX_GAP = 5;
+
+function groupYearsForFetch(years) {
+  const sorted = [...years].sort((a,b) => a-b);
+  const groups = [];
+  let cur = null;
+  for (const y of sorted) {
+    if (cur && y - cur.end <= COMPARE_FETCH_MAX_GAP) cur.end = y;
+    else { cur = { start: y, end: y }; groups.push(cur); }
+  }
+  return groups;
 }
 
-// Collapses one year's hourly grid down to a 366-slot daily-mean strip for
-// the active field. Cached per station/year/field so switching the field
-// toggle re-renders instantly instead of re-averaging every time.
+// Fetches every year in `years` that isn't already cached, grouping
+// adjacent years into batched requests. `onProgress(groupIndex, groupCount,
+// label)` is called before each request if provided.
+async function ensureCompareYearsData(years, onProgress) {
+  const missing = years.filter(y => !compareData.has(compareDataKey(y)));
+  if (!missing.length) return;
+  const groups = groupYearsForFetch(missing);
+  const st = STATIONS[activeStationId];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const label = g.start === g.end ? `${g.start}` : `${g.start}–${g.end}`;
+    if (onProgress) onProgress(i, groups.length, label);
+    const text = await fetchIEM(activeStationId, st.tz, g.start, g.end);
+    const perYear = new Map();
+    parseCSVInto(text, g.start, g.end, null, null, perYear);
+    for (const [year, grid] of perYear) {
+      fillFeb29(grid, year);
+      compareData.set(compareDataKey(year), grid);
+    }
+  }
+}
+
+// Collapses climoData.mean[baseField] (hourly, 366×24) down to a 366-slot
+// daily-mean strip, so a year's daily mean can be diffed against it for the
+// temp_anom/td_anom fields. Cached by the same station/from/to key
+// climoCache itself uses, since that's exactly what climoData changing
+// depends on.
+const climoDailyCache = new Map(); // key "stationId_from_to_field" -> Float32Array(366)
+function getClimoDailyMeanArray(baseField) {
+  if (!climoData) return null;
+  const key = `${activeStationId}_${fromYear}_${toYear}_${baseField}`;
+  let arr = climoDailyCache.get(key);
+  if (arr) return arr;
+  arr = new Float32Array(366).fill(NaN);
+  const src = climoData.mean[baseField];
+  for (let doy = 0; doy < 366; doy++) {
+    let sum = 0, cnt = 0;
+    for (let h = 0; h < 24; h++) {
+      const v = src[doy*24 + h];
+      if (!isNaN(v)) { sum += v; cnt++; }
+    }
+    arr[doy] = cnt ? sum / cnt : NaN;
+  }
+  climoDailyCache.set(key, arr);
+  return arr;
+}
+
+// Collapses one year's hourly grid down to a 366-slot daily strip for the
+// active field -- a plain daily mean for base fields, or (daily mean minus
+// the climatology's daily mean) for temp_anom/td_anom. Cached per
+// station/year/field so switching the field toggle re-renders instantly
+// instead of re-averaging every time.
 function getCompareDailyArray(year, field) {
   const key = `${activeStationId}_${year}_${field}`;
   let arr = compareDailyCache.get(key);
   if (arr) return arr;
+
+  if (field === 'temp_anom' || field === 'td_anom') {
+    const baseField = field === 'temp_anom' ? 'temp' : 'td';
+    const actual = getCompareDailyArray(year, baseField);
+    const climo  = getClimoDailyMeanArray(baseField);
+    arr = new Float32Array(366).fill(NaN);
+    if (climo) {
+      for (let doy = 0; doy < 366; doy++) {
+        const a = actual[doy], m = climo[doy];
+        arr[doy] = (isNaN(a) || isNaN(m)) ? NaN : a - m;
+      }
+    }
+    compareDailyCache.set(key, arr);
+    return arr;
+  }
+
   arr = new Float32Array(366).fill(NaN);
   const grid = compareData.get(compareDataKey(year));
   if (grid) {
@@ -1398,10 +1488,9 @@ async function refreshCompareView() {
     showLoading(`Loading ${missing.length} year${missing.length>1?'s':''} from IEM…`);
     startFakeProgress();
     try {
-      for (let i = 0; i < missing.length; i++) {
-        setProgress(Math.round((i/missing.length)*90), `Loading ${missing[i]}… (${i+1}/${missing.length})`);
-        await ensureCompareYearData(missing[i]);
-      }
+      await ensureCompareYearsData(missing, (i, total, label) => {
+        setProgress(Math.round((i/total)*90), `Fetching ${label}… (${i+1}/${total})`);
+      });
       stopFakeProgress();
       hideLoading();
     } catch (e) {
@@ -1448,6 +1537,12 @@ function setComparePreset(n) {
   refreshCompareView();
 }
 
+function setCompareAllYears() {
+  compareYears = [];
+  for (let y = FIRST_YEAR; y <= CURRENT_YEAR; y++) compareYears.push(y);
+  refreshCompareView();
+}
+
 // ═══════════════════════════════════════════════════════════
 // UI UPDATE HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -1466,19 +1561,24 @@ function updateTitle() {
 }
 
 function updateFieldButtons() {
-  const anomNeedClimo = mode === 'single' && !climoData;
-  // Anomaly fields need a single "actual minus baseline" year to compare
-  // against a climatology; that concept doesn't apply once several years
-  // are on screen at once, so they're hidden in Compare mode same as
-  // climatology mode.
-  const hideAnom = mode === 'climatology' || mode === 'compare';
+  const anomNeedClimo = (mode === 'single' || mode === 'compare') && !climoData;
 
   for (const f of ALL_FIELDS) {
     const btn = document.getElementById('fld-' + f);
     if (!btn) continue;
     const isAnom = ANOM_FIELDS.includes(f);
 
-    btn.style.display = (hideAnom && isAnom) ? 'none' : '';
+    // Anomaly fields need a baseline to diff against. Climatology mode
+    // hides them outright (nothing to be "anomalous" relative to when
+    // you're looking at the baseline itself). Compare mode hides only the
+    // std-dev/z-score pair -- see COMPARE_SUPPORTED_ANOM_FIELDS -- and
+    // shows temp_anom/td_anom, dimmed until a Multi-Year Avg is loaded,
+    // same progressive-disclosure pattern Single Year already uses.
+    let hide = false;
+    if (mode === 'climatology' && isAnom) hide = true;
+    if (mode === 'compare' && isAnom && !COMPARE_SUPPORTED_ANOM_FIELDS.includes(f)) hide = true;
+
+    btn.style.display = hide ? 'none' : '';
 
     const disabled = isAnom && anomNeedClimo;
     btn.classList.toggle('disabled', disabled);
@@ -1488,7 +1588,7 @@ function updateFieldButtons() {
 
   // Show/hide anomaly hint
   document.getElementById('anon-note').style.display =
-    (mode === 'single' && !climoData) ? 'block' : 'none';
+    ((mode === 'single' || mode === 'compare') && !climoData) ? 'block' : 'none';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1496,8 +1596,11 @@ function updateFieldButtons() {
 // ═══════════════════════════════════════════════════════════
 function setMode(m) {
   mode = m;
-  // Anomaly fields only in single mode; switch away if needed
-  if ((m === 'climatology' || m === 'compare') && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
+  // Climatology never supports anomaly fields; Compare mode supports only
+  // temp_anom/td_anom (not the std-dev pair) -- switch away from anything
+  // unsupported in the mode we're entering.
+  if (m === 'climatology' && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
+  if (m === 'compare' && ANOM_FIELDS.includes(activeField) && !COMPARE_SUPPORTED_ANOM_FIELDS.includes(activeField)) activeField = 'temp';
 
   document.getElementById('tab-single').classList.toggle('active', m === 'single');
   document.getElementById('tab-climo').classList.toggle('active',  m === 'climatology');
@@ -1520,7 +1623,8 @@ function setMode(m) {
 
 function setField(f) {
   const isAnom = ANOM_FIELDS.includes(f);
-  if (isAnom && (mode === 'climatology' || mode === 'compare')) return;
+  if (isAnom && mode === 'climatology') return;
+  if (isAnom && mode === 'compare' && !COMPARE_SUPPORTED_ANOM_FIELDS.includes(f)) return;
 
   activeField = f;
   updateFieldButtons();
@@ -1640,7 +1744,9 @@ function downloadPNG() {
   } else {
     if (!compareYears.length) { alert('Add at least one year to export.'); return; }
     period = `Compare ${compareYears[0]}–${compareYears[compareYears.length-1]}`;
-    sub = `Daily averages  ·  ${st.tzLabel} local time`;
+    sub = ANOM_FIELDS.includes(activeField)
+      ? `Daily anomaly vs. ${fromYear}–${toYear} reference  ·  ${st.tzLabel} local time`
+      : `Daily averages  ·  ${st.tzLabel} local time`;
   }
 
   // Export at a fixed high-res multiplier, independent of the viewing screen's
