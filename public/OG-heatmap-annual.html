@@ -85,6 +85,26 @@
   .legend-end { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
   #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
 
+  /* ── Compare Years — year chips + empty state ── */
+  .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .compare-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-label); font-size: 13px; font-weight: 600;
+    padding: 3px 6px 3px 10px; border-radius: 20px;
+    background: rgba(255,215,0,0.08); border: 1px solid var(--gold); color: var(--gold);
+    white-space: nowrap;
+  }
+  .compare-chip button {
+    background: none; border: none; color: inherit; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 50%;
+  }
+  .compare-chip button:hover { background: rgba(255,215,0,0.18); }
+  .compare-empty {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-family: var(--font-label); font-size: 14px; color: var(--color-text-muted);
+    text-align: center; padding: 20px; pointer-events: none;
+  }
+
   /* ── Heatmap ── */
   .heatmap-wrapper { width: 100%; }
   .heatmap-inner { display: flex; align-items: flex-start; }
@@ -162,6 +182,7 @@
   <div class="tab-bar">
     <button class="cc-tab active" id="tab-single"    onclick="setMode('single')">Single Year</button>
     <button class="cc-tab"        id="tab-climo"     onclick="setMode('climatology')">Multi-Year Avg</button>
+    <button class="cc-tab"        id="tab-compare"   onclick="setMode('compare')">Compare Years</button>
   </div>
 
   <div class="top-bar">
@@ -317,6 +338,18 @@
     <button class="cc-btn cc-btn-sm" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
   </div>
 
+  <!-- Compare-years controls -->
+  <div id="compare-controls" class="controls-row" style="display:none">
+    <span class="control-label">Add Year:</span>
+    <select id="compare-year-add" class="cc-select"></select>
+    <button class="cc-btn cc-btn-sm primary" onclick="onAddCompareYear()">+ Add</button>
+    <div class="compare-year-chips" id="compare-year-chips"></div>
+    <span class="control-label" style="margin-left:6px">Presets:</span>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(5)">Last 5 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(10)">Last 10 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="clearCompareYears()">Clear</button>
+  </div>
+
   <!-- Stat chips -->
   <div class="cc-stat-row">
     <div class="cc-stat-chip"><div class="cc-stat-label" id="sl-avg">Period Avg</div><div class="cc-stat-value" id="sv-avg" style="font-size:26px">—</div></div>
@@ -360,6 +393,7 @@
         <div class="month-label-bar" id="month-labels"></div>
         <div class="canvas-container">
           <canvas id="heatmap-canvas"></canvas>
+          <div class="compare-empty" id="compare-empty">Add a year above to start comparing years side by side.</div>
           <div class="loading-overlay" id="loading-overlay">
             <div class="loading-text" id="loading-text">Initializing…</div>
             <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
@@ -390,6 +424,7 @@
 // ═══════════════════════════════════════════════════════════
 const CANVAS_HEIGHT = 504;    // 21 px × 24 rows
 const CELL_H        = 21;
+const COMPARE_ROW_H = 28;     // per-year strip height in Compare Years mode
 const DEFAULT_CLIMO_FROM = 1991;
 const DEFAULT_CLIMO_TO   = 2020;
 const FIRST_YEAR    = 1973;
@@ -569,6 +604,13 @@ let toYear          = DEFAULT_CLIMO_TO;
 let singleData = null;   // { temp, td, clouds, wind: Float32Array(GRID_SIZE) }
 let climoData  = null;   // { mean: {…}, sd: {…} } each Float32Array(GRID_SIZE)
 const climoCache = new Map(); // key: "stationId_from_to"
+
+// Compare Years — each selected year keeps its own full hourly grid (same
+// shape as singleData); the heatmap displays a daily-mean collapse of it,
+// cached separately per field so switching fields doesn't refetch.
+let compareYears = [];               // selected years, kept sorted ascending
+const compareData = new Map();       // key "stationId_year" -> hourly grid
+const compareDailyCache = new Map(); // key "stationId_year_field" -> Float32Array(366)
 
 let liveTimer  = null;
 let fakeTimer  = null;
@@ -878,6 +920,23 @@ function getGridValue(doy, h) {
   return isNaN(v) ? null : v;
 }
 
+// Row abstraction so the renderer/stats/tooltip can stay mode-agnostic:
+// in single/climatology mode a "row" is an hour (0-23); in compare mode a
+// "row" is one of the selected years' daily-mean strips.
+function getRowCount() {
+  return mode === 'compare' ? compareYears.length : 24;
+}
+
+function getCellValue(doy, row) {
+  if (mode === 'compare') {
+    const year = compareYears[row];
+    if (year == null) return null;
+    const v = getCompareDailyArray(year, activeField)[doy];
+    return isNaN(v) ? null : v;
+  }
+  return getGridValue(doy, row);
+}
+
 // ═══════════════════════════════════════════════════════════
 // CANVAS SETUP + RENDERING
 // ═══════════════════════════════════════════════════════════
@@ -885,21 +944,35 @@ const canvas = document.getElementById('heatmap-canvas');
 const ctx    = canvas.getContext('2d');
 let dpr = window.devicePixelRatio || 1;
 
+// Compare mode's canvas grows/shrinks with the number of selected years;
+// single/climatology stay at the fixed 24-row height. Clamped to at least
+// one row's worth so the canvas element itself never collapses to 0px even
+// before any year has been added (renderHeatmap separately no-ops on an
+// empty selection).
+function currentCanvasHeight() {
+  if (mode === 'compare') return Math.max(compareYears.length, 1) * COMPARE_ROW_H;
+  return CANVAS_HEIGHT;
+}
+
 function setupCanvas() {
   const W = document.getElementById('canvas-area').clientWidth;
+  const H = currentCanvasHeight();
   canvas.style.width  = W + 'px';
-  canvas.style.height = CANVAS_HEIGHT + 'px';
+  canvas.style.height = H + 'px';
   canvas.width  = Math.round(W * dpr);
-  canvas.height = Math.round(CANVAS_HEIGHT * dpr);
+  canvas.height = Math.round(H * dpr);
   ctx.setTransform(1,0,0,1,0,0);
   ctx.scale(dpr, dpr);
 }
 
 function renderHeatmap() {
+  const rows = getRowCount();
+  if (rows === 0) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
+
   const W  = canvas.width / dpr;
-  const H  = CANVAS_HEIGHT;
+  const H  = canvas.height / dpr;
   const cw = W / 366;
-  const ch = H / 24;
+  const ch = H / rows;
   const pw = canvas.width;
   const ph = canvas.height;
 
@@ -910,10 +983,10 @@ function renderHeatmap() {
   for (let doy=0; doy<366; doy++) {
     const x0 = Math.round(doy     * cw * dpr);
     const x1 = Math.round((doy+1) * cw * dpr);
-    for (let h=0; h<24; h++) {
-      const y0 = Math.round(h     * ch * dpr);
-      const y1 = Math.round((h+1) * ch * dpr);
-      const [r,g,b] = getColorRGB(getGridValue(doy,h), scale);
+    for (let row=0; row<rows; row++) {
+      const y0 = Math.round(row     * ch * dpr);
+      const y1 = Math.round((row+1) * ch * dpr);
+      const [r,g,b] = getColorRGB(getCellValue(doy,row), scale);
       for (let py=y0; py<y1; py++) {
         for (let px=x0; px<x1; px++) {
           const i = (py*pw+px)*4;
@@ -933,8 +1006,8 @@ function renderHeatmap() {
     ctx.moveTo(x + 0.5, 0);
     ctx.lineTo(x + 0.5, H);
   }
-  for (let h = 1; h < 24; h++) {
-    const y = Math.round(h * ch);
+  for (let row = 1; row < rows; row++) {
+    const y = Math.round(row * ch);
     ctx.moveTo(0, y + 0.5);
     ctx.lineTo(W, y + 0.5);
   }
@@ -974,9 +1047,19 @@ function renderLegend() {
   document.getElementById('legend-hi').textContent = hi2 + (SCALE_LABELS[activeField] ? ' ' + SCALE_LABELS[activeField] : '');
 }
 
-function renderHourLabels() {
+function renderRowLabels() {
   const cont = document.getElementById('hour-labels');
   cont.innerHTML = '<div class="hour-labels-spacer"></div>';
+  if (mode === 'compare') {
+    for (const year of compareYears) {
+      const el = document.createElement('div');
+      el.className = 'hour-label';
+      el.style.height = COMPARE_ROW_H + 'px';
+      el.textContent = year;
+      cont.appendChild(el);
+    }
+    return;
+  }
   for (let h=0; h<24; h++) {
     const el = document.createElement('div');
     el.className = 'hour-label';
@@ -1019,9 +1102,10 @@ function formatStat(v) {
 // Subset of Cloudy: fully OVC (>4.5)
 function updateCloudStats() {
   let sunny=0, partly=0, cloudy=0, ovc=0, total=0;
+  const rows = getRowCount();
   for (let doy = 0; doy < 366; doy++) {
-    for (let h = 0; h < 24; h++) {
-      const v = getGridValue(doy, h);
+    for (let row = 0; row < rows; row++) {
+      const v = getCellValue(doy, row);
       if (v == null || isNaN(v)) continue;
       total++;
       if (v <= 2.5)      sunny++;
@@ -1063,9 +1147,10 @@ function updateStats() {
   document.getElementById('sl-min').textContent = 'Period Min';
   document.getElementById('sv-min-sub').style.visibility = 'hidden';
   let sum=0, cnt=0, mx=-Infinity, mn=Infinity;
+  const rows = getRowCount();
   for (let doy=0; doy<366; doy++) {
-    for (let h=0; h<24; h++) {
-      const v = getGridValue(doy, h);
+    for (let row=0; row<rows; row++) {
+      const v = getCellValue(doy, row);
       if (v==null||isNaN(v)) continue;
       sum += v; cnt++;
       if (v > mx) mx = v;
@@ -1227,6 +1312,128 @@ async function loadClimatology(fy, ty) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// COMPARE YEARS
+// ═══════════════════════════════════════════════════════════
+function compareDataKey(year) { return `${activeStationId}_${year}`; }
+
+async function ensureCompareYearData(year) {
+  const key = compareDataKey(year);
+  if (compareData.has(key)) return;
+  const st = STATIONS[activeStationId];
+  const text = await fetchIEM(activeStationId, st.tz, year, year);
+  const grid = makeSingleData();
+  parseCSVInto(text, year, year, grid, null);
+  fillFeb29(grid, year);
+  compareData.set(key, grid);
+}
+
+// Collapses one year's hourly grid down to a 366-slot daily-mean strip for
+// the active field. Cached per station/year/field so switching the field
+// toggle re-renders instantly instead of re-averaging every time.
+function getCompareDailyArray(year, field) {
+  const key = `${activeStationId}_${year}_${field}`;
+  let arr = compareDailyCache.get(key);
+  if (arr) return arr;
+  arr = new Float32Array(366).fill(NaN);
+  const grid = compareData.get(compareDataKey(year));
+  if (grid) {
+    const src = grid[field];
+    for (let doy = 0; doy < 366; doy++) {
+      let sum = 0, cnt = 0;
+      for (let h = 0; h < 24; h++) {
+        const v = src[doy*24 + h];
+        if (!isNaN(v)) { sum += v; cnt++; }
+      }
+      arr[doy] = cnt ? sum / cnt : NaN;
+    }
+  }
+  compareDailyCache.set(key, arr);
+  return arr;
+}
+
+function renderCompareChips() {
+  const wrap = document.getElementById('compare-year-chips');
+  wrap.innerHTML = '';
+  for (const year of compareYears) {
+    const chip = document.createElement('span');
+    chip.className = 'compare-chip';
+    chip.innerHTML = `${year} <button type="button" aria-label="Remove ${year}" onclick="onRemoveCompareYear(${year})">×</button>`;
+    wrap.appendChild(chip);
+  }
+}
+
+async function refreshCompareView() {
+  renderCompareChips();
+
+  if (compareYears.length === 0) {
+    document.getElementById('compare-empty').style.display = 'flex';
+    setupCanvas();
+    renderRowLabels();
+    renderMonthLabels();
+    renderLegend();
+    updateTitle();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    updateStats();
+    return;
+  }
+  document.getElementById('compare-empty').style.display = 'none';
+
+  const missing = compareYears.filter(y => !compareData.has(compareDataKey(y)));
+  if (missing.length) {
+    showLoading(`Loading ${missing.length} year${missing.length>1?'s':''} from IEM…`);
+    startFakeProgress();
+    try {
+      for (let i = 0; i < missing.length; i++) {
+        setProgress(Math.round((i/missing.length)*90), `Loading ${missing[i]}… (${i+1}/${missing.length})`);
+        await ensureCompareYearData(missing[i]);
+      }
+      stopFakeProgress();
+      hideLoading();
+    } catch (e) {
+      stopFakeProgress();
+      showError(e.message);
+      console.error(e);
+      return;
+    }
+  }
+
+  setupCanvas();
+  renderRowLabels();
+  renderMonthLabels();
+  renderHeatmap();
+  renderLegend();
+  updateTitle();
+  updateFieldButtons();
+  updateStats();
+}
+
+function onAddCompareYear() {
+  const sel = document.getElementById('compare-year-add');
+  const year = parseInt(sel.value);
+  if (isNaN(year) || compareYears.includes(year)) return;
+  compareYears.push(year);
+  compareYears.sort((a,b) => a-b);
+  refreshCompareView();
+}
+
+function onRemoveCompareYear(year) {
+  compareYears = compareYears.filter(y => y !== year);
+  refreshCompareView();
+}
+
+function clearCompareYears() {
+  compareYears = [];
+  refreshCompareView();
+}
+
+function setComparePreset(n) {
+  compareYears = [];
+  for (let y = CURRENT_YEAR; y > CURRENT_YEAR - n; y--) compareYears.push(y);
+  compareYears.sort((a,b) => a-b);
+  refreshCompareView();
+}
+
+// ═══════════════════════════════════════════════════════════
 // UI UPDATE HELPERS
 // ═══════════════════════════════════════════════════════════
 function updateTitle() {
@@ -1235,22 +1442,28 @@ function updateTitle() {
   document.getElementById('footer-tz').textContent = st.tzLabel + ' Local Time';
   if (mode === 'single') {
     document.getElementById('title-period').textContent = currentYear;
-  } else {
+  } else if (mode === 'climatology') {
     document.getElementById('title-period').textContent = `${fromYear}–${toYear} Avg`;
+  } else {
+    document.getElementById('title-period').textContent =
+      compareYears.length ? `Compare: ${compareYears.join(', ')}` : 'Compare Years';
   }
 }
 
 function updateFieldButtons() {
   const anomNeedClimo = mode === 'single' && !climoData;
-  const inClimo = mode === 'climatology';
+  // Anomaly fields need a single "actual minus baseline" year to compare
+  // against a climatology; that concept doesn't apply once several years
+  // are on screen at once, so they're hidden in Compare mode same as
+  // climatology mode.
+  const hideAnom = mode === 'climatology' || mode === 'compare';
 
   for (const f of ALL_FIELDS) {
     const btn = document.getElementById('fld-' + f);
     if (!btn) continue;
     const isAnom = ANOM_FIELDS.includes(f);
 
-    // Hide anomaly buttons in climatology mode
-    btn.style.display = (inClimo && isAnom) ? 'none' : '';
+    btn.style.display = (hideAnom && isAnom) ? 'none' : '';
 
     const disabled = isAnom && anomNeedClimo;
     btn.classList.toggle('disabled', disabled);
@@ -1269,27 +1482,30 @@ function updateFieldButtons() {
 function setMode(m) {
   mode = m;
   // Anomaly fields only in single mode; switch away if needed
-  if (m === 'climatology' && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
+  if ((m === 'climatology' || m === 'compare') && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
 
   document.getElementById('tab-single').classList.toggle('active', m === 'single');
   document.getElementById('tab-climo').classList.toggle('active',  m === 'climatology');
-  document.getElementById('single-controls').style.display = m === 'single' ? 'flex' : 'none';
-  document.getElementById('climo-controls').style.display  = m === 'climatology' ? 'flex' : 'none';
+  document.getElementById('tab-compare').classList.toggle('active', m === 'compare');
+  document.getElementById('single-controls').style.display  = m === 'single' ? 'flex' : 'none';
+  document.getElementById('climo-controls').style.display   = m === 'climatology' ? 'flex' : 'none';
+  document.getElementById('compare-controls').style.display = m === 'compare' ? 'flex' : 'none';
 
   updateFieldButtons();
 
+  stopLiveRefresh();
   if (m === 'single') {
-    stopLiveRefresh();
     loadSingleYear(currentYear);
-  } else {
-    stopLiveRefresh();
+  } else if (m === 'climatology') {
     loadClimatology(fromYear, toYear);
+  } else {
+    refreshCompareView();
   }
 }
 
 function setField(f) {
   const isAnom = ANOM_FIELDS.includes(f);
-  if (isAnom && mode === 'climatology') return;
+  if (isAnom && (mode === 'climatology' || mode === 'compare')) return;
 
   activeField = f;
   updateFieldButtons();
@@ -1300,7 +1516,9 @@ function setField(f) {
     return;
   }
 
-  const hasData = mode === 'single' ? !!singleData : !!climoData;
+  const hasData = mode === 'single' ? !!singleData
+                : mode === 'climatology' ? !!climoData
+                : compareYears.length > 0;
   if (hasData) { renderHeatmap(); renderLegend(); updateStats(); }
 }
 
@@ -1335,7 +1553,8 @@ function onStationChange() {
   climoData = climoCache.get(`${activeStationId}_${fromYear}_${toYear}`) || null;
   stopLiveRefresh();
   if (mode === 'single') loadSingleYear(currentYear);
-  else loadClimatology(fromYear, toYear);
+  else if (mode === 'climatology') loadClimatology(fromYear, toYear);
+  else refreshCompareView();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1348,14 +1567,23 @@ canvas.addEventListener('mousemove', e => {
   const mx   = e.clientX - rect.left;
   const my   = e.clientY - rect.top;
   const W    = canvas.width / dpr;
-  const H    = CANVAS_HEIGHT;
-  if (mx < 0 || mx > W || my < 0 || my > H) { tooltip.style.display='none'; return; }
+  const H    = canvas.height / dpr;
+  const rows = getRowCount();
+  if (rows === 0 || mx < 0 || mx > W || my < 0 || my > H) { tooltip.style.display='none'; return; }
 
   const doy = Math.min(365, Math.floor(mx / W * 366));
-  const h   = Math.min(23,  Math.floor(my / H * 24));
-  const v   = getGridValue(doy, h);
+  const row = Math.min(rows-1, Math.floor(my / H * rows));
+  const v   = getCellValue(doy, row);
 
-  document.getElementById('tt-date').textContent = `${doyToDisplay(doy)}  ·  ${fmtHour(h)}`;
+  let modeStr;
+  if (mode === 'compare') {
+    const year = compareYears[row];
+    document.getElementById('tt-date').textContent = `${doyToDisplay(doy)}, ${year}`;
+    modeStr = `${year} daily avg`;
+  } else {
+    document.getElementById('tt-date').textContent = `${doyToDisplay(doy)}  ·  ${fmtHour(row)}`;
+    modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
+  }
 
   let valStr = '—', detail = '';
   if (v != null) {
@@ -1366,7 +1594,6 @@ canvas.addEventListener('mousemove', e => {
     else if (f==='temp_anom'||f==='td_anom') { const r=Math.round(v); valStr=(r>0?'+':'')+r+'°F'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
     else if (f==='temp_z'||f==='td_z') { valStr=v.toFixed(2)+'σ'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
   }
-  const modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
   document.getElementById('tt-value').textContent  = valStr;
   document.getElementById('tt-detail').textContent = detail || modeStr;
 
@@ -1384,22 +1611,50 @@ canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; });
 // DOWNLOAD PNG
 // ═══════════════════════════════════════════════════════════
 function downloadPNG() {
-  const st     = STATIONS[activeStationId];
-  const period = mode === 'single' ? String(currentYear) : `${fromYear}–${toYear} Avg`;
+  const st = STATIONS[activeStationId];
   const fLabel = { temp:'Temperature', td:'Dewpoint', clouds:'Cloud Cover', wind:'Wind Speed',
                    temp_anom:'Temp Anomaly', td_anom:'Dew Anomaly', temp_z:'Temp Std Dev', td_z:'Dew Std Dev' }[activeField];
 
+  let period, sub;
+  if (mode === 'single') {
+    period = String(currentYear);
+    sub = ANOM_FIELDS.includes(activeField) ? `Anomaly vs. ${fromYear}–${toYear} reference` : `Hourly observations  ·  ${st.tzLabel} local time`;
+  } else if (mode === 'climatology') {
+    period = `${fromYear}–${toYear} Avg`;
+    sub = `Hourly observations  ·  ${st.tzLabel} local time`;
+  } else {
+    if (!compareYears.length) { alert('Add at least one year to export.'); return; }
+    period = `Compare ${compareYears[0]}–${compareYears[compareYears.length-1]}`;
+    sub = `Daily averages  ·  ${st.tzLabel} local time`;
+  }
+
+  // Export at a fixed high-res multiplier, independent of the viewing screen's
+  // devicePixelRatio -- otherwise on a standard 1x display the grid gets
+  // rendered at 1x and then upscaled into the export canvas, which causes
+  // blurry/fuzzy PNGs. Temporarily re-render the source canvas at
+  // EXPORT_SCALE so the export is pixel-crisp on any screen.
+  const EXPORT_SCALE = 3;
+  const origDpr = dpr;
+  dpr = EXPORT_SCALE;
+  setupCanvas();
+  renderHeatmap();
+
   const cw2 = canvas.width / dpr, ch2 = canvas.height / dpr;
+  // In Compare mode the exported image needs the year labels that normally
+  // live in the on-screen hour-labels sidebar baked in too, since that's a
+  // separate DOM column the grid canvas itself doesn't know about — same
+  // treatment as the month labels below.
+  const rowLabelW = mode === 'compare' ? 52 : 0;
   const PAD=24, HDR=72, MBAR=22, FTR=36; // FTR bumped 26->36: the bottom legend
   // bar (drawn at chart-bottom+8..+14) was overlapping the footer attribution
   // line, which sat right on top of it at chart-bottom+18. The extra 10px
   // pushes the text (tied to `oh`, which grows with FTR) clear of the bar.
-  const ow = cw2 + PAD*2, oh = HDR + MBAR + ch2 + FTR;
+  const ow = cw2 + rowLabelW + PAD*2, oh = HDR + MBAR + ch2 + FTR;
 
   const off = document.createElement('canvas');
-  off.width = ow*2; off.height = oh*2;
+  off.width = Math.round(ow*EXPORT_SCALE); off.height = Math.round(oh*EXPORT_SCALE);
   const oc = off.getContext('2d');
-  oc.scale(2,2);
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
 
   oc.fillStyle = '#1E2320';
   oc.fillRect(0, 0, ow, oh);
@@ -1420,7 +1675,6 @@ function downloadPNG() {
 
   oc.fillStyle = '#A6A499';
   oc.font = '13px "Barlow Condensed", sans-serif';
-  const sub = ANOM_FIELDS.includes(activeField) ? `Anomaly vs. ${fromYear}–${toYear} reference` : `Hourly observations  ·  ${st.tzLabel} local time`;
   oc.fillText(sub, PAD, 46);
 
   // Stats
@@ -1437,22 +1691,37 @@ function downloadPNG() {
   oc.fillText('contextclimate.io', ow-PAD, 28);
   oc.textAlign = 'left';
 
+  const gridX = PAD + rowLabelW;
+
   // Month labels
   const cellW2 = cw2 / 366;
   oc.fillStyle = '#A6A499';
   oc.font = '12px "Barlow Condensed", sans-serif';
   oc.textAlign = 'center';
   for (let m=0; m<12; m++) {
-    const mid = PAD + (MONTH_START_DOY[m] + MONTH_DAYS_LEAP[m]/2) * cellW2;
+    const mid = gridX + (MONTH_START_DOY[m] + MONTH_DAYS_LEAP[m]/2) * cellW2;
     oc.fillText(MONTHS_SHORT[m], mid, HDR + MBAR - 6);
   }
   oc.textAlign = 'left';
 
-  oc.drawImage(canvas, PAD, HDR+MBAR, cw2, ch2);
+  // Row labels — one per year strip, matching the on-screen sidebar
+  if (mode === 'compare') {
+    const rowH2 = ch2 / compareYears.length;
+    oc.fillStyle = '#C9C5B8';
+    oc.font = '600 12px "Barlow Condensed", sans-serif';
+    oc.textAlign = 'right';
+    compareYears.forEach((year, i) => {
+      const cy = HDR + MBAR + i*rowH2 + rowH2/2 + 4;
+      oc.fillText(String(year), gridX - 9, cy);
+    });
+    oc.textAlign = 'left';
+  }
+
+  oc.drawImage(canvas, gridX, HDR+MBAR, cw2, ch2);
 
   // Bottom gradient bar (legend)
   oc.fillStyle = grad;
-  oc.fillRect(PAD, HDR+MBAR+ch2+8, cw2, 6);
+  oc.fillRect(gridX, HDR+MBAR+ch2+8, cw2, 6);
 
   oc.fillStyle = '#948F82';
   oc.font = '11px "Barlow Condensed", sans-serif';
@@ -1462,8 +1731,15 @@ function downloadPNG() {
   oc.fillStyle = grad;
   oc.fillRect(0, oh-2, ow, 2);
 
+  // Restore the on-screen canvas to the real screen resolution so nothing
+  // looks different to the user after the export capture.
+  dpr = origDpr;
+  setupCanvas();
+  renderHeatmap();
+
   const link = document.createElement('a');
-  link.download = `annual-heatmap-${activeStationId}-${activeField}-${period.replace(/[–\s]/g,'_')}.png`;
+  const slug = mode === 'compare' ? compareYears.join('-') : period.replace(/[–\s]/g,'_');
+  link.download = `annual-heatmap-${activeStationId}-${activeField}-${slug}.png`;
   link.href = off.toDataURL('image/png');
   link.click();
 }
@@ -1476,6 +1752,7 @@ function init() {
   const yrSel   = document.getElementById('year-select');
   const fromSel = document.getElementById('from-year');
   const toSel   = document.getElementById('to-year');
+  const cmpSel  = document.getElementById('compare-year-add');
   for (let y = CURRENT_YEAR; y >= FIRST_YEAR; y--) {
     const o = document.createElement('option');
     o.value = y; o.textContent = y; yrSel.appendChild(o);
@@ -1484,13 +1761,14 @@ function init() {
   for (let y = CURRENT_YEAR; y >= FIRST_YEAR; y--) {
     const o1 = document.createElement('option'); o1.value=y; o1.textContent=y; fromSel.appendChild(o1);
     const o2 = document.createElement('option'); o2.value=y; o2.textContent=y; toSel.appendChild(o2);
+    const o3 = document.createElement('option'); o3.value=y; o3.textContent=y; cmpSel.appendChild(o3);
   }
   fromSel.value = fromYear;
   toSel.value   = toYear;
 
   requestAnimationFrame(() => {
     setupCanvas();
-    renderHourLabels();
+    renderRowLabels();
     renderMonthLabels();
     renderLegend();
     updateTitle();
@@ -1503,7 +1781,9 @@ function init() {
     setupCanvas();
     renderMonthLabels();
     renderLegend();
-    const hasData = mode === 'single' ? !!singleData : !!climoData;
+    const hasData = mode === 'single' ? !!singleData
+                  : mode === 'climatology' ? !!climoData
+                  : compareYears.length > 0;
     if (hasData) renderHeatmap();
   });
 }
