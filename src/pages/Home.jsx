@@ -510,10 +510,30 @@ export default function Home() {
 
       {/* Hero */}
       <section className="page-hero">
-        <p className="page-eyebrow">Weather &amp; Climate Data Visualization</p>
-        <h1 className="page-title">Interactive Weather &amp; Climate Tools</h1>
-        <p className="page-subtitle">
-          Created and maintained by Josh Timlin
+        <p className="page-eyebrow">Interactive Data Tools</p>
+        <h1 className="page-title">Weather &amp; Climate</h1>
+        <p className="page-intro" style={{ marginBottom: '16px' }}>
+          This page is maintained by Josh Timlin and is a resource for observing and understanding weather and climate. Each card contains an interactive tool that allows you to dig into a specific phenomenon, track trends and relationships in the data, or get broader context on something happening right now. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
+          <a
+            href="mailto:josht3113@yahoo.com"
+            className="page-intro-link"
+            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+          >
+            email
+          </a>{' '}
+          or message me on{' '}
+          <a
+            href="https://x.com/Joshtimlin"
+            className="page-intro-link"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+          >
+            X
+          </a>.
+        </p>
+        <p className="page-intro">
+          The Earth &amp; Space page contains interactive learning tools aligned with NY State curriculum for classroom use or casual curiosity.
         </p>
         <Link to="/earthandspace" className="jump-link">
           Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
