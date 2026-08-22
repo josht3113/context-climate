@@ -52,9 +52,8 @@ export default function Header() {
               aria-label="Earth & Space"
               onClick={handleNavClick}
             >
-              <span className={styles.bracketEs}>[</span>
-              <span className={styles.wordmarkEs}>Earth and Space</span>
-              <span className={styles.bracketEs}>]</span>
+              <span className={styles.bracketEs}>[ ]</span>
+              <span className={styles.wordmarkEs}>Earth &amp; Space</span>
             </NavLink>
 
             {/* ── Contact / X (desktop only) ── */}
@@ -108,9 +107,8 @@ export default function Header() {
           onClick={handleNavClick}
           aria-label="Earth & Space"
         >
-          <span className={styles.bracketEs}>[</span>
-          <span className={styles.wordmarkEs}>Earth and Space</span>
-          <span className={styles.bracketEs}>]</span>
+          <span className={styles.bracketEs}>[ ]</span>
+          <span className={styles.wordmarkEs}>Earth &amp; Space</span>
         </NavLink>
 
         <NavLink
@@ -122,15 +120,6 @@ export default function Header() {
           onClick={handleNavClick}
         >
           Home
-        </NavLink>
-        <NavLink
-          to="/earthandspace"
-          className={({ isActive }) =>
-            `${styles.drawerItem} ${isActive ? styles.drawerItemActive : ''}`
-          }
-          onClick={handleNavClick}
-        >
-          Earth & Space
         </NavLink>
 
         {/* ── Contact / X (mobile drawer) ── */}
