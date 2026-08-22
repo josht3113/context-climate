@@ -481,10 +481,15 @@ export default function EarthAndSpace() {
       {/* Hero */}
       <section className="page-hero">
 
-          <p className="page-eyebrow">Earth &amp; Space Science</p>
-        <h1 className="page-title">Earth &amp; Space Science Interactive Learning Center</h1>
-        <p className="page-subtitle">
-          Page created and maintained by Josh Timlin
+        <p className="page-eyebrow">Interactive Learning Tools</p>
+        <h1 className="page-title">Earth &amp; Space Science</h1>
+        <p className="page-intro">
+          This page is maintained by Josh Timlin and is intended to be a resource for students and teachers of the NY State Earth &amp; Space Science curriculum. Each card contains an interactive tool for exploring concepts and ideas related to the course material. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
+          <a href="mailto:josht3113@yahoo.com" className="page-intro-link">email</a> or message me on{' '}
+          <a href="https://x.com/Joshtimlin" className="page-intro-link" target="_blank" rel="noopener noreferrer">X</a>.
+        </p>
+        <p className="page-intro">
+          The ContextClimate page contains charts and graphs using real data, some of which are also useful in the classroom.
         </p>
         <Link to="/" className="jump-link">
           Jump to ContextClimate <span className="jump-link-arrow">→</span>
