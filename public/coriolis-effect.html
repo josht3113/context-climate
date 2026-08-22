@@ -1,741 +1,1454 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Coriolis Effect — ContextClimate</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Coriolis Effect — contextclimate.io</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <style>
-  :root {
-    --tool-accent: var(--accent-earth);
-    --col-ground:   #6FD1A8;   /* ground-frame (rotating) ball/path color */
-    --col-space:    #E8C15A;   /* space-frame (inertial) ball/path color */
-    --canvas-bg:    #262B27;   /* opaque literal per core-sample-tools.css chart-surface rule */
-  }
+/* ── Coriolis Globe — tool-local styles ─────────────────────────── */
+:root{
+  --tool-accent: var(--accent-earth);
+  /* CONTENT colours: these encode meaning and are never themed away */
+  --path-real:  #E8794A;   /* the path the object actually takes */
+  --path-norot: #9AA39B;   /* where it would have gone on a still Earth */
+  --path-sky:   #6D96D8;   /* the same flight drawn in the sky frame */
+  --target:     #D8B24A;   /* aim point */
+  --hemi-n:     #E8794A;
+  --hemi-s:     #A08CC6;
+}
+body{ padding:22px 22px 26px; }
+[hidden]{ display:none !important; }
 
-  html, body { height: 100%; }
-  body { padding: 0; overflow: hidden; }
+.wrap{ max-width:1560px; margin:0 auto; }
+.masthead{ display:flex; align-items:flex-end; justify-content:space-between;
+  gap:24px; flex-wrap:wrap; margin-bottom:16px; }
+.masthead h1{ margin:2px 0 0; }
+.masthead .cc-subtitle{ max-width:62ch; }
 
-  .cor-app {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 14px 18px 16px;
-    box-sizing: border-box;
-    gap: 10px;
-  }
+.shell{ display:grid; grid-template-columns:minmax(0,1fr) 352px; gap:18px; align-items:start; }
 
-  .cor-head { text-align: center; flex: 0 0 auto; }
-  .cor-head .cc-title { margin: 0 0 4px; font-size: 23px; }
-  .cor-head .cc-subtitle { max-width: 720px; margin: 0 auto; font-size: 14px; }
+/* ── Stage ─────────────────────────────────────────────────────── */
+.stage{ position:relative; background:#0F1513; border:1px solid var(--color-border-hover);
+  border-radius:var(--radius-lg); overflow:hidden; aspect-ratio:1/0.86;
+  min-height:460px; max-height:calc(100vh - 205px); }
+#globe{ display:block; width:100%; height:100%; cursor:grab; touch-action:none; }
+#globe.dragging{ cursor:grabbing; }
+#globe.aiming{ cursor:crosshair; }
 
-  /* ── Control bar ─────────────────────────────────────────────────────── */
-  .cor-controls {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: stretch;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-  .cor-controls .cc-panel { padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
+.hud{ position:absolute; pointer-events:none; }
+.hud > *{ pointer-events:auto; }
+.hud-tl{ top:14px; left:14px; max-width:min(46%,420px); }
+.hud-tr{ top:14px; right:14px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
+.hud-bl{ bottom:14px; left:14px; display:flex; gap:6px; flex-wrap:wrap; max-width:70%; }
+.hud-br{ bottom:14px; right:14px; display:flex; align-items:center; gap:8px; }
 
-  .cor-ctrl-label {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-    white-space: nowrap;
-  }
+.frame-toggle{ background:rgba(15,21,19,0.82); backdrop-filter:blur(6px); }
+.frame-toggle .cc-segmented-btn{ background:transparent; }
+.frame-toggle .cc-segmented-btn.is-active{ background:var(--tool-accent); }
+.frame-hint{ font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;
+  color:var(--color-text-secondary); text-align:right; max-width:246px; line-height:1.5;
+  background:rgba(15,21,19,0.82); backdrop-filter:blur(6px); border:1px solid var(--color-border);
+  border-radius:var(--radius-md); padding:6px 9px; }
 
-  /* Globe latitude picker */
-  .cor-globe-block { display: flex; align-items: center; gap: 10px; }
-  #globeCanvas { background: var(--canvas-bg); border-radius: 50%; cursor: ns-resize; touch-action: none; }
-  .cor-lat-readout { display: flex; flex-direction: column; gap: 2px; min-width: 74px; }
-  .cor-lat-value { font-family: var(--font-mono); font-size: 19px; font-weight: 700; color: var(--color-text-primary); }
-  .cor-lat-hemi { font-size: 12px; color: var(--color-text-muted); }
-  .cor-lat-presets { display: flex; flex-direction: column; gap: 4px; }
-  .cor-lat-presets .cc-btn-sm { padding: 2px 8px; font-size: 12px; }
+.stage-caption{ background:rgba(15,21,19,0.82); backdrop-filter:blur(6px);
+  border:1px solid var(--color-border); border-left:3px solid var(--tool-accent);
+  border-radius:var(--radius-md); padding:10px 14px; }
+.stage-caption .k{ font-family:var(--font-mono); font-size:11px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--tool-accent); display:block; margin-bottom:2px; }
+.stage-caption .t{ font-family:var(--font-display); font-size:19px; font-weight:600;
+  line-height:1.22; text-wrap:balance; }
+.stage-caption .d{ font-size:13.5px; color:var(--color-text-secondary); line-height:1.5; margin-top:4px; }
 
-  /* Rotation-rate presets */
-  .cor-rate-row { display: flex; gap: 6px; }
+.legend-chip{ background:rgba(15,21,19,0.82); backdrop-filter:blur(6px); }
+.legend-chip.dim{ opacity:.45; }
+.legend-swatch{ width:20px; height:0; border-top-width:2.5px; border-top-style:solid; flex-shrink:0; }
 
-  /* Stats */
-  .cor-stats { display: flex; gap: 16px; flex-wrap: wrap; }
-  .cor-stat { display: flex; flex-direction: column; gap: 1px; }
-  .cor-stat-val { font-family: var(--font-mono); font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
-  .cor-stat-lbl { font-size: 12px; color: var(--color-text-muted); letter-spacing: 0.04em; }
+.playbar{ display:flex; align-items:center; gap:8px; background:rgba(15,21,19,0.82);
+  backdrop-filter:blur(6px); border:1px solid var(--color-border);
+  border-radius:var(--radius-lg); padding:5px 10px 5px 6px; }
+.icon-btn{ width:30px; height:30px; display:grid; place-items:center; padding:0;
+  border-radius:var(--radius-md); background:transparent; border:1px solid transparent;
+  color:var(--color-text-secondary); cursor:pointer; }
+.icon-btn:hover{ background:var(--color-surface-2); color:var(--color-text-primary); }
+.icon-btn:focus-visible{ outline:2px solid var(--tool-accent); outline-offset:1px; }
+.icon-btn svg{ width:15px; height:15px; fill:currentColor; }
+.clock{ font-family:var(--font-mono); font-size:12px; color:var(--color-text-secondary);
+  font-variant-numeric:tabular-nums; letter-spacing:.04em; min-width:112px; }
 
-  .cor-hint { font-size: 13px; color: #7a8099; margin-left: auto; align-self: center; white-space: nowrap; }
+/* ── Sidebar ───────────────────────────────────────────────────── */
+.side{ display:flex; flex-direction:column; gap:14px; }
+.side .cc-panel{ padding:16px 16px 18px; }
+.panel-head{ display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  margin-bottom:12px; }
+.panel-head h2{ font-family:var(--font-display); font-size:17px; font-weight:600; margin:0; }
+.panel-note{ font-size:13.5px; color:var(--color-text-secondary); line-height:1.5; margin:0 0 12px; }
+.mode-bar{ display:grid; grid-template-columns:repeat(3,1fr); }
+.mode-bar .cc-segmented-btn{ padding:10px 6px; text-align:center; letter-spacing:.08em; }
 
-  /* ── Canvas row ──────────────────────────────────────────────────────── */
-  .cor-canvas-row {
-    flex: 1 1 auto;
-    display: flex;
-    gap: 14px;
-    min-height: 0;
-  }
-  .cor-canvas-card {
-    flex: 1 1 0;
-    display: flex;
-    flex-direction: column;
-    padding: 10px 12px 12px;
-    min-width: 0;
-    min-height: 0;
-  }
-  .cor-panel-label {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    margin-bottom: 8px;
-    flex: 0 0 auto;
-  }
-  .cor-panel-label.ground { color: var(--col-ground); }
-  .cor-panel-label.space  { color: var(--col-space); }
+.field{ display:flex; flex-direction:column; gap:6px; margin-bottom:13px; }
+.field:last-child{ margin-bottom:0; }
+.field-label{ display:flex; align-items:baseline; justify-content:space-between; gap:8px;
+  font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--color-text-muted); }
+.field-value{ color:var(--color-text-primary); font-size:12px; letter-spacing:.04em;
+  font-variant-numeric:tabular-nums; }
+.cc-select{ width:100%; }
 
-  .cor-canvas-wrap {
-    flex: 1 1 auto;
-    position: relative;
-    min-height: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .cor-canvas-wrap canvas {
-    background: var(--canvas-bg);
-    border-radius: var(--radius-md);
-    width: 100%;
-    height: 100%;
-    display: block;
-    cursor: crosshair;
-    touch-action: none;
-  }
+input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:20px;
+  background:transparent; cursor:pointer; margin:0; }
+input[type=range]::-webkit-slider-runnable-track{ height:4px; border-radius:2px;
+  background:var(--color-surface-2); border:1px solid var(--color-border); }
+input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none;
+  width:14px; height:14px; border-radius:50%; background:var(--tool-accent);
+  border:2px solid var(--color-bg); margin-top:-6px; }
+input[type=range]::-moz-range-track{ height:4px; border-radius:2px;
+  background:var(--color-surface-2); border:1px solid var(--color-border); }
+input[type=range]::-moz-range-thumb{ width:14px; height:14px; border:2px solid var(--color-bg);
+  border-radius:50%; background:var(--tool-accent); }
+input[type=range]:focus-visible{ outline:2px solid var(--tool-accent); outline-offset:2px; border-radius:4px; }
 
-  .cor-orbit-note {
-    position: absolute;
-    left: 50%;
-    top: 10px;
-    transform: translateX(-50%);
-    background: rgba(18,20,18,0.85);
-    border: 1px solid var(--color-border-hover);
-    border-radius: var(--radius-md);
-    padding: 6px 14px;
-    font-size: 13px;
-    color: #e8c15a;
-    max-width: 88%;
-    text-align: center;
-    display: none;
-  }
+.btn-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.btn-grid.one{ grid-template-columns:1fr; }
+.btn-grid .cc-btn{ text-align:center; }
 
-  @media (max-width: 900px) {
-    .cor-canvas-row { flex-direction: column; }
-  }
+.check{ display:flex; align-items:center; gap:9px; font-size:13.5px;
+  color:var(--color-text-secondary); cursor:pointer; padding:3px 0; }
+.check input{ accent-color:var(--tool-accent); width:15px; height:15px; cursor:pointer; }
+
+/* readout list */
+.readout{ display:flex; flex-direction:column; gap:0; }
+.ro{ display:flex; align-items:baseline; justify-content:space-between; gap:12px;
+  padding:7px 0; border-bottom:1px solid var(--color-border); }
+.ro:last-child{ border-bottom:none; }
+.ro-k{ font-family:var(--font-mono); font-size:11px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--color-text-muted); }
+.ro-v{ font-family:var(--font-mono); font-size:14px; color:var(--color-text-primary);
+  font-variant-numeric:tabular-nums; text-align:right; }
+.ro-v small{ font-size:11px; color:var(--color-text-muted); letter-spacing:.04em; }
+
+.verdict{ border:1px solid var(--color-border); border-left:3px solid var(--path-real);
+  background:var(--color-surface-2); border-radius:var(--radius-md); padding:11px 13px; }
+.verdict .big{ font-family:var(--font-display); font-size:26px; font-weight:700; line-height:1.1;
+  color:var(--path-real); font-variant-numeric:tabular-nums; }
+.verdict .sub{ font-size:13px; color:var(--color-text-secondary); line-height:1.45; margin-top:3px; }
+
+/* deeper drawer */
+details.deeper{ border:1px solid var(--color-border); border-radius:var(--radius-md);
+  background:var(--color-surface); }
+details.deeper > summary{ list-style:none; cursor:pointer; padding:11px 14px;
+  font-family:var(--font-mono); font-size:11.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--color-text-secondary); display:flex; align-items:center; justify-content:space-between; }
+details.deeper > summary::-webkit-details-marker{ display:none; }
+details.deeper > summary::after{ content:'+'; font-size:15px; color:var(--tool-accent); }
+details.deeper[open] > summary::after{ content:'–'; }
+details.deeper > summary:hover{ color:var(--color-text-primary); }
+details.deeper > summary:focus-visible{ outline:2px solid var(--tool-accent); outline-offset:-2px; }
+.deeper-body{ padding:0 14px 14px; font-size:13.5px; color:var(--color-text-secondary); line-height:1.6; }
+.deeper-body p{ margin:0 0 10px; }
+.deeper-body p:last-child{ margin-bottom:0; }
+.eq{ font-family:var(--font-mono); font-size:14px; color:var(--color-text-primary);
+  background:var(--color-surface-2); border:1px solid var(--color-border);
+  border-radius:var(--radius-sm); padding:9px 11px; margin:8px 0; display:block;
+  overflow-x:auto; white-space:nowrap; }
+.deeper-body b{ color:var(--color-text-primary); font-weight:600; }
+.fine{ font-size:12.5px; color:var(--color-text-muted); line-height:1.55; }
+
+.tour-row{ display:flex; align-items:center; gap:8px; }
+.tour-dots{ display:flex; gap:5px; margin-left:auto; }
+.tour-dot{ width:7px; height:7px; border-radius:50%; background:var(--color-surface-2);
+  border:1px solid var(--color-border-hover); }
+.tour-dot.is-active{ background:var(--tool-accent); border-color:var(--tool-accent); }
+
+.credit{ font-family:var(--font-mono); font-size:11px; letter-spacing:.07em;
+  color:var(--color-text-muted); text-align:right; margin-top:14px; }
+
+@media (max-width:1080px){
+  .shell{ grid-template-columns:minmax(0,1fr); }
+  .stage{ aspect-ratio:1/0.78; }
+  .hud-tl{ max-width:min(62%,420px); }
+}
+@media (max-width:700px){
+  body{ padding:14px 12px 20px; }
+  .cc-title{ font-size:26px; }
+  .masthead .cc-subtitle{ font-size:14.5px; }
+  .stage{ aspect-ratio:1/1.02; min-height:400px; max-height:none; }
+  .hud-tr{ top:10px; left:10px; right:10px; align-items:stretch; }
+  .frame-toggle{ display:flex; width:100%; }
+  .frame-toggle .cc-segmented-btn{ flex:1 1 0; text-align:center; padding:10px 4px; }
+  .hud-tr .frame-hint{ display:none; }
+  .hud-tl{ top:auto; bottom:10px; left:10px; right:10px; max-width:none; }
+  .stage-caption .t{ font-size:16px; }
+  .stage-caption .d{ font-size:12.5px; }
+  .hud-bl{ display:none; }
+  .hud-br{ bottom:auto; top:58px; right:10px; }
+  .clock{ display:none; }
+  .playbar{ padding:4px 6px; }
+}
 </style>
 </head>
 <body>
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <span class="cc-eyebrow">Earth &amp; Space · contextclimate.io</span>
+      <h1 class="cc-title">The Coriolis Effect</h1>
+      <p class="cc-subtitle">Nothing pushes a moving object sideways. The ground underneath it turns.
+        Watch the same flight from two places — standing on the planet, and floating still in space —
+        and the whole mystery collapses into one idea.</p>
+    </div>
+    <div class="cc-tag" id="fact-tag">Earth turns once every 23 h 56 m</div>
+  </header>
 
-<div class="cor-app">
+  <div class="shell">
+    <!-- ── STAGE ─────────────────────────────────────────────── -->
+    <section class="stage">
+      <canvas id="globe"></canvas>
 
-  <div class="cor-head">
-    <h1 class="cc-title">The Coriolis Effect</h1>
-    <p class="cc-subtitle">Drag on the ground view to aim at the target and fire. Two views of the exact same shot play back side by side: the world as you'd feel it standing on the spinning ground, and what's truly happening to the shot in space.</p>
+      <div class="hud hud-tl">
+        <div class="stage-caption" id="caption">
+          <span class="k" id="cap-k">Step 1</span>
+          <div class="t" id="cap-t">You are already moving east.</div>
+          <div class="d" id="cap-d">Drag the globe to spin your view.</div>
+        </div>
+      </div>
+
+      <div class="hud hud-tr">
+        <div class="cc-segmented frame-toggle" role="group" aria-label="Point of view">
+          <button class="cc-segmented-btn is-active" data-frame="ground">On the ground</button>
+          <button class="cc-segmented-btn" data-frame="space">From space</button>
+        </div>
+        <div class="frame-hint" id="frame-hint">The stars sweep past because you are the one turning.</div>
+      </div>
+
+      <div class="hud hud-bl" id="legend"></div>
+
+      <div class="hud hud-br">
+        <div class="playbar">
+          <button class="icon-btn" id="btn-play" aria-label="Pause"><svg viewBox="0 0 16 16"><rect x="3" y="2.5" width="3.6" height="11"/><rect x="9.4" y="2.5" width="3.6" height="11"/></svg></button>
+          <button class="icon-btn" id="btn-reset" aria-label="Reset"><svg viewBox="0 0 16 16"><path d="M8 2.6A5.4 5.4 0 1 0 13.4 8h-1.7A3.7 3.7 0 1 1 8 4.3v2.3l3.3-2.9L8 .8z"/></svg></button>
+          <span class="clock" id="clock">T + 00:00:00</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SIDEBAR ───────────────────────────────────────────── -->
+    <aside class="side">
+      <div class="cc-panel">
+        <div class="cc-segmented mode-bar" role="group" aria-label="Mode">
+          <button class="cc-segmented-btn is-active" data-mode="spin">Spin</button>
+          <button class="cc-segmented-btn" data-mode="launch">Launch</button>
+          <button class="cc-segmented-btn" data-mode="storms">Storms</button>
+        </div>
+        <div class="tour-row" style="margin-top:12px">
+          <button class="cc-btn cc-btn-sm" id="tour-prev">‹ Back</button>
+          <button class="cc-btn cc-btn-sm primary" id="tour-next">Take the tour ›</button>
+          <div class="tour-dots" id="tour-dots"></div>
+        </div>
+      </div>
+
+      <!-- SPIN controls -->
+      <div class="cc-panel" data-panel="spin">
+        <div class="panel-head"><h2>The carousel</h2></div>
+        <p class="panel-note">Every point on the planet completes one circle a day — but the circles
+          are different sizes. Click anywhere on the globe to read its eastward speed.</p>
+        <div class="field">
+          <div class="field-label"><span>Spin rate</span><span class="field-value" id="spin-rate-v">1 day in 24 s</span></div>
+          <input type="range" id="spin-rate" min="0" max="100" value="52">
+        </div>
+        <label class="check"><input type="checkbox" id="spin-ruler" checked> Ground-speed ruler</label>
+        <label class="check"><input type="checkbox" id="spin-parcels" checked> Release air parcels north &amp; south</label>
+        <label class="check"><input type="checkbox" id="spin-stars" checked> Show stars</label>
+      </div>
+
+      <!-- LAUNCH controls -->
+      <div class="cc-panel" data-panel="launch" hidden>
+        <div class="panel-head"><h2>Fire something</h2></div>
+        <p class="panel-note" id="launch-note">Click the globe to place the launch site, then click again
+          to set the target. Aim is calculated as if the Earth stood still.</p>
+        <div class="field">
+          <div class="field-label"><span>Projectile</span></div>
+          <select class="cc-select" id="proj">
+            <option value="shell">Artillery shell — 800 m/s</option>
+            <option value="jet" selected>Airliner — 250 m/s</option>
+            <option value="drift">Free-drifting parcel — 60 m/s</option>
+            <option value="custom">Custom speed</option>
+          </select>
+        </div>
+        <div class="field" id="speed-field" hidden>
+          <div class="field-label"><span>Speed</span><span class="field-value" id="speed-v">250 m/s</span></div>
+          <input type="range" id="speed" min="2" max="1000" value="250">
+        </div>
+        <div class="field">
+          <div class="field-label"><span>Flight time</span><span class="field-value" id="dur-v">6 h</span></div>
+          <input type="range" id="dur" min="0" max="100" value="50">
+        </div>
+        <div class="btn-grid">
+          <button class="cc-btn primary" id="btn-fire">Fire</button>
+          <button class="cc-btn" id="btn-correct">Correct the aim</button>
+        </div>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="show-norot" checked> Show the still-Earth path</label>
+        <label class="check"><input type="checkbox" id="show-both" > Draw both frames at once</label>
+      </div>
+
+      <!-- STORMS controls -->
+      <div class="cc-panel" data-panel="storms" hidden>
+        <div class="panel-head"><h2>Why storms turn</h2></div>
+        <p class="panel-note">Air slides in toward low pressure from every direction. Click to move the
+          low and watch what the spin of the Earth does to the inflow.</p>
+        <div class="field">
+          <div class="field-label"><span>Low centre</span><span class="field-value" id="low-v">30°N</span></div>
+          <input type="range" id="low-lat" min="-70" max="70" value="30">
+        </div>
+        <div class="btn-grid">
+          <button class="cc-btn" data-lowpreset="25">Hurricane belt</button>
+          <button class="cc-btn" data-lowpreset="0">On the equator</button>
+          <button class="cc-btn" data-lowpreset="-25">Southern twin</button>
+          <button class="cc-btn" data-lowpreset="55">Polar front</button>
+        </div>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="storm-cor" checked> Coriolis on</label>
+        <label class="check"><input type="checkbox" id="storm-fric" checked> Surface friction (lets air spiral inward)</label>
+        <label class="check"><input type="checkbox" id="storm-iso" checked> Show isobars</label>
+      </div>
+
+      <!-- READOUTS -->
+      <div class="cc-panel">
+        <div class="panel-head"><h2 id="ro-title">At this latitude</h2></div>
+        <div class="readout" id="readout"></div>
+        <div id="verdict-wrap" style="margin-top:12px" hidden>
+          <div class="verdict">
+            <div class="big" id="verdict-big">—</div>
+            <div class="sub" id="verdict-sub"></div>
+          </div>
+        </div>
+      </div>
+
+      <details class="deeper">
+        <summary>Go deeper — the numbers</summary>
+        <div class="deeper-body" id="deeper"></div>
+      </details>
+
+      <div class="credit">contextclimate.io · Earth &amp; Space</div>
+    </aside>
   </div>
-
-  <div class="cor-controls">
-
-    <div class="cc-panel cor-globe-block">
-      <span class="cor-ctrl-label">Launch&nbsp;Latitude</span>
-      <canvas id="globeCanvas" width="200" height="200" style="width:84px;height:84px;"></canvas>
-      <div class="cor-lat-readout">
-        <span class="cor-lat-value" id="latValue">45.0°</span>
-        <span class="cor-lat-hemi" id="latHemi">Northern Hemisphere</span>
-      </div>
-      <div class="cor-lat-presets">
-        <button class="cc-btn cc-btn-sm" data-lat="90">90°N</button>
-        <button class="cc-btn cc-btn-sm" data-lat="45">45°N</button>
-        <button class="cc-btn cc-btn-sm" data-lat="0">Equator</button>
-        <button class="cc-btn cc-btn-sm" data-lat="-45">45°S</button>
-        <button class="cc-btn cc-btn-sm" data-lat="-90">90°S</button>
-      </div>
-    </div>
-
-    <div class="cc-panel">
-      <span class="cor-ctrl-label">Earth's&nbsp;Spin</span>
-      <div class="cor-rate-row" id="rateRow">
-        <button class="cc-btn cc-btn-sm" data-mult="0">0×</button>
-        <button class="cc-btn cc-btn-sm is-active" data-mult="1">1× (real)</button>
-        <button class="cc-btn cc-btn-sm" data-mult="10">10×</button>
-        <button class="cc-btn cc-btn-sm" data-mult="100">100×</button>
-        <button class="cc-btn cc-btn-sm" data-mult="1000">1000×</button>
-      </div>
-    </div>
-
-    <div class="cc-panel cor-stats">
-      <div class="cor-stat"><span class="cor-stat-val" id="statF">—</span><span class="cor-stat-lbl">CORIOLIS PARAM f</span></div>
-      <div class="cor-stat"><span class="cor-stat-val" id="statTime">—</span><span class="cor-stat-lbl">FLIGHT TIME</span></div>
-      <div class="cor-stat"><span class="cor-stat-val" id="statDeflect">—</span><span class="cor-stat-lbl">DEFLECTION</span></div>
-    </div>
-
-    <button class="cc-btn cc-btn-sm" id="clearBtn" style="align-self:center;">Clear Trails</button>
-
-    <span class="cor-hint">Drag on the ground view (left) to aim &amp; set speed — release to fire</span>
-
-  </div>
-
-  <div class="cor-canvas-row">
-    <div class="cc-panel cor-canvas-card">
-      <div class="cor-panel-label ground">Ground View — what you'd see standing here</div>
-      <div class="cor-canvas-wrap">
-        <canvas id="groundCanvas" width="900" height="900"></canvas>
-        <div class="cor-orbit-note" id="groundOrbitNote"></div>
-      </div>
-    </div>
-    <div class="cc-panel cor-canvas-card">
-      <div class="cor-panel-label space">Space View — what's actually happening</div>
-      <div class="cor-canvas-wrap">
-        <canvas id="spaceCanvas" width="900" height="900"></canvas>
-      </div>
-    </div>
-  </div>
-
 </div>
-
 <script>
-(function () {
-  'use strict';
+(function(){
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════
+   CORIOLIS GLOBE — contextclimate.io / Earth & Space
+   Physics: motion on a rotating sphere in the Earth-fixed frame.
+   Only the Coriolis term is applied; the centrifugal force is taken
+   as already absorbed into effective gravity (which is what the
+   equatorial bulge does on the real Earth), so a parcel at rest
+   stays at rest and inertia circles close.  Integrated in Cartesian
+   ECEF so there is no pole singularity.
+   ═══════════════════════════════════════════════════════════════════ */
 
-  // ── Physical constants ────────────────────────────────────────────────
-  var SIDEREAL_DAY_S = 86164.0905;
-  var OMEGA_EARTH = 2 * Math.PI / SIDEREAL_DAY_S; // rad/s, ~7.2921e-5
+var R_E = 6371000;            // m
+var OM  = 7.2921159e-5;       // rad/s
+var DAY = 86164.1;            // sidereal day, s
+var D2R = Math.PI/180, R2D = 180/Math.PI;
 
-  // ── Scenario constants ────────────────────────────────────────────────
-  var RANGE_M   = 80000;     // fixed target range, meters (long-range-artillery scale)
-  var SPEED_MIN = 150;       // m/s
-  var SPEED_MAX = 900;       // m/s
-  var DRAG_MAX_PX = 260;     // drag distance (in canvas px @ internal resolution) mapping to SPEED_MAX
-  var PLAYBACK_SECONDS = 5.5; // wall-clock seconds any shot's animation takes
-
-  // ── State ─────────────────────────────────────────────────────────────
-  var state = {
-    latDeg: 45,
-    mult: 1,
-    aiming: false,
-    aimStart: null,       // {x,y} screen px (canvas-internal coords) — always cannon
-    aimCurrent: null,
-    shot: null,            // in-flight / just-fired shot object
-    trails: []             // history of finished shots {groundPts, spacePts, meta}
-  };
-
-  // ── DOM refs ──────────────────────────────────────────────────────────
-  var globeCanvas  = document.getElementById('globeCanvas');
-  var groundCanvas = document.getElementById('groundCanvas');
-  var spaceCanvas  = document.getElementById('spaceCanvas');
-  var gctx = globeCanvas.getContext('2d');
-  var gndCtx = groundCanvas.getContext('2d');
-  var spcCtx = spaceCanvas.getContext('2d');
-
-  var latValueEl = document.getElementById('latValue');
-  var latHemiEl  = document.getElementById('latHemi');
-  var statF = document.getElementById('statF');
-  var statTime = document.getElementById('statTime');
-  var statDeflect = document.getElementById('statDeflect');
-  var groundOrbitNote = document.getElementById('groundOrbitNote');
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Physics
-  // ══════════════════════════════════════════════════════════════════════
-
-  // Coriolis parameter f = 2 * Omega_effective * sin(lat).
-  // Local ground-frame rotation rate omega = f / 2 (the true physical spin
-  // rate of the local tangent plane — half the ball's apparent curvature
-  // rate, which is the textbook factor-of-two in the Coriolis force).
-  function computeF(latDeg, mult) {
-    var omegaEff = OMEGA_EARTH * mult;
-    return 2 * omegaEff * Math.sin(latDeg * Math.PI / 180);
-  }
-
-  // Local tangent-plane rotation rate: the *true* physical spin rate of
-  // the ground at this latitude. This is exactly half the Coriolis
-  // parameter f (the textbook factor-of-two).
-  function computeOmega(latDeg, mult) {
-    return OMEGA_EARTH * mult * Math.sin(latDeg * Math.PI / 180);
-  }
-
-  function rotateVec(x, y, ang) {
-    var c = Math.cos(ang), s = Math.sin(ang);
-    return [x * c - y * s, x * s + y * c];
-  }
-
-  // Inertial (space) position: with no real horizontal force acting, this
-  // is by definition a straight line at constant velocity. Nothing curves
-  // here — this IS "what's actually happening."
-  function inertialPosAt(vx0, vy0, t) {
-    return [vx0 * t, vy0 * t];
-  }
-
-  // Ground-frame (rotating / "what you'd see standing here") position: the
-  // exact kinematic result of viewing that straight inertial path from a
-  // patch of ground that has itself rotated by omega*t since launch — the
-  // classic merry-go-round analogy, at the true rotation rate for this
-  // latitude. Rotating the dead-straight inertial path *backward* by the
-  // ground's own spin is what makes it look curved from the ground.
-  function groundPosAt(vx0, vy0, omega, t) {
-    var s = inertialPosAt(vx0, vy0, t);
-    return rotateVec(s[0], s[1], -omega * t);
-  }
-
-  // Reconstruct the inertial-frame position of something that's fixed in
-  // the ground frame (the target, compass grid, etc.) — it rotates forward
-  // with the ground at the same true rate.
-  function toInertial(gx, gy, omega, t) {
-    return rotateVec(gx, gy, omega * t);
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Shot construction — precompute full sampled trajectory at fire time
-  // ══════════════════════════════════════════════════════════════════════
-
-  function fireShot(bearingDeg, speed, latDeg, mult) {
-    var mathAng = (90 - bearingDeg) * Math.PI / 180; // East=x, North=y
-    var vx0 = speed * Math.cos(mathAng);
-    var vy0 = speed * Math.sin(mathAng);
-    var f = computeF(latDeg, mult);
-    var omega = computeOmega(latDeg, mult); // = f/2, true local spin rate
-
-    // Rotating the inertial straight line preserves its distance from the
-    // cannon exactly (rotation doesn't change magnitude), so the ground
-    // path reaches the target's range at precisely t = RANGE_M / speed,
-    // regardless of rotation rate — no search needed.
-    var flightDuration = RANGE_M / speed;
-
-    // At very high rotation rates the ground path winds through multiple
-    // spiral loops before landing — sample finely enough to keep it smooth.
-    var totalTurns = Math.abs(omega) * flightDuration / (2 * Math.PI);
-    var N = Math.max(300, Math.min(4000, Math.ceil(240 * (totalTurns + 1))));
-
-    var groundPts = new Array(N + 1);
-    var spacePts = new Array(N + 1);
-    for (var i = 0; i <= N; i++) {
-      var t = (flightDuration * i) / N;
-      var g = groundPosAt(vx0, vy0, omega, t);
-      groundPts[i] = { t: t, x: g[0], y: g[1] };
-      var s = inertialPosAt(vx0, vy0, t);
-      spacePts[i] = { t: t, x: s[0], y: s[1] };
-    }
-
-    // Straight-line (naive aim, no rotation) reference for deflection stat.
-    var straightAtLanding = [vx0 * flightDuration, vy0 * flightDuration];
-    var lastGround = groundPts[groundPts.length - 1];
-    var deflectM = Math.sqrt(
-      Math.pow(lastGround.x - straightAtLanding[0], 2) +
-      Math.pow(lastGround.y - straightAtLanding[1], 2)
-    );
-
-    return {
-      bearingDeg: bearingDeg,
-      speed: speed,
-      latDeg: latDeg,
-      mult: mult,
-      f: f,
-      omega: omega,
-      vx0: vx0, vy0: vy0,
-      groundPts: groundPts,
-      spacePts: spacePts,
-      flightDuration: flightDuration,
-      totalTurns: totalTurns,
-      deflectM: deflectM,
-      startTime: performance.now(),
-      playbackSeconds: PLAYBACK_SECONDS,
-      done: false
-    };
-  }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Rendering
-  // ══════════════════════════════════════════════════════════════════════
-
-  var SCALE = (0.5 * 900 * 0.78) / RANGE_M; // px per meter, tuned to internal 900x900 canvas
-  var CANNON_PX = { x: 450, y: 900 * 0.86 };
-
-  function worldToScreen(x, y) {
-    // x=East(+right), y=North(+up on screen, so flip for canvas y-down)
-    return [CANNON_PX.x + x * SCALE, CANNON_PX.y - y * SCALE];
-  }
-
-  function sampleAt(pts, t) {
-    if (t <= pts[0].t) return pts[0];
-    var last = pts[pts.length - 1];
-    if (t >= last.t) return last;
-    // linear scan is fine at this array size (~900) and only runs per-frame
-    for (var i = 1; i < pts.length; i++) {
-      if (pts[i].t >= t) {
-        var a = pts[i - 1], b = pts[i];
-        var span = b.t - a.t;
-        var frac = span > 0 ? (t - a.t) / span : 0;
-        return { t: t, x: a.x + (b.x - a.x) * frac, y: a.y + (b.y - a.y) * frac };
+/* ── land geometry (Natural Earth 50m, simplified & delta-encoded) ── */
+var LAND_RAW = "hhHo2CuBLgBVKEXI4DjBAPUADfULMECJKITIGMTG4BDFJeEVEwBFwBdiBJbFLPhBIMNjCIWLRJSJjBJaRVELLJKRJlCSba9CCXWQOvBJFNSRbT6hOA3BThCUXDiBJvBE9BL8BIMJJFyBGMTWCSVLNkBPITTT1CUGLtFtBTRpCZLVtBahBAxBJpBXEazBRHLVInBHLZ1BxBSRKKYHVXCTSFETVJJIQKRAXRRZQfzCXJRGb_BFCbRZ3BjBxBqFS$BiBWAU4BI4EiDiCSHGSMJEQiBwBIpBIrBHLpBdE7CpBKOZDUmBhEJxDrCHNgBFILpCAXL7BDLIuBEpDWjBJGJJF5CIVNVK3DHpCnBPVpCjBnBhBjDxBAJYHmBAFhBSAAQUENJUHZRcCYONTICKesBDgCnBJNPEQLFROLpB5BEdVlC5F3F_CvBjBIAQPJCIJDbZTACNpBbDjB3CrBHZmBVqBjCGtBPfdFDLfEALNEFPDMdTNOOGNOScLiBPCOKUDPiBlBIRNPKIGVCiBWREIedCNQ9BRlCjBDGcUXGoBmBRSbDdbtBVRXxBDHf0BPGjBaDoBckBRoBDNXREvBNHVTCEJvBvBsBZYhCoBjB3BMTHaCwBtBlCbqBCiBTZPSADPTAKJLNGPTCRPb3BVGMTfLSFAZRCEJNDPZhBHIJdbTCTdpCJRTPERcHJIdTAVRLIDLPEPNxBJLROTHJRANYMYTIRLVSFLdHbXTCCLfhBRpBkBpBHJiD_CaxDLCCdLZnCnBLKDLPCGHNAOJJLTOQXHFXSMZrBfPDM6BhBUbAEOHKRLDWVelBUhBDCgBPEZJAxBjBrCErBYCW1CsBPkChCKZAlCUdKlBJKVL5C$BAOZcZkD5BoCRADUS6BHHFaSoBLCF4BPiBFNNuBJuBEWNDXkBFdNJLKENlBfDQHLLDDQLNCYTVO$BXmCFRTSOFGINSTGFJFWJJFODLRUT$BPWXNPoBPHOJHVGRPVDMNDEOTdDWHZNQATNDFUDTVAEULIILJLtBZGXLRXRnBHDHKC3B3BnCxBFXnBJNZdDLbK_BLEMLbzCGpBXDPdSPpBFPdXNnBgBJoB5BqDXuCrBuCV4CGOJEIIPWKgBNgBUMXDASKEZAHTILLRpBRVE_B6ByBKMWjBPjBMRUQMXLFKZCRiBTELepCRZIrDNlBOtDITGZ2BbA7BbnBKxBiBlBK_B$CVHXSHTjBDGTTHODejC2BrBDdcvBIwBKGMLCjBNdgBRyCI6C4CD3BMXWX$BRqBxB3BtCNINPDzBpBLRflBHThBpBD7BXPNDVzDpBdZbAxBZvBFZXtBJTELWNkCNMGwBVoBbWlBmCpBaVWLmBCcZsBlBYRoBvCuDZAO8BfpCnBgBhB4BFNMdkBrBQzByB5CYVNHIjBuBjBQpBI9CsBfmBlDMTCOOToBR2C7CANhBXYCuBtBaAiBQeFiBQsDQcSSHJ5BODTDHlBxDnGvCzC_ChC9CtDxBjBnBvCT5BenBLVAnBQ_BkBbH9CQrCpBjC_CtBtBxB7BrBNEatDGMEJFrCTV5CpBJPKLEGDfVjCrBlB5BtC1CnCzBbhBDLN5DCnDhBvBSFKNLFGEUZiBUOHe7BuD5BgCRsBT0CDmCrDyFD2CgBgDuB2BGqBjBwCQctB6CeKZHJITyB1C0COFTIXqBSLTKPcKFOOCcSNIGbOKCASJEQgBGuBRcGKdCFSPANOCPxBGJNHMEPfDZWHUIEPEKCPCbcpBEKGhDTPPdD7CpBzBOKCHIJJpBGLDWAzBDKDlDhBhCcvBqB5C0BAOPCRaOINDGMbaAQfMHUNIFHDOPCDMQETIQGjBHjBaOGNCAgBOJmBIpBFNWGGnBcoBoBU2CHsBNOMkBdiBJLGqBYcSyBoBiBU$BgBUauB4BQ2BsBWcH0BWuBecgCcoBqCYECNYRkCIELmBD$D4BmDQ8BLwBS4BLoCUGJOCITWMIJbZYpBrBrBKTaFKRsBRoBCsCVUnB2CVsBbaEQQDoBGQgCe4BPIRgCJOT8BF8CZyCegBDKJLGHJOJGIOLqBEiBS8B2DJmCQUhBLdKpBZlBH_BeZCJZfFfW5BAcOpBDMGVUIOnBMGOINUERKKINQIKhBFEWWQ6CAJGqBIfICK0CFyCkBkCCMNeDOTwCNqBGgBHuBSOWPgBtD$BzCiBIMgBDMYWEfWeADGgBKDInEbjBVKORLGVSRsBEHPnBC_BdTGEWrBMuBWDGnCIGGTEqBCXCNWEXrBFZdXHFjBVFFIR7BRFLbRNclBiBNFL7BD1BlBYY9CMfJYZZIIRVMIPfcLFDTejBTEGLVJ4BZEVVMVHSTPFRIQtBTOJPRYJNHEDWZUeSoBROIhBM1BDPSOIhBMpBqBM4BnBahCWaHhBWlBEhBaKElBqBLCTVPaMGZEnBNKVLLGVuBbSjBWTYNoBDLRyCjBUTFRVUlBGTdYPCRXJXjBREWkBVqBfKJQRDEGRCNSdA5BqBVEbWNoB7BSrD3BzCWhBRJPIlBnDvBIFzBxBWfdTJbnBLTZ7CF1BbfYIKbQpBNvBCE4BKDXCDISSPPPCgBuCJoBIUVkB8BYaJqGJUIQuBHDGkBWXbcGCFWnBWAQODnDYRKOELGOATK6BMWN0BETqBYAEN$BCLCCIwBQOiBiDSfGiBFNGIAHOcoBgBMyBIQHAOSCiBNEUwBPvBeMKLKDWVKAoBqBEFOPPVCOOiBCuBYNvBaHZJffHTWRHJuBDHRWDwBUSD$BffUWL0EmBaHNCQRWCWUeIQUVZYDHkCckBgBGsBfeMGsBhBALiBwCSgDLGQ0CG9BSHMvCNAKhBRvDTIINITHGOvBIGoBVoBWSFGeEKOqBQmBegBIAUdO7CAHLjBNGHRPOPfZ3CbNJGFXDGLbFKLJXNHEjBcFoBjBpBRaANL1CTeHNDF5BXjBxBDZNATlBDRCCOVWODHIKGjCmCFaKCXGLWRfbEGF_BjB5BFvBWAQeATEUSzBREQmBKTCyBajBHpBdCSUAXOUKXDFQoCEKJWKHKNNzCCFKOCRQoCD9BEFI$BMXDIImCG3BDgBQqBLTMUINGME0CHcW5BVVI0CsBPDIK4BOfDWYOCLGyBInBDEQeGNESI0BEnBCUMaJEGlBMwBSMPFQ2BGrBEgCYGMYHLIsBMDRaWJZaGHQ4BDbQ2BEaPCK2BeqBJfd6BgBKDHTmBQJIgBCKJVHODDRaY0CV3CJgBHELmCDWKoBLlBDMHqBDNRWK2CFsG9BQVHPtBX7BLnFU_BWrBCmCdNF2BRNXanBgDbYMFIfEZQMOyDXcIbWAKgDkBqBFiBROmBbMQoBjBQmDHgBbvBFbPgCZuBIKYmBEFIiEaQJMGPE6BQcAdFGTdJgCDWOmCAsCSMLLNaFGOqBMhBYeKkENsFxBaYZAnBadDQwBZCGKJCgCYuByB0CD0BJLddXiBVLbG3BoBTTNFTxBfVDILjBJNEMGlCCoBRyCHmCemBePaIOUE2BGgBXDbkCJ1BGCSOCPajCO5CDEINQegBzBiBWQ2BMEKNQgBJGNVPKNJJSJiENnDYRO2CAhBIsBMkBA6Cd6BAFLdJHbCJQUQANdQFaSZWQYtDgBJIIKTMIM8HOtBTkBPhBMiCQ_BUyBC7BMiCOTG$IgB1BCQE$CCUDTJiBA2COsBJJLKOpBOwDDbEGGJI8DiByCPrCNiEHrBT8FI8BNCPYIMPMANPtBM0BRjBTjH5B1ChBkHmBxBCYI0BCNFkBLkBIOLLJOFPZUFTGcWRGWEwFAUFVDAJ0BLwDFqBMNKEIuBEwCRwBG2BRVJaJjBHkBFAP_BMuBbMGKHZFkBXyBPqBUYcqBVgDGqCTOIRCOImCFNQPCiBKpBDDIuCKTKGC6GTvCLmDEfPGIVEANdAGLyCa6CJULtBJmCLXJ8BCUNPAeHoEKwDHwBTDdqBJSdVPcOAUiCM0EJmBKSVoBHMNmBCSMRSTCOSwDNoDE$ElB7hOA|91D25CyBRCV6BbfCJHUDlBRkDJjBHeRFROLmBoByBTKTXDCPmBfgBMiBuBiBELEKIXIFY$DJRH2BNXNcH1BNyBnBHTvCdvBYXDkBJOVnCOtBDeR9Bf9CYlCA$BHmBTsCHrBpBrBLlBIIJNCANbF1DWGN4BHNHYGuBRFP_BHQJZDJJIJbIMHdLMJZLjBpBJ7BaPDRKSkBAe7BPR4CMmCR2BhBoCRULHL6BI8BLILJXKTHfcZLLwBTIPRNeIeXPYQKQRGMLMWSb4BEOdasCayBqBAiBPWhCmBeoBQFCQNEESNEIGZAceVMHSgBKsDTmBOoBNDNUAIHHFWAJHSN4BNWGNVERpBDkBHCXODJTZFmCACZdLaGQSDPMKCR2BgBOPDOaKNGIKSDRQQDFGOSMFLLSCCNULJFWJXHcADJSJdNmBGbVeGWLANXFuBVANvBEqBTLFODFJsBJGNRTiBKMFRRYQSPiBCWN5DnBMHLLgDiBPEkBDKPPJGHgBMYNGhBVFWFLDOJ3Bf9BHhCrBhIDjBjBnBH3BpB3BKyBP9B1B7DzBMJdPuBQQYqBWgCUkC0BkEkBmBHOLNAKNpBXdIfJsBPkBEZbSDMhBoCZgBIYNFJQDnDZAJdCAJxBjBbMDOOQLDiCiBMPgBO9BAWUPEHNtBTHIRNbCENrBTREFLLECIVXnBLblBKLTLYZSEFKGRxBJAKLCFR5BFtBXCUAPNPMHHZCIjBrBAIZOSURJFNUrBlB1BMgBJAAQREKGPEUgBdLGlBLIMTlBMIULVqBVLJZSgBZHNNKSTnBMeTUAStBRiBGXPIRNJKANcADLOGRVlBIWNNLLGEHUHnBFXhBAIDLjBJtBrBdHCJJGELfpBI5Be1BCZRiBgBvCFnBPZZFGEjBkBDWJHCQNFRaMOTAIqB5BwBzBRNYjBEIEnBHIIpBNICJQHP5CDGLgBACLPJcRHJpBWARPGLHvBcPNhCGAMDNjBNIGTGEPnBdRHKGbCKLfNEHRHAVNEKJOxBVjCJpCWrBFNPgBETmCxDcFeXwCUkBJMGJMcSQiCsCW4BCKZlB3BKDR3BJYNVKFJhCZfeJSIgBHuCKcJUZQCGlBNZA3BFML5BUpByB3BMAFIONUD6BgBUDyBVqBtBFYyBkBEeHDKSYUUFDLKWiBAkCuBSRhBVOlBVjBUfOEIWRyBiCUVSMMOdyBPKbsCGsBZ4BSXGgDEpBJGVIGKRIIOPGKgBXTfPAMJuBI2BjBMRHnBKSQDeZCbKSqBNCK8BDMFFTMSmBPiBfCPGMIZEKOJUvCeVCV5BzBdzBbJcDqBaUrBsBKPlBSeiBQFOOQcEuCdEPKKSNENJJMECJNjBSeCPgBQsCV$BC6BjB0BxBkCLarCAnBV1BxCxClBhCLFJOHJLhBI7CLrCVXH1BvBlCDfdNPblBAJIDL7BDEJlBX5BT3BvBXCOLPbInBL5BnBfvBtCvBjBAKgBOaqBCIVFLMAdbbdnC9B9BfN1BCnBSdDZgBOeFUNrC2BrBLXcVDXhBvBbP1DXzBICTKFP_BxBLzBQNHGxBYPYOIZTJTQTHaNnBZDhBPNAP1BLbhBERcXmBHERTNQFjCpBTrBPFROPLYHXLRbMVRDUFWZjBE_BXJrBNFtBWSEGLWcrBPLNVIMUyBGxBCRVXIWOlBHNWSHqBMKLHHIEDWZKWPlBLdOKEAOjBINOQCCMiBZGSPPJKKEdMcIPQSALGGSLVHEAgBOEVCFSwBHNUXNRKUEPGOKHQdCAKXJELLKeWFKkBGIODbRHSCIOFfKaHQgBCTOcUXSGiBOKAgBOHFQNEUQxBNTccsCRqCSIoByCeiDLsCQsBJciBoDKwDJMUmCL8DxBsBvEsCjBeTgBGU5ByCtBsDzBqCvBcKQToBEQ0BsBIWFWFVDINPbUIEHoBYUJKSUDawBQHQSGAYgBOcwBRMIULiBMKJQEOrB8BKOQLPONHXYVCpBhBSdjBNJcJLVUnBGJLRYHCGNNEHa9BsBOTJJXMJQISLGGItCoCMCHQxBDIF1DgB3D8CONlBQFFIFlCXvF$BrBe_BQTUrBSXcHQQILIMcTUHavCoCKCTEPUKDpBSGKRFFQMIJMtBcHYXErBqBlBiCAWtCcQtCkChCEXkBvBGFFMKJiBrCCVMLEKiBjBFPVLPclCyBP2BZQHOTL5BqBcEKHJKIUhC0BpCuEnBSFK3CYAUzByBEUZOFOCKQNLUgBClBEFNVGEIhBcHkBVWMsBV2BQkBGkDgBDjBGGOJIKENAX6BsCLGLVXYWDZTHQAQiBRSEMbQMKRDEOPNRGDIQDNCAQLPXGPSISJPrBAPEWEZAAOXJbMMScEnBJJGCWOGeNVQIQtBrBLOQQNJIWNDhBcMGkBRdKFIIERAZZhBSMSSEjBGkBqBLELVCiBDZVXVQMGNgBrBXFIaSbIbaZEJUWFTMOCjBGGSNLTGdoBHJQnBhBGHQIENGFNfMDJoBRXJ_D0BKQIPMKTGnBNpBIAIvDFfOIMXLbEKGlBEGCJKMClCHKKhBPMHRJcAVXnBGJPFGzBbpBAkBUhBCSSEUiBK2BFnBKcONAvCVnBfTCOLpBRXVgBJDJhBZ5ChBJPnCXHHKFJFtDdLAKGNCZTXEALTCLJCKgCgB4BFLIKMiCUOUiBILIEOQGNIWOGQ5BXNKQGdDHXdUdGpCRSGCMPCGSXcSQfTGL3BJ7BeWOUHDHOGKHOGVEMC9BCKGRGNHZWOCNEUCFKUOSCGIJFAMQGAGsBHoBU2BEGGJSVIWGCIjBAnBRVKCL5DIhBWgBGvCOyEmBgBDLCHROFqDE_BcKCeV2BDFI9BEGMrCEXUtDeQEIS$CGuC0BJJwCSKNCIQAdGQGoCC6BWiBNXHIFgBKmBNsCCHJcFJFsDC6FV4BE$J5BbQ6BQCIUJNLuEkBsBDhDX7BdcDGCHKkBOeAELiBUwBKLHMDuBUTGGG6CvBYCJIgBUSTLPgBCUQ0BA0FlBoCC8BX9BVMFsDFgDMyCfVHyBdVWYDhBkB4CgBxCTnBGOM4CMiCjBqBCuBP8ECLKqBRSErBGTSgBI4BLLLeIRfmBVpBCYTLOaAGMRUIKwCYRQfJUMHIgBCpDUVUaOTAJSUKUDGGTCaOYEML|hhHvpDudjBpBMiBC3KS4BEnBGcGnBIzDAjIoB6KRuBLoGFyHmBQGlCUeK9DQmLQlDW8CMHEOEjFe_EOPE2CQvEIbKMaoEAsGb$BOdGMIyDRFKMCTGMEFI9EQ2BKyDNnBMyDWsDJPIyCQkDAQMkBGuGJ6KG0DOqEFYYsBJLLQFXJJPgDIFWYCmBPtBb$FHsEK4BDaLkDItCOSIzBGTUrBEDK8EChFMTU2IV8GA0CYYFPNGHoDCwEbkBEEUiBHLMGGiCXuCCJRqKeuBKgBeZWLiBpByB2BCQKTMYYPKSSjBACSSGGNQDAYeCAOUMeCHIiBILKMKcFDI6BOgBWqEgBYN7BJhBVKLvBC5ClBQJXNML6BETFDLRINNnBICTZSVDPPOJnBCPRKFdFHfgBAZJSDHJqBHDGKEmBChBJoC7BTLkBHTRaCORpBReEGLxBJ$BDDRXHeDGPQCFPtCGOPiBJlBJHHgBDhBJuBA_BHQPNHrBKAJdFaHrBHmBHzIxB9IDsCfmDHxBVnIOpBFmFdzDLtEgBWRVDyDrBeK$EHGLVL9DFiEF0BfyCD$CKmBNoFVgEHIDnDAlBF6BFxCFSPgBDuFG5CPiBTcARPGDuCD8GyB2JKIJTNcD2CK4CmBsDQ$BHqCQoHSwHKGEnIKPStDFlDMfO2CuBuGsB8FYuHMTI0BiBoCAsBSjCCKGXECIiBOgCENKsBDkCQUavBGJI8BHgBQJIoBJYVmBEDcoCGOHVVqGEUTiDcoHagBFaKmDXyBWNGQAeNoDIML4BHkBOIFHPOLiCCaYaLDJcFoBQeVmCF0HoBQQPegBIeDRRgBAeZiDDsBR0B2BuDcqEUFIKGgBFLJQJcCINKUWKfI0CHJekEYiCFsCbrBDOJdPOD8BKgCV8MLSdTNEVfFMNFJlBAnBRwCJRZhBPvB_BRJgBHaIAOSKuBEmCgBSgBoBQCMUK$CASOkCSyBiBqFYwBUuJYkJH$BMUQyBEwIrBuBQMQ4CMmDnBjCTCLqDQwCFkCG9BNKDgGeiBFqBOgBHkBX6BDsBgBmEIiBRqBOwBNgBE2GbqBEiBLZdwCKiBPDNMF6EAOToCDYEISgCdsFVgC3BgBJJYaGcNoFJYRwCTMKQThBLFNMCDJnCG4BPNNhDFdIyBTrCJKHfHJUPAIXJFYVxCGhBRJT9BF0BFYRPNONPVaFabeLVLaFeKiCbhDExCNpBOHHSPtBAPHGLbHOFVFcJxCR0CDHHOHZDSFLTiEjBhDNqEGyDdoBAnBJSFsOlBxhOF|gzF_OWhDcEiBdG7BSVG3BOf$C1BGJJFUVU3BMFEQSREGIrBoBb0BrCDzBU7BbxDVpBvBvBV5BZjBLlCzCRrBdbFKFDNpBYEMXLLGQKJI3BlBtBQpBCrBSZaDkBhBeOAAItBJMYRiBRpBhBFEOQAEeSWHoBXrBhBRXZCPNCXOOALaVcREDY9DqB5CJjCX5BDjCdflBzEDxCtB3BC9BeAeOHOSA8BZuBL4BdqBFejBuBGEKTKCRkBKXUHAShB4BYmDGZWcwCuBcDkCcsCQ2B8BJaIQYYYrBCSKDCIRQEMuBJPEKSLECKKKOJJMUCHQSSANOCCUUHOQWNebHbWYqBRAMIATSwBuCKFSUGLyBIDSjBOGE8DpBiBOJPKCGLSSQRVlBVDAbVnBwDpCeJKTgBPSCOKW2BKoBJyBGiBOILQeiCORCdOH|vlBuoDmFN7HL2IGaL2DNhCLxIN$FDiBN2BOoCFPVhCbqEiB4CLwCSiFP7DVIHLF7CJgBFXJ3DAdLELcADRQH3CXIFhBjBkBI2BJIF5BASLoCFEPrFJsBTiCHSZFNvDFyBDIHLLIAiBOebtCLhBGIKLCPLINoCHNRlCJpCUXHhBKcNzBNxBIcJpBFoEK0CVLhBnCQZWxCPqCIERVFiEbXPeEKnBlBFDQLRbAZIZWnDSyBHILrBNlCCQHrBRmDDvBPKDqCOmELjCPEHXA5ClB1Fb3BQITpBP9BxBXJbIIN1CXLEcYjBEQHRPPEMNvCHWJ9BNkBXZNhBEoBHCRjBdhBGWLLJrBDgBHHRINVHMAfxBjBEcJEPjBDMHLDVEIORLhBIaSbJbGIYpBR3BDSKbAlBYFMWIfFCKfIUYZLrBiBFO0BI7BAoBUcLFKjBUKRXDbXbuB6BS7BPbGEQNC2CiB_CfIUoBK1BEFQ0BOsCJXGIE5BC5BNYa$BHSO7CFOMsCAOITDGQgBAhBCgBiBvCA9CamCC0CPrBYeA1CM0BQjCFMIbUGCNDSTVJCJjCEMWSMfJMGNEcEGMlBGOOhBIKIRQpBDoBS9CgBMGLIhGa5EHKL7BGxBM4BKpCIIGlBJXK4DOmCFGIXInDLxBKSGvBD_BQuBQqHWoBiBYErDAPIsDc6BFJIKE$BDOKFOeG6EXrDa8FOkBJEVUICS0CR2BA7BWmBA0GbQaxBMoFAvGIsEMkCHmBK4CPIGhBIgLI|hhHu5C$BAmBPtCNZE8hOAtBJFMwBQ9hOC|psD44CoCCEYxBOYKoBJ3BaQKoBHxBMyCWoCC0BnBnBTaGPXqBMJGKEiBJAJQHLIGKwBHlBOuBI4CTjBZeOkBADJlBHUANVUSaEGDVNUIUNFKQGyBJSJ7BTwCIFLvBPYCHPSSkBKgCLAJ_BPyBGJJKDkBOaXzCLmDL_CH0BDHL5BCoDRPFGNcKPTYISFELAIQGALuBLfL$BDbTgCKgBRhBAULLFdEWPZAIJLJhBIJJMDAPLNfIEKNNjBamBW3BNGIRDnBUNFCLbGcRHF5BKWFOPFJiBFLFaXCISNKIUHIFNHSDVHkBLFHQJLTXUWjBVCCN_BYDHxBaIPxBM0D9BPPpGwBbOYItBInBYIIhBHbQJFIL3CL1BOEQcIAK8BJQREGTM6CIjBa4CsBtBsBVADOXFVICKnCPCMkBIjBMKGjBAKGfCHQ1BOPJYJNLnDGePbIrFEVEFM9BJnBKZW8CDnDQNWOIHMsBmBuCSmCDjCrBONEXwBXhCP|92C4nD8DDzCNuEK4BFHFWHHFyCFtJrB8EI_FtBvBGSNpCH8BDjBN5DELA6BL1EFgDLDJjFCmFRvCJwBHfPzCDFTRH_DIOJfDmDFMLwBFNNlDRHMhCKMLjCANIFN3CKLJhBIAJlBAFODPpBECOmBImCGlBKNOyBC6CVkBEoBWxBTrBDTCLQ2BKdCEMhBTZAMKjCHeWqGKrDAHCmBAxDgBFQwDAgEbQClBCxCY2HWrCEoCUlFhBnFH7BGkEUlDFtCR_BKsFQ7FLRCgBGVEKCqCGtDHNCgBItCAyES4DF_BIkCK6GZ5DWeERG0BDRGIC6CF5BIKCgDD8BPSChCQuDAmCNhBK$EC|6mFfaFE7BKXIMShBQAkBsBaGCKgBOsCjB8F9ByBnBAZiCXQPARjBJMXkBbSnBYACTeJLFEJoBLRDIJPHXMxCMlCuC_BWPJVMMVTDEJ5BAwBXfZ9BGvBoBEMdNHINLGaPOSCZKKERUFaLAhBe1CUVOIGnBGLMGSTjBTJJgBhBUeAUOUHIUhCHPcnBGKWuBUqBR|gyEsISKSZJTUGDPQEkBTFLlBFMZrBLMTfFoB1BLLwBrBTJbMRjBCpBbTHGANTTKZZxBzBXPkBbJbUNPlBLHa7BDLiCdSHQEUPeIcWW$BbHKSsB8BQoB4BoBSSDDSUIkB4BAN|lvE46CkBCUOqCNbPKD6BOTOaAyBTWjBQDUKRKXoBMCFG$BHsBRoBxBFXkBRkDVIP3BCPNjBEQJDLmBMONtBR5CEEIvBCVMhBTxCNvEJXKHSxDKdY$GK1CQ7EDhBM8DWrDFNCUIzBECKeKHMoCU$CKERRN|$9BzPQZSpDJNNULDIpBRfFtB3CjITPjCRrBWhBoDKqBkB6BRkDUwBiCSKJCSUMGLKcGLSOJMIcMDWSAgBQOOP|s_B26B3BTbRCJ1BJfzBYPGXIOJjBMPkCtCkBVhBFJjBRLG7BqDrB4CIF2CHKXCEOODFOVECLNaIakBRWCMOnBsBhBHFhBRcGiB1BQTqBZIGIuBDXOQSoCATIQsBLMfFnBKVH|04DyGqBDetB6BlBgBpBOLDMIA2B5BaLVRgBMMJGLPLARmBTEfONJVeIadNtDtBMDR5DuDdkBZ4BvBwBX8BlBUfyB3BqBPkByBN|9DkpClBXGHNJyCEMLhBlBdJaFvBHwBDmBVQjBuBZIVfEkBPJTgCHDbxBboBFAHxBThEDRDNRVG5BP4BuBqBAcWjBPrCODIwBYFOZFSO8BGNIIadMUUxCJFKSUHOKEJITLGMbjBW4BTJVGQGIQJQYKLGQIAMsCD|ywF2zBICAdORIjBXrBVLCrBTjBMXVVXLMaLCHVTGPbJSVVvBAIGPDFOLPMRVFbdXUKYbGhCTjBAHTRIjBDEQsCsB8CKGJWCgBuBGaSERROPqBSsBmBQeKcNMKODQSYOROCGMTCGKMH|x4BxiD$BDcbDNfJIJ5HZ5FCmBasBDuCaRIOU0BeyDKiDXHLzBJ|31E08C6CG0CfvEhBzBVRd7CRvBYrCMiBYCKQELIoBYlBYgEIuCNJH|vT6yCmBGVNQFHLSCDLiBDJHKNtBbhFpB_BGnBQ9BFDKaDYOZFSOhDI0CIEGdAaKpDCYCLKgBDXEOCNEOIoBNVMSCZEIE8BRANLDUTOQOFKWcPEOWEcTHQeJqBKDKMCcL|9yDulDyBX4BFQPaDRGEGiBDLLkBJNNiCAYNnDZNCCMJDJPKFfCDRzBQWTtCC7BKoBE5BCRGUCpBGyDQ5EDbE2BO7BFlBUkDC3CEiBCZIIGwCH_BMKGwCGnBI8CJ|91DkgDsBHPN6CKeJjBD0CH1CF0CRPLeFKIsDLwCQoCCkDRGJlBJoBHnBAIFHJjCHpBEXOGHJHlBF_EACMJCpBN3BKZHlBYOQHIlBU3CFhBKQEzBGUCPGkBE$BH|s4G1zBiBQHPIKMALLMGNPGRjChCWRrBGGJnBPThCtBdZFdCjBSdFCMRAUKLGEKMFFMiBSSWiBIqCqBwB0CcKLHQb|gV8jDqBFJReIQHFJsCHGDLDkBL7CPjDpCtDkB0DQxDHRMqEOdEOG5BJAMdDLJIF9BHpCcqBAREAKhBHVY4DEIF3BJ4BJaSmChBVcQOWH|20Cq_ChInBlCdtBFCLjBLALTEKJlBP_CCXQgCagBEXGkBMdGoCK0BUyCIKKiEE8DY4BNxBT|k8EoBTXdH_DKRNHhBYhBUASUOFwBQMLDJVEbblBPmBpBDdYTAPfHDNTEAadYGeRERNIrDlBAJMKyBHWXAFgBUeIqBIIGHHeWqBOFUUmCVoBAyBiBGJPV|rlCugCZJKNpB7BYUCHaCbRkBFFRiBSCJiBDCHZPSHRLqBKhBbIAJJIHgBSNZOKGJRjBXDAUZLOWPQNT1BXFGsBahBJXCMMlBLlDEFMoBWhBCSCMUQFJQQEHIkB0BoBWYA|tnEi_CYDNJgBEMJIMgBAQNZZvDDzEbtCKmEYrDJHIQGXCVHCJ1BHrCMiDSxCD2CKjCCSK4BDrBGiBI8CNiCbuCDIGnBMQGjBM6BQQDJHWPJJ|y4G3rBqBNUrBFXiBPFcavBuBPeSWHb_BhBCLnBjBrBdRTQJFWsB7BkBgBSQqBPcOAVGLSIFAOVOGTbgBKKPHZoBOAIV|z3Cx2CaRsB1BClBnBf_DFdIyDI7BALGsBI7BKdLjBCKHTH5BMMMcFEKgBJFK4BAjBIOE8CEWJAK3BKgCK3COAaRMmCMOR|hJ6kCqBGSRJHSHlBVMrBRZGF1CPAJlBJhBEUKfDSMTE$BUtBHmBavBIUQNCHQ8BAQQZCUSYEANOQOFLJ|mmExHoBNOVmCHQWkCXSd4BHInB3BSnCA5CY5BA7BOCMNEnBEgBmB0BF|uyFgkCY7BHpB8BlEbYnBDX7BqB5BHNHUdGVhBLWO$BPeMgBCiCVWDUIsBcEGSPQQE|4zFk3BkBHaQJdIPUEtCVdlB5BYjBLVIHLgBVtBPJuBYODOoBAOwBFkBMEqC5B|rmD$cyCLWVmCXaVuBLARgBDeVnBLpDDYWHKjBEbiBZArCabDLIQEHGlBC1BfjBFWIAOMK4CU|s3EoXeNQGFhBOXPlBXLJbOvBSJAISGSXIMUJLJKXODFVFObGdiBAdhBeTNdGMiBPKHTPQP4BYHKgDUE|h9Du8CiBJyCCEHbHQFxBTgBEURYCELPHITpBJdIERnBF7BgB1CYUOmBRsBIRMeAlCMoBDVMoBI|klC07CuBFPRdLEPJLuBjBuBP3BDIHvDKNCeKfKAIhCDPMGKoBKMOPEgBGFMyCE|lqDyxCQIiDhBOTJJqBEYNhBP7Cc3BjBfJPY7BFmBWFQW0BWDOX|w9E0LMPHPMRGnBRRAXVmBNXKdNRFSNHjBUFYIQXQLRhBOThBLEOkBaIWWQLDRYWODEQaCDeWT|ivF6$CeJIMUI6EZ3BVxBIFIKKbAJDELmBTrEAZNpBGvBWOADQSAHIaGcEuBP|q1FhzByBPsCMG3BHKJNAlBdOThBhBCGKdONcMFfmBDeOH|v0D28CwDNnCtB1CAaNZTrBCRiBDgBmBDTKIGoCE|kaqkD4BJGOWCMDJJ0BGiDJOLjEd5EMTEsBGzCAVIYEnBE6BDICPIWFAKuBL|_5C0YoBIoBLIPUDPHkBJOPPPXKpCJRZZY7BARJXOIKqCFRUEQfKWKmBL|v2C7hCUAQTLHwBhBqBVqBH1BP5GSsBKUJXSMSGPLAQPwBFtBWeWhBDLIMKLISDSMOH|i6DmkDOHPLmBM2BJLXbAkBPhDF1FauCYqDC|vwE2gDhBJWJTDMJrBHLLfEEQlBNIHRJZIHLIFPHVATO_BLVI4EuB6CCJEWEmBJ|gkDoMcTuBzCJjBlBTbGLcH2BEJMgCOFTM|l6Dy_CGPPPUFCLXAKLRCCH7CDLIOCZE$BOxEFaKwBDlBMMGZCOGuCXGCRGWC3BOiBGuBJFGMEoBL|24DslD0BRfFMNLDlEL9CO0BKQIbAeKoCI4BH|rhEkjDiBRkBIkCPQJHLeNnBJtBQrEEVI6BCTEaEjBCMELEfJGKjBCIIuCA|0gEijDVR4BM$BXZL7GNsBcWCEMWK8BDJD|gkFgqBUAHPOAEPb9BNCPTEcJVTIQ6BNOEVZHDUMJRQsBcUP|3qCvkDFRfJzCEVKtBHlDSsGDSEVKsBKeDCNUFTH|h_Eq_BkCPafoBTWdlCMIUfLRSZAQKnBKHKZADMQDCIlBESGcJ|o3EocHdZgBFmBkB4BWKOPXpCRX|vjDi8C$CHsBZpEH1BYDM0BA|0qEgZEPpBzBVJhBODeYY4BKKH|7mG5jDxDEjDSqBWiBDsDbaR|16D95CDJWIKNmBOKDjBN0BGGJVP1CCnFS0CKQJwBMUH|j$BLyBDTtBnBRdANkBGaoBA|89FtFUDDTPLERZFrBdhBD1BaEI4BDKUEVWAkBYDcMF|75Di3C4ChB3BR3DYqBKDKUFLIIIaJ|gboiDSAKPuBFPHoCL1CTPAKKjCFJEgBO5BY2BE|iMkzBGRL3BVEFNNALKGaPoBqBQQP|wT4vBVfIRJPrDsBMQqBJoCI|_3C1jD7BKuBW8EUxE1B|k_ExKtClBnBjBjBFEa8BmB0CK|$nF6qBMAETXXXKjBfNGFWPFkBeKHeQQF|_0D69CARpBAzCQaQqBIoBLOP|z$Cs1CYHFZLJ_BFPSYWqBC|p4DmiD0BHTJQFzCNbMcCtBINQ2CJ|2_EiBmBcATTPaXlBKFHWxBfaL4BIcQODjBLV|w3Fm$CgFJJL_BH1DSMOOJ|jqE0hDiBDzBJcFDJnCJxBIHKyDM|_hCu3CiBPrCPTGWCJErBGEKUAXIUGgCP|4xFs8CuBPGN5EG4BSsBC|_9E17CsBPXHyBCUHIPnEWLKsBG|32En8CMLfP1BDbEMOdEwDE|l_FooCSCKLfFKHzBZGKTGFLPSYMQPHWmBD|miFzDgBNKdnBURFZIPJPMLPMa$BA|8$BmlD4BLxDPJDMHZDnCIiDIGMqBG|otGrZoBVmC_BVC9BmBlBuBGF|w5E5KnCPzBKEMcGkCRYWFV|y8E2PMPIvBdMDQXQHQmBA|_mFumCODqBhBVDaLATtBYCKbISEVCIQ|1jEk7CjCY6BKkBHANdR|irBwsBVNENrBTdQaS8BI|2P4lCdrBjBmBaKGLQQQDDL|7f04CCLhBJrCCSQ2CA|6dusBsCJCLUIHN3BDxBMDMMA|r2GyvCoBCmCRpBPjBSzBCCKMD|ykEjCMhBSFHVbIJabGMUYF|xmD2uCFNlBTdDJMUS4BC|n8Cn2BbEO6BUFGNRROPNR|tsCu5BKCJNMCSWSPhBPhBECSkBiBAfZN|$5EqLfeSMGgBKEMJRnBGZHJ|k5EwOaDDLPVhBPGwBJIYL|6zEtKcAIP_CPCSMIgBRMGVSUH|8wG1gD6CJpDPXOSEHIYF|2tCilDDLrBJnCGQMiDA|ppEqiDSN_EAgDQsBF|skCslD4DNpCHrCGaM|8Lw1BCbPfRILeeOCMGJ|0yEyKCKqCoCOgBGhBhDzC|xiG4XNCHcIWqBhBhBV|6$Bw2C3BTZMEMWG0BN|8$G3VOfdHbGIWgBI|l9Cv9BFjBNKIOPTVCaqBOACR|mtFrKlBHSiBaGKNTX|82E8QgBPCVNTlBwBOE|7lF2jCUJRNkBUPlBfCMCRGLUSG|h1Cr0ChBNPKgBcaGLPKHXJKF|_8Ct7CNJMHJH_BSiBEVGOEqBFAJ|g2E5LgBdXH1BeqBE|ptCs9BzBG7BaiCJqBZ|yrCu3CAJhBDxBWYI4BV|w2Ct9BQGDNoBCHLbAWHJFnBGPHIqBIT|zgDiXqBXbCPLvBYsBG|zpCjgCYNKGILnCZAOUIIS|mvC8kDjBE0CQiBL1CL|tuBzjCeJWVNFtCiBkBD|3pF6oCGLaARLODCJZGPJbUgBM|3yCiXWJXNrBCCUoBD|3vGwrCQFGRXH1BS0BI|l8Cr4CGDnBLxCD$BQOJIIcD|tsG4kCQP9BLNGQOoBE|2T21CUMMHXNnCJuBQESaIPLDT|ooC$lDeHtBLxCG$CK|toF2oCSASVVQQdXNT0BIJ|$iGtILHPGZeAUwBzB|27EmOUHIlBLCCNLEAaPEFaIJ|y$E9DQXXHbQCMeA|3oF2nCMZDXfqBPLAMOKUJ|t3DohD$CHdJjDIgBG|l3C1kCyBDHJWVvBUHHGJLEXKMK|7_Dg_CKD1BJKG3BIiCIUN|3yClkDjCWoCDUPbH|n8Cx3BLJKbPDVaYUKL|5vCi6BoCDhBTJOXFjBUQOFLMP|l7C9iCcNbPEMTHbSmBC|q7BilDyBJpBE_BNzBGmDK|5Zt8CEZbOlBC2BSEL|trCrgCqBAvBdXEcMPCOCNMKF|j4B0mDlDUiDFCR|vjDguCMJRXZGCQaI|qwEnKKLXTdcoBA|od2wBeNSbnCiBWE|ojFpOaIMLZVTOFQIJ|ocopCcH1BVIIPOeE|4tEg9CZN1BKYI0BH|45F04BlClBoBoBkBEJJ|psC2MlBFQIHSeGFd|m6E6LCUa0BDjBbnB|uoCkkDZCPM6CF1BL|m_F_FbuB_BiBEI2C_BDb|3iEugDbCjBUeDgBPDH|5jFslCJNLINLFIIUQEKT|2nGzLYHSTnBCLKGM|uoFlHDZLDNMCOOKIL|6XqoCLHENfVAakBM|ghHnUTVQGALfCVNJI8Ba|hvCzwCOFlBNVGeSMJ|xWo$CYP9BACKiBE|wzGg3C5BKWGqBHJL|ysGopCJDMSgBICNnBN|gsF3sBUFbLlBIgBMKH|_xDx7CPAGMNMiBAARPJ|roCjwCOEMLdJXMUMEL|3kFwiCENNAUJHFQT3BoBgBC|q4Cs7CfASQ0BLpBH|3mFonCQFDNPKGRTCPUaA|rwDygDvBEJIqBCSHHJ|8zD0jDjCMuDFtBJ|3iDqmCJPDMNPLDIOTLWaFPMQMP|jyDASfPLPGQMVWOA|6xE5KDNfEWYMHDL|$D4xBMFRRdKgBQAH|8Vg3CYJHJvBHcW|g6E3FLZKJXNIqBKIEH|9mB5jDMGwBLhBFhCKkBD|onE5DHLTCCaWHAN|59Cn3CWJRLnBGgBM|iYy3CODhBRfAaISSEJ|nDv4CSDdPfSoBD|85D6BSVHRdkBQA|uwGzSCNMIAbPDFKFeIJ|snCukDFN1BCOKqBA|zoGhmDtEI8BEwCN|_zEw$CrBAsCUjBV|vqBljDrDAqBIgCJ|n9C58BPDNcOEMf|usF8kCKDVRTGOQOF|nhD8eNRROIAEWQV|qNwlCGNHLhBMgBK|ihDs6ChBAeOeHdJ|pwGsjCOCVTrBJqBQNKSD|liE69ChBEWMcLTH|8zDuOHMUkCPxC|_kD$hC1BMkBGQT|$oGtKY1BZaHYGC|7gC7BMgBMEDTXT|06EsPOXZSNLEaSN|47EoMVJNIWOKP|hiE4_CmBHxBFPKYA|p5CzjCQJnBDLKgBA|5H$oCJPdJKEJMiBG|3gFmiCHbDSTKGMUP|owFw8CZFNMiBCCL|$7DpCNIHaKAIjB|x$F$oCQF5BHWMSD|quE9ItBCMGoBDJH|ruEmhDxBIcGeLLF|mjC6PeFhBLRKSE|xnFinCKJTXEOLQOA|x7DgkDHNxBM2BA|kkFhKJACMUYPlB|wjFAWNfIMLHFVKWI|hW6jD_BAkCIHJ|kqGhNaRXEVUQJ|opCqlDOJnCG4BC|16CozBYC3CRoCULH|xqG9nDpCK2CJPD|9zC_kCnBDLIwBH|h8C40CvBI0BDHH|76Dq8CvBCmCGZJ|yhBh4ClBGaGKN|j0CrjD1BA8BIJJ";
+var LAND = (function(){
+  var CH = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789$_";
+  var idx = {}; for (var i=0;i<CH.length;i++) idx[CH[i]] = i;
+  return LAND_RAW.split("|").map(function(s){
+    var p = 0, x = 0, y = 0, ring = [];
+    while (p < s.length){
+      var vals = [];
+      for (var k=0;k<2;k++){
+        var n = 0, sh = 0, c;
+        do { c = idx[s[p++]]; n |= (c & 31) << sh; sh += 5; } while (c & 32);
+        vals.push((n & 1) ? -(n >> 1) : (n >> 1));
       }
+      x += vals[0]; y += vals[1];
+      var lon = x/20, lat = y/20, cl = Math.cos(lat*D2R);
+      ring.push(cl*Math.cos(lon*D2R), cl*Math.sin(lon*D2R), Math.sin(lat*D2R));
     }
-    return last;
+    return new Float64Array(ring);
+  });
+})();
+
+/* ── vector helpers (all in ECEF, unit sphere) ─────────────────── */
+function vlat(p){ return Math.asin(Math.max(-1,Math.min(1,p[2]))); }
+function vlon(p){ return Math.atan2(p[1],p[0]); }
+function fromLL(latDeg, lonDeg){
+  var a = latDeg*D2R, b = lonDeg*D2R, c = Math.cos(a);
+  return [c*Math.cos(b), c*Math.sin(b), Math.sin(a)];
+}
+function norm(v){ var m = Math.hypot(v[0],v[1],v[2]) || 1; return [v[0]/m, v[1]/m, v[2]/m]; }
+function dot(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+function cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function eastAt(p){
+  var e = [-p[1], p[0], 0], m = Math.hypot(e[0],e[1]);
+  return m < 1e-9 ? [1,0,0] : [e[0]/m, e[1]/m, 0];
+}
+function northAt(p){ return cross(p, eastAt(p)); }
+function gcDist(a,b){ return R_E * Math.acos(Math.max(-1,Math.min(1,dot(a,b)))); }
+
+/* ── the equations of motion ───────────────────────────────────── */
+// y = [px,py,pz, wx,wy,wz]  p unit vector, w tangential velocity (m/s)
+function deriv(y, opt, out){
+  var px=y[0],py=y[1],pz=y[2], wx=y[3],wy=y[4],wz=y[5];
+  var ax=0, ay=0, az=0;
+  if (opt.cor){                       // -2 Ω × w , with Ω = (0,0,OM)
+    ax =  2*OM*wy;  ay = -2*OM*wx;  az = 0;
   }
+  if (opt.pgf){ var g = opt.pgf(y); ax+=g[0]; ay+=g[1]; az+=g[2]; }
+  if (opt.fric){ ax-=opt.fric*wx; ay-=opt.fric*wy; az-=opt.fric*wz; }
+  var an = ax*px + ay*py + az*pz;                 // vertical part -> normal force
+  var w2 = (wx*wx+wy*wy+wz*wz)/R_E;               // centripetal, keeps it on the sphere
+  out[0]=wx/R_E; out[1]=wy/R_E; out[2]=wz/R_E;
+  out[3]=ax-an*px-w2*px; out[4]=ay-an*py-w2*py; out[5]=az-an*pz-w2*pz;
+  return out;
+}
+var _k1=new Float64Array(6),_k2=new Float64Array(6),_k3=new Float64Array(6),_k4=new Float64Array(6),_tmp=new Float64Array(6);
+function rk4(y, dt, opt){
+  var i;
+  deriv(y,opt,_k1);
+  for(i=0;i<6;i++) _tmp[i]=y[i]+_k1[i]*dt/2; deriv(_tmp,opt,_k2);
+  for(i=0;i<6;i++) _tmp[i]=y[i]+_k2[i]*dt/2; deriv(_tmp,opt,_k3);
+  for(i=0;i<6;i++) _tmp[i]=y[i]+_k3[i]*dt;   deriv(_tmp,opt,_k4);
+  for(i=0;i<6;i++) y[i]+=dt/6*(_k1[i]+2*_k2[i]+2*_k3[i]+_k4[i]);
+  // re-project onto the sphere (kills integration drift)
+  var m = Math.hypot(y[0],y[1],y[2]);
+  y[0]/=m; y[1]/=m; y[2]/=m;
+  var d = y[0]*y[3]+y[1]*y[4]+y[2]*y[5];
+  y[3]-=d*y[0]; y[4]-=d*y[1]; y[5]-=d*y[2];
+  return y;
+}
+function stateAt(p, w){ return new Float64Array([p[0],p[1],p[2],w[0],w[1],w[2]]); }
 
-  function drawCompassGrid(ctx, rotationAngle) {
-    ctx.save();
-    ctx.translate(CANNON_PX.x, CANNON_PX.y);
-    ctx.rotate(-rotationAngle); // canvas rotation is CW-positive; our math angles are CCW-positive
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    // range rings every 20km
-    for (var r = 20000; r <= RANGE_M + 1; r += 20000) {
-      ctx.beginPath();
-      ctx.arc(0, 0, r * SCALE, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    // radial spokes every 30 deg
-    ctx.strokeStyle = 'rgba(255,255,255,0.055)';
-    for (var deg = 0; deg < 360; deg += 30) {
-      var a = deg * Math.PI / 180;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.sin(a) * RANGE_M * SCALE * 1.05, -Math.cos(a) * RANGE_M * SCALE * 1.05);
-      ctx.stroke();
-    }
-    ctx.restore();
-
-    // Compass letters (screen-fixed, not rotated, so they still read N/E/S/W
-    // as *screen* directions — the grid under them is what rotates).
+/* Fly a parcel and return the recorded track.
+   Each sample keeps its Earth-fixed position AND the Earth's rotation
+   angle at that instant, so the same track can be redrawn in the sky
+   frame later (eci = Rz(theta) · ecef). */
+function fly(p0, w0, T, opt, steps, theta0){
+  steps = steps || 800;
+  var dt = T/steps, y = stateAt(p0,w0), track = [], th = theta0||0;
+  track.push([y[0],y[1],y[2],th,0]);
+  for (var i=1;i<=steps;i++){
+    rk4(y, dt, opt);
+    th = (theta0||0) + OM*dt*i;
+    track.push([y[0],y[1],y[2],th,dt*i]);
   }
+  track.endW = [y[3],y[4],y[5]];
+  return track;
+}
 
-  function drawCompassLabels(ctx) {
-    ctx.save();
-    ctx.font = '600 15px "Public Sans", sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    var R = RANGE_M * SCALE * 1.1;
-    ctx.fillText('N', CANNON_PX.x, CANNON_PX.y - R);
-    ctx.fillText('S', CANNON_PX.x, Math.min(890, CANNON_PX.y + R));
-    ctx.fillText('E', CANNON_PX.x + R, CANNON_PX.y);
-    ctx.fillText('W', CANNON_PX.x - R, CANNON_PX.y);
-    ctx.restore();
+/* ═══ colours (content-encoded; deliberately not themed away) ═══ */
+var C = {
+  space:'#0C1211', ocean1:'#2C5459', ocean2:'#15292C', ocean3:'#0D1A1D',
+  land:'#3F4A3B', landHi:'#4B5745', coast:'rgba(232,228,217,0.30)',
+  grat:'rgba(232,228,217,0.09)', gratMaj:'rgba(232,228,217,0.16)',
+  equator:'rgba(109,150,216,0.55)', glow:'rgba(60,163,174,0.20)',
+  text:'#E8E4D9', muted:'#948F82', sec:'#A6A499', accent:'#3CA3AE',
+  real:'#E8794A', norot:'#9AA39B', sky:'#6D96D8', target:'#D8B24A',
+  hemiN:'#E8794A', hemiS:'#A08CC6', star:'#E8E4D9'
+};
+
+/* ═══ canvas & camera ═══════════════════════════════════════════ */
+var cv = document.getElementById('globe');
+var ctx = cv.getContext('2d');
+var W=0, H=0, cx=0, cy=0, Rp=0, dpr=1;
+
+var S = {
+  mode:'spin', frame:'ground', playing:true,
+  simT:0, warp:3600, camLon:-40, camLat:22, zoom:0.45,
+  focus:null,            // [lat,lon] clicked point (spin mode)
+  spinRate:52, spinRuler:true, spinParcels:true, spinStars:true,
+  proj:'jet', speed:250, durT:21600,
+  launch:null, target:null, bearing:45,
+  flight:null, ghost:null, flightT:0, flightDur:0,
+  showNorot:true, showBoth:false,
+  lowLat:30, lowLon:-52, stormCor:true, stormFric:true, stormIso:true,
+  parcels:[], demo:[], tour:-1
+};
+
+function resize(){
+  var r = cv.getBoundingClientRect();
+  dpr = Math.min(window.devicePixelRatio||1, 2);
+  W = Math.max(320, r.width); H = Math.max(300, r.height);
+  cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  var narrow = W < 620;
+  cx = W/2; cy = H*(narrow ? 0.43 : 0.5);
+  Rp = Math.min(W,H) * S.zoom * (narrow ? 0.88 : 1);
+}
+
+var _b = {r:[0,0,0], u:[0,0,0], o:[0,0,0]};
+function setCam(lonDeg, latDeg){
+  var l = lonDeg*D2R, f = latDeg*D2R;
+  var sl=Math.sin(l), cl=Math.cos(l), sf=Math.sin(f), cf=Math.cos(f);
+  _b.r[0]=-sl; _b.r[1]=cl;  _b.r[2]=0;
+  _b.u[0]=-sf*cl; _b.u[1]=-sf*sl; _b.u[2]=cf;
+  _b.o[0]=cf*cl;  _b.o[1]=cf*sl;  _b.o[2]=sf;
+}
+var _p = [0,0,0];
+function px(x,y,z){
+  _p[0] = cx + (x*_b.r[0]+y*_b.r[1]+z*_b.r[2])*Rp;
+  _p[1] = cy - (x*_b.u[0]+y*_b.u[1]+z*_b.u[2])*Rp;
+  _p[2] =      x*_b.o[0]+y*_b.o[1]+z*_b.o[2];
+  return _p;
+}
+function pxv(p){ return px(p[0],p[1],p[2]); }
+function pxSpun(x,y,z,th){                    // ECEF -> ECI(th) -> screen
+  var c=Math.cos(th), s=Math.sin(th);
+  return px(x*c-y*s, x*s+y*c, z);
+}
+function theta(){ return OM*S.simT; }
+function camEarth(){ return S.frame==='ground' ? S.camLon : S.camLon - theta()*R2D; }
+function camStars(){ return S.frame==='ground' ? S.camLon + theta()*R2D : S.camLon; }
+/* screen -> lat/lon on the visible hemisphere (null if off the globe) */
+function unproject(sx, sy){
+  setCam(camEarth(), S.camLat);
+  var X=(sx-cx)/Rp, Y=(cy-sy)/Rp, r2=X*X+Y*Y;
+  if (r2 > 1) return null;
+  var Z=Math.sqrt(1-r2);
+  var p=[X*_b.r[0]+Y*_b.u[0]+Z*_b.o[0], X*_b.r[1]+Y*_b.u[1]+Z*_b.o[1], X*_b.r[2]+Y*_b.u[2]+Z*_b.o[2]];
+  return norm(p);
+}
+
+/* ═══ stars ═════════════════════════════════════════════════════ */
+var STARS = (function(){
+  var a=[], seed=20260822;
+  function rnd(){ seed=(seed*1664525+1013904223)%4294967296; return seed/4294967296; }
+  for (var i=0;i<900;i++){
+    var z=rnd()*2-1, t=rnd()*Math.PI*2, r=Math.sqrt(1-z*z);
+    a.push([r*Math.cos(t), r*Math.sin(t), z, 0.32+rnd()*1.05, rnd()<0.07]);
   }
+  return a;
+})();
+function drawStars(){
+  setCam(camStars(), S.camLat);
+  var far = Rp*2.55;
+  for (var i=0;i<STARS.length;i++){
+    var s=STARS[i], q=px(s[0],s[1],s[2]);
+    if (q[2] <= 0.02) continue;
+    var X=(q[0]-cx)/Rp, Y=(q[1]-cy)/Rp;
+    var sx = cx + X*far, sy = cy + Y*far;
+    if (sx<-20||sx>W+20||sy<-20||sy>H+20) continue;
+    var a = Math.min(1, q[2]*2.2) * (0.30+0.60*s[3]);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = s[4] ? C.accent : C.star;
+    var rad = s[3]*(s[4]?1.35:1.05);
+    ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 6.2832); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
 
-  function drawCannon(ctx) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+/* ═══ globe body ════════════════════════════════════════════════ */
+function drawGlobeBody(){
+  // outer atmosphere glow
+  var g = ctx.createRadialGradient(cx,cy,Rp*0.97, cx,cy,Rp*1.16);
+  g.addColorStop(0, C.glow); g.addColorStop(1, 'rgba(60,163,174,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,Rp*1.16,0,6.2832); ctx.fill();
+  // ocean, lit from the upper left
+  var lx = cx - Rp*0.34, ly = cy - Rp*0.40;
+  var og = ctx.createRadialGradient(lx,ly,Rp*0.05, cx,cy,Rp*1.02);
+  og.addColorStop(0, C.ocean1); og.addColorStop(0.55, C.ocean2); og.addColorStop(1, C.ocean3);
+  ctx.fillStyle=og; ctx.beginPath(); ctx.arc(cx,cy,Rp,0,6.2832); ctx.fill();
+}
+function drawLand(){
+  setCam(camEarth(), S.camLat);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx,cy,Rp,0,6.2832); ctx.clip();
+  ctx.fillStyle = C.land;
+  for (var i=0;i<LAND.length;i++){
+    var ring=LAND[i], n=ring.length/3, anyVis=false;
     ctx.beginPath();
-    ctx.arc(CANNON_PX.x, CANNON_PX.y, 7, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+    for (var j=0;j<n;j++){
+      var q=px(ring[j*3],ring[j*3+1],ring[j*3+2]);
+      var X,Y;
+      if (q[2] > 0){ X=q[0]; Y=q[1]; anyVis=true; }
+      else {         // fold hidden points just outside the limb
+        var dx=q[0]-cx, dy=q[1]-cy, m=Math.hypot(dx,dy)||1e-6;
+        X=cx+dx/m*Rp*1.05; Y=cy+dy/m*Rp*1.05;
+      }
+      if (j===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+    }
+    if (!anyVis) continue;
+    ctx.closePath(); ctx.fill();
   }
-
-  function drawTarget(ctx, x, y) {
-    var s = worldToScreen(x, y);
-    ctx.save();
-    ctx.strokeStyle = '#C1544B';
-    ctx.fillStyle = 'rgba(193,84,75,0.18)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(s[0], s[1], 16, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.beginPath(); ctx.arc(s[0], s[1], 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#C1544B'; ctx.fill();
-    ctx.restore();
+  // coastlines: only the genuinely visible runs
+  ctx.strokeStyle=C.coast; ctx.lineWidth=0.8; ctx.lineJoin='round';
+  ctx.beginPath();
+  for (i=0;i<LAND.length;i++){
+    var rg=LAND[i], m2=rg.length/3, pen=false;
+    for (var k=0;k<=m2;k++){
+      var idx=k%m2, qq=px(rg[idx*3],rg[idx*3+1],rg[idx*3+2]);
+      if (qq[2] > 0){ if(pen) ctx.lineTo(qq[0],qq[1]); else { ctx.moveTo(qq[0],qq[1]); pen=true; } }
+      else pen=false;
+    }
   }
-
-  function drawPath(ctx, pts, upToT, color, lineWidth) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth || 3;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    var started = false;
-    for (var i = 0; i < pts.length; i++) {
-      if (pts[i].t > upToT) break;
-      var s = worldToScreen(pts[i].x, pts[i].y);
-      if (!started) { ctx.moveTo(s[0], s[1]); started = true; }
-      else ctx.lineTo(s[0], s[1]);
+  ctx.stroke();
+  ctx.restore();
+}
+function drawGraticule(){
+  setCam(camEarth(), S.camLat);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,Rp,0,6.2832); ctx.clip();
+  ctx.lineWidth=0.75;
+  function poly(pts, style, wid){
+    ctx.strokeStyle=style; ctx.lineWidth=wid||0.75; ctx.beginPath();
+    var pen=false;
+    for (var i=0;i<pts.length;i++){
+      var q=pxv(pts[i]);
+      if (q[2]>0){ if(pen) ctx.lineTo(q[0],q[1]); else { ctx.moveTo(q[0],q[1]); pen=true; } }
+      else pen=false;
     }
     ctx.stroke();
+  }
+  var lat, lon, pts, i;
+  for (lat=-75; lat<=75; lat+=15){
+    pts=[]; for (lon=-180; lon<=180; lon+=3) pts.push(fromLL(lat,lon));
+    if (lat!==0) poly(pts, (lat%30===0)?C.gratMaj:C.grat);
+  }
+  for (lon=-180; lon<180; lon+=15){
+    pts=[]; for (lat=-90; lat<=90; lat+=3) pts.push(fromLL(lat,lon));
+    poly(pts, (lon%30===0)?C.gratMaj:C.grat);
+  }
+  pts=[]; for (lon=-180; lon<=180; lon+=2) pts.push(fromLL(0,lon));
+  poly(pts, C.equator, 1.6);
+  ctx.restore();
+}
+function drawRim(){
+  ctx.strokeStyle='rgba(232,228,217,0.22)'; ctx.lineWidth=1.1;
+  ctx.beginPath(); ctx.arc(cx,cy,Rp,0,6.2832); ctx.stroke();
+}
+
+/* ═══ generic track drawing ═════════════════════════════════════ */
+function camFor(spun){ return spun ? S.camLon : camEarth(); }
+function drawTrack(track, upto, color, opts){
+  opts = opts || {};
+  var spun = opts.spun, wid = opts.width||2.2, dash = opts.dash;
+  setCam(opts.cam!==undefined ? opts.cam : camFor(spun), S.camLat);
+  ctx.save();
+  if (dash) ctx.setLineDash(dash);
+  ctx.lineWidth = wid; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.strokeStyle = color;
+  if (opts.glow){ ctx.shadowColor=color; ctx.shadowBlur=10; }
+  ctx.beginPath();
+  var pen=false, last=null;
+  var n = Math.min(upto===undefined?track.length:upto, track.length);
+  for (var i=0;i<n;i++){
+    var t=track[i];
+    var q = spun ? pxSpun(t[0],t[1],t[2], opts.spunNow ? theta() : t[3]) : px(t[0],t[1],t[2]);
+    if (q[2]>0){ if(pen) ctx.lineTo(q[0],q[1]); else { ctx.moveTo(q[0],q[1]); pen=true; } last=[q[0],q[1]]; }
+    else { pen=false; last=null; }
+  }
+  ctx.stroke();
+  ctx.restore();
+  return last;
+}
+function marker(sx, sy, color, r, ring){
+  ctx.save();
+  ctx.shadowColor=color; ctx.shadowBlur=12;
+  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(sx,sy,r,0,6.2832); ctx.fill();
+  ctx.restore();
+  if (ring){ ctx.strokeStyle=color; ctx.lineWidth=1.2; ctx.globalAlpha=0.5;
+    ctx.beginPath(); ctx.arc(sx,sy,r+4.5,0,6.2832); ctx.stroke(); ctx.globalAlpha=1; }
+}
+function label(sx, sy, text, color, align, size, weight){
+  ctx.font = (weight||'') + ' ' + (size||11) + 'px "Courier Prime", ui-monospace, monospace';
+  ctx.textAlign = align||'left'; ctx.textBaseline='middle';
+  ctx.lineWidth=3.4; ctx.strokeStyle='rgba(10,15,14,0.82)'; ctx.lineJoin='round';
+  ctx.strokeText(text, sx, sy); ctx.fillStyle=color; ctx.fillText(text, sx, sy);
+}
+
+/* ═══ mode: SPIN ════════════════════════════════════════════════ */
+function rightmostOnParallel(latDeg){
+  var best=null;
+  for (var lon=-180; lon<180; lon+=2){
+    var p=fromLL(latDeg,lon), q=px(p[0],p[1],p[2]);
+    if (q[2]>0.02 && (!best || q[0]>best[0])) best=[q[0],q[1]];
+  }
+  return best;
+}
+function drawSpeedRuler(){
+  setCam(camEarth(), S.camLat);
+  var narrow = W < 620;
+  var lats = narrow ? [0,30,-30,60,-60] : [0,15,-15,30,-30,45,-45,60,-60,75,-75,90,-90];
+  var i, used=[];
+  var xLab = cx + Rp + (narrow?9:16);
+  ctx.save();
+  for (i=0;i<lats.length;i++){
+    var la=lats[i], pt = Math.abs(la)===90 ? (function(){
+      var p=fromLL(la,0), q=px(p[0],p[1],p[2]); return q[2]>0.02?[q[0],q[1]]:null; })()
+      : rightmostOnParallel(la);
+    if (!pt) continue;
+    var clash=false;
+    for (var u=0;u<used.length;u++) if (Math.abs(used[u]-pt[1])<26) clash=true;
+    if (clash) continue;
+    used.push(pt[1]);
+    if (xLab > W-(narrow?62:78)) xLab = W-(narrow?62:78);
+    var v = 1670*Math.cos(la*D2R);
+    ctx.strokeStyle='rgba(232,228,217,0.20)'; ctx.lineWidth=0.8;
+    ctx.setLineDash([2,3]); ctx.beginPath();
+    ctx.moveTo(pt[0]+3, pt[1]); ctx.lineTo(xLab-6, pt[1]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle=C.accent; ctx.beginPath(); ctx.arc(pt[0],pt[1],2.1,0,6.2832); ctx.fill();
+    var big = Math.abs(la)<=30;
+    label(xLab, pt[1], Math.round(v/10)*10 + (narrow?'':' km/h'), big?C.text:C.sec, 'left', narrow?10:(big?12:11), big?'bold':'');
+    if (!narrow) label(xLab, pt[1]+12, (la===0?'equator':Math.abs(la)+'°'+(la>0?'N':'S')), C.muted, 'left', 10);
+  }
+  ctx.restore();
+}
+function drawRotationArrow(){
+  setCam(camEarth(), S.camLat);
+  var pts=[], lon;
+  for (lon=-180; lon<=180; lon+=2){
+    var p=fromLL(0,lon), q=px(p[0],p[1],p[2]);
+    if (q[2]>0.05) pts.push([q[0],q[1]]);
+  }
+  if (pts.length<6) return;
+  pts.sort(function(a,b){ return a[0]-b[0]; });
+  var tip=pts[pts.length-2], prev=pts[pts.length-6];
+  var ang=Math.atan2(tip[1]-prev[1], tip[0]-prev[0]);
+  ctx.save(); ctx.fillStyle=C.sky; ctx.translate(tip[0],tip[1]); ctx.rotate(ang);
+  ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-6,5.4); ctx.lineTo(-6,-5.4); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  var mid=pts[Math.floor(pts.length*0.45)];
+  label(mid[0], mid[1]-17, 'DIRECTION OF ROTATION', C.sky, 'center', 10.5, 'bold');
+}
+function seedDemo(){
+  S.demo=[];
+  var lats=[15,45,-15,-45], lons=[-135,-95,-55,-15,25,65], k;
+  for (k=0;k<lats.length;k++){
+    for (var j=0;j<lons.length;j++){
+      var la=lats[k], lo=lons[j], bear=(j%2===0)? 0 : 180;
+      var p=fromLL(la,lo);
+      var e=eastAt(p), n=northAt(p), V=70;
+      var b=bear*D2R, w=[V*(Math.sin(b)*e[0]+Math.cos(b)*n[0]),
+                         V*(Math.sin(b)*e[1]+Math.cos(b)*n[1]),
+                         V*(Math.sin(b)*e[2]+Math.cos(b)*n[2])];
+      S.demo.push({ y:stateAt(p,w), trail:[[p[0],p[1],p[2],theta()]], t0:S.simT, north:(bear===0) });
+    }
+  }
+}
+function stepDemo(dt){
+  var life = DAY*0.42;
+  for (var i=0;i<S.demo.length;i++){
+    var d=S.demo[i];
+    if (S.simT-d.t0 > life){ S.demo.splice(i,1); i--; continue; }
+    rk4(d.y, dt, {cor:true});
+    var t=d.trail[d.trail.length-1];
+    if (!t || (t[0]-d.y[0])*(t[0]-d.y[0])+(t[1]-d.y[1])*(t[1]-d.y[1])+(t[2]-d.y[2])*(t[2]-d.y[2]) > 2e-6)
+      d.trail.push([d.y[0],d.y[1],d.y[2],theta()]);
+    if (d.trail.length>240) d.trail.shift();
+  }
+  if (S.demo.length===0) seedDemo();
+}
+function arrowAt(from, to, color, size){
+  var a=Math.atan2(to[1]-from[1], to[0]-from[0]);
+  ctx.save(); ctx.translate(to[0],to[1]); ctx.rotate(a);
+  ctx.fillStyle=color; ctx.shadowColor=color; ctx.shadowBlur=8;
+  ctx.beginPath(); ctx.moveTo(size,0); ctx.lineTo(-size*0.75,size*0.62);
+  ctx.lineTo(-size*0.75,-size*0.62); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawDemo(){
+  var spun = S.frame==='space';
+  for (var i=0;i<S.demo.length;i++){
+    var d=S.demo[i], col = d.y[2]>=0 ? C.hemiN : C.hemiS, tr=d.trail;
+    var last = drawTrack(tr, undefined, col, {spun:spun, width:2, glow:true});
+    if (!last) continue;
+    var n=tr.length, prev=null;
+    setCam(camFor(spun), S.camLat);
+    for (var k=n-3; k>=0 && k>n-9; k--){
+      var t=tr[k], q = spun ? pxSpun(t[0],t[1],t[2],t[3]) : px(t[0],t[1],t[2]);
+      if (q[2]>0){ prev=[q[0],q[1]]; break; }
+    }
+    if (prev && (Math.abs(prev[0]-last[0])+Math.abs(prev[1]-last[1]))>1.5) arrowAt(prev,last,col,5);
+    else marker(last[0],last[1],col,2.6);
+  }
+}
+
+/* ═══ mode: LAUNCH ══════════════════════════════════════════════ */
+var PROJ = {
+  shell:{ v:800,  name:'artillery shell', tmin:60,    tmax:900,    tdef:300 },
+  jet:  { v:250,  name:'airliner',        tmin:1800,  tmax:43200,  tdef:21600 },
+  drift:{ v:60,   name:'free-drifting parcel', tmin:21600, tmax:604800, tdef:172800 },
+  custom:{v:250,  name:'projectile',      tmin:60,    tmax:864000, tdef:21600 }
+};
+function projSpec(){ var s=PROJ[S.proj]; return { v:(S.proj==='custom'?S.speed:s.v), name:s.name, tmin:s.tmin, tmax:s.tmax }; }
+function bearingTo(a,b){
+  var e=eastAt(a), n=northAt(a);
+  var t=[b[0]-a[0], b[1]-a[1], b[2]-a[2]];
+  return Math.atan2(dot(t,e), dot(t,n));
+}
+function launchVec(p, V, bear){
+  var e=eastAt(p), n=northAt(p), sb=Math.sin(bear), cb=Math.cos(bear);
+  return [V*(sb*e[0]+cb*n[0]), V*(sb*e[1]+cb*n[1]), V*(sb*e[2]+cb*n[2])];
+}
+function doFly(p0,V,bear,T){
+  var w0=launchVec(p0,V,bear), th=theta();
+  return { real: fly(p0,w0,T,{cor:true},760,th), ghost: fly(p0,w0,T,{cor:false},760,th) };
+}
+function endFrame(track){
+  var e=track[track.length-1], p=[e[0],e[1],e[2]];
+  var w=track.endW, m=Math.hypot(w[0],w[1],w[2])||1;
+  var t=[w[0]/m,w[1]/m,w[2]/m];
+  return { p:p, t:t, r:cross(t,p) };            // r = "right of travel"
+}
+function fireLaunch(bearOverride, Toverride){
+  if (!S.launch) return;
+  var sp=projSpec(), V=sp.v, T, bear;
+  if (Toverride!==undefined) T=Toverride;
+  else if (S.target) T = gcDist(S.launch,S.target)/V;
+  else T = S.durT;
+  bear = (bearOverride!==undefined) ? bearOverride
+       : (S.target ? bearingTo(S.launch,S.target) : S.bearing*D2R);
+  T = Math.max(30, Math.min(PROJ[S.proj].tmax*1.4, T));
+  var f=doFly(S.launch,V,bear,T);
+  S.flight=f.real; S.ghost=f.ghost; S.flightDur=T; S.flightT=0;
+  fitToFlight(f.real);
+  S.bearing=bear*R2D; S.warp=T/13; S.durT=T; S.playing=true;
+  var sl=PROJ[S.proj];
+  $('dur').value = Math.max(0, Math.min(100, 100*Math.log(T/sl.tmin)/Math.log(sl.tmax/sl.tmin)));
+  $('dur-v').textContent = fmtDur(T);
+  syncPlayBtn(); updateLegend();
+  return f;
+}
+/* frame the flight: a tight inertia loop needs the camera close in */
+function fitToFlight(tr){
+  var p0=[tr[0][0],tr[0][1],tr[0][2]], maxA=0, i, mid=tr[Math.floor(tr.length/2)];
+  for (i=0;i<tr.length;i+=8){
+    var d=Math.acos(Math.max(-1,Math.min(1, p0[0]*tr[i][0]+p0[1]*tr[i][1]+p0[2]*tr[i][2])));
+    if (d>maxA) maxA=d;
+  }
+  var span=Math.max(maxA, 0.004);
+  var z = 0.24/Math.max(0.05, Math.sin(Math.min(span*1.9, 1.35)));
+  S.zoom = Math.max(0.42, Math.min(1.5, z));
+  var mp=norm([(p0[0]+mid[0])/2, (p0[1]+mid[1])/2, (p0[2]+mid[2])/2]);
+  lookAt(vlon(mp)*R2D, vlat(mp)*R2D);
+  resize();
+}
+function solveAim(){
+  if (!S.launch || !S.target) return null;
+  var V=projSpec().v, bear=bearingTo(S.launch,S.target), T0=gcDist(S.launch,S.target)/V, T=T0, best=null;
+  for (var it=0; it<24; it++){
+    var tr=fly(S.launch, launchVec(S.launch,V,bear), T, {cor:true}, 420, theta());
+    var ef=endFrame(tr), miss=gcDist(ef.p, S.target);
+    if (!best || miss<best.miss) best={ bear:bear, T:T, miss:miss };
+    if (miss < 700) break;
+    var o=[S.target[0]-ef.p[0], S.target[1]-ef.p[1], S.target[2]-ef.p[2]];
+    var along=dot(o,ef.t)*R_E, right=dot(o,ef.r)*R_E;
+    bear += Math.max(-0.6, Math.min(0.6, right/(V*T)));
+    T = Math.max(T0*0.25, Math.min(T0*3.5, T + along/V));
+  }
+  return best;
+}
+function drawLaunch(){
+  var spun = S.frame==='space', n = S.flight ? Math.max(2, Math.round(S.flightT/S.flightDur*S.flight.length)) : 0;
+  setCam(camEarth(), S.camLat);
+  // aim point / target
+  if (S.target){
+    var q=pxv(S.target);
+    if (q[2]>0){
+      ctx.strokeStyle=C.target; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.arc(q[0],q[1],7,0,6.2832); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(q[0]-11,q[1]); ctx.lineTo(q[0]-3,q[1]);
+      ctx.moveTo(q[0]+3,q[1]); ctx.lineTo(q[0]+11,q[1]);
+      ctx.moveTo(q[0],q[1]-11); ctx.lineTo(q[0],q[1]-3);
+      ctx.moveTo(q[0],q[1]+3); ctx.lineTo(q[0],q[1]+11); ctx.stroke();
+      label(q[0]+14,q[1]-9,'TARGET',C.target,'left',10,'bold');
+    }
+  }
+  if (S.flight){
+    // In the sky frame, draw the launch pad's OWN trip through space, so the gap between
+    // where the flight starts and where the pad is now reads as rotation, not as a bug.
+    if (spun && S.launch){
+      var th0=S.flight[0][3], thNow=theta(), turned=(thNow-th0)*R2D;
+      if (turned > 1){
+        setCam(camFor(true), S.camLat);
+        var tail=null, pen=false, st=120;
+        ctx.save(); ctx.setLineDash([2,4]); ctx.lineWidth=1.7;
+        ctx.strokeStyle='rgba(60,163,174,0.85)'; ctx.beginPath();
+        for (var s=0;s<=st;s++){
+          var q=pxSpun(S.launch[0],S.launch[1],S.launch[2], th0+(thNow-th0)*s/st);
+          if (q[2]>0){ if(pen) ctx.lineTo(q[0],q[1]); else { ctx.moveTo(q[0],q[1]); pen=true; }
+                       if (s===0) tail=[q[0],q[1]]; }
+          else pen=false;
+        }
+        ctx.stroke(); ctx.restore();
+        if (tail){
+          ctx.save(); ctx.globalAlpha=0.9; ctx.strokeStyle=C.accent; ctx.lineWidth=1.3;
+          ctx.beginPath(); ctx.arc(tail[0],tail[1],5.5,0,6.2832); ctx.stroke(); ctx.restore();
+          var toRight = tail[0] < W*0.45;
+          var lx = tail[0] + (toRight ? 11 : -11), al = toRight ? 'left' : 'right';
+          label(lx, tail[1]-7, 'LAUNCH SITE, '+fmtDur(S.flightT)+' AGO', C.accent, al, 10.5, 'bold');
+          label(lx, tail[1]+7, 'the ground has turned '+turned.toFixed(0)+'° since', C.muted, al, 10);
+        }
+      }
+    }
+    if (S.showNorot && S.ghost){
+      var gl = drawTrack(S.ghost, n, C.norot, {spun:spun, spunNow:true, width:1.8, dash:[5,5]});
+      if (gl && n>=S.ghost.length-1){
+        ctx.strokeStyle=C.norot; ctx.lineWidth=1.4;
+        ctx.beginPath(); ctx.arc(gl[0],gl[1],5,0,6.2832); ctx.stroke();
+        label(gl[0], gl[1]-12, 'AIM POINT', C.norot, 'center', 9.5);
+      }
+    }
+    if (S.showBoth)
+      drawTrack(S.flight, n, spun?C.real:C.sky, {spun:!spun, width:1.5, glow:false, dash:[1,4]});
+    var last = drawTrack(S.flight, n, spun?C.sky:C.real, {spun:spun, width:2.6, glow:true});
+    if (last) marker(last[0],last[1], spun?C.sky:C.real, 3.6, true);
+    setCam(camEarth(), S.camLat);          // the launch site is a place: it rides with the ground
+    var q0=pxv(S.launch||[S.flight[0][0],S.flight[0][1],S.flight[0][2]]);
+    if (q0[2]>0){ marker(q0[0],q0[1],C.text,2.6); label(q0[0]+9,q0[1]+10,'LAUNCH',C.sec,'left',10); }
+  } else if (S.launch){
+    setCam(camEarth(), S.camLat);
+    var qa=pxv(S.launch);
+    if (qa[2]>0){ marker(qa[0],qa[1],C.text,3,true); label(qa[0]+11,qa[1]+11,'LAUNCH SITE',C.sec,'left',10); }
+  }
+}
+
+/* ═══ mode: STORMS ══════════════════════════════════════════════ */
+function lowCentre(){ return fromLL(S.lowLat, S.lowLon); }
+var STORM_L = 700000, STORM_A = 3.0e-3, STORM_K = 2.6e-5, STORM_SEED = 1750000;
+function stormPGF(y){
+  var c=lowCentre();
+  var cd = c[0]*y[0]+c[1]*y[1]+c[2]*y[2];
+  cd = Math.max(-1,Math.min(1,cd));
+  var r = R_E*Math.acos(cd);
+  var tx=c[0]-cd*y[0], ty=c[1]-cd*y[1], tz=c[2]-cd*y[2];
+  var m=Math.hypot(tx,ty,tz); if (m<1e-9) return [0,0,0];
+  var g = STORM_A*(r/STORM_L)*Math.exp(0.5 - r*r/(2*STORM_L*STORM_L));
+  return [g*tx/m, g*ty/m, g*tz/m];
+}
+function spawnParcel(){
+  var c=lowCentre(), u=norm(cross(c, Math.abs(c[2])>0.9?[1,0,0]:[0,0,1])), v=cross(c,u);
+  var a=Math.random()*6.2832, ang=(STORM_SEED*(0.85+Math.random()*0.35))/R_E;
+  var sa=Math.sin(ang), ca=Math.cos(ang);
+  var p=norm([c[0]*ca+(u[0]*Math.cos(a)+v[0]*Math.sin(a))*sa,
+              c[1]*ca+(u[1]*Math.cos(a)+v[1]*Math.sin(a))*sa,
+              c[2]*ca+(u[2]*Math.cos(a)+v[2]*Math.sin(a))*sa]);
+  var w=[0,0,0];
+  if (S.stormCor && Math.abs(S.lowLat)>2){       // arrive already circling, as real inflow does
+    var f=coriolisF(vlat(p)*R2D), g=stormPGF(stateAt(p,[0,0,0]));
+    var gm=Math.hypot(g[0],g[1],g[2]);
+    if (gm>0 && Math.abs(f)>1e-9){
+      var tang=cross(p,[g[0]/gm,g[1]/gm,g[2]/gm]);   // 90 deg from the pressure force
+      var V=Math.min(45, gm/Math.abs(f))*(f>0?-1:1);
+      w=[tang[0]*V, tang[1]*V, tang[2]*V];
+    }
+  }
+  return { y:stateAt(p,w), trail:[[p[0],p[1],p[2],theta()]], age:0, mark:0 };
+}
+function seedStorm(){
+  S.parcels=[];
+  var opt={ cor:S.stormCor, pgf:stormPGF, fric:S.stormFric?STORM_K:0 };
+  for (var i=0;i<120;i++){
+    var q=spawnParcel();
+    var spin=Math.random()*DAY*1.1;                 // stagger the flow into a mature vortex
+    for (var t=0;t<spin;t+=300){
+      rk4(q.y,300,opt); q.age+=300;
+      if (q.age%900<300) q.trail.push([q.y[0],q.y[1],q.y[2],theta()]);
+      if (q.trail.length>120) q.trail.shift();
+    }
+    S.parcels.push(q);
+  }
+}
+function stepStorm(dt){
+  var opt={ cor:S.stormCor, pgf:stormPGF, fric:S.stormFric?STORM_K:0 };
+  var c=lowCentre();
+  for (var i=0;i<S.parcels.length;i++){
+    var pa=S.parcels[i];
+    rk4(pa.y, dt, opt); pa.age+=dt; pa.mark+=dt;
+    if (pa.mark >= 900){ pa.mark=0; pa.trail.push([pa.y[0],pa.y[1],pa.y[2],theta()]); }
+    if (pa.trail.length>120) pa.trail.shift();
+    var cd=c[0]*pa.y[0]+c[1]*pa.y[1]+c[2]*pa.y[2];
+    if (pa.age > DAY*2.6 || R_E*Math.acos(Math.max(-1,Math.min(1,cd))) < 55000) S.parcels[i]=spawnParcel();
+  }
+}
+function drawStorm(){
+  var c=lowCentre(), spun=S.frame==='space';
+  setCam(camFor(spun), S.camLat);
+  if (S.stormIso){
+    var u=norm(cross(c, Math.abs(c[2])>0.9?[1,0,0]:[0,0,1])), v=cross(c,u);
+    ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,Rp,0,6.2832); ctx.clip();
+    var rings=[400000,750000,1100000,1450000];
+    for (var k=0;k<rings.length;k++){
+      var ang=rings[k]/R_E, sa=Math.sin(ang), ca=Math.cos(ang);
+      ctx.strokeStyle='rgba(109,150,216,'+(0.42-k*0.07)+')'; ctx.lineWidth=1;
+      ctx.beginPath(); var pen=false;
+      for (var a=0;a<=6.2832;a+=0.06){
+        var co=Math.cos(a), si=Math.sin(a);
+        var p=[c[0]*ca+(u[0]*co+v[0]*si)*sa, c[1]*ca+(u[1]*co+v[1]*si)*sa, c[2]*ca+(u[2]*co+v[2]*si)*sa];
+        var q= spun ? pxSpun(p[0],p[1],p[2],theta()) : px(p[0],p[1],p[2]);
+        if (q[2]>0){ if(pen) ctx.lineTo(q[0],q[1]); else { ctx.moveTo(q[0],q[1]); pen=true; } } else pen=false;
+      }
+      ctx.stroke();
+    }
     ctx.restore();
   }
-
-  function drawBall(ctx, x, y, color) {
-    var s = worldToScreen(x, y);
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.arc(s[0], s[1], 6.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+  for (var i=0;i<S.parcels.length;i++){
+    var pa=S.parcels[i];
+    var sp=Math.hypot(pa.y[3],pa.y[4],pa.y[5]);
+    var f=Math.min(1, sp/38);
+    var col='rgb('+Math.round(60+188*f)+','+Math.round(163-42*f)+','+Math.round(174-100*f)+')';
+    ctx.globalAlpha=0.30;
+    drawTrack(pa.trail, undefined, col, {spun:spun, width:1.2, glow:false});
+    ctx.globalAlpha=1;
+    var tail=pa.trail.slice(Math.max(0,pa.trail.length-26));
+    var last=drawTrack(tail, undefined, col, {spun:spun, width:2, glow:false});
+    if (last) marker(last[0],last[1],col,2.2);
   }
-
-  function renderGhosts(ctx, isGround) {
-    for (var i = 0; i < state.trails.length; i++) {
-      var tr = state.trails[i];
-      var pts = isGround ? tr.groundPts : tr.spacePts;
-      drawPath(ctx, pts, Infinity, 'rgba(232,228,217,0.22)', 2);
-    }
+  setCam(camFor(spun), S.camLat);
+  var qc = spun ? pxSpun(c[0],c[1],c[2],theta()) : pxv(c);
+  if (qc[2]>0){
+    label(qc[0], qc[1], 'L', C.sky, 'center', 26, 'bold');
+    label(qc[0], qc[1]+20, lowLabel(), C.sec, 'center', 11);
   }
+}
 
-  function render() {
-    var now = performance.now();
-    var shot = state.shot;
+/* ═══ formatting ════════════════════════════════════════════════ */
+function fmtLL(p){
+  var la=vlat(p)*R2D, lo=vlon(p)*R2D;
+  return Math.abs(la).toFixed(1)+'°'+(la>=0?'N':'S')+' '+Math.abs(lo).toFixed(1)+'°'+(lo>=0?'E':'W');
+}
+function fmtDur(s){
+  if (s<90) return s.toFixed(0)+' s';
+  if (s<5400) return (s/60).toFixed(s<600?1:0)+' min';
+  if (s<172800) return (s/3600).toFixed(s<36000?1:0)+' h';
+  return (s/86400).toFixed(1)+' days';
+}
+function fmtKm(m){
+  if (Math.abs(m)<1000) return Math.round(m)+' m';
+  if (Math.abs(m)<10000) return (m/1000).toFixed(1)+' km';
+  return Math.round(m/1000).toLocaleString()+' km';
+}
+function fmtClock(s){
+  var h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=Math.floor(s%60);
+  return (h<10?'0':'')+h+':'+(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;
+}
+function coriolisF(latDeg){ return 2*OM*Math.sin(latDeg*D2R); }
 
-    // ── Ground canvas ───────────────────────────────────────────────────
-    gndCtx.clearRect(0, 0, 900, 900);
-    drawCompassGrid(gndCtx, 0);
-    renderGhosts(gndCtx, true);
-    drawCompassLabels(gndCtx);
-    drawTarget(gndCtx, 0, RANGE_M);
-    drawCannon(gndCtx);
+/* ═══ DOM ═══════════════════════════════════════════════════════ */
+var $ = function(id){ return document.getElementById(id); };
+var els = {
+  capK:$('cap-k'), capT:$('cap-t'), capD:$('cap-d'), hint:$('frame-hint'),
+  readout:$('readout'), roTitle:$('ro-title'), deeper:$('deeper'),
+  legend:$('legend'), clock:$('clock'), verdictWrap:$('verdict-wrap'),
+  vBig:$('verdict-big'), vSub:$('verdict-sub'), fact:$('fact-tag')
+};
+function rows(list){
+  els.readout.innerHTML = list.map(function(r){
+    return '<div class="ro"><span class="ro-k">'+r[0]+'</span><span class="ro-v">'+r[1]+'</span></div>';
+  }).join('');
+}
+function legend(items){
+  els.legend.innerHTML = items.map(function(it){
+    var sw = it.line
+      ? '<span class="legend-swatch" style="border-top-color:'+it.c+';'+(it.dash?'border-top-style:dashed;':'')+'"></span>'
+      : '<span class="cc-legend-dot" style="background:'+it.c+'"></span>';
+    return '<span class="cc-legend-chip legend-chip">'+sw+it.t+'</span>';
+  }).join('');
+}
+function setCaption(k,t,d){ els.capK.textContent=k; els.capT.textContent=t; els.capD.innerHTML=d; }
 
-    if (state.aiming && state.aimCurrent) {
-      var dx = state.aimCurrent.x - CANNON_PX.x;
-      var dy = state.aimCurrent.y - CANNON_PX.y;
-      gndCtx.save();
-      gndCtx.strokeStyle = 'rgba(111,209,168,0.85)';
-      gndCtx.lineWidth = 2.5;
-      gndCtx.setLineDash([6, 6]);
-      gndCtx.beginPath();
-      gndCtx.moveTo(CANNON_PX.x, CANNON_PX.y);
-      gndCtx.lineTo(state.aimCurrent.x, state.aimCurrent.y);
-      gndCtx.stroke();
-      gndCtx.restore();
-    }
-
-    if (shot) {
-      var elapsedWall = (now - shot.startTime) / 1000;
-      var frac = Math.min(1, elapsedWall / shot.playbackSeconds);
-      var simT = frac * shot.flightDuration;
-      drawPath(gndCtx, shot.groundPts, simT, '#6FD1A8', 3.5);
-      var gp = sampleAt(shot.groundPts, simT);
-      drawBall(gndCtx, gp.x, gp.y, '#6FD1A8');
-
-      groundOrbitNote.style.display = shot.totalTurns > 1.1 ? 'block' : 'none';
-      if (shot.totalTurns > 1.1) {
-        groundOrbitNote.textContent = "At this spin rate the shot spirals through " +
-          shot.totalTurns.toFixed(1) + " full loops before it ever reaches the target's range.";
-      }
-
-      if (frac >= 1 && !shot.done) {
-        shot.done = true;
-        state.trails.push(shot);
-        updateStatsAfterShot(shot);
-      }
+/* ═══ per-mode UI ═══════════════════════════════════════════════ */
+var MODE_CAPTION = {
+  spin: ['The carousel','You are already moving east.',
+    'Every latitude circles once a day — but the circles are not the same size. Click the globe to read your own speed.'],
+  launch:['The long shot','Aim straight. Land sideways.',
+    'Click once for a launch site, again for a target. The aim is computed as if the Earth stood still.'],
+  storms:['The spiral','Air never falls straight into a low.',
+    'It is turned aside on the way in — one way north of the equator, the other way south.']
+};
+function updateLegend(){
+  if (S.mode==='launch'){
+    var L=[{c:S.frame==='space'?C.sky:C.real, t:S.frame==='space'?'PATH THROUGH SPACE':'PATH OVER THE GROUND', line:true}];
+    if (S.showNorot) L.push({c:C.norot, t:'IF EARTH STOOD STILL', line:true, dash:true});
+    if (S.frame==='space' && S.flight) L.push({c:C.accent, t:'WHERE THE LAUNCH SITE WENT', line:true, dash:true});
+    if (S.target) L.push({c:C.target, t:'TARGET', line:false});
+    legend(L);
+  } else if (S.mode==='storms'){
+    legend([{c:C.accent,t:'SLOW AIR',line:false},{c:C.real,t:'FAST AIR',line:false},
+            {c:C.sky,t:'ISOBARS',line:true}]);
+  } else {
+    legend([{c:C.hemiN,t:'NORTHERN PARCELS — TURN RIGHT',line:true},
+            {c:C.hemiS,t:'SOUTHERN PARCELS — TURN LEFT',line:true}]);
+  }
+}
+function refreshReadout(){
+  if (S.mode==='spin'){
+    var p = S.focus || fromLL(S.camLat, camEarth());
+    var la = vlat(p)*R2D, v = 1670*Math.cos(la*D2R), f = coriolisF(la);
+    els.roTitle.textContent = S.focus ? 'At your click' : 'At the centre of view';
+    var per = Math.abs(f)>1e-9 ? (2*Math.PI/Math.abs(f)) : Infinity;
+    rows([
+      ['Latitude', Math.abs(la).toFixed(1)+'° '+(la>=0?'N':'S')],
+      ['Eastward ground speed', Math.round(v).toLocaleString()+' <small>km/h</small>'],
+      ['Circle completed daily', Math.round(2*Math.PI*R_E*Math.cos(la*D2R)/1000).toLocaleString()+' <small>km</small>'],
+      ['Coriolis parameter <i>f</i>', (f*1e4).toFixed(2)+'<small> ×10⁻⁴ /s</small>'],
+      ['A free parcel loops in', isFinite(per)? fmtDur(per) : 'never']
+    ]);
+  } else if (S.mode==='launch'){
+    var sp=projSpec();
+    var out=[['Projectile', sp.name],['Speed', sp.v+' <small>m/s</small> · '+Math.round(sp.v*3.6).toLocaleString()+' <small>km/h</small>']];
+    els.roTitle.textContent='This flight';
+    if (S.launch) out.push(['Launch site', fmtLL(S.launch)]);
+    if (S.flight){
+      var idx=Math.max(1,Math.round(S.flightT/S.flightDur*(S.flight.length-1)));
+      var t=S.flight[idx], g=S.ghost[idx];
+      var off=gcDist([t[0],t[1],t[2]],[g[0],g[1],g[2]]);
+      out.push(['Flight time', fmtDur(S.flightT)+' <small>/ '+fmtDur(S.flightDur)+'</small>']);
+      out.push(['Distance flown', fmtKm(sp.v*S.flightT)]);
+      out.push(['Bearing fired', Math.round((S.bearing+360)%360)+'°']);
+      out.push(['Sideways miss', fmtKm(off)]);
+      out.push(['Earth turned', ((theta()-S.flight[0][3])*R2D).toFixed(2)+'°']);
+      var fL=Math.abs(coriolisF(vlat(S.launch)*R2D));
+      var Ro = fL>1e-9 ? 1/(fL*S.flightDur) : Infinity;
+      out.push(['Rossby number 1/<i>ft</i>', isFinite(Ro)? (Ro>=10?Math.round(Ro):Ro.toFixed(2)) +
+        ' <small>'+(Ro>3?'· a nudge':(Ro>0.5?'· a real bend':'· rotation wins'))+'</small>' : '∞']);
     } else {
-      groundOrbitNote.style.display = 'none';
+      out.push(['Flight time', fmtDur(S.durT)]);
+      out.push(['Bearing', Math.round((S.bearing+360)%360)+'°']);
     }
+    rows(out);
+  } else {
+    var la2=S.lowLat, f2=coriolisF(la2), vg=Math.abs(f2)>1e-9 ? STORM_A/Math.abs(f2) : Infinity;
+    els.roTitle.textContent='This low';
+    rows([
+      ['Centre latitude', Math.abs(la2).toFixed(0)+'°'+(Math.abs(la2)<1?' (equator)':(la2>0?' N':' S'))],
+      ['Coriolis parameter <i>f</i>', (f2*1e4).toFixed(2)+'<small> ×10⁻⁴ /s</small>'],
+      ['Balanced wind speed', isFinite(vg)&&vg<400 ? Math.round(vg)+' <small>m/s</small>' : 'no balance possible'],
+      ['Inertial period', Math.abs(la2)<1 ? '—' : fmtDur(2*Math.PI/Math.abs(f2))],
+      ['Rotation', !S.stormCor ? 'none — air falls straight in'
+        : (Math.abs(la2)<3 ? 'none — f ≈ 0 at the equator'
+        : (la2>0 ? 'counter-clockwise (cyclonic, N)' : 'clockwise (cyclonic, S)'))]
+    ]);
+  }
+}
+var DEEPER = {
+  spin: '<p>A point at latitude φ rides a circle of radius <b>R cos φ</b> and completes it once every sidereal day, so its eastward speed is</p>'+
+    '<span class="eq">v = 2πR cos φ / 86 164 s = 1 670 cos φ km/h</span>'+
+    '<p>Move north or south and you carry your old speed with you, but the ground beneath you now needs a different one. That mismatch <i>is</i> the Coriolis effect. In the rotating frame we book-keep it as a sideways acceleration</p>'+
+    '<span class="eq">a = −f × v ,  f = 2Ω sin φ</span>'+
+    '<p>f is zero on the equator, maximum at the poles, and negative in the south — which is why the turn reverses across the equator.</p>',
+  launch:'<p>The apparent sideways acceleration is <b>f·V</b>, so over a flight of time t the miss distance grows as</p>'+
+    '<span class="eq">d ≈ ½ f V t²</span>'+
+    '<p>It is quadratic in time: double the flight, quadruple the miss. That is why it is irrelevant to a thrown ball, matters to a battleship gun, and dominates anything that stays in motion for hours.</p>'+
+    '<p>Nothing is pushing the object. Flip to <b>From space</b> and the flight is a plain arc — it is the target that has moved out from under it.</p>'+
+    '<p>The blue path there is long for a reason: the object left the ground already travelling east at 1 670 cos φ km/h and keeps that speed. Most of the line is inherited carry, not flying. Its far end is where the launch pad <b>was</b> at take-off — the teal dotted arc is that pad\'s own path through space, and the gap between the two is the whole story.</p>'+
+    '<p class="fine">Model: frictionless motion on a rotating sphere, Coriolis term only; the centrifugal force is absorbed into effective gravity, as the equatorial bulge does on the real Earth. Air resistance, gravity variation and winds are ignored.</p>',
+  storms:'<p>Air starts moving down the pressure gradient, is turned by Coriolis, and settles where the two balance — flowing <i>along</i> the isobars rather than across them:</p>'+
+    '<span class="eq">f V = (1/ρ) ∂p/∂n</span>'+
+    '<p>Friction near the surface breaks that balance and lets the air spiral inward at roughly 20–30° to the isobars, which is what feeds a storm.</p>'+
+    '<p>Because f = 2Ω sin φ changes sign at the equator, the circulation is counter-clockwise around a northern low and clockwise around a southern one — and within about 5° of the equator f is too small to organise a storm at all, which is why hurricanes never form there.</p>'
+};
+function applyMode(m){
+  S.mode=m;
+  document.querySelectorAll('[data-mode]').forEach(function(b){ b.classList.toggle('is-active', b.dataset.mode===m); });
+  document.querySelectorAll('[data-panel]').forEach(function(p){ p.hidden = p.dataset.panel!==m; });
+  var c=MODE_CAPTION[m]; setCaption(c[0],c[1],c[2]);
+  els.deeper.innerHTML = DEEPER[m];
+  if (m==='spin'){ S.warp = spinWarp(); S.zoom=Math.min(S.zoom,0.50); resize(); if (!S.demo.length) seedDemo(); }
+  if (m==='launch'){ if (S.flight) S.warp=S.flightDur/13; else S.warp=600; }
+  if (m==='storms'){ S.warp=3200; S.zoom=Math.max(0.45, Math.min(S.zoom,0.85)); resize(); if (!S.parcels.length) seedStorm(); }
+  updateLegend(); refreshReadout(); updateVerdict();
+}
+function spinWarp(){
+  var dayDur = 120*Math.pow(4/120, S.spinRate/100);
+  $('spin-rate-v').textContent = '1 day in '+dayDur.toFixed(0)+' s';
+  return DAY/dayDur;
+}
+function updateVerdict(){
+  if (S.mode==='launch' && S.flight && S.flightT>=S.flightDur){
+    var ef=endFrame(S.flight), gf=endFrame(S.ghost);
+    var o=[ef.p[0]-gf.p[0], ef.p[1]-gf.p[1], ef.p[2]-gf.p[2]];
+    var side = dot(o, gf.r) > 0 ? 'right' : 'left';
+    var miss = gcDist(ef.p, gf.p);
+    var hem = vlat(S.launch)*R2D >= 0 ? 'northern' : 'southern';
+    els.verdictWrap.hidden=false;
+    els.vBig.textContent = fmtKm(miss)+' to the '+side;
+    var extra = S.target ? (' Distance to the target: '+fmtKm(gcDist(ef.p,S.target))+'.') : '';
+    els.vSub.textContent = 'Fired dead straight and it still landed '+fmtKm(miss)+' to the '+side+
+      ' of the aim point — the signature of the '+hem+' hemisphere.'+extra;
+  } else if (S.mode!=='launch' || !S.flight){ els.verdictWrap.hidden=true; }
+}
+function lookAt(lonDeg, latDeg){
+  if (latDeg!==undefined) S.camLat=latDeg;
+  S.camLon = (S.frame==='space') ? lonDeg + theta()*R2D : lonDeg;
+}
+function setFrame(fr){
+  if (fr===S.frame) return;
+  var earthLon = camEarth();
+  if (S.mode==='launch' && S.flight){
+    S.simT = S.flight[0][3]/OM; S.flightT=0; S.playing=true; els.verdictWrap.hidden=true;
+  }
+  S.frame = fr;
+  S.camLon = (fr==='space') ? earthLon + theta()*R2D : earthLon;
+  syncFrameButtons(); syncPlayBtn();
+}
+function syncPlayBtn(){
+  var b=$('btn-play');
+  b.setAttribute('aria-label', S.playing?'Pause':'Play');
+  b.innerHTML = S.playing
+    ? '<svg viewBox="0 0 16 16"><rect x="3" y="2.5" width="3.6" height="11"/><rect x="9.4" y="2.5" width="3.6" height="11"/></svg>'
+    : '<svg viewBox="0 0 16 16"><path d="M4 2.4 13 8l-9 5.6z"/></svg>';
+}
 
-    // ── Space canvas ────────────────────────────────────────────────────
-    spcCtx.clearRect(0, 0, 900, 900);
-    var rotNow = 0;
-    if (shot) {
-      var elapsedWallR = (now - shot.startTime) / 1000;
-      var fracR = Math.min(1, elapsedWallR / shot.playbackSeconds);
-      rotNow = shot.omega * (fracR * shot.flightDuration);
+/* ═══ tour ══════════════════════════════════════════════════════ */
+var TOUR = [
+  { k:'Step 1 of 6', t:'You are already moving east.', d:'The ground at the equator runs east at about 1 670 km/h. At 60° it is barely half that. Same day, smaller circle.',
+    go:function(){ applyMode('spin'); setFrame('space'); S.spinParcels=false; $('spin-parcels').checked=false; S.camLat=18; S.zoom=0.45; } },
+  { k:'Step 2 of 6', t:'Two frames, one motion.', d:'Switch to <b>On the ground</b>. The globe freezes and the stars start racing — because you were the thing that was turning all along.',
+    go:function(){ applyMode('spin'); setFrame('space'); S.spinStars=true; $('spin-stars').checked=true; } },
+  { k:'Step 3 of 6', t:'Now let something leave the ground.', d:'Parcels released north and south of the equator all bend — right in the north, left in the south. Nothing pushed them.',
+    go:function(){ applyMode('spin'); setFrame('ground'); S.spinParcels=true; $('spin-parcels').checked=true; seedDemo(); S.camLat=8; } },
+  { k:'Step 4 of 6', t:'Aim at Reykjavík from Newfoundland.', d:'Aimed dead straight down the great circle, as if the planet were holding still for it. Watch where it actually arrives.',
+    go:function(){ applyMode('launch'); setFrame('ground'); S.proj='jet'; $('proj').value='jet';
+      $('speed-field').hidden=true;
+      S.launch=fromLL(47.5,-52.7); S.target=fromLL(64.1,-21.9); S.zoom=0.52; lookAt(-38,52);
+      S.showNorot=true; $('show-norot').checked=true; fireLaunch(); } },
+  { k:'Step 5 of 6', t:'Same flight, seen from the stars.', d:'The path straightens out. The teal dots are the launch pad\'s own trip through space — the flight begins where the pad <i>was</i>, not where it is now.',
+    go:function(){ if(!S.flight) TOUR[3].go(); setFrame('space'); } },
+  { k:'Step 6 of 6', t:'This is why storms turn.', d:'Air falling into a low is bent sideways the whole way in. North of the equator that makes a counter-clockwise spiral; south of it, clockwise. On the equator, nothing.',
+    go:function(){ applyMode('storms'); setFrame('ground'); S.lowLat=25; S.lowLon=-58; $('low-lat').value=25;
+      $('low-v').textContent=lowLabel(); S.zoom=0.66; lookAt(-52,16); seedStorm(); } }
+];
+function renderTourDots(){
+  $('tour-dots').innerHTML = TOUR.map(function(_,i){
+    return '<span class="tour-dot'+(i===S.tour?' is-active':'')+'"></span>'; }).join('');
+}
+function gotoTour(i){
+  if (i<0 || i>=TOUR.length){ S.tour=-1; renderTourDots(); $('tour-next').textContent='Take the tour ›'; return; }
+  S.tour=i; var st=TOUR[i]; st.go(); syncFrameButtons(); resize();
+  setCaption(st.k, st.t, st.d);
+  $('tour-next').textContent = (i===TOUR.length-1) ? 'Finish' : 'Next ›';
+  renderTourDots(); updateLegend(); refreshReadout();
+}
+
+/* ═══ drawing pass ══════════════════════════════════════════════ */
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle=C.space; ctx.fillRect(0,0,W,H);
+  if (S.spinStars) drawStars();
+  drawGlobeBody(); drawLand(); drawGraticule();
+  if (S.mode==='spin'){
+    if (S.spinRuler) drawSpeedRuler();
+    drawRotationArrow();
+    if (S.spinParcels) drawDemo();
+    if (S.focus){
+      setCam(camEarth(), S.camLat);
+      var q=pxv(S.focus);
+      if (q[2]>0){
+        marker(q[0],q[1],C.accent,3.2,true);
+        var la=vlat(S.focus)*R2D;
+        label(q[0]+12,q[1]-6, Math.round(1670*Math.cos(la*D2R)).toLocaleString()+' km/h east', C.text,'left',11.5,'bold');
+        label(q[0]+12,q[1]+7, Math.abs(la).toFixed(1)+'°'+(la>=0?'N':'S'), C.muted,'left',10.5);
+      }
     }
-    drawCompassGrid(spcCtx, rotNow);
-    renderGhosts(spcCtx, false);
-    // No fixed N/E/S/W labels here on purpose: this panel's whole grid
-    // rotates under the ball, so a screen-fixed "N" would misleadingly
-    // imply north stays put — the ground view (which really is fixed) is
-    // the only place a static compass reading is honest.
+  }
+  if (S.mode==='launch') drawLaunch();
+  if (S.mode==='storms') drawStorm();
+  drawRim();
+}
 
-    if (shot) {
-      var elapsedWall2 = (now - shot.startTime) / 1000;
-      var frac2 = Math.min(1, elapsedWall2 / shot.playbackSeconds);
-      var simT2 = frac2 * shot.flightDuration;
-      var targetGroundVec = [0, RANGE_M];
-      var targetInertial = toInertial(targetGroundVec[0], targetGroundVec[1], shot.omega, simT2);
-      drawTarget(spcCtx, targetInertial[0], targetInertial[1]);
-      drawCannon(spcCtx);
-      drawPath(spcCtx, shot.spacePts, simT2, '#E8C15A', 3.5);
-      var sp = sampleAt(shot.spacePts, simT2);
-      drawBall(spcCtx, sp.x, sp.y, '#E8C15A');
+/* ═══ main loop ═════════════════════════════════════════════════ */
+var lastTs=0, roAcc=0;
+function tick(ts){
+  var dtReal = lastTs ? Math.min(0.06,(ts-lastTs)/1000) : 0; lastTs=ts;
+  if (S.playing && dtReal>0){
+    var simDt = dtReal*S.warp;
+    if (S.mode==='launch' && S.flight){
+      var step=Math.min(simDt, S.flightDur-S.flightT);
+      S.flightT+=step; S.simT+=step;
+      if (S.flightT>=S.flightDur-1e-9){ S.playing=false; syncPlayBtn(); updateVerdict(); }
     } else {
-      drawTarget(spcCtx, 0, RANGE_M);
-      drawCannon(spcCtx);
+      S.simT += simDt;
+      if (S.mode==='spin' && S.spinParcels) stepDemo(Math.min(simDt,400));
+      if (S.mode==='storms') stepStorm(Math.min(simDt,300));
     }
-
-    requestAnimationFrame(render);
   }
-
-  function updateStatsAfterShot(shot) {
-    var km = shot.deflectM / 1000;
-    statDeflect.textContent = (km < 0.1 ? Math.round(shot.deflectM) + ' m' : km.toFixed(2) + ' km');
+  draw();
+  roAcc += dtReal;
+  if (roAcc > 0.14){
+    roAcc = 0;
+    els.clock.textContent = 'T + ' + fmtClock(S.mode==='launch'&&S.flight ? S.flightT : S.simT % (DAY*4));
+    refreshReadout();
   }
+  window.CG = { S:S, fly:fly, fromLL:fromLL, launchVec:launchVec, bearingTo:bearingTo,
+  gcDist:gcDist, endFrame:endFrame, cross:cross, dot:dot, vlat:vlat, vlon:vlon, norm:norm,
+  eastAt:eastAt, northAt:northAt, coriolisF:coriolisF, applyMode:applyMode, fireLaunch:fireLaunch,
+  solveAim:solveAim, seedStorm:seedStorm, stepStorm:stepStorm, draw:draw, resize:resize,
+  syncFrameButtons:syncFrameButtons, setFrame:setFrame, lookAt:lookAt, stateAt:stateAt, rk4:rk4, R_E:R_E, OM:OM,
+  setCam:setCam, px:px, pxSpun:pxSpun, camEarth:camEarth, camFor:camFor, theta:theta };
+requestAnimationFrame(tick);
+}
 
-  // ══════════════════════════════════════════════════════════════════════
-  // Globe latitude picker
-  // ══════════════════════════════════════════════════════════════════════
+/* ═══ interaction ═══════════════════════════════════════════════ */
+function syncFrameButtons(){
+  document.querySelectorAll('[data-frame]').forEach(function(b){
+    b.classList.toggle('is-active', b.dataset.frame===S.frame); });
+  els.hint.innerHTML = S.frame==='space'
+    ? 'The sky holds still. The planet turns beneath anything you launch.'
+    : 'You turn with the ground, so the ground looks still — and the stars sweep past instead.';
+  updateLegend();
+}
+document.querySelectorAll('[data-frame]').forEach(function(b){
+  b.addEventListener('click', function(){
+    setFrame(b.dataset.frame);
+  });
+});
+document.querySelectorAll('[data-mode]').forEach(function(b){
+  b.addEventListener('click', function(){ S.tour=-1; renderTourDots(); $('tour-next').textContent='Take the tour ›'; applyMode(b.dataset.mode); });
+});
 
-  var GLOBE_R = 86;
-  var GLOBE_C = { x: 100, y: 100 };
-
-  function drawGlobe() {
-    gctx.clearRect(0, 0, 200, 200);
-    gctx.save();
-    gctx.translate(GLOBE_C.x, GLOBE_C.y);
-
-    gctx.fillStyle = '#1E2320';
-    gctx.beginPath(); gctx.arc(0, 0, GLOBE_R, 0, Math.PI * 2); gctx.fill();
-    gctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    gctx.lineWidth = 1.5;
-    gctx.stroke();
-
-    var refLats = [23.44, 66.56, -23.44, -66.56];
-    gctx.strokeStyle = 'rgba(255,255,255,0.16)';
-    gctx.lineWidth = 1;
-    refLats.concat([0]).forEach(function (phiDeg) {
-      var phi = phiDeg * Math.PI / 180;
-      var y = -GLOBE_R * Math.sin(phi);
-      var rx = GLOBE_R * Math.cos(phi);
-      gctx.beginPath();
-      gctx.ellipse(0, y, rx, rx * 0.22, 0, 0, Math.PI * 2);
-      gctx.stroke();
-    });
-
-    // Central meridian (the great circle we're picking a point on)
-    gctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    gctx.beginPath(); gctx.moveTo(0, -GLOBE_R); gctx.lineTo(0, GLOBE_R); gctx.stroke();
-
-    // Pin
-    var phi0 = state.latDeg * Math.PI / 180;
-    var py = -GLOBE_R * Math.sin(phi0);
-    gctx.fillStyle = '#6FD1A8';
-    gctx.beginPath(); gctx.arc(0, py, 6, 0, Math.PI * 2); gctx.fill();
-    gctx.strokeStyle = '#12140f'; gctx.lineWidth = 1.5; gctx.stroke();
-
-    gctx.restore();
+/* pointer: drag to turn the view, click to act */
+var drag=null;
+cv.addEventListener('pointerdown', function(e){
+  cv.setPointerCapture(e.pointerId);
+  drag={ x:e.clientX, y:e.clientY, lon:S.camLon, lat:S.camLat, moved:0 };
+  cv.classList.add('dragging');
+});
+cv.addEventListener('pointermove', function(e){
+  if (!drag) return;
+  var dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+  drag.moved=Math.max(drag.moved, Math.abs(dx)+Math.abs(dy));
+  S.camLon = drag.lon - dx*0.30;
+  S.camLat = Math.max(-85, Math.min(85, drag.lat + dy*0.30));
+});
+cv.addEventListener('pointerup', function(e){
+  cv.classList.remove('dragging');
+  if (drag && drag.moved<5){
+    var r=cv.getBoundingClientRect(), p=unproject(e.clientX-r.left, e.clientY-r.top);
+    if (p) onGlobeClick(p);
   }
+  drag=null;
+});
+cv.addEventListener('pointercancel', function(){ drag=null; cv.classList.remove('dragging'); });
+cv.addEventListener('wheel', function(e){
+  e.preventDefault();
+  S.zoom = Math.max(0.30, Math.min(3.0, S.zoom * (e.deltaY>0 ? 0.93 : 1.075)));
+  resize();
+}, {passive:false});
 
-  function latFromGlobeY(clientY) {
-    var rect = globeCanvas.getBoundingClientRect();
-    var scaleY = 200 / rect.height;
-    var localY = (clientY - rect.top) * scaleY - GLOBE_C.y;
-    var ratio = Math.max(-1, Math.min(1, -localY / GLOBE_R));
-    return Math.asin(ratio) * 180 / Math.PI;
+function onGlobeClick(p){
+  if (S.mode==='spin'){ S.focus=p; refreshReadout(); }
+  else if (S.mode==='launch'){
+    if (!S.launch || S.target){ S.launch=p; S.target=null; S.flight=null; S.ghost=null; els.verdictWrap.hidden=true;
+      setCaption('The long shot','Launch site set.','Now click a target — or just press <b>Fire</b> to shoot along the current bearing.'); }
+    else { S.target=p; fireLaunch();
+      setCaption('The long shot','Aimed straight at the target.','The aim ignores the spin of the Earth, exactly as a naive gunner would.'); }
+    updateLegend(); refreshReadout();
   }
-
-  var globeDragging = false;
-  globeCanvas.addEventListener('pointerdown', function (e) {
-    globeDragging = true;
-    globeCanvas.setPointerCapture(e.pointerId);
-    setLatitude(latFromGlobeY(e.clientY));
-  });
-  globeCanvas.addEventListener('pointermove', function (e) {
-    if (!globeDragging) return;
-    setLatitude(latFromGlobeY(e.clientY));
-  });
-  globeCanvas.addEventListener('pointerup', function () { globeDragging = false; });
-  globeCanvas.addEventListener('pointercancel', function () { globeDragging = false; });
-
-  document.querySelectorAll('[data-lat]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      setLatitude(parseFloat(btn.getAttribute('data-lat')));
-    });
-  });
-
-  function setLatitude(deg) {
-    state.latDeg = Math.max(-90, Math.min(90, deg));
-    latValueEl.textContent = Math.abs(state.latDeg).toFixed(1) + '°';
-    latHemiEl.textContent = state.latDeg > 0.05 ? 'Northern Hemisphere'
-      : state.latDeg < -0.05 ? 'Southern Hemisphere'
-      : 'Equator — no deflection';
-    drawGlobe();
-    updateLiveStats();
+  else if (S.mode==='storms'){
+    S.lowLat=vlat(p)*R2D; S.lowLon=vlon(p)*R2D;
+    $('low-lat').value=Math.round(S.lowLat); $('low-v').textContent=lowLabel();
+    seedStorm(); refreshReadout();
   }
+}
+function lowLabel(){ return Math.abs(S.lowLat).toFixed(0)+'°'+(Math.abs(S.lowLat)<1?'':(S.lowLat>0?'N':'S')); }
 
-  // ══════════════════════════════════════════════════════════════════════
-  // Rotation-rate presets
-  // ══════════════════════════════════════════════════════════════════════
+/* ── playback ── */
+$('btn-play').addEventListener('click', function(){
+  if (S.mode==='launch' && S.flight && S.flightT>=S.flightDur){ S.flightT=0; }
+  S.playing=!S.playing; syncPlayBtn();
+});
+$('btn-reset').addEventListener('click', function(){
+  if (S.mode==='launch'){ if (S.flight){ S.simT=S.flight[0][3]/OM; S.flightT=0; S.playing=true; els.verdictWrap.hidden=true; } }
+  else if (S.mode==='storms'){ seedStorm(); }
+  else { S.simT=0; seedDemo(); S.playing=true; }
+  syncPlayBtn();
+});
 
-  document.querySelectorAll('#rateRow [data-mult]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      document.querySelectorAll('#rateRow [data-mult]').forEach(function (b) { b.classList.remove('is-active'); });
-      btn.classList.add('is-active');
-      state.mult = parseFloat(btn.getAttribute('data-mult'));
-      updateLiveStats();
-    });
-  });
+/* ── spin panel ── */
+$('spin-rate').addEventListener('input', function(){ S.spinRate=+this.value; if (S.mode==='spin') S.warp=spinWarp(); else spinWarp(); });
+$('spin-ruler').addEventListener('change', function(){ S.spinRuler=this.checked; });
+$('spin-parcels').addEventListener('change', function(){ S.spinParcels=this.checked; if (this.checked && !S.demo.length) seedDemo(); });
+$('spin-stars').addEventListener('change', function(){ S.spinStars=this.checked; });
 
-  function updateLiveStats() {
-    var f = computeF(state.latDeg, state.mult);
-    statF.textContent = Math.abs(f) < 1e-9 ? '0' : f.toExponential(2) + ' /s';
+/* ── launch panel ── */
+function durFromSlider(){
+  var s=PROJ[S.proj], v=+$('dur').value/100;
+  return s.tmin*Math.pow(s.tmax/s.tmin, v);
+}
+function syncDur(){ S.durT=durFromSlider(); $('dur-v').textContent=fmtDur(S.durT); }
+$('proj').addEventListener('change', function(){
+  S.proj=this.value; $('speed-field').hidden = (S.proj!=='custom');
+  syncDur(); refreshReadout();
+});
+$('speed').addEventListener('input', function(){ S.speed=+this.value; $('speed-v').textContent=S.speed+' m/s'; refreshReadout(); });
+$('dur').addEventListener('input', function(){ syncDur(); refreshReadout(); });
+$('btn-fire').addEventListener('click', function(){
+  if (!S.launch) S.launch=fromLL(45,-70);
+  els.verdictWrap.hidden=true; fireLaunch(); updateLegend();
+});
+$('btn-correct').addEventListener('click', function(){
+  if (!S.launch || !S.target){
+    setCaption('The long shot','Set a target first.','Click once on the globe for the launch site, then again for the target.');
+    return;
   }
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Aim & fire on the ground canvas
-  // ══════════════════════════════════════════════════════════════════════
-
-  function canvasLocalPoint(canvas, clientX, clientY) {
-    var rect = canvas.getBoundingClientRect();
-    var scaleX = canvas.width / rect.width;
-    var scaleY = canvas.height / rect.height;
-    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  var sol=solveAim();
+  if (!sol) return;
+  var naive=bearingTo(S.launch,S.target)*R2D, lead=((sol.bear*R2D-naive+540)%360)-180;
+  els.verdictWrap.hidden=true;
+  fireLaunch(sol.bear, sol.T);
+  if (sol.miss > 60000){
+    setCaption('The long shot','No aim can reach it.',
+      'At this speed the flight lasts longer than an inertial loop, so the path curls back on itself before it ever arrives. Rotation is winning — try a faster projectile or a closer target.');
+  } else {
+    setCaption('The long shot','Aim corrected by '+Math.abs(lead).toFixed(1)+'° to the '+(lead<0?'left':'right')+'.',
+      'Gunners call this the drift correction. It is not a wind — it is the planet turning underneath the flight.');
   }
+});
+$('show-norot').addEventListener('change', function(){ S.showNorot=this.checked; updateLegend(); });
+$('show-both').addEventListener('change', function(){ S.showBoth=this.checked; });
 
-  groundCanvas.addEventListener('pointerdown', function (e) {
-    if (state.shot && !state.shot.done) return; // one shot in flight at a time
-    state.aiming = true;
-    groundCanvas.setPointerCapture(e.pointerId);
-    state.aimCurrent = canvasLocalPoint(groundCanvas, e.clientX, e.clientY);
+/* ── storms panel ── */
+$('low-lat').addEventListener('input', function(){
+  S.lowLat=+this.value; $('low-v').textContent=lowLabel(); seedStorm(); refreshReadout();
+});
+document.querySelectorAll('[data-lowpreset]').forEach(function(b){
+  b.addEventListener('click', function(){
+    S.lowLat=+b.dataset.lowpreset; $('low-lat').value=S.lowLat; $('low-v').textContent=lowLabel();
+    lookAt(S.lowLon, Math.max(-55,Math.min(55,S.lowLat))); seedStorm(); refreshReadout();
   });
-  groundCanvas.addEventListener('pointermove', function (e) {
-    if (!state.aiming) return;
-    state.aimCurrent = canvasLocalPoint(groundCanvas, e.clientX, e.clientY);
-  });
-  groundCanvas.addEventListener('pointerup', function () {
-    if (!state.aiming) return;
-    state.aiming = false;
-    var dx = state.aimCurrent.x - CANNON_PX.x;
-    var dy = state.aimCurrent.y - CANNON_PX.y;
-    var dragDist = Math.sqrt(dx * dx + dy * dy);
-    if (dragDist < 8) return; // too small to count as a shot
+});
+$('storm-cor').addEventListener('change', function(){ S.stormCor=this.checked; seedStorm(); refreshReadout(); });
+$('storm-fric').addEventListener('change', function(){ S.stormFric=this.checked; seedStorm(); });
+$('storm-iso').addEventListener('change', function(){ S.stormIso=this.checked; });
 
-    var bearingDeg = (Math.atan2(dx, -dy) * 180 / Math.PI + 360) % 360;
-    var speedFrac = Math.min(1, dragDist / DRAG_MAX_PX);
-    var speed = SPEED_MIN + speedFrac * (SPEED_MAX - SPEED_MIN);
+/* ── tour ── */
+$('tour-next').addEventListener('click', function(){ gotoTour(S.tour+1); });
+$('tour-prev').addEventListener('click', function(){ gotoTour(S.tour-1); });
 
-    state.shot = fireShot(bearingDeg, speed, state.latDeg, state.mult);
-    statTime.textContent = shotTimeLabel(state.shot);
-    statDeflect.textContent = '—';
-  });
-  groundCanvas.addEventListener('pointercancel', function () { state.aiming = false; });
+/* ── keyboard ── */
+window.addEventListener('keydown', function(e){
+  if (e.target.tagName==='INPUT'||e.target.tagName==='SELECT') return;
+  if (e.key===' '){ e.preventDefault(); $('btn-play').click(); }
+  if (e.key==='f'||e.key==='F') document.querySelector('[data-frame="'+(S.frame==='ground'?'space':'ground')+'"]').click();
+  if (e.key==='ArrowRight'){ S.camLon-=6; }
+  if (e.key==='ArrowLeft'){ S.camLon+=6; }
+});
 
-  function shotTimeLabel(shot) {
-    var t = shot.flightDuration;
-    var label = t < 120 ? Math.round(t) + ' s' : (t / 60).toFixed(1) + ' min';
-    var speedUp = Math.round(t / shot.playbackSeconds);
-    return label + ' (played back ' + speedUp + '× faster)';
-  }
-
-  document.getElementById('clearBtn').addEventListener('click', function () {
-    state.trails = [];
-  });
-
-  // ══════════════════════════════════════════════════════════════════════
-  // Boot
-  // ══════════════════════════════════════════════════════════════════════
-
-  setLatitude(45);
-  updateLiveStats();
-  drawGlobe();
-  requestAnimationFrame(render);
-
-  // Expose for headless/automated testing.
-  window.__coriolisTest = {
-    computeF: computeF,
-    computeOmega: computeOmega,
-    groundPosAt: groundPosAt,
-    inertialPosAt: inertialPosAt,
-    toInertial: toInertial,
-    fireShot: fireShot,
-    state: state
-  };
+/* ═══ init ══════════════════════════════════════════════════════ */
+if (window.ResizeObserver) new ResizeObserver(resize).observe(cv.parentElement);
+window.addEventListener('resize', resize);
+resize();
+S.frame='space';
+syncFrameButtons(); syncPlayBtn(); syncDur(); spinWarp();
+$('low-v').textContent=lowLabel();
+seedDemo();
+applyMode('spin');
+renderTourDots();
+if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+  S.spinRate=20; $('spin-rate').value=20; S.warp=spinWarp();
+}
+window.CG = { S:S, fly:fly, fromLL:fromLL, launchVec:launchVec, bearingTo:bearingTo,
+  gcDist:gcDist, endFrame:endFrame, cross:cross, dot:dot, vlat:vlat, vlon:vlon, norm:norm,
+  eastAt:eastAt, northAt:northAt, coriolisF:coriolisF, applyMode:applyMode, fireLaunch:fireLaunch,
+  solveAim:solveAim, seedStorm:seedStorm, stepStorm:stepStorm, draw:draw, resize:resize,
+  syncFrameButtons:syncFrameButtons, setFrame:setFrame, lookAt:lookAt, stateAt:stateAt, rk4:rk4, R_E:R_E, OM:OM,
+  setCam:setCam, px:px, pxSpun:pxSpun, camEarth:camEarth, camFor:camFor, theta:theta };
+requestAnimationFrame(tick);
 })();
 </script>
+
 </body>
 </html>
