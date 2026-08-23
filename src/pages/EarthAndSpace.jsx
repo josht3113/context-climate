@@ -468,6 +468,15 @@ const SECTIONS = [
         thumb:       '/ESSRT_8_9_10_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'Rock Cycle Infographic',
+        description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack one process, or take the guided tour that walks the cycle in causal order from magma back to magma rather than by rock category.',
+        footerTags:  ['Rock Cycle', 'Igneous', 'Sedimentary', 'Metamorphic'],
+        to:          '/ESSRT_15',
+        thumb:       '/ESSRT_15_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
