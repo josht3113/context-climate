@@ -80,7 +80,7 @@ const SECTIONS = [
           },
           {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
-            title:       "Kepler's First Law — Orbit Shape Explorer",
+            title:       "Kepler's First Law",
             description: "Explore how eccentricity changes as the shape of planetary orbits range from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
             footerTags:  ["Kepler's Laws", 'Eccentricity'],
             to:          '/earthandspace/kepler-law1-ellipses',
@@ -89,7 +89,7 @@ const SECTIONS = [
           },
           {
             tags:        ["Kepler's Laws", 'Interactive', '2 of 3'],
-            title:       "Kepler's Second Law — Equal Areas Explorer",
+            title:       "Kepler's Second Law",
             description: "Discover why planets move faster near their star and slower far away. Click to sweep equal areas in equal times, compare wedges at different orbital positions, and watch the speed arrow change in real time.",
             footerTags:  ["Kepler's Laws", 'Equal Areas'],
             to:          '/earthandspace/kepler-law2-areas',
@@ -98,7 +98,7 @@ const SECTIONS = [
           },
           {
             tags:        ["Kepler's Laws", 'Interactive', '3 of 3'],
-            title:       "Kepler's Third Law — Harmony of the Spheres",
+            title:       "Kepler's Third Law",
             description: "Race all planets simultaneously to see how orbital period changes as a function of distance from the Sun.",
             footerTags:  ["Kepler's Laws", 'Orbital Periods'],
             to:          '/earthandspace/kepler-law3-periods',
@@ -223,7 +223,7 @@ const SECTIONS = [
             tags:        ['Spectroscopy', 'Interactive'],
             title:       'Spectral Analysis',
             description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that provides information about the composition of stars and their motions.',
-            footerTags:  ['Emission Spectra', 'Absorption Spectra', 'Stellar Composition'],
+            footerTags:  ['Emission Spectra', 'Absorption Spectra'],
             to:          '/earthandspace/spectral-fingerprint-lab',
             thumb:       '/SpectralFingerprintLab_thumbnail.png',
             status:      'live',
@@ -241,7 +241,7 @@ const SECTIONS = [
             tags:        ['Cosmology', 'Interactive'],
             title:       "Hubble's Law Explorer",
             description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from four classic galaxy clusters.',
-            footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang Evidence'],
+            footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang'],
             to:          '/earthandspace/hubbles-law-explorer',
             thumb:       '/HubblesLawExplorer_thumbnail.png',
             status:      'live',
@@ -250,7 +250,7 @@ const SECTIONS = [
             tags:        ['Stellar Evolution', 'Interactive'],
             title:       'The H-R Diagram',
             description: 'Plot stars by temperature and luminosity to see why the H-R Diagram is one of the most powerful tools in stellar astronomy.',
-            footerTags:  ['H-R Diagram', 'Luminosity', 'Stellar Classification'],
+            footerTags:  ['Luminosity', 'Stellar Classification'],
             to:          '/earthandspace/hr-diagram',
             thumb:       '/HRdiagram_thumbnail.png',
             status:      'live',
@@ -276,7 +276,7 @@ const SECTIONS = [
     accent: ACCENT.meteor,
     cards: [
       {
-        tags:        ['Polar Jet Stream', 'Atmospheric Circulation', 'Interactive'],
+        tags:        ['Polar Jet Stream', 'Interactive'],
         title:       'The Jet Stream',
         description: 'Watch the polar jet stream snake across North America on a real geographic map — adjust its amplitude, wavelength, and trough/ridge position to see how a wavy upper-level flow pattern forms, then toggle winter and summer to compare flow speed and temperature contrast along the ribbon.',
         footerTags:  ['Polar Jet Stream', 'Upper-Level Winds', 'Meteorology'],
@@ -294,7 +294,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Surface Analysis', 'Station Models', 'Interactive'],
+        tags:        ['Surface Analysis', 'Interactive'],
         title:       'Find the Front',
         description: 'Fronts are never observed directly — you infer them. Read the station models across a surface weather map, draw where you think each boundary lies, and see how well your front separates the air masses. Three maps, with temperature, dewpoint, wind, and isobar clues you can toggle on as you work.',
         footerTags:  ['Surface Analysis', 'Station Models', 'Air Masses'],
@@ -312,8 +312,8 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['ENSO Dynamics', 'Ocean–Atmosphere', 'Interactive'],
-        title:       'Kelvin Wave & ENSO Cycle Explainer',
+        tags:        ['ENSO', 'Ocean–Atmosphere', 'Interactive'],
+        title:       'ENSO Cycle Explainer',
         description: 'Interactive simulation of the ocean–atmosphere mechanism behind El Niño and La Niña — from westerly wind burst to Kelvin wave propagation, thermocline response, and Walker Circulation shift. Includes the full ENSO cycle through La Niña.',
         footerTags:  ['Kelvin Wave', 'Walker Circulation', 'El Niño', 'La Niña'],
         to:          '/earthandspace/kelvin-wave-explainer',
@@ -342,7 +342,7 @@ const SECTIONS = [
       {
         tags:        ['Atmospheric Circulation', 'Interactive'],
         title:       'The Coriolis Effect',
-        description: 'UNDER CONSTRUCTION',
+        description: 'Observe how movement in a rotating frame causes changes in the trajectory of objects travelling over long distances and influences storm circulation patterns.',
         footerTags:  ['Coriolis Effect', 'Rotating Reference Frames'],
         to:          '/earthandspace/coriolis-effect',
         thumb:       '/CoriolisEffect_thumbnail.png',
