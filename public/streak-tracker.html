@@ -134,7 +134,7 @@ body { padding: 20px 0 48px; }
     <span>Streak Tracker</span>
     <button class="cc-btn cc-btn-sm" onclick="exportPNG()" title="Download PNG">&darr; PNG</button>
   </div>
-  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, or dry — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive. Optionally restrict the whole analysis to a single season.</p>
+  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, dry, or overcast — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive. Optionally restrict the whole analysis to a single season.</p>
 
   <!-- STATION BAR -->
   <div class="station-bar">
@@ -167,6 +167,7 @@ body { padding: 20px 0 48px; }
       <div class="cc-segmented" id="seg-variable">
         <button class="cc-segmented-btn is-active" data-variable="dewpoint">Dewpoint</button>
         <button class="cc-segmented-btn" data-variable="temp">Temperature</button>
+        <button class="cc-segmented-btn" data-variable="cloud">Cloud Cover</button>
       </div>
       <span class="ctrl-label">Track By</span>
       <div class="cc-segmented" id="seg-agg">
@@ -198,7 +199,7 @@ body { padding: 20px 0 48px; }
         </div>
       </div>
       <div class="custom-field">
-        <label>Value (&deg;F)</label>
+        <label id="custom-value-label">Value (&deg;F)</label>
         <input type="number" class="num-input" id="custom-num" value="65">
       </div>
       <div class="custom-field">
@@ -212,6 +213,7 @@ body { padding: 20px 0 48px; }
     </div>
     <div class="threshold-summary" id="threshold-summary">Dewpoint &ge; 65&deg;F, hourly</div>
     <div class="hourly-temp-note" id="hourly-temp-note">Note: hourly temperature streaks are naturally short — the daily heating/cooling cycle usually breaks them by evening. Daily max/min streaks are typically more meaningful for temperature; dewpoint is the more interesting hourly signal since humidity swings far less through the day.</div>
+    <div class="hourly-temp-note" id="cloud-note">Note: cloud cover is estimated from METAR sky condition codes (CLR/FEW/SCT/BKN/OVC) converted to an eighths-of-sky-covered ("oktas") scale — FEW&asymp;1&ndash;2, SCT&asymp;3&ndash;4, BKN&asymp;5&ndash;7, OVC=8. An indefinite ceiling (fog or heavy precipitation obscuring the sky) also counts as 8. Each hour uses the single greatest layer reported.</div>
     <div class="ctrl-row season-row">
       <span class="ctrl-label">Season</span>
       <div class="preset-row" id="season-preset-row"></div>
@@ -410,9 +412,25 @@ const PRESETS = {
     {id:'d-dry32',   label:'Dry &le;32&deg;',     group:'Dry',   metric:'max', op:'lte', value:32},
     {id:'d-bonedry20', label:'Bone-Dry &le;20&deg;', group:'Dry', metric:'max', op:'lte', value:20},
     {id:'d-muggynight', label:'Muggy Nights &ge;70&deg;', group:'No Relief', metric:'min', op:'gte', value:70}
+  ],
+  cloud: [
+    {id:'c-overcast',     label:'Overcast &ge;8/8',      group:'Overcast', metric:'max', op:'gte', value:8},
+    {id:'c-mostlycloudy', label:'Mostly Cloudy &ge;6/8', group:'Overcast', metric:'max', op:'gte', value:6},
+    {id:'c-clear',        label:'Clear &le;1/8',         group:'Clear',    metric:'max', op:'lte', value:1},
+    {id:'c-fewclouds',    label:'Mostly Clear &le;3/8',  group:'Clear',    metric:'max', op:'lte', value:3}
   ]
 };
-const DEFAULT_AGG = {temp:'daily', dewpoint:'hourly'};
+const DEFAULT_AGG = {temp:'daily', dewpoint:'hourly', cloud:'hourly'};
+
+// ================================================================
+// PER-VARIABLE METADATA (label, unit, custom-panel range) -- keeps the
+// custom threshold controls generic instead of hardcoding °F everywhere.
+// ================================================================
+const VARIABLE_META = {
+  temp:     {label:'Temperature', unit:'&deg;F', plainUnit:'°F', rangeMin:-30, rangeMax:120, step:1,   valueLabel:'Value (&deg;F)'},
+  dewpoint: {label:'Dewpoint',    unit:'&deg;F', plainUnit:'°F', rangeMin:-30, rangeMax:110, step:1,   valueLabel:'Value (&deg;F)'},
+  cloud:    {label:'Cloud Cover', unit:'/8',     plainUnit:'/8',      rangeMin:0,   rangeMax:8,   step:0.5, valueLabel:'Value (oktas, 0&ndash;8)'}
+};
 
 // ================================================================
 // SEASON / MONTH-RESTRICTION PRESETS
@@ -474,20 +492,40 @@ function renderDD(matches){
 // IEM ASOS FETCH + PARSE
 // ================================================================
 function buildIEMUrl(icao, tzIana, y1, y2){
-  return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${icao}&data=tmpf&data=dwpf` +
+  // _ts is a pure cache-buster: some intermediary/browser caches will otherwise
+  // treat "the same" station+range request as reusable across days, which is
+  // exactly wrong for a tool whose whole point is "as of right now."
+  return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${icao}&data=tmpf&data=dwpf&data=skyc1&data=skyc2&data=skyc3&data=skyc4` +
     `&year1=${y1}&month1=1&day1=1&year2=${y2}&month2=12&day2=31` +
-    `&tz=${encodeURIComponent(tzIana)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
+    `&tz=${encodeURIComponent(tzIana)}&format=comma&latlon=no&missing=M&trace=T&direct=no&_ts=${Date.now()}`;
+}
+
+// Sky condition code -> "oktas" (eighths of sky covered). METAR layer codes are
+// bands, not exact counts, so single-layer codes are mapped to the midpoint of
+// their band. VV (indefinite ceiling -- fog/heavy precip obscuring the sky) is
+// treated as fully overcast since the sky is, functionally, not visible.
+function skyCodeToOktas(code){
+  switch((code||'').trim().toUpperCase()){
+    case 'SKC': case 'CLR': case 'CAVOK': return 0;
+    case 'FEW': return 1.5;
+    case 'SCT': return 3.5;
+    case 'BKN': return 6.5;
+    case 'OVC': return 8;
+    case 'VV':  return 8;
+    default: return null;
+  }
 }
 
 function parseIEM(text){
   const lines=text.split('\n');
-  let tIdx=-1, dIdx=-1, vIdx=1, inData=false;
+  let tIdx=-1, dIdx=-1, vIdx=1, s1Idx=-1, s2Idx=-1, s3Idx=-1, s4Idx=-1, inData=false;
   const out=[];
   for(const raw of lines){
     const l=raw.trim(); if(!l) continue;
     if(l.startsWith('station,')){
       const h=l.split(',');
       tIdx=h.indexOf('tmpf'); dIdx=h.indexOf('dwpf'); vIdx=h.indexOf('valid');
+      s1Idx=h.indexOf('skyc1'); s2Idx=h.indexOf('skyc2'); s3Idx=h.indexOf('skyc3'); s4Idx=h.indexOf('skyc4');
       inData=true; continue;
     }
     if(!inData) continue;
@@ -502,7 +540,18 @@ function parseIEM(text){
     const tStr=(parts[tIdx]||'').trim(), dStr=(parts[dIdx]||'').trim();
     const t=(tStr&&tStr!=='M')?parseFloat(tStr):null;
     const dp=(dStr&&dStr!=='M')?parseFloat(dStr):null;
-    out.push({d:dpart, h:hh, t:(t==null||isNaN(t))?null:t, dp:(dp==null||isNaN(dp))?null:dp});
+    // Overall cloud cover for the hour = the greatest coverage among all reported
+    // layers (METARs report layers bottom-up; the highest coverage value present
+    // is the standard single-number summary of "how covered was the sky").
+    let cld=null;
+    for(const idx of [s1Idx,s2Idx,s3Idx,s4Idx]){
+      if(idx<0) continue;
+      const rawCode=(parts[idx]||'').trim();
+      if(!rawCode || rawCode==='M') continue;
+      const v=skyCodeToOktas(rawCode);
+      if(v!=null && (cld===null || v>cld)) cld=v;
+    }
+    out.push({d:dpart, h:hh, t:(t==null||isNaN(t))?null:t, dp:(dp==null||isNaN(dp))?null:dp, cld});
   }
   return out;
 }
@@ -511,19 +560,22 @@ function buildMaps(hourlyArr){
   const hMap=new Map(), dMap=new Map();
   for(const r of hourlyArr){
     const key=`${r.d} ${pad2(r.h)}`;
-    hMap.set(key,{t:r.t,dp:r.dp});
+    hMap.set(key,{t:r.t,dp:r.dp,cld:r.cld});
     let day=dMap.get(r.d);
-    if(!day){day={maxT:-Infinity,minT:Infinity,sumT:0,cntT:0,maxD:-Infinity,minD:Infinity,sumD:0,cntD:0,hours:new Set()};dMap.set(r.d,day);}
+    if(!day){day={maxT:-Infinity,minT:Infinity,sumT:0,cntT:0,maxD:-Infinity,minD:Infinity,sumD:0,cntD:0,maxCld:-Infinity,minCld:Infinity,sumCld:0,cntCld:0,hours:new Set()};dMap.set(r.d,day);}
     day.hours.add(r.h);
     if(r.t!=null){day.maxT=Math.max(day.maxT,r.t);day.minT=Math.min(day.minT,r.t);day.sumT+=r.t;day.cntT++;}
     if(r.dp!=null){day.maxD=Math.max(day.maxD,r.dp);day.minD=Math.min(day.minD,r.dp);day.sumD+=r.dp;day.cntD++;}
+    if(r.cld!=null){day.maxCld=Math.max(day.maxCld,r.cld);day.minCld=Math.min(day.minCld,r.cld);day.sumCld+=r.cld;day.cntCld++;}
   }
   for(const day of dMap.values()){
     day.hourCount=day.hours.size;
     day.meanT=day.cntT?day.sumT/day.cntT:null;
     day.meanD=day.cntD?day.sumD/day.cntD:null;
+    day.meanCld=day.cntCld?day.sumCld/day.cntCld:null;
     if(day.cntT===0){day.maxT=null;day.minT=null;}
     if(day.cntD===0){day.maxD=null;day.minD=null;}
+    if(day.cntCld===0){day.maxCld=null;day.minCld=null;}
   }
   return {hMap,dMap};
 }
@@ -552,7 +604,15 @@ function activeCfg(){
 
 function metricValue(day, cfg){
   if(cfg.variable==='temp') return cfg.metric==='max'?day.maxT:cfg.metric==='min'?day.minT:day.meanT;
+  if(cfg.variable==='cloud') return cfg.metric==='max'?day.maxCld:cfg.metric==='min'?day.minCld:day.meanCld;
   return cfg.metric==='max'?day.maxD:cfg.metric==='min'?day.minD:day.meanD;
+}
+
+// Hourly (unaggregated) value for whichever variable is active.
+function hourlyValue(rec, cfg){
+  if(cfg.variable==='temp') return rec.t;
+  if(cfg.variable==='dewpoint') return rec.dp;
+  return rec.cld;
 }
 
 function buildDailyGrid(cfg){
@@ -565,7 +625,7 @@ function buildDailyGrid(cfg){
     const isLast=(cur===end);
     let ok=false, missing=true;
     if(day){
-      const cnt=cfg.variable==='temp'?day.cntT:day.cntD;
+      const cnt=cfg.variable==='temp'?day.cntT:cfg.variable==='cloud'?day.cntCld:day.cntD;
       const complete=(day.hourCount>=MIN_HOURS_COMPLETE)||isLast;
       if(complete && cnt>0){
         const val=metricValue(day,cfg);
@@ -584,21 +644,37 @@ function buildHourlyGrid(cfg){
   const first=rawHourly[0], last=rawHourly[rawHourly.length-1];
   const grid=[]; let curDate=first.d, curHour=first.h;
   const endDate=last.d, endHour=last.h;
+  // BUG FIX: this loop used to be capped at a hardcoded `guard<400000` iterations
+  // as a runaway-loop safety net. 400,000 hours is only ~45.6 years, so any
+  // station with a longer period of record (this app requests back to 1900, and
+  // even an ordinary decades-old station already exceeds 45.6 years) had its
+  // hourly grid -- and therefore every hourly streak/stat computed from it --
+  // silently cut off decades before the present, while the station-metadata line
+  // (built straight from the same raw data, with no such cap) correctly showed
+  // the full period of record. That mismatch is exactly what made the tool look
+  // like it "thought" it was simultaneously some old year (streaks/stats) and
+  // the real current year (header, forecast, "Loaded" timestamp). Fix: compute
+  // the exact number of hours between the first and last observation up front,
+  // so the safety cap is sized to the real data and can never truncate it --
+  // it now only fires (and warns) if something is actually wrong with the feed.
+  const totalHours = Math.round((ymdToUTC(endDate)-ymdToUTC(first.d))/3600000) + (endHour-first.h) + 1;
+  const guardMax = Math.max(totalHours + 24, 1);
   let guard=0;
-  while(guard<400000){
+  while(guard<guardMax){
     guard++;
     const key=`${curDate} ${pad2(curHour)}`;
     const inSeason = cfg.months.has(monthOf(curDate));
     const rec = inSeason ? hourlyMap.get(key) : null;
     let ok=false, missing=true;
     if(rec){
-      const val=cfg.variable==='temp'?rec.t:rec.dp;
+      const val=hourlyValue(rec,cfg);
       if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
     }
     grid.push({key,date:curDate,hour:curHour,qualifies:ok,missing,excluded:!inSeason});
     if(curDate===endDate && curHour===endHour) break;
     curHour++; if(curHour>23){curHour=0;curDate=addDaysYmd(curDate,1);}
   }
+  if(guard>=guardMax) console.warn('buildHourlyGrid: loop safety cap reached before reaching the last observed hour — check rawHourly for out-of-order or corrupt timestamps.');
   return grid;
 }
 
@@ -674,10 +750,10 @@ function formatLength(n, cfg){
   return `${n} hr${n===1?'':'s'}`;
 }
 function thresholdDescription(cfg){
-  const varLabel = cfg.variable==='temp'?'Temperature':'Dewpoint';
+  const meta = VARIABLE_META[cfg.variable];
   const opLabel = cfg.op==='gte'?'&ge;':'&le;';
   const metricLabel = cfg.aggregation==='daily' ? ` (daily ${cfg.metric})` : ' (hourly)';
-  return `${varLabel} ${opLabel} ${cfg.value}&deg;F${metricLabel}`;
+  return `${meta.label} ${opLabel} ${cfg.value}${meta.unit}${metricLabel}`;
 }
 
 // ================================================================
@@ -690,6 +766,7 @@ function updateThresholdSummary(cfg){
   const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
   document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
   document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
+  document.getElementById('cloud-note').classList.toggle('show', cfg.variable==='cloud');
 }
 
 function renderHeadline(grid, streaks, stats, cfg){
@@ -762,6 +839,22 @@ function tempFAndRHtoDewpointF(tempF, rhPct){
   const tdC=243.04*gamma/(17.625-gamma);
   return tdC*9/5+32;
 }
+// NWS text forecasts don't expose a numeric sky-cover fraction (that only lives
+// in the gridpoint/forecastGridData API, a separate fetch), so cloud-cover
+// jeopardy is a best-effort read of the plain-language shortForecast string.
+// This is coarser than the temp/dewpoint checks (which use exact numeric
+// fields) — treat it as directional, not precise.
+function shortForecastToOktas(short){
+  if(!short) return null;
+  const s = short.toLowerCase();
+  if(s.includes('overcast')) return 8;
+  if(s.includes('mostly cloudy')) return 6.5;
+  if(s.includes('partly cloudy') || s.includes('partly sunny')) return 4;
+  if(s.includes('mostly sunny') || s.includes('mostly clear')) return 2;
+  if(s.includes('sunny') || s.includes('clear')) return 0;
+  if(s.includes('fog') || s.includes('cloudy')) return 7;
+  return null;
+}
 async function checkJeopardy(station, cfg, stats, grid){
   const el=document.getElementById('jeopardy-line');
   if(!stats.currentStreak){el.textContent='';return;}
@@ -779,6 +872,7 @@ async function checkJeopardy(station, cfg, stats, grid){
     const periods=(fc.properties&&fc.properties.periods)||[];
     function periodValue(p){
       if(cfg.variable==='temp') return typeof p.temperature==='number'?p.temperature:null;
+      if(cfg.variable==='cloud') return shortForecastToOktas(p.shortForecast);
       if(p.dewpoint && typeof p.dewpoint.value==='number'){
         const v=p.dewpoint.value;
         return (p.dewpoint.unitCode&&p.dewpoint.unitCode.indexOf('degC')>=0) ? v*9/5+32 : v;
@@ -801,12 +895,14 @@ async function checkJeopardy(station, cfg, stats, grid){
     const allQualify = vals.every(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
     const anyQualify = vals.some(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
     const roundedVals = vals.map(v=>Math.round(v)).join('–');
+    const unitSuffix = VARIABLE_META[cfg.variable].plainUnit;
+    const approxNote = cfg.variable==='cloud' ? ' (approximate, from forecast text)' : '';
     if(allQualify){
-      el.innerHTML=`<strong>Forecast: likely to continue.</strong> NWS forecast for ${label}: ${roundedVals}°F — still crossing the threshold.`;
+      el.innerHTML=`<strong>Forecast: likely to continue.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — still crossing the threshold.`;
     } else if(!anyQualify){
-      el.innerHTML=`<strong>Forecast: likely to break.</strong> NWS forecast for ${label}: ${roundedVals}°F — no longer crossing the threshold.`;
+      el.innerHTML=`<strong>Forecast: likely to break.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — no longer crossing the threshold.`;
     } else {
-      el.innerHTML=`<strong>Forecast: uncertain.</strong> NWS forecast for ${label}: ${roundedVals}°F — right around the threshold.`;
+      el.innerHTML=`<strong>Forecast: uncertain.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — right around the threshold.`;
     }
   } catch(e){
     el.textContent='Forecast unavailable for this location.';
@@ -1127,7 +1223,7 @@ async function loadStation(station){
     // in the annual precipitation tool.
     const POR_START_FLOOR = 1900;
     const url = buildIEMUrl(icao, tzIana, POR_START_FLOOR, curYear);
-    const resp = await fetch(url);
+    const resp = await fetch(url, {cache:'no-store'});
     if(!resp.ok) throw new Error('HTTP '+resp.status);
     const text = await resp.text();
     rawHourly = parseIEM(text);
@@ -1239,10 +1335,15 @@ function syncMonthGrid(){
 }
 
 function syncCustomControls(){
+  const meta = VARIABLE_META[state.variable];
   document.getElementById('metric-select').value = state.metric;
   document.querySelectorAll('#seg-op .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active', b.dataset.op===state.op));
-  document.getElementById('custom-num').value = state.value;
-  document.getElementById('custom-range').value = state.value;
+  document.getElementById('custom-value-label').innerHTML = meta.valueLabel;
+  const numInput=document.getElementById('custom-num'), rangeInput=document.getElementById('custom-range');
+  numInput.min=meta.rangeMin; numInput.max=meta.rangeMax; numInput.step=meta.step;
+  rangeInput.min=meta.rangeMin; rangeInput.max=meta.rangeMax; rangeInput.step=meta.step;
+  numInput.value = state.value;
+  rangeInput.value = state.value;
   document.getElementById('metric-field').style.display = state.aggregation==='daily' ? '' : 'none';
 }
 
