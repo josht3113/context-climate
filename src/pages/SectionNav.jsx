@@ -20,9 +20,16 @@ import styles from './SectionNav.module.css'
 //   whether the site header scrolls away or stays pinned. If your layout's
 //   persistent header isn't a <header> element, update the selector below.
 // - Highlights whichever section currently owns the top of the viewport
-//   (scroll-spy) via a lightweight rAF-throttled scroll listener.
-// - Clicking a pill smooth-scrolls to that section, offset so its heading
-//   doesn't land underneath the sticky nav (or the page header).
+//   (scroll-spy) via a lightweight rAF-throttled scroll listener. The
+//   listener is registered with `capture: true` so it still fires even if
+//   the page's actual scrolling happens inside a nested container (e.g. a
+//   layout with a pinned header + a scrollable content div) rather than on
+//   `window` directly — 'scroll' events don't bubble, but capture-phase
+//   listeners on an ancestor still see them.
+// - Clicking a pill scrolls to that section via scrollIntoView (rather than
+//   window.scrollTo), so it also works correctly regardless of which
+//   element actually scrolls — offset handled via a temporary
+//   scroll-margin-top so the heading doesn't land under the sticky nav.
 
 export default function SectionNav({ sections }) {
   const navRef = useRef(null)
@@ -72,10 +79,12 @@ export default function SectionNav({ sections }) {
     }
 
     updateActive()
-    window.addEventListener('scroll', onScroll, { passive: true })
+    // capture: true — see note above on why this can't just be `window`
+    // with the default (bubble) phase.
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true })
     window.addEventListener('resize', onScroll)
     return () => {
-      window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('scroll', onScroll, { capture: true })
       window.removeEventListener('resize', onScroll)
     }
   }, [sections, topOffset])
@@ -84,8 +93,10 @@ export default function SectionNav({ sections }) {
     const el = document.getElementById(id)
     if (!el) return
     const navHeight = navRef.current?.getBoundingClientRect().height || 0
-    const y = window.scrollY + el.getBoundingClientRect().top - topOffset - navHeight - 12
-    window.scrollTo({ top: Math.max(y, 0), behavior: 'smooth' })
+    // scroll-margin-top makes the browser's own scrollIntoView do the offset
+    // math correctly, whichever element actually ends up scrolling.
+    el.style.scrollMarginTop = `${topOffset + navHeight + 12}px`
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
