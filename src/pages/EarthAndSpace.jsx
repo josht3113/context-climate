@@ -278,7 +278,7 @@ const SECTIONS = [
       {
         tags:        ['Polar Jet Stream', 'Interactive'],
         title:       'The Jet Stream',
-        description: 'Watch the polar jet stream snake across North America on a real geographic map — adjust its amplitude, wavelength, and trough/ridge position to see how a wavy upper-level flow pattern forms, then toggle winter and summer to compare flow speed and temperature contrast along the ribbon.',
+        description: 'Explore how the polar jet stream is created by thermal gradients and how the position of ridges and troughs influence weather across North America. Adjust its amplitude, wavelength, and trough/ridge position and toggle between summer and winter',
         footerTags:  ['Polar Jet Stream', 'Upper-Level Winds', 'Meteorology'],
         to:          '/earthandspace/jet-stream',
         thumb:       '/JetStream_thumbnail.png',
