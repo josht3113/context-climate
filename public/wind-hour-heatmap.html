@@ -872,14 +872,15 @@ function buildScatterTraces(){
   return traces;
 }
 
-function buildScatterAnnotations(){
+function buildScatterAnnotations(forExport){
   if (!S2.trend) return [];
   const filtered=filteredPts2(), ann=[];
+  const fontSize=forExport?15:9;
   for (let m=0;m<12;m++){
     const mp=filtered.filter(p=>p.mo===m); if (mp.length<3) continue;
     const slope=linreg(mp.map(p=>p.yr),mp.map(p=>dispY2(p))); if (slope===null) continue;
     const sd=slope*10,sign=sd>=0?'+':'',col=sd>=0?'#f87171':'#60a5fa';
-    ann.push({x:m,y:1.07,xref:'x',yref:'paper',text:`${sign}${sd.toFixed(2)} ${UNIT}`,showarrow:false,font:{size:9,color:col}});
+    ann.push({x:m,y:1.07,xref:'x',yref:'paper',text:`${sign}${sd.toFixed(2)} ${UNIT}`,showarrow:false,font:{size:fontSize,color:col}});
   }
   return ann;
 }
@@ -890,22 +891,56 @@ function buildScatterLayout(forExport){
     paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'#0e0f15',
     font:{color:'#b0b5c8',family:"'Public Sans',sans-serif"},
     xaxis:{tickmode:'array',tickvals:[0,1,2,3,4,5,6,7,8,9,10,11],ticktext:MONTHS,
-      tickfont:{size:13,color:'#8b90a4',family:"'Courier Prime',monospace"},
+      tickfont:{size:forExport?20:13,color:'#8b90a4',family:"'Courier Prime',monospace"},
       showgrid:false,zeroline:false,range:[-0.6,11.4]},
-    yaxis:{title:{text:yLbl,font:{size:14,color:'#b0b5c8',family:"'Courier Prime',monospace"}},
+    yaxis:{title:{text:yLbl,font:{size:forExport?20:14,color:'#b0b5c8',family:"'Courier Prime',monospace"}},
       gridcolor:'rgba(255,255,255,.06)',zeroline:S2.anomaly,
       zerolinecolor:'rgba(255,255,255,.25)',zerolinewidth:1.5,
-      tickfont:{family:"'Courier Prime',monospace",size:12,color:'#8b90a4'}},
+      tickfont:{family:"'Courier Prime',monospace",size:forExport?17:12,color:'#8b90a4'}},
     shapes:S2.anomaly?[{type:'line',x0:-0.6,x1:11.4,y0:0,y1:0,xref:'x',yref:'y',line:{color:'rgba(255,255,255,.22)',width:1.5,dash:'dash'}}]:[],
-    annotations:buildScatterAnnotations(),
+    annotations:buildScatterAnnotations(forExport),
     hoverlabel:{bgcolor:'#1b1c28',bordercolor:'rgba(109,150,216,0.3)',font:{color:'#eceef6',family:"'Public Sans',sans-serif",size:13}},
     margin:{l:70,r:20,t:S2.trend?50:12,b:52},showlegend:false,height:490,
   };
-  if (forExport) return Object.assign({},base,{
-    paper_bgcolor:'#080b10',
-    title:{text:`${STATION.name} \u2014 Monthly Average Wind Speed`,font:{size:20,color:'#e0e0e0',family:"'Public Sans',sans-serif"},x:0.5,xanchor:'center',y:0.97},
-    margin:{l:80,r:40,t:80,b:70},
-  });
+  if (forExport) {
+    const filtered=filteredPts2();
+    const full=scatterAggData&&S2.lo===scatterAggData.minYear&&S2.hi===scatterAggData.maxYear;
+    const rangeLbl=(full?'FULL PERIOD OF RECORD':`${S2.lo}\u2013${S2.hi}`)+
+      `   \u00b7   ${filtered.length} OBSERVATIONS`+(S2.anomaly?'   \u00b7   ANOMALY VIEW':'');
+    const TOTAL_H=900, MARGIN_B=130;
+    // Trend mode draws a small per-month value row just above the axis
+    // (see buildScatterAnnotations) \u2014 reserve extra top margin so it never
+    // collides with the header block below it.
+    const MARGIN_T=S2.trend?210:170;
+    const plotH=TOTAL_H-MARGIN_T-MARGIN_B;
+    const yFromTop=px=>1+(MARGIN_T-px)/plotH; // px measured down from the canvas top, within the top margin
+    // Three independently-positioned header lines (kicker / city / subtitle),
+    // mirroring the Tab 1 export's chart-title/chart-city/chart-subtitle
+    // stack \u2014 built as separate annotations rather than one multi-size
+    // Plotly title, since mixed inline <span> font sizes inside a single
+    // title collapse their line-height and overlap.
+    const headerAnnotations=[
+      {xref:'paper',yref:'paper',x:0.5,y:yFromTop(38),xanchor:'center',yanchor:'top',showarrow:false,
+       text:`Monthly Average Wind Speed (${UNIT})`,
+       font:{size:21,color:'#9096ac',family:"'Public Sans',sans-serif"}},
+      {xref:'paper',yref:'paper',x:0.5,y:yFromTop(92),xanchor:'center',yanchor:'top',showarrow:false,
+       text:`<b>${STATION.name}</b>`,
+       font:{size:40,color:'#f2f2f5',family:"'Public Sans',sans-serif"}},
+      {xref:'paper',yref:'paper',x:0.5,y:yFromTop(142),xanchor:'center',yanchor:'top',showarrow:false,
+       text:rangeLbl,
+       font:{size:16,color:'#767b8e',family:"'Courier Prime',monospace"}},
+    ];
+    const footerAnnotation={
+      xref:'paper',yref:'paper',x:0.5,y:-(MARGIN_B-30)/plotH,xanchor:'center',yanchor:'top',showarrow:false,
+      text:'Data: Iowa Environmental Mesonet (IEM)   \u00b7   contextclimate.io',
+      font:{size:15,color:'#5b6072',family:"'Courier Prime',monospace"},
+    };
+    return Object.assign({},base,{
+      paper_bgcolor:'#080b10',
+      annotations:[...headerAnnotations,...buildScatterAnnotations(true),footerAnnotation],
+      margin:{l:95,r:40,t:MARGIN_T,b:MARGIN_B},
+    });
+  }
   return base;
 }
 
