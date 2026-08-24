@@ -127,7 +127,16 @@ export default function App() {
    <HashRouter>
   <ScrollToTop />
   <Header />
-      <main style={{ overflowX: 'hidden' }}>
+      {/* NOTE: overflowX was previously set inline here (`overflow-x: hidden`)
+          to prevent horizontal scrollbars from wide page content. That's been
+          moved to `html, body` in the global stylesheet (see src/index.css)
+          instead — an overflow value other than 'visible' on a *non-root*
+          element like this turns it into a CSS scroll container, which
+          silently breaks `position: sticky` for everything inside it
+          (this is what broke EarthAndSpace/Home's SectionNav). Setting it on
+          html/body avoids that, since the root element's overflow constrains
+          the actual viewport scrolling rather than creating a nested one. */}
+      <main>
         <Routes>
           <Route path="/"                                    element={<Home />}                    />
           <Route path="/isp-live"                            element={<IspLive />}                 />
