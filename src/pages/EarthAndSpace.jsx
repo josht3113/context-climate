@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
+import SectionNav from './SectionNav'
 
 // ── Accent colors per section ─────────────────────────────────────────────────
 const ACCENT = {
@@ -11,6 +12,44 @@ const ACCENT = {
 
 // ── Section data ──────────────────────────────────────────────────────────────
 const SECTIONS = [
+
+  // ── ESSRT Pages ─────────────────────────────────────────────────────────────
+  // Moved to the front — reference-table lookup material students land on
+  // first, ahead of the browsable/exploratory concept sections below.
+  {
+    key:    'essrt',
+    label:  'ESSRT Pages',
+    accent: ACCENT.essrt,
+    cards: [
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'Geologic History of New York State',
+        description: 'Explore ESSRT pages 6–7 interactively — navigate the Geologic History of New York State, with fossil time distributions, key events, and inferred positions of Earth\'s landmasses.',
+        footerTags:  ['Geologic Time', 'Fossils', 'New York State', 'Reference'],
+        to:          '/ESSRT_6_7',
+        thumb:       '/ESSRT_6_7_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'NYS Bedrock, Resources & Landscape Regions',
+        description: 'Explore ESSRT pages 8–10 interactively — surface bedrock geology, energy and mineral resources, and the geographic province and landscape regions of New York State.',
+        footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions', 'Reference'],
+        to:          '/ESSRT_8_9_10',
+        thumb:       '/ESSRT_8_9_10_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['ESSRT', 'Reference', 'Interactive'],
+        title:       'Rock Cycle Infographic',
+        description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack one process, or take the guided tour that walks the cycle in causal order from magma back to magma rather than by rock category.',
+        footerTags:  ['Rock Cycle', 'Igneous', 'Sedimentary', 'Metamorphic'],
+        to:          '/ESSRT_15',
+        thumb:       '/ESSRT_15_thumbnail.png',
+        status:      'live',
+      },
+    ],
+  },
 
   // ── Astronomy ─────────────────────────────────────────────────────────────────
   // Grouped into subgroups (still one "Astronomy" section) since this list has
@@ -442,45 +481,11 @@ const SECTIONS = [
     ],
   },
 
-  // ── ESSRT Pages ─────────────────────────────────────────────────────────────
-  // Kept last — this is reference-table lookup material rather than a concept
-  // exploration tool, so it trails the browsable/exploratory sections above.
-  {
-    key:    'essrt',
-    label:  'ESSRT Pages',
-    accent: ACCENT.essrt,
-    cards: [
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Geologic History of New York State',
-        description: 'Explore ESSRT pages 6–7 interactively — navigate the Geologic History of New York State, with fossil time distributions, key events, and inferred positions of Earth\'s landmasses.',
-        footerTags:  ['Geologic Time', 'Fossils', 'New York State', 'Reference'],
-        to:          '/ESSRT_6_7',
-        thumb:       '/ESSRT_6_7_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'NYS Bedrock, Resources & Landscape Regions',
-        description: 'Explore ESSRT pages 8–10 interactively — surface bedrock geology, energy and mineral resources, and the geographic province and landscape regions of New York State.',
-        footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions', 'Reference'],
-        to:          '/ESSRT_8_9_10',
-        thumb:       '/ESSRT_8_9_10_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['ESSRT', 'Reference', 'Interactive'],
-        title:       'Rock Cycle Infographic',
-        description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack one process, or take the guided tour that walks the cycle in causal order from magma back to magma rather than by rock category.',
-        footerTags:  ['Rock Cycle', 'Igneous', 'Sedimentary', 'Metamorphic'],
-        to:          '/ESSRT_15',
-        thumb:       '/ESSRT_15_thumbnail.png',
-        status:      'live',
-      },
-    ],
-  },
-
 ]
+
+// Section list for the jump nav — derived from SECTIONS so it can never
+// drift out of sync with the actual section order/labels/colors above.
+const NAV_SECTIONS = SECTIONS.map(({ key, label, accent }) => ({ id: key, label, accent }))
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function EarthAndSpace() {
@@ -520,9 +525,12 @@ export default function EarthAndSpace() {
         </Link>
       </section>
 
+      {/* Jump nav */}
+      <SectionNav sections={NAV_SECTIONS} />
+
       {/* Sections */}
       {SECTIONS.map((section) => (
-        <section key={section.key} style={{ marginBottom: '56px' }}>
+        <section key={section.key} id={section.key} style={{ marginBottom: '56px' }}>
 
           {/* Section header — reuses Home's .sectionLabel so section titles
               match the font/size/weight used for "Live · Updates Continuously" etc. */}

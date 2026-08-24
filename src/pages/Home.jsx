@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
+import SectionNav from './SectionNav'
 
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
@@ -503,6 +504,15 @@ const SECTIONS = [
   },
 ]
 
+// Section list for the jump nav — accent is read off each section's first
+// card (same convention the section header already uses below), so this
+// stays in sync automatically if cards are added/reordered.
+const NAV_SECTIONS = SECTIONS.map((section) => ({
+  id:     section.id,
+  label:  section.label,
+  accent: `var(${section.cards[0]?.accentVar || '--color-text-primary'})`,
+}))
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
   return (
@@ -540,10 +550,14 @@ export default function Home() {
         </Link>
       </section>
 
+      {/* Jump nav */}
+      <SectionNav sections={NAV_SECTIONS} />
+
       {/* Sections */}
       {SECTIONS.map((section, i) => (
         <section
           key={section.id}
+          id={section.id}
           style={{
             paddingBottom: '2.5rem',
             borderTop: i > 0 ? '0.5px solid var(--color-border)' : 'none',
