@@ -105,10 +105,10 @@
     td.hour-label-left  { text-align: right; }
     td.hour-label-right { text-align: left; }
 
-    /* ── Tab 1: Copy action (button uses shared .cc-btn) ─────────────────── */
-    #action-bar { display: none; margin-top: 24px; text-align: center; }
-    .copy-pill.busy    { opacity: .6; cursor: default; pointer-events: none; }
-    .copy-pill.success { color: #4da89e !important; border-color: #254a47 !important; }
+    /* ── Tab 1: Copy/Download actions (buttons use shared .cc-btn) ───────── */
+    #action-bar { display: none; margin-top: 24px; justify-content: center; align-items: center; gap: 10px; }
+    .export-btn.busy    { opacity: .6; cursor: default; pointer-events: none; }
+    .export-btn.success { color: #4da89e !important; border-color: #254a47 !important; }
 
     /* ── Tab 1: Tooltip ──────────────────────────────────────────── */
     #tip {
@@ -219,7 +219,8 @@
       .ctrl-g { width: 100%; }
       .tabs-row { flex-direction: column; align-items: stretch; }
       .cc-segmented { align-self: flex-start; }
-      #copy-btn { width: 100%; }
+      #action-bar { flex-direction: column; }
+      #copy-btn, #download-btn { width: 100%; margin: 0; }
     }
   </style>
 </head>
@@ -260,7 +261,8 @@
     </div>
     <div id="chart-wrap" style="display:none;"></div>
     <div id="action-bar">
-      <button class="cc-btn primary copy-pill" id="copy-btn" onclick="copyChartImage()">Copy Image</button>
+      <button class="cc-btn primary export-btn" id="copy-btn" onclick="copyChartImage()">Copy Image</button>
+      <button class="cc-btn export-btn" id="download-btn" onclick="downloadChartImage()">&#8595; Download PNG</button>
     </div>
   </div>
 
@@ -688,7 +690,7 @@ function renderHeatmap({avgSpeed}) {
 
   document.getElementById('loading-state').style.display='none';
   document.getElementById('chart-wrap').style.display='block';
-  document.getElementById('action-bar').style.display='block';
+  document.getElementById('action-bar').style.display='flex';
 }
 
 function showHeatmapError(msg){
@@ -697,13 +699,21 @@ function showHeatmapError(msg){
     <div class="state-sublabel">Open browser console for details</div>`;
 }
 
+// Shared high-res capture of the Tab 1 heatmap table \u2014 used by both the
+// copy-to-clipboard and the explicit download actions below. Scale is a
+// fixed EXPORT_SCALE regardless of the viewing screen's devicePixelRatio
+// (contextclimate-png-export-highres convention).
+function renderChartExportCanvas() {
+  return html2canvas(document.getElementById('chart-wrap'),{
+    backgroundColor:'#080b10',scale:EXPORT_SCALE,useCORS:true,logging:false});
+}
+
 async function copyChartImage() {
   const btn=document.getElementById('copy-btn');
   if (btn.classList.contains('busy')) return;
   btn.classList.add('busy'); btn.textContent='Rendering\u2026';
   try{
-    const canvas=await html2canvas(document.getElementById('chart-wrap'),{
-      backgroundColor:'#080b10',scale:EXPORT_SCALE,useCORS:true,logging:false});
+    const canvas=await renderChartExportCanvas();
     canvas.toBlob(async function(blob){
       let copied=false;
       try{await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);copied=true;}
@@ -718,6 +728,24 @@ async function copyChartImage() {
       setTimeout(()=>{btn.classList.remove('success');btn.textContent='Copy Image';},2400);
     },'image/png');
   }catch(err){console.error(err);btn.classList.remove('busy');btn.textContent='Copy Image';}
+}
+
+async function downloadChartImage() {
+  const btn=document.getElementById('download-btn');
+  if (btn.classList.contains('busy')) return;
+  btn.classList.add('busy'); btn.textContent='Rendering\u2026';
+  try{
+    const canvas=await renderChartExportCanvas();
+    canvas.toBlob(function(blob){
+      const url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download='wind-heatmap-diurnal-'+STATION.id.toLowerCase()+'-'+UNIT+'.png';
+      document.body.appendChild(a);a.click();document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+      btn.classList.remove('busy');btn.classList.add('success');
+      btn.textContent='\u2713  Downloaded';
+      setTimeout(()=>{btn.classList.remove('success');btn.textContent='\u2193 Download PNG';},2400);
+    },'image/png');
+  }catch(err){console.error(err);btn.classList.remove('busy');btn.textContent='\u2193 Download PNG';}
 }
 
 // =============================================================================
