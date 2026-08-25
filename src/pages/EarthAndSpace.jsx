@@ -94,7 +94,7 @@ const SECTIONS = [
           {
             tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'Explore how solar and lunar eclipses occur and see why they don\'t occur every month.',
+            description: 'Explore how solar and lunar eclipses occur and see why they don\'t happen every month.',
             footerTags:  ['Syzygy', 'Eclipses'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
@@ -165,8 +165,8 @@ const SECTIONS = [
           {
             tags:        ['Planetary Formation', 'Interactive'],
             title:       'Chemical Fractionation',
-            description: "Explore how planets forming in different regions of the young solar system formed from different materials with different properties, and how Earth developed its interior layers.",
-            footerTags:  ['Condensation Sequence', 'Planetary Differentiation'],
+            description: "Explore how planets positioned in different regions of the young solar system formed from different materials, and see how Earth developed its interior layers.",
+            footerTags:  ['Planetary Differentiation'],
             to:          '/earthandspace/chemical-fractionation',
             thumb:       '/ChemicalFractionation_thumbnail.png',
             status:      'live',
