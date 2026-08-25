@@ -83,9 +83,9 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Tidal Forces', 'Astronomy', 'Interactive'],
+            tags:        ['Tidal Forces', 'Interactive'],
             title:       'Tidal Rhythm',
-            description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the combined pull of the Sun and Moon, and check the theory against real NOAA tide data from two Long Island stations.',
+            description: 'See why the Moon raises two tidal bulges, watch spring and neap tides emerge from the different alignment patterns of the Earth, Sun and Moon, and view real NOAA tide data from two Long Island stations.',
             footerTags:  ['Tidal Forces', 'Spring & Neap Tides'],
             to:          '/earthandspace/tidal-rhythm',
             thumb:       '/TidalRhythm_thumbnail.png',
@@ -94,8 +94,8 @@ const SECTIONS = [
           {
             tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'UNDER CONSTRUCTION',
-            footerTags:  ['Shadow Geometry', 'Eclipses'],
+            description: 'Explore how solar and lunar eclipses occur and see why they don't occur every month.',
+            footerTags:  ['Syzygy', 'Eclipses'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
             status:      'live',
