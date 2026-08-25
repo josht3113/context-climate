@@ -22,7 +22,7 @@ const SECTIONS = [
     accent: ACCENT.essrt,
     cards: [
       {
-        tags:        ['ESSRT', 'Interactive'],
+        tags:        ['ESSRT', 'Pages 6 & 7', 'Interactive'],
         title:       'Geologic History of New York State',
         description: 'Explore ESSRT pages 6–7 interactively with zoom and overlay functions, as well as information about key index fossils.',
         footerTags:  ['Geologic Time', 'Fossils', 'New York State'],
@@ -31,7 +31,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['ESSRT', 'Interactive'],
+        tags:        ['ESSRT', 'Pages 8, 9, 10', 'Interactive'],
         title:       'NYS Bedrock, Resources & Landscape Regions',
         description: 'Explore ESSRT pages 8–10 interactively along with a digital topographic map of NY State.',
         footerTags:  ['Bedrock Geology', 'Mineral Resources', 'Landscape Regions'],
@@ -40,7 +40,7 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['ESSRT', 'Interactive'],
+        tags:        ['ESSRT', 'Page 15', 'Interactive'],
         title:       'Rock Cycle Infographic',
         description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack processes, structures and other important aspects of the rock cycle. Guided tour and rock types functions available.',
         footerTags:  ['Igneous', 'Sedimentary', 'Metamorphic'],
