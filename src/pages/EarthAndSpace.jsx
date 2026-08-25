@@ -94,7 +94,7 @@ const SECTIONS = [
           {
             tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'Explore how solar and lunar eclipses occur and see why they don't occur every month.',
+            description: 'Explore how solar and lunar eclipses occur and see why they don\'t occur every month.',
             footerTags:  ['Syzygy', 'Eclipses'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
