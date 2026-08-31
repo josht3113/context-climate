@@ -51,7 +51,7 @@ const SECTIONS = [
         tags:       ['US Cities', 'UPDATES HOURLY'],
         title:      'Annual Precipitation Heatmap',
         description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day. Live through the current year.',
-        footerTags: ['Hourly Precip', 'Daily Totals', 'Annual Total', 'Live'],
+        footerTags: ['Hourly Precip', 'Annual Total', 'Live'],
         to:         '/precip-heatmap-annual',
         accentVar:  '--accent-live',
         thumb:      '/precip_heatmap_annual_thumbnail.png',
