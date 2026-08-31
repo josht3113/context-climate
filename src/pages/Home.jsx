@@ -522,6 +522,16 @@ export default function Home() {
       <section className="page-hero">
         <p className="page-eyebrow">Interactive Data Tools</p>
         <h1 className="page-title">Weather &amp; Climate</h1>
+        <p style={{
+          margin:        '0 0 14px',
+          fontFamily:    'var(--font-body)',
+          fontSize:      '15px',
+          fontWeight:    500,
+          color:         'var(--color-text-secondary)',
+          letterSpacing: '0.01em',
+        }}>
+          Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science Teacher
+        </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
           This page is a resource for observing and understanding weather and climate. Each card contains an interactive tool that allows you to dig into a specific phenomenon, track trends and relationships in the data, or get broader context on something happening right now. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
           <a

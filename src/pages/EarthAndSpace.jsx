@@ -497,6 +497,16 @@ export default function EarthAndSpace() {
 
         <p className="page-eyebrow">Interactive Learning Tools</p>
         <h1 className="page-title">Earth &amp; Space Science</h1>
+        <p style={{
+          margin:        '0 0 14px',
+          fontFamily:    'var(--font-body)',
+          fontSize:      '15px',
+          fontWeight:    500,
+          color:         'var(--color-text-secondary)',
+          letterSpacing: '0.01em',
+        }}>
+          Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science Teacher
+        </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
           This page is a resource for students and teachers of the NY State Earth &amp; Space Science curriculum. Each card contains an interactive tool for exploring concepts and ideas related to the course material. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
           <a
