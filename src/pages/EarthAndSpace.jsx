@@ -306,8 +306,8 @@ const SECTIONS = [
           {
             tags:        ['Nucleosynthesis', 'Interactive'],
             title:       'The Core Furnace',
-            description: 'Descend through a massive star shell by shell and watch fusion happen nucleus by nucleus, from the carbon catalyst cycle to the alpha ladder that builds iron, then find out why the sequence stops dead there.',
-            footerTags:  ['Fusion', 'Binding Energy', 'Supernova'],
+            description: 'Compare the Sun with a 25-solar-mass star and watch each one stop. Fusion is shown nucleus by nucleus, from the proton\u2013proton chain to the alpha ladder that builds iron \u2014 plus the 170,000-year journey the Sun\u2019s energy takes to escape its own core.',
+            footerTags:  ['Fusion', 'Stellar Mass', 'Supernova'],
             to:          '/earthandspace/core-furnace',
             thumb:       '/CoreFurnace_thumbnail.png',
             status:      'live',
