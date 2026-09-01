@@ -536,8 +536,12 @@ function rampAt(f){
   }
   return AGE_RAMP[AGE_RAMP.length-1].c;
 }
-/* oldest crust currently on screen, Ma — the top of the colour scale */
-function maxAgeWin(){ return halfWindow()/S.rate; }
+/* Top of the colour scale, Ma. The oldest crust on screen, but never more
+   than the 6-Myr window the model actually covers: crust older than that is
+   grey in both colour modes, exactly as it is in the magnetic view. Fixed
+   against the clock on purpose — a scale that re-fitted while the clock ran
+   would stop a parcel of crust ageing monotonically through the ramp. */
+function maxAgeWin(){ return Math.min(halfWindow()/S.rate, TSPAN); }
 function ageColor(a, mA){ return rampAt(a/(mA||maxAgeWin())); }
 /* CSS gradient for the sidebar key */
 function ageGradientCss(){
@@ -669,7 +673,9 @@ function drawSection(g){
       var mA=maxAgeWin(), axx, dimA=1-(1-L.dim)*0.42;
       for(px=0; px<=PW; px+=2){
         axx=pxToX(PADL+px);
-        g.fillStyle=shade(ageColor(ageAt(axx,S.rate), mA), dimA);
+        g.fillStyle = Math.abs(axx) > fr
+          ? polColor(0, dimA)                                   /* older than the window */
+          : shade(ageColor(ageAt(axx,S.rate), mA), dimA);
         g.fillRect(PADL+px, SEC_T, 2.6, SEC_B-SEC_T);
       }
     } else if(S.show.stripes){
@@ -905,12 +911,14 @@ function drawRibbon(g){
     var mA=maxAgeWin(), rpx, rx;
     for(rpx=0; rpx<=PW; rpx+=2){
       rx=pxToX(PADL+rpx);
+      if(Math.abs(rx) > fr) continue;          /* leave the grey ground showing */
       g.fillStyle=ageColor(ageAt(rx,S.rate), mA);
       g.fillRect(PADL+rpx, RIB_T, 2.6, RIB_B-RIB_T);
     }
     /* a few age labels straight on the band, at the ruler's own ticks */
-    var stA=niceStep(mA,3), aa;
-    for(aa=stA; aa<=mA-stA*0.4; aa+=stA){
+    var stA=niceStep(mA,3), aa, aMax=Math.min(mA, fr/S.rate);
+    var stepPx=(stA*S.rate)/kmPerPx();       /* no chips once they would collide */
+    for(aa=stepPx<52?1e9:stA; aa<=aMax-stA*0.4; aa+=stA){
       for(var sg2=-1; sg2<=1; sg2+=2){
         chipTxt(g, (stA<1?aa.toFixed(1):aa.toFixed(0))+' Ma',
                 xToPx(sg2*aa*S.rate), RIB_B-13, 11, 'rgba(255,255,255,0.97)','center',700);
@@ -920,7 +928,9 @@ function drawRibbon(g){
     g.strokeStyle=C.rule; g.lineWidth=1; g.strokeRect(PADL,RIB_T,PW,RIB_B-RIB_T);
     line(g,xToPx(0),RIB_T-3,xToPx(0),RIB_B+3,'#E8E4D9',1.6);
     mono(g,'AGE OF THE CRUST  (plan view)',PADL,RIB_T-10,12,C.mute,'left',700);
-    mono(g,'same colours as the NOAA crustal-age map',PADL+PW,RIB_T-10,12,C.mute,'right');
+    mono(g, fr<XV ? 'grey = older than this 6-Myr window'
+                  : 'same colours as the NOAA crustal-age map',
+         PADL+PW,RIB_T-10,12,C.mute,'right');
     return;
   }
 
@@ -1004,6 +1014,7 @@ function drawMap(g){
       var sga=segs[j], Ha=sga.y1-sga.y0;
       for(mpx=0; mpx<=PW; mpx+=2){
         mx2=pxToX(PADL+mpx)-sga.ox;
+        if(Math.abs(mx2) > fr) continue;       /* older than the window — stays grey */
         g.fillStyle=ageColor(ageAt(mx2,S.rate), mAm);
         g.fillRect(PADL+mpx, sga.y0, 2.6, Ha);
       }
@@ -1206,9 +1217,14 @@ function buildPolKey(){
       +'crust is being made, blue where it is oldest. That map runs to 180 million years; this window '
       +'holds only <b>'+f(mA)+' Ma</b>, so the whole scale is squeezed onto the ages actually in view. '
       +'Change the zoom, the ridge or the distance scale and the scale re-fits.</p>'
-      +'<p>Age here is nothing but <span class="num">distance ÷ half rate</span>, so the bands are '
-      +'perfectly symmetrical and they <b>do not move when you run the clock</b> — only the polarity '
-      +'stripes do. Switch back to <b>Magnetic</b> and the two patterns sit on exactly the same crust.</p>';
+      +'<p>Age here is nothing but <span class="num">distance ÷ half rate</span>, so the ramp is '
+      +'perfectly symmetrical. <b>Run the clock</b> and every parcel of crust is born red at the axis and '
+      +'then ages on its way out — red, orange, green, blue — while grey seafloor older than the 6-Myr '
+      +'window is pushed off the edges. The ramp holds still because spreading is steady; the rock is '
+      +'what moves through it.</p>'
+      +'<p>Switch back to <b>Magnetic</b> and the two patterns sit on exactly the same crust: age climbs '
+      +'smoothly outward, polarity flips back and forth. Both are symmetrical about the axis, and that '
+      +'is the evidence.</p>';
     return;
   }
   hd.textContent='Reading the stripes';
@@ -1310,14 +1326,15 @@ var TOUR=[
    +'same depth, same sediment thickness. Symmetry about the axis is the single strongest piece of '
    +'evidence that crust is being made at the ridge and split evenly between two plates.',
   go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(1000); setLock(S.rate*2.2); addSample(S.rate*2.2); addSample(S.rate*4.6); }},
- {t:'Colour the same crust by age',
-  d:'Switch <b>Colour by</b> to <b>Age</b>. The stripes vanish and what is left is a smooth ramp — red at '
-   +'the axis, blue at the edges — the colours geologists use on the NOAA crustal-age map of the ocean '
-   +'floor. Nothing about the crust changed; only what the colour is reporting. The two patterns are '
-   +'independent evidence for the same thing: the age ramp is symmetrical because crust is made at the '
-   +'axis, and it does not move as you run the clock, while the stripes shift outward because the field '
-   +'keeps flipping.',
-  go:function(){ setColor('age'); setView('section'); setZoom(0); setClock(1000); }},
+ {t:'Watch the crust age as it moves',
+  d:'Same crust, coloured by <b>age</b> instead of polarity, in the colours of the NOAA crustal-age map '
+   +'of the ocean floor. The clock is back at 6 million years ago and the whole window is grey — older '
+   +'seafloor that this 6-Myr record does not cover. Every parcel of crust is born <b>red</b> at the '
+   +'axis, and then <b>changes colour as it rafts away</b>: red to orange to green to blue. Watch the '
+   +'outermost coloured band, the crust made at the moment you pressed Run — it ages the whole length of '
+   +'the scale on its way to the edge. The ramp itself holds still because spreading is steady; it is '
+   +'the rock that moves through it.',
+  go:function(){ setColor('age'); setView('section'); setZoom(0); setClock(0); play(); }},
  {t:'Change the spreading rate',
   d:'Switch between the Mid-Atlantic Ridge and the East Pacific Rise with the distance scale held '
    +'fixed. Same 6 million years, same reversals — but the fast ridge spreads them across six times '
