@@ -192,6 +192,13 @@ input[type=range]{ accent-color:var(--tool-accent); }
           <select class="cc-select" id="ridgeSel" aria-label="Choose a ridge"></select>
         </div>
         <div class="bar-grp">
+          <span class="bar-lab">Colour by</span>
+          <div class="cc-segmented" role="group" aria-label="Colour the crust by">
+            <button class="cc-segmented-btn is-active" data-color="mag">Magnetic</button>
+            <button class="cc-segmented-btn" data-color="age">Age</button>
+          </div>
+        </div>
+        <div class="bar-grp">
           <span class="bar-lab">Zoom</span>
           <button class="cc-btn cc-btn-sm is-active" data-zoom="0">Full</button>
           <button class="cc-btn cc-btn-sm" data-zoom="60">&plusmn;60 km</button>
@@ -230,7 +237,7 @@ input[type=range]{ accent-color:var(--tool-accent); }
       <div class="bar">
         <div class="bar-grp">
           <span class="bar-lab">Show</span>
-          <button class="cc-btn cc-btn-sm is-active" data-tog="stripes">Magnetic stripes</button>
+          <button class="cc-btn cc-btn-sm is-active" id="togStripes" data-tog="stripes">Magnetic stripes</button>
           <button class="cc-btn cc-btn-sm is-active" data-tog="curie">580&deg;C Curie isotherm</button>
           <button class="cc-btn cc-btn-sm is-active" data-tog="sed">Sediment</button>
           <button class="cc-btn cc-btn-sm" data-tog="quakes">Earthquakes</button>
@@ -251,7 +258,7 @@ input[type=range]{ accent-color:var(--tool-accent); }
           </p>
         </div>
         <div class="pnl">
-          <h2 class="pnl-h">Reading the stripes</h2>
+          <h2 class="pnl-h" id="keyHead">Reading the stripes</h2>
           <div id="polKey"></div>
           <p style="margin-top:10px">
             Ocean depth follows <span class="num">d = 2500 + 350&radic;a</span> metres out to about
@@ -448,7 +455,7 @@ function frontier(S){ return (TSPAN - S.tau)*S.rate; }   /* edge of the striped 
 /* ── 4. STATE ──────────────────────────────────────────────────── */
 var S = {
   ridgeId:'marn', full:2.5, rate:12.5,
-  tau:0, view:'section', zoom:0, scaleMode:'time',
+  tau:0, view:'section', zoom:0, scaleMode:'time', color:'mag',
   show:{stripes:true, curie:true, sed:true, quakes:false},
   hover:null, lock:null, log:[], tour:-1, playing:false
 };
@@ -495,6 +502,48 @@ function shade(hex, f){
 function polColor(p, dim){
   var base = p===1 ? C.normal : p===-1 ? C.reversed : C.unknown;
   return dim===1 ? base : shade(base, dim);
+}
+/* ── 6b. CRUST-AGE COLOUR SCALE ─────────────────────────────────────
+   Sampled straight off the NOAA / NGDC "Crustal Age of the Ocean
+   Floor" map (Muller, Roest, Royer, Gahagan & Sclater). That map runs
+   0 – 180 Ma; this tool only ever shows a few million years, so the
+   scale is COMPRESSED onto whatever age range is currently in view.
+   Positions below are each band's mid-age as a fraction of 180 Ma, so
+   the sequence and spacing of the hues are the map's, not invented. */
+var AGE_RAMP = [
+  {f:0.000, c:'#B20022'}, {f:0.027, c:'#B20022'}, {f:0.083, c:'#BF3C0D'},
+  {f:0.148, c:'#CC6102'}, {f:0.203, c:'#D27F00'}, {f:0.245, c:'#DC993E'},
+  {f:0.289, c:'#DFCA45'}, {f:0.346, c:'#C5CA4B'}, {f:0.421, c:'#98B500'},
+  {f:0.558, c:'#469616'}, {f:0.679, c:'#007B5D'}, {f:0.717, c:'#3B9577'},
+  {f:0.760, c:'#00848C'}, {f:0.811, c:'#267AB0'}, {f:0.851, c:'#015993'},
+  {f:0.935, c:'#003675'}, {f:1.000, c:'#003675'}
+];
+function hex2rgb(h){ return [parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]; }
+function rgb2hex(a){
+  function h(v){ v=Math.max(0,Math.min(255,Math.round(v))).toString(16); return v.length<2?'0'+v:v; }
+  return '#'+h(a[0])+h(a[1])+h(a[2]);
+}
+/* fraction 0-1 along the ramp -> hex */
+function rampAt(f){
+  if(!(f>0)) f=0; if(f>1) f=1;
+  for(var i=1;i<AGE_RAMP.length;i++){
+    if(f<=AGE_RAMP[i].f){
+      var a=AGE_RAMP[i-1], b=AGE_RAMP[i];
+      var t=(b.f-a.f)<1e-9 ? 0 : (f-a.f)/(b.f-a.f);
+      var ca=hex2rgb(a.c), cb=hex2rgb(b.c);
+      return rgb2hex([ca[0]+(cb[0]-ca[0])*t, ca[1]+(cb[1]-ca[1])*t, ca[2]+(cb[2]-ca[2])*t]);
+    }
+  }
+  return AGE_RAMP[AGE_RAMP.length-1].c;
+}
+/* oldest crust currently on screen, Ma — the top of the colour scale */
+function maxAgeWin(){ return halfWindow()/S.rate; }
+function ageColor(a, mA){ return rampAt(a/(mA||maxAgeWin())); }
+/* CSS gradient for the sidebar key */
+function ageGradientCss(){
+  var st=[];
+  for(var i=0;i<AGE_RAMP.length;i++) st.push(AGE_RAMP[i].c+' '+(AGE_RAMP[i].f*100).toFixed(1)+'%');
+  return 'linear-gradient(to right,'+st.join(',')+')';
 }
 function rng(seed){
   return function(){ seed|=0; seed=seed+0x6D2B79F5|0;
@@ -614,7 +663,16 @@ function drawSection(g){
     g.save();
     bandPath(g, bm, o0, o1); g.clip();
 
-    if(S.show.stripes){
+    if(S.show.stripes && S.color==='age'){
+      /* colour by age: a continuous ramp, so the mirror symmetry and the
+         outward ageing are the only pattern left on the crust */
+      var mA=maxAgeWin(), axx, dimA=1-(1-L.dim)*0.42;
+      for(px=0; px<=PW; px+=2){
+        axx=pxToX(PADL+px);
+        g.fillStyle=shade(ageColor(ageAt(axx,S.rate), mA), dimA);
+        g.fillRect(PADL+px, SEC_T, 2.6, SEC_B-SEC_T);
+      }
+    } else if(S.show.stripes){
       for(i=0;i<bs.length;i++){
         var b=bs[i], c=polColor(b.p, L.dim);
         var xa=xToPx(b.d0), xb=xToPx(b.d1);
@@ -758,7 +816,9 @@ function drawSection(g){
     g.strokeStyle='rgba(255,240,200,0.9)'; g.lineWidth=1; g.stroke(); g.restore();
     chipTxt(g,'steady melt lens', xToPx(0)+lensW/2+8, ly+4, 11, C.meltHot);
   } else {
-    chipTxt(g,'no steady melt lens at rates this slow', xToPx(0)+wBot/2+12, meltTop+26, 11, 'rgba(250,220,150,0.98)');
+    var mlx=xToPx(0)+wBot/2+12, mlR=(mlx+250 < PADL+PW);
+    chipTxt(g,'no steady melt lens at rates this slow',
+            mlR?mlx:xToPx(0)-wBot/2-12, meltTop+26, 11, 'rgba(250,220,150,0.98)', mlR?'left':'right');
   }
   chipTxt(g,'partial melt', xToPx(0), SEC_B-9, 11.5, 'rgba(255,225,170,0.95)','center',700);
 
@@ -832,12 +892,38 @@ function drawRuler(g){
     }
   }
   mono(g,'AGE OF CRUST  (millions of years)',PADL,RUL_Y-36,12,C.mute,'left',700);
-  mono(g,'youngest at the axis  ·  oldest at the edges',PADL+PW,RUL_Y-36,12,C.mute,'right');
+  if(S.color==='age')
+    mono(g,'colour scale  0 → '+maxAgeWin().toFixed(maxAgeWin()<10?1:0)+' Ma',
+         PADL+PW,RUL_Y-36,12,C.mute,'right');
 }
 function drawRibbon(g){
   var XV=halfWindow(), bs=bands(S), fr=frontier(S), i;
   g.save(); g.beginPath(); g.rect(PADL,RIB_T,PW,RIB_B-RIB_T); g.clip();
   g.fillStyle=C.unknown; g.fillRect(PADL,RIB_T,PW,RIB_B-RIB_T);
+
+  if(S.color==='age'){
+    var mA=maxAgeWin(), rpx, rx;
+    for(rpx=0; rpx<=PW; rpx+=2){
+      rx=pxToX(PADL+rpx);
+      g.fillStyle=ageColor(ageAt(rx,S.rate), mA);
+      g.fillRect(PADL+rpx, RIB_T, 2.6, RIB_B-RIB_T);
+    }
+    /* a few age labels straight on the band, at the ruler's own ticks */
+    var stA=niceStep(mA,3), aa;
+    for(aa=stA; aa<=mA-stA*0.4; aa+=stA){
+      for(var sg2=-1; sg2<=1; sg2+=2){
+        chipTxt(g, (stA<1?aa.toFixed(1):aa.toFixed(0))+' Ma',
+                xToPx(sg2*aa*S.rate), RIB_B-13, 11, 'rgba(255,255,255,0.97)','center',700);
+      }
+    }
+    g.restore();
+    g.strokeStyle=C.rule; g.lineWidth=1; g.strokeRect(PADL,RIB_T,PW,RIB_B-RIB_T);
+    line(g,xToPx(0),RIB_T-3,xToPx(0),RIB_B+3,'#E8E4D9',1.6);
+    mono(g,'AGE OF THE CRUST  (plan view)',PADL,RIB_T-10,12,C.mute,'left',700);
+    mono(g,'same colours as the NOAA crustal-age map',PADL+PW,RIB_T-10,12,C.mute,'right');
+    return;
+  }
+
   for(i=0;i<bs.length;i++){
     var b=bs[i], xa=xToPx(b.d0), xb=xToPx(b.d1), w=Math.max(xb-xa,0.6);
     g.fillStyle=polColor(b.p,1);
@@ -887,8 +973,11 @@ function drawNotes(g){
 
 function drawMapNotes(g){
   var f=axialForm(S.full);
-  mono(g,'stripes are offset across each transform — but age still increases outward '
-        +'from the nearest axis', PADL, NOTE_Y, 11, C.mute,'left');
+  mono(g, S.color==='age'
+        ? 'the age pattern is offset across each transform — age still increases '
+          +'outward from each axis'
+        : 'stripes are offset across each transform — but age still increases outward '
+          +'from the nearest axis', PADL, NOTE_Y, 11, C.mute,'left');
   mono(g, f.relief>0 ? 'slow ridge — rift valley' : 'fast ridge — axial high',
        PADL+PW, NOTE_Y, 11, f.relief>0?'#8FD0DA':'#F0A65E','right',700);
 }
@@ -909,6 +998,17 @@ function drawMap(g){
   g.save(); g.beginPath(); g.rect(PADL,MAP_T,PW,MAP_B-MAP_T); g.clip();
   g.fillStyle=C.unknown; g.fillRect(PADL,MAP_T,PW,MAP_B-MAP_T);
 
+  if(S.color==='age'){
+    var mAm=maxAgeWin(), mpx, mx2;
+    for(j=0;j<segs.length;j++){
+      var sga=segs[j], Ha=sga.y1-sga.y0;
+      for(mpx=0; mpx<=PW; mpx+=2){
+        mx2=pxToX(PADL+mpx)-sga.ox;
+        g.fillStyle=ageColor(ageAt(mx2,S.rate), mAm);
+        g.fillRect(PADL+mpx, sga.y0, 2.6, Ha);
+      }
+    }
+  } else
   for(j=0;j<segs.length;j++){
     var sg=segs[j], H=sg.y1-sg.y0;
     for(i=0;i<bs.length;i++){
@@ -997,10 +1097,23 @@ function drawMap(g){
   }
   g.strokeStyle=C.rule; g.lineWidth=1; g.strokeRect(PADL,MAP_T,PW,MAP_B-MAP_T);
   mono(g,'PLAN VIEW — LOOKING DOWN ON THE SEAFLOOR',PADL,MAP_T-12,12,C.mute,'left',700);
-  mono(g,'no vertical exaggeration · ridge geometry is schematic',PADL+PW,MAP_T-12,12,C.mute,'right');
+  if(S.color!=='age')
+    mono(g,'no vertical exaggeration · ridge geometry is schematic',PADL+PW,MAP_T-12,12,C.mute,'right');
+  if(S.color==='age') drawAgeBar(g, PADL+PW*0.58, 26, PW*0.42, 15);
   var kmTall=((MAP_B-MAP_T)*kmPerPx());
   g.save(); g.translate(21,(MAP_T+MAP_B)/2); g.rotate(-Math.PI/2);
   mono(g,'ALONG THE RIDGE  ≈ '+Math.round(kmTall)+' km',0,0,11.5,C.mute,'center',700); g.restore();
+}
+
+/* Canvas colour scale — drawn wherever there is no age ruler to read */
+function drawAgeBar(g, x0, y0, w, h){
+  var mA=maxAgeWin(), i, n=140;
+  for(i=0;i<n;i++) { g.fillStyle=rampAt(i/(n-1)); g.fillRect(x0+w*i/n, y0, w/n+1, h); }
+  g.strokeStyle=C.rule; g.lineWidth=1; g.strokeRect(x0,y0,w,h);
+  mono(g,'CRUST AGE', x0-10, y0+h-3, 11, C.mute,'right',700);
+  mono(g,'0', x0, y0+h+14, 11, C.mute,'left');
+  mono(g,(mA/2).toFixed(mA<10?1:0), x0+w/2, y0+h+14, 11, C.mute,'center');
+  mono(g,mA.toFixed(mA<10?1:0)+' Ma', x0+w, y0+h+14, 11, C.mute,'right');
 }
 
 /* ── 12. HOVER / LOCK MARKERS ──────────────────────────────────── */
@@ -1054,7 +1167,8 @@ function renderStage(g){
 /* ── 15. SIDEBAR CONTENT ───────────────────────────────────────── */
 function buildStack(){
   var el=document.getElementById('stackList'), html='';
-  var swatch={sed:C.sed, pillow:polColor(1,1), dike:polColor(1,0.72), gabbro:polColor(1,0.50), peri:C.mantle};
+  var base = S.color==='age' ? ageColor(maxAgeWin()*0.30) : polColor(1,1);
+  var swatch={sed:C.sed, pillow:base, dike:shade(base,0.72), gabbro:shade(base,0.50), peri:C.mantle};
   for(var i=0;i<CRUST.length;i++){
     var L=CRUST[i];
     var th = L.k==='sed' ? '≈'+Math.round(sedM(halfWindow()/S.rate))+' m'
@@ -1078,7 +1192,26 @@ function buildStack(){
   }
 }
 function buildPolKey(){
-  var el=document.getElementById('polKey');
+  var el=document.getElementById('polKey'), hd=document.getElementById('keyHead');
+  if(S.color==='age'){
+    var mA=maxAgeWin(), f=function(v){ return v.toFixed(mA<10?1:0); };
+    hd.textContent='Reading the age pattern';
+    el.innerHTML =
+      '<div style="height:16px;border-radius:3px;border:1px solid rgba(232,228,217,0.28);'
+      +'background:'+ageGradientCss()+'"></div>'
+      +'<div style="display:flex;justify-content:space-between;margin:5px 0 10px;'
+      +'font-family:\'Courier Prime\',monospace;font-size:12px;color:var(--cc-mute,#B4AFA1)">'
+      +'<span>0 Ma — the axis</span><span>'+f(mA/2)+'</span><span>'+f(mA)+' Ma — the edge</span></div>'
+      +'<p>These are the colours of the <b>NOAA crustal-age map</b> of the ocean floor — red where '
+      +'crust is being made, blue where it is oldest. That map runs to 180 million years; this window '
+      +'holds only <b>'+f(mA)+' Ma</b>, so the whole scale is squeezed onto the ages actually in view. '
+      +'Change the zoom, the ridge or the distance scale and the scale re-fits.</p>'
+      +'<p>Age here is nothing but <span class="num">distance ÷ half rate</span>, so the bands are '
+      +'perfectly symmetrical and they <b>do not move when you run the clock</b> — only the polarity '
+      +'stripes do. Switch back to <b>Magnetic</b> and the two patterns sit on exactly the same crust.</p>';
+    return;
+  }
+  hd.textContent='Reading the stripes';
   el.innerHTML =
     '<div class="cc-legend-row" style="justify-content:flex-start;margin-bottom:10px">'
     +'<span class="cc-legend-chip"><span class="cc-legend-dot" style="background:'+C.normal+'"></span>Normal (N)</span>'
@@ -1090,7 +1223,9 @@ function buildPolKey(){
     +'reads without relying on colour.</p>'
     +'<p>Stripe widths are <b>uneven</b> because reversals are uneven. The field has flipped '
     +'roughly every 200,000–300,000 years on average, but the Brunhes chron has now run '
-    +'normal for 773,000 years without flipping.</p>';
+    +'normal for 773,000 years without flipping.</p>'
+    +'<p>The <b>Colour by</b> switch above the diagram repaints the same crust by <b>age</b> instead, '
+    +'in the colours of the NOAA crustal-age map.</p>';
 }
 
 /* ── 16. READOUT ───────────────────────────────────────────────── */
@@ -1158,41 +1293,49 @@ var TOUR=[
   d:'The clock is set to 6 million years ago. Every stripe you will see is still in the future — '
    +'the grey crust is older ocean floor that formed before this window opens. Watch where the new '
    +'crust appears.',
-  go:function(){ setView('section'); setZoom(0); setClock(0); }},
+  go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(0); }},
  {t:'Run the clock forward',
   d:'New crust is added <b>only at the axis</b>. It does not grow in place — it is made at the ridge '
    +'and then carried outward, pushing the older grey crust off the edges of the view. That is the '
    +'whole of seafloor spreading in one motion.',
-  go:function(){ setView('section'); setZoom(0); setClock(0); play(); }},
+  go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(0); play(); }},
  {t:'Why there are stripes at all',
   d:'Lava erupts at about 1200 °C, far too hot to be magnetic. As it cools past the '
    +'<b>Curie point near 580 °C</b> — the dashed yellow line — magnetite crystals lock onto whichever '
    +'way Earth\'s field is pointing at that instant, and hold it permanently. Every so often the field '
    +'flips, and the next crust to cool records the opposite direction.',
-  go:function(){ setView('section'); setZoom(20); setClock(1000); S.show.curie=true; syncToggles(); }},
+  go:function(){ setColor('mag'); setView('section'); setZoom(20); setClock(1000); S.show.curie=true; syncToggles(); }},
  {t:'Read the symmetry',
   d:'A pair of cores has been drilled the same distance out on each side. Same age, same polarity, '
    +'same depth, same sediment thickness. Symmetry about the axis is the single strongest piece of '
    +'evidence that crust is being made at the ridge and split evenly between two plates.',
-  go:function(){ setView('section'); setZoom(0); setClock(1000); setLock(S.rate*2.2); addSample(S.rate*2.2); addSample(S.rate*4.6); }},
+  go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(1000); setLock(S.rate*2.2); addSample(S.rate*2.2); addSample(S.rate*4.6); }},
+ {t:'Colour the same crust by age',
+  d:'Switch <b>Colour by</b> to <b>Age</b>. The stripes vanish and what is left is a smooth ramp — red at '
+   +'the axis, blue at the edges — the colours geologists use on the NOAA crustal-age map of the ocean '
+   +'floor. Nothing about the crust changed; only what the colour is reporting. The two patterns are '
+   +'independent evidence for the same thing: the age ramp is symmetrical because crust is made at the '
+   +'axis, and it does not move as you run the clock, while the stripes shift outward because the field '
+   +'keeps flipping.',
+  go:function(){ setColor('age'); setView('section'); setZoom(0); setClock(1000); }},
  {t:'Change the spreading rate',
   d:'Switch between the Mid-Atlantic Ridge and the East Pacific Rise with the distance scale held '
    +'fixed. Same 6 million years, same reversals — but the fast ridge spreads them across six times '
    +'more seafloor. Notice the axis itself change shape too: the slow ridge has a deep <b>rift valley</b>, '
    +'the fast ridge an <b>axial high</b>.',
-  go:function(){ setView('section'); setZoom(0); setClock(1000); S.scaleMode='dist'; setRidge('epr'); }},
+  go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(1000); S.scaleMode='dist'; setRidge('epr'); }},
  {t:'Transform faults from above',
   d:'The ridge is broken into offset segments. Between two offset crests the plates slide <b>past each '
    +'other in opposite directions</b> — that stretch is an active transform fault and it is full of '
    +'earthquakes. Beyond the offsets both sides move the same way, so the scar continues as an '
    +'inactive fracture zone with no earthquakes at all.',
-  go:function(){ setView('map'); setZoom(0); setClock(1000); S.show.quakes=true; syncToggles(); }},
+  go:function(){ setColor('mag'); setView('map'); setZoom(0); setClock(1000); S.show.quakes=true; syncToggles(); }},
  {t:'Where does all this crust go?',
   d:'Earth is not getting bigger. Crust made at ridges is destroyed at subduction zones, which is why '
    +'the oldest ocean floor is only about 180 million years old while the oldest continental rock is '
    +'nearly 4 billion. Ridge earthquakes are all shallow; subduction zones are the only place '
    +'earthquakes go deep. <a href="'+LINK_SUBDUCTION+'" style="color:var(--tool-accent)">Open the subduction explorer →</a>',
-  go:function(){ setView('section'); setZoom(0); setClock(1000); S.show.quakes=true; syncToggles(); }}
+  go:function(){ setColor('mag'); setView('section'); setZoom(0); setClock(1000); S.show.quakes=true; syncToggles(); }}
 ];
 function buildTour(){
   var el=document.getElementById('tourList'), h='';
@@ -1267,7 +1410,8 @@ function exportPng(){
        PADL,CH+HD+30,10,C.mute,'left');
   mono(g,'contextclimate.io',CW-PADR,CH+HD+30,10,C.mute,'right');
   var a=document.createElement('a');
-  a.download='seafloor-spreading-'+S.ridgeId+(S.view==='map'?'-map':'-section')+'.png';
+  a.download='seafloor-spreading-'+S.ridgeId+(S.view==='map'?'-map':'-section')
+             +(S.color==='age'?'-age':'')+'.png';
   a.href=cv.toDataURL('image/png'); a.click();
 }
 
@@ -1279,7 +1423,7 @@ function setRidge(id){
   document.getElementById('tagRidge').textContent=r.name;
   document.getElementById('tagRate').textContent=r.full.toFixed(1)+' cm/yr total · '+(r.full/2).toFixed(2)+' each way';
   S.log=[]; S.lock=null; S.hover=null;
-  renderLog(); buildStack(); updateReadout();
+  renderLog(); buildStack(); buildPolKey(); updateReadout();
 }
 function setView(v){
   S.view=v;
@@ -1293,7 +1437,14 @@ function setZoom(z){
   S.zoom=z;
   var b=document.querySelectorAll('[data-zoom]');
   for(var i=0;i<b.length;i++) b[i].classList.toggle('is-active', +b[i].getAttribute('data-zoom')===z);
-  buildStack();
+  buildStack(); buildPolKey();
+}
+function setColor(c){
+  S.color=c;
+  var b=document.querySelectorAll('[data-color]');
+  for(var i=0;i<b.length;i++) b[i].classList.toggle('is-active', b[i].getAttribute('data-color')===c);
+  document.getElementById('togStripes').textContent = c==='age' ? 'Age colours' : 'Magnetic stripes';
+  buildStack(); buildPolKey(); updateReadout();
 }
 function setClock(v){
   document.getElementById('clock').value=v;
@@ -1378,11 +1529,13 @@ document.getElementById('ridgeSel').addEventListener('change', function(){ setRi
 document.getElementById('btnScale').addEventListener('click', function(){
   S.scaleMode = S.scaleMode==='time' ? 'dist' : 'time';
   this.textContent = 'Scale: '+(S.scaleMode==='time'?'same time':'same distance');
-  buildStack(); draw();
+  buildStack(); buildPolKey(); draw();
 });
 (function(){
   var i, b=document.querySelectorAll('[data-view]');
   for(i=0;i<b.length;i++) b[i].addEventListener('click', function(){ setView(this.getAttribute('data-view')); draw(); });
+  var cbs=document.querySelectorAll('[data-color]');
+  for(i=0;i<cbs.length;i++) cbs[i].addEventListener('click', function(){ setColor(this.getAttribute('data-color')); draw(); });
   var z=document.querySelectorAll('[data-zoom]');
   for(i=0;i<z.length;i++) z[i].addEventListener('click', function(){ setZoom(+this.getAttribute('data-zoom')); draw(); });
   var t=document.querySelectorAll('[data-tog]');
@@ -1397,8 +1550,8 @@ document.getElementById('btnScale').addEventListener('click', function(){
   for(var i=0;i<RIDGES.length;i++)
     h+='<option value="'+RIDGES[i].id+'">'+RIDGES[i].name+' — '+RIDGES[i].full.toFixed(1)+' cm/yr</option>';
   sel.innerHTML=h;
-  buildTour(); buildQs(); buildPolKey();
-  setRidge('marn'); setView('section'); setZoom(0); setClock(1000);
+  buildTour(); buildQs();
+  setRidge('marn'); setView('section'); setColor('mag'); setZoom(0); setClock(1000);
   syncToggles(); renderLog(); buildStack(); updateReadout(); draw();
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(function(){ draw(); });
 })();
