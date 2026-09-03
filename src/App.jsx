@@ -104,6 +104,7 @@ import GreenhouseGasTracker        from './pages/GreenhouseGasTracker'
 import Climographs                 from './pages/Climographs'
 import CoreFurnace                 from './pages/CoreFurnace'
 import AtmosphericDensity          from './pages/AtmosphericDensity'
+import StationModelBuilder         from './pages/StationModelBuilder'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -243,6 +244,7 @@ export default function App() {
           <Route path="/climographs"                                element={<Climographs />}                />
           <Route path="/earthandspace/core-furnace"                element={<CoreFurnace />}                />
           <Route path="/earthandspace/atmospheric-density"         element={<AtmosphericDensity />}         />
+          <Route path="/earthandspace/station-model-builder"       element={<StationModelBuilder />}        />
         </Routes>
       </main>
       <footer style={{
