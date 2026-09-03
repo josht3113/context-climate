@@ -162,17 +162,14 @@
     display: block;
   }
   .card canvas { display: block; border-radius: var(--radius-sm); }
-  .modelrow {
-    display: flex; flex-wrap: wrap; gap: 18px;
-    align-items: stretch; justify-content: center;
+  /* The model and the decode strip are drawn on white so the shaded sky-cover
+     fractions read exactly as they do on a printed map, and so a teacher can
+     copy a finished model straight onto one. */
+  .card.paper {
+    background: #FFFFFF;
+    border-color: rgba(0,0,0,0.22);
+    padding: 10px;
   }
-  /* Both figures take the row height; each canvas centres inside its own
-     figure (so the two station circles land on one line) while the captions
-     are pushed to a shared bottom edge. */
-  .mfig { margin: 0; display: flex; flex-direction: column; align-items: center; }
-  .mfig canvas { margin: auto; }
-  .mfig figcaption { font-size: 12px; margin-top: 9px; }
-  .mfig.off { display: none; }
 
   .readouts {
     display: flex; gap: 9px; flex-wrap: wrap; justify-content: center;
@@ -223,6 +220,9 @@
     <div class="grp">
       <div class="grp-h">Observations</div>
       <div class="cc-btn-row" id="presets"></div>
+      <div class="cc-btn-row" style="margin-top:8px">
+        <button class="cc-btn cc-btn-sm" id="b-reset">Reset</button>
+      </div>
     </div>
 
     <div class="grp">
@@ -306,30 +306,14 @@
       </div>
     </div>
 
-    <div class="grp">
-      <div class="grp-h">Display</div>
-      <div class="cc-btn-row">
-        <button class="cc-btn cc-btn-sm is-active" id="b-key">Anatomy key</button>
-        <button class="cc-btn cc-btn-sm" id="b-reset">Reset</button>
-      </div>
-    </div>
   </aside>
 
   <main class="stage">
-    <div class="card modelrow" id="modelcard">
-      <figure class="mfig" id="anafig">
-        <canvas id="av"></canvas>
-        <figcaption class="cc-eyebrow">Station model anatomy</figcaption>
-      </figure>
-      <figure class="mfig">
-        <canvas id="cv"></canvas>
-        <figcaption class="cc-eyebrow">Your observation</figcaption>
-      </figure>
-    </div>
+    <div class="card paper"><canvas id="cv"></canvas></div>
 
     <div class="readouts" id="readouts"></div>
 
-    <div class="card"><canvas id="dc"></canvas></div>
+    <div class="card paper"><canvas id="dc"></canvas></div>
 
     <div class="stagebar">
       <button class="cc-btn primary" id="b-png">Download PNG</button>
@@ -350,13 +334,20 @@ var RS = Math.min(Math.max(window.devicePixelRatio || 1, 2.5), 3);
 var EXPORT_SCALE = 3;
 var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-var BG    = '#262B27';
 var INK   = '#E8E4D9';
-var SEC   = '#C6C3B8';
 var MUTE  = '#A6A499';
-var DIM   = '#949A8F';
 var LINE  = 'rgba(232,228,217,0.14)';
-var ARROW = 'rgba(232,228,217,0.30)';
+
+/* Paper palette — everything on the two stage canvases is drawn black-on-white,
+   the way a station model appears on a printed surface map. */
+var PAPER   = '#FFFFFF';
+var PINK    = '#000000';
+var P_ACC   = '#127C86';                /* accent that holds contrast on white */
+var P_DIM   = '#6B6B6B';
+var P_LINE  = 'rgba(0,0,0,0.22)';
+var P_ARROW = 'rgba(0,0,0,0.38)';
+var P_FILL  = '#F1F1EE';
+var P_SOFT  = 'rgba(18,124,134,0.11)';
 var ACC   = '#3CA3AE';
 var AMBER = '#D08425';
 
@@ -367,15 +358,13 @@ var S = {
   P: 1008.4, chg: 3.1, trend: 3,
   sky: '1_2', visW: 6, visF: 0,
   wx: 'rain',
-  key: true, preset: 'cold'
+  preset: 'cold'
 };
 
 var HL = null;          /* highlighted field id */
 var HIT = [];           /* live model hit rects */
-var AHIT = [];          /* anatomy key hit rects */
-var MW = 500, MH = 370;   /* live model canvas, logical px  */
-var KW = 360, KH = 320;   /* anatomy key — smaller, and centred */
-var KS = 0.72;            /* in the row so the circles align    */
+var MW = 620, MH = 440;   /* model canvas, logical px */
+var MS = 1;               /* model scale, grows with width */
 var DW = 720, DH = 186; /* decode strip            */
 var CW = 250;           /* compass                 */
 
@@ -491,23 +480,8 @@ function rr(c, x, y, w, h, r){
 function halo(c, txt, x, y){
   c.lineJoin = 'round';
   c.lineWidth = 6;
-  c.strokeStyle = BG;
+  c.strokeStyle = PAPER;
   c.strokeText(txt, x, y);
-}
-function chipTxt(c, txt, x, y, align, col, fs){
-  c.save();
-  c.font = '500 ' + (fs || 13) + 'px "Courier Prime", monospace';
-  c.textBaseline = 'middle';
-  var w = c.measureText(txt).width;
-  var lx = (align === 'right') ? x - w : (align === 'center' ? x - w / 2 : x);
-  rr(c, lx - 6, y - 9.5, w + 12, 19, 3);
-  c.fillStyle = 'rgba(38,43,39,0.94)';
-  c.fill();
-  c.textAlign = 'left';
-  c.fillStyle = col;
-  c.fillText(txt, lx, y);
-  c.restore();
-  return { x: lx - 6, y: y - 9.5, w: w + 12, h: 19 };
 }
 function sgnNum(v){
   var n = Math.round(v);
@@ -636,7 +610,7 @@ function drawSky(c, cx, cy, R, n, col){
   c.save();
 
   c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2);
-  c.fillStyle = BG; c.fill();
+  c.fillStyle = PAPER; c.fill();
 
   function wedge(a0, a1){
     c.beginPath();
@@ -664,7 +638,7 @@ function drawSky(c, cx, cy, R, n, col){
     case '1_4':  wedge(T, T + Math.PI / 2); break;
     case '1_2':  wedge(T, T + Math.PI);     break;
     case '3_4':  wedge(T, T + Math.PI * 1.5); break;
-    case '9_10': disc(col); bar(BG);       break;
+    case '9_10': disc(col); bar(PAPER);   break;
     case '10':   disc(col);                break;
     case 'X':
       c.strokeStyle = col; c.lineWidth = R * 0.10; c.lineCap = 'round';
@@ -705,7 +679,7 @@ function drawBarb(c, cx, cy, R, dir, spd, col, k){
     c.lineWidth = 2.6 * k;
     c.beginPath(); c.arc(cx, cy, R + 9 * k, 0, Math.PI * 2); c.stroke();
     c.restore();
-    return { x: cx, y: cy - R - 26 * k };
+    return;
   }
 
   var rad = dir * Math.PI / 180;
@@ -745,7 +719,6 @@ function drawBarb(c, cx, cy, R, dir, spd, col, k){
     d += SP;
   }
   c.restore();
-  return { x: cx + sx * (R + L + 22), y: cy + sy * (R + L + 22) };
 }
 
 /* stacked fraction: returns width. right edge at x when align='right' */
@@ -776,7 +749,7 @@ function fracText(c, whole, frac, x, y, fs, col, align){
     c.textAlign = 'center';
     halo(c, num, fx, y - sf * 0.62); c.fillText(num, fx, y - sf * 0.62);
     halo(c, den, fx, y + sf * 0.68); c.fillText(den, fx, y + sf * 0.68);
-    c.strokeStyle = BG; c.lineWidth = 5;
+    c.strokeStyle = PAPER; c.lineWidth = 5;
     ln(c, fx - fw / 2 + 1, y, fx + fw / 2 - 1, y);
     c.strokeStyle = col; c.lineWidth = 2;
     ln(c, fx - fw / 2 + 1, y, fx + fw / 2 - 1, y);
@@ -792,21 +765,10 @@ function fracText(c, whole, frac, x, y, fs, col, align){
 /* ══════════════════════════════════════════════════════════
    THE STATION MODEL — one drawing, used twice
    ------------------------------------------------------------
-   The anatomy key and the live model share this function and
-   therefore share geometry exactly, so the key can never drift
-   out of scale with the thing it explains. `annotate` is the
-   only difference: the key names its fields, the live model
-   carries no labels at all.
-
-   The key's values are fixed (ANA_V), so its label positions
-   are hand-tuned against that one wind — from the south, shaft
-   straight down the empty bottom of the frame. SKY COVER's
-   leader threads the 61px gap between the two top chips, and
-   DEW POINT is right-aligned clear of the barbs.
+   Drawn black on white at scale k, with no labels — the model
+   itself is the whole artifact, so it can be copied straight
+   onto a printed map.
    ══════════════════════════════════════════════════════════ */
-
-var ANA_V = { T:'72', Td:'63', code:'046', chg:'+23', trend:2, sky:'3_4',
-              visW:1, visF:0.5, wx:'rainshower', spd:25, dir:180 };
 
 function liveVals(){
   return {
@@ -817,10 +779,10 @@ function liveVals(){
   };
 }
 
-function drawStation(c, ox, oy, W, H, V, annotate, hits, k){
+function drawStation(c, ox, oy, W, H, V, hits, k){
   c.save();
   c.translate(ox, oy);
-  c.fillStyle = BG; c.fillRect(0, 0, W, H);
+  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
 
   k = k || 1;
   var cx = W / 2, cy = H / 2, R = 42 * k, FS = 38 * k, boxes = {};
@@ -851,19 +813,19 @@ function drawStation(c, ox, oy, W, H, V, annotate, hits, k){
                   cx: cx - 140 * k - vw / 2 };
   }
 
-  function lit(id){ return (HL === id) ? ACC : INK; }
+  function lit(id){ return (HL === id) ? P_ACC : PINK; }
 
   if (HL && HL !== 'wind' && boxes[HL]){
     var hb = boxes[HL];
     c.save();
     rr(c, hb.x - 12, hb.y - 10, hb.w + 24, hb.h + 20, 6);
-    c.fillStyle = 'rgba(60,163,174,0.15)'; c.fill();
-    c.strokeStyle = ACC; c.lineWidth = 1.5; c.stroke();
+    c.fillStyle = P_SOFT; c.fill();
+    c.strokeStyle = P_ACC; c.lineWidth = 1.5; c.stroke();
     c.restore();
   }
 
   /* wind first — the numbers' halos punch through the shaft */
-  var tip = drawBarb(c, cx, cy, R, V.dir, V.spd, lit('wind'), k);
+  drawBarb(c, cx, cy, R, V.dir, V.spd, lit('wind'), k);
   drawSky(c, cx, cy, R, V.sky, lit('sky'));
 
   if (V.wx !== 'none'){
@@ -887,41 +849,6 @@ function drawStation(c, ox, oy, W, H, V, annotate, hits, k){
             22 * k, 15 * k, V.trend, lit('chg'));
 
   if (showVis) fracText(c, V.visW, V.visF, cx - 140 * k, cy, 32 * k, lit('vis'), 'right');
-
-  /* ── the key's annotation layer ── */
-  if (annotate){
-    /* Positions come from the drawn boxes, not from fixed offsets, so the
-       key stays collision-free when it is scaled down. The two mid-column
-       chips are centred in the gap their neighbours leave. */
-    var topRow  = boxes.temp.y - 16;
-    var skyRow  = topRow - 30;
-    var visRow  = (boxes.temp.y + boxes.temp.h + boxes.wx.y) / 2;
-    var wxRow   = (boxes.wx.y + boxes.wx.h + boxes.dewp.y) / 2;
-    var chgRow  = boxes.chg.y + boxes.chg.h + 16;
-    var dewRow  = boxes.dewp.y + boxes.dewp.h + 16;
-
-    c.setLineDash([3, 4]); c.strokeStyle = 'rgba(232,228,217,0.22)'; c.lineWidth = 1;
-    ln(c, cx, skyRow + 10, cx, cy - R - 8);
-    c.setLineDash([]);
-
-    var L = [
-      ['sky',  'SKY COVER',           cx,                            skyRow, 'center'],
-      ['temp', 'TEMPERATURE \u00B0F', cx - 14,                       topRow, 'right'],
-      ['pres', 'PRESSURE CODE',       cx + 14,                       topRow, 'left'],
-      ['vis',  'VISIBILITY',          boxes.vis.cx,                  visRow, 'center'],
-      ['wx',   'PRESENT WEATHER',     cx - R - 6,                    wxRow,  'right'],
-      ['chg',  'TREND',               boxes.chg.x + boxes.chg.w,     boxes.chg.y - 16, 'right'],
-      ['chg',  '3-HOUR CHANGE',       boxes.chg.x,                   chgRow, 'left'],
-      ['dewp', 'DEW POINT \u00B0F',   cx - 36 * k - 12,              dewRow, 'right'],
-      ['wind', 'WIND',                tip.x,                         tip.y,  'center']
-    ];
-    for (var i = 0; i < L.length; i++){
-      var r = chipTxt(c, L[i][1], L[i][2], L[i][3], L[i][4],
-                      (HL === L[i][0]) ? ACC : MUTE);
-      if (hits) hits.push({ f: L[i][0], x: ox + r.x - 4, y: oy + r.y - 3,
-                            w: r.w + 8, h: r.h + 6 });
-    }
-  }
 
   /* ── hit map ── */
   if (hits){
@@ -952,13 +879,13 @@ var decP = 1;
 function drawDecode(c, ox, oy, W, H, record){
   c.save();
   c.translate(ox, oy);
-  c.fillStyle = BG; c.fillRect(0, 0, W, H);
+  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
 
   var full = fullDigits(S.P);
   var code = pcode(S.P);
   var pre  = full.slice(0, full.length - 3);
   var val  = S.P.toFixed(1);
-  var lit  = (HL === 'pres') ? ACC : INK;
+  var lit  = (HL === 'pres') ? P_ACC : PINK;
 
   var FB = '700 26px "Courier Prime", monospace';
   c.font = FB;
@@ -973,9 +900,9 @@ function drawDecode(c, ox, oy, W, H, record){
 
   function box(bx, bw, accent){
     rr(c, bx, by, bw, bh, 5);
-    c.fillStyle = accent ? 'rgba(60,163,174,0.13)' : '#2C322D';
+    c.fillStyle = accent ? P_SOFT : P_FILL;
     c.fill();
-    c.strokeStyle = accent ? ACC : LINE;
+    c.strokeStyle = accent ? P_ACC : P_LINE;
     c.lineWidth = accent ? 1.6 : 1;
     c.stroke();
   }
@@ -986,7 +913,7 @@ function drawDecode(c, ox, oy, W, H, record){
   }
   function stepLabel(txt, cxx){
     c.font = '500 13px "Courier Prime", monospace';
-    c.fillStyle = MUTE; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillStyle = P_DIM; c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillText(txt, cxx, 24);
   }
 
@@ -1000,13 +927,13 @@ function drawDecode(c, ox, oy, W, H, record){
 
   /* B — tenths */
   var bx = ax + wA + gap;
-  arrow(ax + wA + 12, bx - 12, mid, ARROW);
+  arrow(ax + wA + 12, bx - 12, mid, P_ARROW);
   stepLabel('\u00D7 10', (ax + wA + bx) / 2);
   box(bx, wB, false);
   c.font = FB; c.textAlign = 'left';
   var fw = c.measureText(full).width;
   var bxs = bx + (wB - fw) / 2;
-  c.fillStyle = DIM;
+  c.fillStyle = P_DIM;
   c.fillText(pre, bxs, mid);
   var pw = c.measureText(pre).width;
   c.globalAlpha = REDUCED ? 1 : decP;
@@ -1016,7 +943,7 @@ function drawDecode(c, ox, oy, W, H, record){
 
   /* C — the plotted code */
   var cxb = bx + wB + gap;
-  arrow(bx + wB + 12, cxb - 12, mid, ARROW);
+  arrow(bx + wB + 12, cxb - 12, mid, P_ARROW);
   stepLabel('keep the last 3', (bx + wB + cxb) / 2);
   box(cxb, wC, true);
   c.save();
@@ -1027,13 +954,13 @@ function drawDecode(c, ox, oy, W, H, record){
 
   /* ── the way back ── */
   var ry = by + bh + 30;
-  c.strokeStyle = 'rgba(232,228,217,0.34)'; c.lineWidth = 1.4;
+  c.strokeStyle = P_ARROW; c.lineWidth = 1.4;
   c.beginPath();
   c.moveTo(cxb + wC / 2, by + bh + 6);
   c.lineTo(cxb + wC / 2, ry);
   c.lineTo(ax + wA / 2 + 8, ry);
   c.stroke();
-  c.fillStyle = 'rgba(232,228,217,0.34)';
+  c.fillStyle = P_ARROW;
   c.beginPath();
   c.moveTo(ax + wA / 2, ry); c.lineTo(ax + wA / 2 + 9, ry - 4.5); c.lineTo(ax + wA / 2 + 9, ry + 4.5);
   c.closePath(); c.fill();
@@ -1052,10 +979,10 @@ function drawDecode(c, ox, oy, W, H, record){
   [[cx0, cw0, 0], [cx0 + cw0 + 12, cw1, 1]].forEach(function(a){
     var ch = chips[a[2]];
     rr(c, a[0], cy0, a[1], chh, 4);
-    c.fillStyle = ch.on ? 'rgba(60,163,174,0.13)' : 'transparent';
+    c.fillStyle = ch.on ? P_SOFT : 'transparent';
     if (ch.on) c.fill();
-    c.strokeStyle = ch.on ? ACC : LINE; c.lineWidth = 1; c.stroke();
-    c.fillStyle = ch.on ? INK : DIM;
+    c.strokeStyle = ch.on ? P_ACC : P_LINE; c.lineWidth = 1; c.stroke();
+    c.fillStyle = ch.on ? PINK : P_DIM;
     c.textAlign = 'center'; c.textBaseline = 'middle';
     c.fillText(ch.t, a[0] + a[1] / 2, cy0 + chh / 2);
   });
@@ -1128,8 +1055,8 @@ function drawCompass(c){
    ══════════════════════════════════════════════════════════ */
 
 var $ = function(id){ return document.getElementById(id); };
-var cv = $('cv'), av = $('av'), dc = $('dc'), wc = $('wc');
-var ctx, actx, dctx, wctx;
+var cv = $('cv'), dc = $('dc'), wc = $('wc');
+var ctx, dctx, wctx;
 
 var READOUTS = [
   { k:'dep',  f:'dewp', l:'T \u2212 Td' },
@@ -1251,8 +1178,6 @@ function syncUI(){
   $('rov-from').textContent = (S.spd === 0) ? 'calm' :
     (S.spd + ' kt from ' + cardinal(S.dir) + ' \u2192 ' + cardinal((S.dir + 180) % 360));
 
-  $('b-key').classList.toggle('is-active', S.key);
-  $('anafig').classList.toggle('off', !S.key);
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-p]'), function(b){
     b.classList.toggle('is-active', b.dataset.p === S.preset);
@@ -1283,8 +1208,7 @@ function bumpDecode(){
 }
 
 function render(){
-  HIT = []; drawStation(ctx, 0, 0, MW, MH, liveVals(), false, HIT);
-  if (S.key){ AHIT = []; drawStation(actx, 0, 0, KW, KH, ANA_V, true, AHIT, KS); }
+  HIT = []; drawStation(ctx, 0, 0, MW, MH, liveVals(), HIT, MS);
   drawDecode(dctx, 0, 0, DW, DH, true);
   drawCompass(wctx);
   syncUI();
@@ -1296,8 +1220,7 @@ function setHL(f){
   Array.prototype.forEach.call(document.querySelectorAll('.row[data-f], .ro[data-f]'), function(el){
     el.classList.toggle('hl', !!f && el.dataset.f === f);
   });
-  HIT = []; drawStation(ctx, 0, 0, MW, MH, liveVals(), false, HIT);
-  if (S.key){ AHIT = []; drawStation(actx, 0, 0, KW, KH, ANA_V, true, AHIT, KS); }
+  HIT = []; drawStation(ctx, 0, 0, MW, MH, liveVals(), HIT, MS);
   drawDecode(dctx, 0, 0, DW, DH, true);
   drawCompass(wctx);
 }
@@ -1329,7 +1252,6 @@ function wire(){
   $('presets').addEventListener('click', function(e){
     var b = e.target.closest('[data-p]'); if (b) apply(b.dataset.p);
   });
-  $('b-key').addEventListener('click', function(){ S.key = !S.key; resize(); });
   $('b-reset').addEventListener('click',  function(){ apply('cold'); });
   $('b-png').addEventListener('click', downloadPNG);
 
@@ -1370,30 +1292,9 @@ function wire(){
       if (inp) inp.focus();
     });
   }
-  /* the decode strip's own hit rect is recorded in strip space; offset it */
   bindCanvas(cv, 0);
 
-  av.addEventListener('mousemove', function(e){
-    var r = av.getBoundingClientRect();
-    var mx = (e.clientX - r.left) * (KW / r.width);
-    var my = (e.clientY - r.top) * (KH / r.height);
-    var f = null;
-    for (var i = 0; i < AHIT.length; i++){
-      var h = AHIT[i];
-      if (mx >= h.x && mx <= h.x + h.w && my >= h.y && my <= h.y + h.h) { f = h.f; break; }
-    }
-    av.style.cursor = f ? 'pointer' : 'default';
-    setHL(f);
-  });
-  av.addEventListener('mouseleave', function(){ setHL(null); });
-  av.addEventListener('click', function(){
-    if (!HL) return;
-    var row = document.querySelector('.row[data-f="' + HL + '"]');
-    if (!row) return;
-    row.scrollIntoView({ block: 'nearest' });
-    var inp = row.querySelector('input, select');
-    if (inp) inp.focus();
-  });
+  /* the strip's own hit rect is tagged, not offset — see drawDecode */
   dc.addEventListener('mousemove', function(e){
     var r = dc.getBoundingClientRect();
     var mx = (e.clientX - r.left) * (DW / r.width);
@@ -1418,10 +1319,12 @@ function wire(){
 
 function resize(){
   var stage = document.querySelector('.stage');
-  var avail = Math.max(320, stage.clientWidth - 52 - 26);
-  DW = Math.round(Math.min(880, Math.max(620, avail)));
+  var avail = Math.max(320, stage.clientWidth - 52 - 22);
+  MW = Math.round(Math.min(820, Math.max(560, avail)));
+  MS = Math.min(1.45, MW / 560);          /* the model grows with the canvas */
+  MH = Math.round(380 * MS);
+  DW = MW;
   ctx  = sizeCv(cv, MW, MH);
-  actx = sizeCv(av, KW, KH);
   dctx = sizeCv(dc, DW, DH);
   wctx = sizeCv(wc, CW, CW);
   render();
@@ -1435,29 +1338,26 @@ function downloadPNG(){
 
   var ES = EXPORT_SCALE;
   var pad = 30, hh = 84, gp = 18, fh = 46;
-  var withKey = S.key;
-  var rowW = (withKey ? KW + 18 : 0) + MW;
-  var capH = 22;
-  var ow = Math.max(rowW, DW) + pad * 2;
-  var oh = hh + MH + capH + gp + DH + fh;
+  var ow = Math.max(MW, DW) + pad * 2;
+  var oh = hh + MH + gp + DH + fh;
   var off = document.createElement('canvas');
   off.width = Math.round(ow * ES);
   off.height = Math.round(oh * ES);
   var o = off.getContext('2d');
   o.setTransform(ES, 0, 0, ES, 0, 0);
-  o.fillStyle = BG; o.fillRect(0, 0, ow, oh);
+  o.fillStyle = PAPER; o.fillRect(0, 0, ow, oh);
 
   o.textBaseline = 'alphabetic'; o.textAlign = 'left';
   o.font = '500 13px "Courier Prime", monospace';
-  o.fillStyle = MUTE;
+  o.fillStyle = P_DIM;
   o.fillText('CONTEXTCLIMATE \u00B7 WEATHER MAP SYMBOLS', pad, 34);
   o.font = '700 27px "Zilla Slab", serif';
-  o.fillStyle = INK;
+  o.fillStyle = PINK;
   o.fillText('Surface Station Model', pad, 66);
 
   o.textAlign = 'right';
   o.font = '500 14px "Courier Prime", monospace';
-  o.fillStyle = SEC;
+  o.fillStyle = '#333333';
   var FG = { 0.25:'\u00BC', 0.5:'\u00BD', 0.75:'\u00BE' };
   var visTxt = S.visW >= 10 ? '10+'
              : ((S.visW > 0 ? S.visW : '') + (S.visF ? FG[S.visF] : '') || '0');
@@ -1467,24 +1367,12 @@ function downloadPNG(){
   o.fillText(skyLabel(S.sky) + ' sky \u00B7 vis ' + visTxt + 'mi \u00B7 ' +
              (WXS.filter(function(w){ return w.v === S.wx; })[0] || {}).n, ow - pad, 66);
 
-  var rowX = (ow - rowW) / 2;
-  o.textBaseline = 'middle'; o.textAlign = 'center';
-  o.font = '500 12px "Courier Prime", monospace';
-  if (withKey){
-    drawStation(o, rowX, hh + (MH - KH) / 2, KW, KH, ANA_V, true, null, KS);
-    o.fillStyle = MUTE;
-    o.fillText('STATION MODEL ANATOMY', rowX + KW / 2, hh + MH + 12);
-    rowX += KW + 18;
-  }
-  drawStation(o, rowX, hh, MW, MH, liveVals(), false, null, 1);
-  o.fillStyle = MUTE;
-  o.fillText('YOUR OBSERVATION', rowX + MW / 2, hh + MH + 12);
-  o.textBaseline = 'alphabetic';
-  drawDecode(o, (ow - DW) / 2, hh + MH + capH + gp, DW, DH, false);
+  drawStation(o, (ow - MW) / 2, hh, MW, MH, liveVals(), null, MS);
+  drawDecode(o, (ow - DW) / 2, hh + MH + gp, DW, DH, false);
 
   o.textAlign = 'left'; o.textBaseline = 'alphabetic';
   o.font = '500 13px "Courier Prime", monospace';
-  o.fillStyle = MUTE;
+  o.fillStyle = P_DIM;
   o.fillText('contextclimate.io \u00B7 symbols per NYS ESSRT 2026 Rev. Edition', pad, oh - 18);
 
   var a = document.createElement('a');
@@ -1513,7 +1401,7 @@ if (document.fonts && document.fonts.ready){
 
 window.SMB = { S:S, render:render, pcode:pcode, barbParts:barbParts, relHum:relHum,
                setHL:setHL, apply:apply, resize:resize,
-               hit:function(){ return HIT; }, ahit:function(){ return AHIT; } };
+               hit:function(){ return HIT; } };
 
 })();
 </script>
