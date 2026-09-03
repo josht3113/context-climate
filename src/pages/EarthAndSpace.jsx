@@ -109,15 +109,6 @@ const SECTIONS = [
         label: "Orbital Mechanics & Kepler's Laws",
         cards: [
           {
-            tags:        ['Natural Law', 'Interactive'],
-            title:       'The Inverse Square Law',
-            description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance.',
-            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight'],
-            to:          '/earthandspace/inverse-square-law',
-            thumb:       '/InverseSquareLaw_thumbnail.png',
-            status:      'live',
-          },
-          {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
             title:       "Kepler's First Law",
             description: "Explore how eccentricity changes as the shape of planetary orbits range from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
@@ -169,6 +160,15 @@ const SECTIONS = [
             footerTags:  ['Planetary Differentiation'],
             to:          '/earthandspace/chemical-fractionation',
             thumb:       '/ChemicalFractionation_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Natural Law', 'Interactive'],
+            title:       'The Inverse Square Law',
+            description: 'See how gravity, solar irradiance, and starlight all weaken with the square of distance.',
+            footerTags:  ['Gravity', 'Solar Irradiance', 'Starlight'],
+            to:          '/earthandspace/inverse-square-law',
+            thumb:       '/InverseSquareLaw_thumbnail.png',
             status:      'live',
           },
           {
@@ -403,6 +403,15 @@ const SECTIONS = [
         footerTags:  ['Air Density', 'Molecular Motion'],
         to:          '/earthandspace/atmospheric-density',
         thumb:       '/atmospheric_density_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Weather Map Symbols', 'Interactive'],
+        title:       'Station Model Builder',
+        description: 'Plot any surface observation on a station model and watch each field appear in place, with a labeled anatomy diagram beside it and a live decode of the three-digit pressure code.',
+        footerTags:  ['Station Models', 'Wind Barbs', 'Pressure Code'],
+        to:          '/earthandspace/station-model-builder',
+        thumb:       '/station_model_builder_thumbnail.png',
         status:      'live',
       },
     ],
