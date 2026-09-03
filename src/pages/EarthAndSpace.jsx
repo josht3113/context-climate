@@ -408,8 +408,8 @@ const SECTIONS = [
       {
         tags:        ['Weather Map Symbols', 'Interactive'],
         title:       'Station Model Builder',
-        description: 'Plot any surface observation on a station model and watch each field appear in place, with a labeled anatomy diagram beside it and a live decode of the three-digit pressure code.',
-        footerTags:  ['Station Models', 'Wind Barbs', 'Pressure Code'],
+        description: 'Plot any surface observation on a station model and watch each variable appear in its place. Live decode of the three-digit pressure code.',
+        footerTags:  ['Station Models', 'Weather Maps'],
         to:          '/earthandspace/station-model-builder',
         thumb:       '/station_model_builder_thumbnail.png',
         status:      'live',
