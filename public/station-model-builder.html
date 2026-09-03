@@ -350,10 +350,6 @@ var RS = Math.min(Math.max(window.devicePixelRatio || 1, 2.5), 3);
 var EXPORT_SCALE = 3;
 var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/* Sky-cover fill sweeps counter-clockwise from 12 o'clock, so 6/8 leaves the
-   open wedge in the upper right. Flip to true for the clockwise convention. */
-var SKY_CW = false;
-
 var BG    = '#262B27';
 var INK   = '#E8E4D9';
 var SEC   = '#C6C3B8';
@@ -369,7 +365,7 @@ var S = {
   T: 48, Td: 34,
   spd: 30, dir: 310,
   P: 1008.4, chg: 3.1, trend: 3,
-  sky: 4, visW: 6, visF: 0,
+  sky: '1_2', visW: 6, visF: 0,
   wx: 'rain',
   key: true, preset: 'cold'
 };
@@ -397,17 +393,19 @@ var TRENDS = [
 ];
 
 var SKIES = [
-  { v:0, n:'0/8 — clear (SKC)' },
-  { v:1, n:'1/8 — few (FEW)' },
-  { v:2, n:'2/8 — scattered (SCT)' },
-  { v:3, n:'3/8 — scattered (SCT)' },
-  { v:4, n:'4/8 — scattered (SCT)' },
-  { v:5, n:'5/8 — broken (BKN)' },
-  { v:6, n:'6/8 — broken (BKN)' },
-  { v:7, n:'7/8 — broken (BKN)' },
-  { v:8, n:'8/8 — overcast (OVC)' },
-  { v:'X', n:'Sky obscured' }
+  { v:'0',    n:'No clouds' },
+  { v:'1_10', n:'1/10' },
+  { v:'1_4',  n:'1/4' },
+  { v:'1_2',  n:'1/2' },
+  { v:'3_4',  n:'3/4' },
+  { v:'9_10', n:'9/10' },
+  { v:'10',   n:'Completely overcast' },
+  { v:'X',    n:'Sky obscured' }
 ];
+function skyLabel(v){
+  for (var i = 0; i < SKIES.length; i++) if (SKIES[i].v === v) return SKIES[i].n;
+  return v;
+}
 
 var WXS = [
   { v:'none',        n:'None' },
@@ -434,17 +432,17 @@ var FRACS = [
 
 var PRESETS = [
   { k:'warm',  n:'Warm sector',
-    s:{ T:72, Td:63, spd:25, dir:180, P:1004.6, chg:2.3,  trend:2, sky:6, visW:1, visF:0.5,  wx:'rainshower' } },
+    s:{ T:72, Td:63, spd:25, dir:180, P:1004.6, chg:2.3,  trend:2, sky:'3_4', visW:1, visF:0.5,  wx:'rainshower' } },
   { k:'cold',  n:'Cold front passing',
-    s:{ T:48, Td:34, spd:30, dir:310, P:1008.4, chg:3.1,  trend:3, sky:4, visW:6, visF:0,    wx:'rain' } },
+    s:{ T:48, Td:34, spd:30, dir:310, P:1008.4, chg:3.1,  trend:3, sky:'1_2', visW:6, visF:0,    wx:'rain' } },
   { k:'fog',   n:'Radiation fog',
-    s:{ T:41, Td:41, spd:0,  dir:0,   P:1021.8, chg:0.2,  trend:4, sky:'X', visW:0, visF:0.25, wx:'fog' } },
+    s:{ T:41, Td:41, spd:0,  dir:0,   P:1021.8, chg:0.2,  trend:4, sky:'X',   visW:0, visF:0.25, wx:'fog' } },
   { k:'nore',  n:"Nor'easter",
-    s:{ T:33, Td:31, spd:40, dir:40,  P:986.4,  chg:-6.7, trend:7, sky:8, visW:0, visF:0.5,  wx:'snow' } },
+    s:{ T:33, Td:31, spd:40, dir:40,  P:986.4,  chg:-6.7, trend:7, sky:'10',  visW:0, visF:0.5,  wx:'snow' } },
   { k:'high',  n:'Clear cold night',
-    s:{ T:28, Td:12, spd:5,  dir:200, P:1031.2, chg:0.4,  trend:1, sky:0, visW:10, visF:0,   wx:'none' } },
+    s:{ T:28, Td:12, spd:5,  dir:200, P:1031.2, chg:0.4,  trend:1, sky:'0',   visW:10, visF:0,   wx:'none' } },
   { k:'tstm',  n:'Summer thunderstorm',
-    s:{ T:84, Td:72, spd:15, dir:240, P:1009.8, chg:-1.4, trend:6, sky:7, visW:3, visF:0,    wx:'thunder' } }
+    s:{ T:84, Td:72, spd:15, dir:240, P:1009.8, chg:-1.4, trend:6, sky:'9_10', visW:3, visF:0,   wx:'thunder' } }
 ];
 
 /* ── derived ───────────────────────────────────────────── */
@@ -464,10 +462,11 @@ function cardinal(d){
   return names[Math.round(((d % 360) + 360) % 360 / 22.5) % 16];
 }
 function barbParts(spd){
+  if (spd < 5) return { p:0, f:0, h:0, calm:(spd === 0), bare:(spd > 0) };
   var s = Math.round(spd / 5) * 5;
   var p = Math.floor(s / 50); s -= p * 50;
   var f = Math.floor(s / 10); s -= f * 10;
-  return { p:p, f:f, h:(s >= 5 ? 1 : 0) };
+  return { p:p, f:f, h:(s >= 5 ? 1 : 0), calm:false, bare:false };
 }
 
 /* ── canvas helpers ────────────────────────────────────── */
@@ -628,31 +627,56 @@ function drawWx(c, kind, col){
   c.restore();
 }
 
-/* sky cover disc */
+/* Sky cover — the eight ESSRT symbols, drawn exactly as the reference
+   tables draw them. This is NOT a proportional pie: the quarter fills
+   sweep CLOCKWISE from 12 o'clock (1/4 = upper right, 3/4 = everything
+   but the upper left), and 1/10 and 9/10 are a vertical bar through the
+   centre rather than a thin wedge. */
 function drawSky(c, cx, cy, R, n, col){
   c.save();
+
   c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2);
   c.fillStyle = BG; c.fill();
 
-  if (n === 'X'){
-    c.strokeStyle = col; c.lineWidth = 4; c.lineCap = 'round';
-    var k = R * 0.62;
-    ln(c, cx - k, cy - k, cx + k, cy + k);
-    ln(c, cx + k, cy - k, cx - k, cy + k);
-    c.lineCap = 'butt';
-  } else if (n >= 8){
-    c.fillStyle = col; c.fill();
-  } else if (n > 0){
-    var sweep = Math.PI * 2 * n / 8;
-    var a0 = -Math.PI / 2;
+  function wedge(a0, a1){
     c.beginPath();
     c.moveTo(cx, cy);
-    c.arc(cx, cy, R, a0, SKY_CW ? a0 + sweep : a0 - sweep, !SKY_CW);
+    c.arc(cx, cy, R, a0, a1, false);
     c.closePath();
     c.fillStyle = col; c.fill();
   }
+  function disc(fill){
+    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2);
+    c.fillStyle = fill; c.fill();
+  }
+  function bar(fill){
+    c.save();
+    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.clip();
+    c.fillStyle = fill;
+    c.fillRect(cx - R * 0.20, cy - R, R * 0.40, R * 2);
+    c.restore();
+  }
+
+  var T = -Math.PI / 2;              /* 12 o'clock */
+  switch (n){
+    case '0':                              break;
+    case '1_10': bar(col);                 break;
+    case '1_4':  wedge(T, T + Math.PI / 2); break;
+    case '1_2':  wedge(T, T + Math.PI);     break;
+    case '3_4':  wedge(T, T + Math.PI * 1.5); break;
+    case '9_10': disc(col); bar(BG);       break;
+    case '10':   disc(col);                break;
+    case 'X':
+      c.strokeStyle = col; c.lineWidth = R * 0.10; c.lineCap = 'round';
+      var k2 = R * 0.66;
+      ln(c, cx - k2, cy - k2, cx + k2, cy + k2);
+      ln(c, cx + k2, cy - k2, cx - k2, cy + k2);
+      c.lineCap = 'butt';
+      break;
+  }
+
   c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2);
-  c.strokeStyle = col; c.lineWidth = 3.4; c.stroke();
+  c.strokeStyle = col; c.lineWidth = Math.max(2, R * 0.081); c.stroke();
   c.restore();
 }
 
@@ -677,7 +701,7 @@ function drawBarb(c, cx, cy, R, dir, spd, col, k){
   c.save();
   c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 3.2 * k; c.lineCap = 'round';
 
-  if (parts.p === 0 && parts.f === 0 && parts.h === 0){
+  if (parts.calm){
     c.lineWidth = 2.6 * k;
     c.beginPath(); c.arc(cx, cy, R + 9 * k, 0, Math.PI * 2); c.stroke();
     c.restore();
@@ -686,7 +710,10 @@ function drawBarb(c, cx, cy, R, dir, spd, col, k){
 
   var rad = dir * Math.PI / 180;
   var sx = Math.sin(rad), sy = -Math.cos(rad);
-  var bx = -sy, by = sx;
+  var bx = -sy, by = sx;                       /* square to the shaft (pennants) */
+  var RAKE = 65 * Math.PI / 180;               /* ESSRT rakes the line barbs      */
+  var rx = sx * Math.cos(RAKE) + bx * Math.sin(RAKE);
+  var ry = sy * Math.cos(RAKE) + by * Math.sin(RAKE);
 
   var L = 112 * k, BL = 36 * k, SP = 15 * k, PW = 17 * k;
   var x0 = cx + sx * R,       y0 = cy + sy * R;
@@ -709,12 +736,12 @@ function drawBarb(c, cx, cy, R, dir, spd, col, k){
   }
   for (i = 0; i < parts.f; i++){
     var fx = x1 - sx * d, fy = y1 - sy * d;
-    ln(c, fx, fy, fx + bx * BL, fy + by * BL);
+    ln(c, fx, fy, fx + rx * BL, fy + ry * BL);
     d += SP;
   }
   if (parts.h){
     var hx = x1 - sx * d, hy = y1 - sy * d;
-    ln(c, hx, hy, hx + bx * BL * 0.55, hy + by * BL * 0.55);
+    ln(c, hx, hy, hx + rx * BL * 0.55, hy + ry * BL * 0.55);
     d += SP;
   }
   c.restore();
@@ -778,7 +805,7 @@ function fracText(c, whole, frac, x, y, fs, col, align){
    DEW POINT is right-aligned clear of the barbs.
    ══════════════════════════════════════════════════════════ */
 
-var ANA_V = { T:'72', Td:'63', code:'046', chg:'+23', trend:2, sky:6,
+var ANA_V = { T:'72', Td:'63', code:'046', chg:'+23', trend:2, sky:'3_4',
               visW:1, visF:0.5, wx:'rainshower', spd:25, dir:180 };
 
 function liveVals(){
@@ -1066,7 +1093,7 @@ function drawCompass(c){
     c.fillText(p[0], cx + ux * (R + 17), cy + uy * (R + 17));
   });
 
-  if (S.spd >= 3){
+  if (S.spd > 0){
     /* air motion — opposite the shaft */
     c.strokeStyle = AMBER; c.fillStyle = AMBER; c.lineWidth = 3; c.lineCap = 'round';
     var tx = cx - sx * (R * 0.80), ty = cy - sy * (R * 0.80);
@@ -1206,12 +1233,13 @@ function syncUI(){
   if (parts.p) pd.push(parts.p + ' pennant' + (parts.p > 1 ? 's' : ''));
   if (parts.f) pd.push(parts.f + ' full');
   if (parts.h) pd.push('1 half');
+  if (parts.bare) pd.push('bare shaft \u2014 under 5 kt');
 
-  var plotted = Math.round(S.spd / 5) * 5;
+  var plotted = S.spd < 5 ? S.spd : Math.round(S.spd / 5) * 5;
   $('s-dewp').textContent = 'depression ' + dep + '\u00B0F \u00B7 RH ' + rh + '%';
   $('s-spd').textContent  = (pd.length ? pd.join(' \u00B7 ') : 'calm \u2014 no shaft') +
                             (plotted !== S.spd ? ' \u00B7 barb rounds to ' + plotted + ' kt' : '');
-  $('s-dir').textContent  = (S.spd >= 3) ? ('from the ' + cardinal(S.dir)) : 'calm \u2014 direction not plotted';
+  $('s-dir').textContent  = (S.spd > 0) ? ('from the ' + cardinal(S.dir)) : 'calm \u2014 direction not plotted';
   $('s-pres').textContent = 'plots as ' + pcode(S.P);
   $('s-chg').textContent  = 'plots as ' + (S.chg >= 0 ? '+' : '\u2212') + Math.abs(Math.round(S.chg * 10));
   $('v-vis').textContent  = S.visW >= 10 ? '10+ mi' :
@@ -1220,7 +1248,7 @@ function syncUI(){
   $('rov-dep').textContent  = dep + ' \u00B0F';
   $('rov-rh').textContent   = rh + '%';
   $('rov-code').textContent = pcode(S.P);
-  $('rov-from').textContent = (S.spd < 3) ? 'calm' :
+  $('rov-from').textContent = (S.spd === 0) ? 'calm' :
     (S.spd + ' kt from ' + cardinal(S.dir) + ' \u2192 ' + cardinal((S.dir + 180) % 360));
 
   $('b-key').classList.toggle('is-active', S.key);
@@ -1293,7 +1321,7 @@ function changed(pressureChanged){
 function wire(){
   Object.keys(NUMF).forEach(wireNum);
   $('i-trend').addEventListener('change', function(){ S.trend = +this.value; changed(false); });
-  $('i-sky').addEventListener('change',   function(){ S.sky = (this.value === 'X') ? 'X' : +this.value; changed(false); });
+  $('i-sky').addEventListener('change',   function(){ S.sky = this.value; changed(false); });
   $('i-wx').addEventListener('change',    function(){ S.wx = this.value; changed(false); });
   $('i-visw').addEventListener('change',  function(){ S.visW = +this.value; changed(false); });
   $('i-visf').addEventListener('change',  function(){ S.visF = +this.value; changed(false); });
@@ -1434,9 +1462,9 @@ function downloadPNG(){
   var visTxt = S.visW >= 10 ? '10+'
              : ((S.visW > 0 ? S.visW : '') + (S.visF ? FG[S.visF] : '') || '0');
   o.fillText(Math.round(S.T) + '/' + Math.round(S.Td) + '\u00B0F \u00B7 ' +
-             (S.spd < 3 ? 'calm' : S.spd + 'kt ' + S.dir + '\u00B0') + ' \u00B7 ' +
+             (S.spd === 0 ? 'calm' : S.spd + 'kt ' + S.dir + '\u00B0') + ' \u00B7 ' +
              S.P.toFixed(1) + 'mb', ow - pad, 42);
-  o.fillText((S.sky === 'X' ? 'sky obscured' : S.sky + '/8 sky') + ' \u00B7 vis ' + visTxt + 'mi \u00B7 ' +
+  o.fillText(skyLabel(S.sky) + ' sky \u00B7 vis ' + visTxt + 'mi \u00B7 ' +
              (WXS.filter(function(w){ return w.v === S.wx; })[0] || {}).n, ow - pad, 66);
 
   var rowX = (ow - rowW) / 2;
