@@ -88,6 +88,14 @@
     .key-swatch.forecast { border: 1px dashed rgba(109,150,216,0.9); background: #303a49; }
     .key-swatch.provisional { border: 1px dotted rgba(232,228,217,0.75); }
     .key-swatch.nodata { background: #1E2320; border: 1px solid var(--color-border); }
+    .key-swatch.ribbon {
+      width: 26px; height: 9px; border-radius: 1px;
+      background: linear-gradient(90deg, #3788da 0%, #3788da 45%, #262b27 45%, #262b27 55%, #f6852a 55%);
+    }
+    .key-note {
+      font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted);
+      letter-spacing: 0.2px; line-height: 1.7; margin-top: 10px;
+    }
 
     /* ── TOOLTIP ────────────────────────────────────────────── */
     .tooltip {
@@ -210,6 +218,10 @@
       <button class="cc-segmented-btn is-active" data-order="enso">ENSO Year</button>
       <button class="cc-segmented-btn" data-order="cal">Calendar Year</button>
     </div>
+    <div class="cc-segmented" id="baseline">
+      <button class="cc-segmented-btn is-active" data-baseline="fixed">1981&ndash;2010</button>
+      <button class="cc-segmented-btn" data-baseline="sliding">Sliding 30-yr</button>
+    </div>
     <button class="cc-btn toggle-btn" id="btn-smooth" onclick="toggleSmooth()">
       <span class="toggle-dot"></span>3-Month Mean
     </button>
@@ -223,7 +235,7 @@
     <button class="cc-btn cc-btn-sm" id="btn-export" onclick="exportPNG()">&darr; Export PNG</button>
   </div>
 
-  <div class="status-note" id="row-order-note"></div>
+  <div class="status-note" id="mode-note"></div>
   <div class="status-note" id="fcast-status" hidden></div>
 
   <div class="chart-outer" id="chart-outer">
@@ -234,7 +246,7 @@
   </div>
 
   <div class="legend-section" id="legend-section">
-    <div class="legend-title" id="legend-title">Ni&ntilde;o 3.4 Anomaly (&deg;C) &middot; 1981&ndash;2010 Baseline</div>
+    <div class="legend-title" id="legend-title">Ni&ntilde;o 3.4 Anomaly (&deg;C)</div>
     <canvas id="legend-canvas"></canvas>
     <div class="legend-ticks" id="legend-ticks"></div>
     <div class="legend-bands" id="legend-bands">
@@ -246,11 +258,18 @@
       <span class="legend-key"><span class="key-swatch nodata"></span>No data</span>
       <span class="legend-key"><span class="key-swatch provisional"></span>Provisional (CPC/IRI)</span>
       <span class="legend-key"><span class="key-swatch forecast"></span>Model forecast</span>
+      <span class="legend-key"><span class="key-swatch ribbon"></span>Event ribbon</span>
+    </div>
+    <div class="key-note">
+      Ribbon: each bar is one ENSO episode under the ONI rule &mdash; the 3-month mean at or beyond
+      &plusmn;0.5&nbsp;&deg;C for five consecutive overlapping seasons. Bar colour is the episode's peak. Hover for details.<br>
+      &sigma; panel: the spread of anomalies for that calendar month across the whole record. The taller
+      bars near the end of the calendar year are ENSO's seasonal phase-locking &mdash; events peak in boreal winter.
     </div>
   </div>
 
   <div class="footer">
-    Data: NOAA Physical Sciences Laboratory &middot; HadISST 1.1 &middot; Ni&ntilde;o 3.4 region (5&deg;N&ndash;5&deg;S, 170&deg;&ndash;120&deg;W), 1981&ndash;2010 climatology.<br>
+    Data: NOAA Physical Sciences Laboratory &middot; HadISST 1.1 &middot; Ni&ntilde;o 3.4 region (5&deg;N&ndash;5&deg;S, 170&deg;&ndash;120&deg;W).<br>
     Pre-1950 values are based on statistical SST reconstruction; uncertainty increases before ~1900.<br>
     Event counts apply the ONI rule (3-month mean at or above +0.5&deg;C for five consecutive overlapping seasons) to this HadISST series. NOAA's operational ONI/RONI uses ERSST on a different base period, so counts may differ slightly.<br>
     <span id="prov-note"></span>
@@ -292,7 +311,13 @@ const CELL_H       = 28;   // px per month row
 const MIN_CELL_W   = 5;    // px per year column (floor; below this the chart scrolls)
 const MAX_CELL_W   = 14;
 const LABEL_W      = 48;   // px for the month-label gutter
-const AXIS_H       = 24;   // px for the year axis strip under the grid
+const HEADER_ROW   = 18;   // px band above the grid (holds the σ-panel title)
+const RIBBON_GAP   = 6;
+const RIBBON_H     = 15;   // px for the ENSO event ribbon
+const AXIS_H       = 24;   // px for the year axis strip
+const MARGIN_GAP   = 10;
+const MARGIN_W     = 100;  // px for the monthly-σ marginal panel
+const SIGMA_BAR_W  = 56;
 const EXPORT_SCALE = 3;    // fixed export multiplier, independent of devicePixelRatio
 
 const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -319,6 +344,37 @@ const ROW_ORDERS = {
     offs:   [0,0,0,0,0,0,0,0,0,0,0,0],
     note: 'Rows run January → December. Events that peak near year-end are split ' +
           'across two adjacent columns — switch to ENSO Year to keep them together.'
+  }
+};
+
+// ── Baselines ────────────────────────────────────────────────
+// The PSL file ships anomalies against a FIXED 1981–2010 climatology. Over a
+// 157-year record in a warming tropical Pacific that biases recent decades
+// warm — some of the apparent "more El Niño lately" is baseline drift, not
+// ENSO. The sliding option re-references each month to a 30-year window
+// centred on its own year, which removes the background trend and leaves
+// only the departure from that era's normal.
+//
+// This is computable from the anomaly series alone: re-basing to window W is
+// just anomaly(y,m) − mean over W of anomaly(·,m). The fixed 1981–2010
+// climatology cancels out of the subtraction.
+const SLIDE_HALF     = 15;  // ±15 years → a 30-year window
+const SLIDE_MIN_YRS  = 20;  // don't emit a value from a thinner window than this
+
+const BASELINES = {
+  fixed: {
+    label: 'Fixed 1981–2010 baseline',
+    short: '1981–2010 baseline',
+    note: 'Anomalies are against a fixed 1981–2010 climatology, as NOAA PSL ships them. ' +
+          'Because the tropical Pacific has warmed, this biases recent decades warm.'
+  },
+  sliding: {
+    label: 'Sliding 30-year baseline',
+    short: 'sliding 30-yr baseline',
+    note: 'Each month is re-referenced to a 30-year window centred on its own year ' +
+          '(clipped to the most recent 30 years at the end of the record, the same way ' +
+          "CPC handles it). This removes the background warming trend, so the grid shows " +
+          'how unusual each month was for its own era rather than against a 1981–2010 normal.'
   }
 };
 
@@ -377,6 +433,10 @@ const LEGEND_H     = 20;
 // blends several months together).
 const K_NONE = 0, K_OBS = 1, K_PROV = 2, K_FCST = 3;
 
+// ONI episode rule
+const EVENT_THRESH   = 0.5;
+const EVENT_MIN_SEAS = 5;
+
 
 // ════════════════════════════════════════════════════════════════
 // STATE
@@ -385,23 +445,25 @@ const K_NONE = 0, K_OBS = 1, K_PROV = 2, K_FCST = 3;
 let yearData = {};
 let minYear, maxYear, topYear, calYear;
 
-let base = 0, N = 0;             // flat monthly series: t = (year - base) * 12 + month
-let obsV = [],  obsK = [];       // observed (+ provisional) monthly
-let mixV = [],  mixK = [];       // observed + forecast monthly
-let obsS = [],  obsSK = [];      // observed, 3-month running mean
-let mixS = [],  mixSK = [];      // observed + forecast, 3-month running mean
+let base = 0, N = 0;   // flat monthly series: t = (year - base) * 12 + month
 
-let colYears = [];
-let cellW    = MIN_CELL_W;
-let dpr      = window.devicePixelRatio || 1;
+// SERIES[baseline] = { obs:{v,k}, mix:{v,k}, obsS:{v,k}, mixS:{v,k} }
+// obs = observed (+ provisional); mix = observed + forecast; *S = 3-month mean.
+let SERIES = {};
+
+let provSummary = { count: 0, first: null, last: null };
+let colYears    = [];
+let cellW       = MIN_CELL_W;
+let dpr         = window.devicePixelRatio || 1;
 
 let rowOrder     = 'enso';
+let baseMode     = 'fixed';
 let showForecast = false;
 let showSupers   = false;
 let smooth3      = false;
 
-let provSummary = { count: 0, first: null, last: null };
-let hoverCell = null;   // {col, row}
+let episodes  = [];     // cached, rebuilt whenever a mode changes
+let hoverCell = null;   // {col, row} | {episode}
 let pinned    = false;
 
 
@@ -498,7 +560,7 @@ function parseData(text) {
 
 
 // ════════════════════════════════════════════════════════════════
-// FLAT SERIES + SMOOTHING
+// FLAT SERIES, RE-BASELINING AND SMOOTHING
 // ════════════════════════════════════════════════════════════════
 
 function buildSeries() {
@@ -507,8 +569,7 @@ function buildSeries() {
   // year, so the ENSO-year window of the final column can always be indexed.
   N = (topYear + 2 - base) * 12;
 
-  obsV = new Array(N).fill(null); obsK = new Array(N).fill(K_NONE);
-  mixV = new Array(N).fill(null); mixK = new Array(N).fill(K_NONE);
+  const obsV = new Array(N).fill(null), obsK = new Array(N).fill(K_NONE);
 
   for (const yStr of Object.keys(yearData)) {
     const y = Number(yStr), row = yearData[y];
@@ -534,8 +595,9 @@ function buildSeries() {
       if (provLast  === null || t > provLast)  provLast  = t;
     }
   }
+  provSummary = { count: provCount, first: provFirst, last: provLast };
 
-  mixV = obsV.slice(); mixK = obsK.slice();
+  const mixV = obsV.slice(), mixK = obsK.slice();
   for (const yStr of Object.keys(FORECAST.byYear)) {
     const y = Number(yStr);
     for (const mStr of Object.keys(FORECAST.byYear[yStr])) {
@@ -546,10 +608,73 @@ function buildSeries() {
     }
   }
 
-  [obsS, obsSK] = smooth3mo(obsV, obsK);
-  [mixS, mixSK] = smooth3mo(mixV, mixK);
+  // Sliding-baseline offsets are derived from OBSERVED values only, then
+  // applied to both series — so a forecast never bends its own baseline.
+  const offset = slidingOffsets(obsV);
+  const [sObsV, sObsK] = applyOffsets(obsV, obsK, offset);
+  const [sMixV, sMixK] = applyOffsets(mixV, mixK, offset);
 
-  provSummary = { count: provCount, first: provFirst, last: provLast };
+  SERIES = {
+    fixed:   packSeries(obsV,  obsK,  mixV,  mixK),
+    sliding: packSeries(sObsV, sObsK, sMixV, sMixK),
+  };
+}
+
+function packSeries(ov, ok, mv, mk) {
+  const [osv, osk] = smooth3mo(ov, ok);
+  const [msv, msk] = smooth3mo(mv, mk);
+  return {
+    obs:  { v: ov,  k: ok  },
+    mix:  { v: mv,  k: mk  },
+    obsS: { v: osv, k: osk },
+    mixS: { v: msv, k: msk },
+  };
+}
+
+/**
+ * For every (year, calendar month) slot, the mean anomaly over a 30-year
+ * window centred on that year. Subtracting it re-references the series to a
+ * contemporaneous normal. Windows are clipped at the ends of the record and
+ * widened back out to 30 years where possible, so the first and last ~15
+ * years share a window rather than shrinking toward a one-year baseline.
+ */
+function slidingOffsets(V) {
+  const lastYear = base + Math.floor((N - 1) / 12);
+  const nY  = lastYear - base + 1;
+  const off = new Array(N).fill(null);
+  const want = SLIDE_HALF * 2;
+
+  for (let m = 0; m < 12; m++) {
+    // Per-month prefix sums over years, skipping gaps.
+    const ps = new Array(nY + 1).fill(0);
+    const pc = new Array(nY + 1).fill(0);
+    for (let i = 0; i < nY; i++) {
+      const t = i * 12 + m;
+      const v = (t < N) ? V[t] : null;
+      ps[i + 1] = ps[i] + (v === null ? 0 : v);
+      pc[i + 1] = pc[i] + (v === null ? 0 : 1);
+    }
+    for (let i = 0; i < nY; i++) {
+      let lo = i - SLIDE_HALF, hi = i + SLIDE_HALF - 1;
+      if (lo < 0)       { hi = Math.min(nY - 1, hi - lo); lo = 0; }
+      if (hi > nY - 1)  { lo = Math.max(0, lo - (hi - (nY - 1))); hi = nY - 1; }
+      const cnt = pc[hi + 1] - pc[lo];
+      if (cnt < SLIDE_MIN_YRS) continue;
+      const t = i * 12 + m;
+      if (t < N) off[t] = (ps[hi + 1] - ps[lo]) / cnt;
+    }
+  }
+  return off;
+}
+
+function applyOffsets(V, K, off) {
+  const ov = new Array(N).fill(null), ok = new Array(N).fill(K_NONE);
+  for (let t = 0; t < N; t++) {
+    if (V[t] === null || off[t] === null) continue;
+    ov[t] = Math.round((V[t] - off[t]) * 100) / 100;
+    ok[t] = K[t];
+  }
+  return [ov, ok];
 }
 
 // 3-month running mean centred on t (the ONI construction). A season only
@@ -566,9 +691,24 @@ function smooth3mo(vals, kinds) {
   return [sv, sk];
 }
 
+// What the grid is currently painting.
 function activeSeries() {
-  if (showForecast) return smooth3 ? [mixS, mixSK] : [mixV, mixK];
-  return smooth3 ? [obsS, obsSK] : [obsV, obsK];
+  const S = SERIES[baseMode];
+  if (showForecast) return smooth3 ? [S.mixS.v, S.mixS.k] : [S.mix.v, S.mix.k];
+  return smooth3 ? [S.obsS.v, S.obsS.k] : [S.obs.v, S.obs.k];
+}
+
+// Observed-only, current baseline and smoothing — used for chips and σ.
+function activeObserved() {
+  const S = SERIES[baseMode];
+  return smooth3 ? S.obsS.v : S.obs.v;
+}
+
+// Always the 3-month mean, regardless of the display toggle — episodes are
+// defined on seasons, not months.
+function activeSeasons() {
+  const S = SERIES[baseMode];
+  return showForecast ? [S.mixS.v, S.mixS.k] : [S.obsS.v, S.obsS.k];
 }
 
 function tIndex(year, month) { return (year - base) * 12 + month; }
@@ -587,6 +727,63 @@ function cellAt(colYear, row) {
 
 
 // ════════════════════════════════════════════════════════════════
+// EPISODES (ONI rule) + MONTHLY σ
+// ════════════════════════════════════════════════════════════════
+
+function computeEpisodes() {
+  const [V, K] = activeSeasons();
+  const out = [];
+  let run = null;
+
+  const close = () => {
+    if (run && run.t1 - run.t0 + 1 >= EVENT_MIN_SEAS) out.push(run);
+    run = null;
+  };
+
+  for (let t = 0; t < N; t++) {
+    const v = V[t];
+    const kind = v === null ? null
+               : v >=  EVENT_THRESH ? 'nino'
+               : v <= -EVENT_THRESH ? 'nina'
+               : null;
+    if (kind === null) { close(); continue; }
+    if (!run || run.kind !== kind) { close(); run = { kind, t0: t, t1: t, peak: v, peakT: t, fcst: false }; }
+    else run.t1 = t;
+    if (Math.abs(v) > Math.abs(run.peak)) { run.peak = v; run.peakT = t; }
+    if (K[t] === K_FCST) run.fcst = true;
+  }
+  close();
+  return out;
+}
+
+function episodeName(ep) {
+  const y0 = base + Math.floor(ep.t0 / 12);
+  const y1 = base + Math.floor(ep.t1 / 12);
+  const span = (y0 === y1) ? `${y0}` : `${y0}–${String(y1).slice(-2)}`;
+  return `${ep.kind === 'nino' ? 'El Niño' : 'La Niña'} ${span}`;
+}
+
+// Spread of anomalies for each row's calendar month, across the whole record.
+// This is the standard diagnostic for ENSO's seasonal phase-locking.
+function monthSigma() {
+  const V  = activeObserved();
+  const ro = ROW_ORDERS[rowOrder];
+  const out = [];
+  for (let r = 0; r < 12; r++) {
+    const m = ro.months[r];
+    let n = 0, s = 0, s2 = 0;
+    for (let y = base; y <= base + Math.floor((N - 1) / 12); y++) {
+      const t = tIndex(y, m);
+      if (t < 0 || t >= N || V[t] === null) continue;
+      n++; s += V[t]; s2 += V[t] * V[t];
+    }
+    out.push(n > 1 ? Math.sqrt(Math.max(0, s2 / n - (s / n) * (s / n))) : null);
+  }
+  return out;
+}
+
+
+// ════════════════════════════════════════════════════════════════
 // COLUMN LAYOUT
 // ════════════════════════════════════════════════════════════════
 
@@ -601,9 +798,10 @@ function buildColumns() {
   // Trim trailing columns with nothing in them at all. Uses the
   // forecast-inclusive series so chart width doesn't jump when the forecast
   // toggle flips.
+  const MV = SERIES[baseMode].mix.v;
   const hasAny = y => ro.months.some((m, i) => {
     const t = tIndex(y + ro.offs[i], m);
-    return t >= 0 && t < N && mixV[t] !== null;
+    return t >= 0 && t < N && MV[t] !== null;
   });
   while (cols.length > 1 && !hasAny(cols[cols.length - 1])) cols.pop();
 
@@ -611,13 +809,21 @@ function buildColumns() {
 }
 
 function computeCellW() {
-  const avail = ($('app').clientWidth || 900) - LABEL_W - 2;
+  const avail = ($('app').clientWidth || 900) - LABEL_W - MARGIN_GAP - MARGIN_W - 2;
   const w = Math.floor(avail / Math.max(1, colYears.length));
   return Math.max(MIN_CELL_W, Math.min(MAX_CELL_W, w));
 }
 
 function gridW() { return colYears.length * cellW; }
 function gridH() { return 12 * CELL_H; }
+function canvasW() { return LABEL_W + gridW() + MARGIN_GAP + MARGIN_W; }
+function canvasH() { return HEADER_ROW + gridH() + RIBBON_GAP + RIBBON_H + AXIS_H; }
+
+// Continuous time axis shared by the grid and the ribbon: month index → x.
+function timeOriginT() {
+  const ro = ROW_ORDERS[rowOrder];
+  return tIndex(colYears[0], ro.months[0]);
+}
 
 
 // ════════════════════════════════════════════════════════════════
@@ -625,9 +831,9 @@ function gridH() { return 12 * CELL_H; }
 // ════════════════════════════════════════════════════════════════
 
 function computeStats() {
-  // Records track whatever the user is looking at (monthly vs. 3-month mean),
-  // but never include forecast values.
-  const V = smooth3 ? obsS : obsV;
+  // Records track whatever the user is looking at (baseline + monthly vs.
+  // 3-month mean), but never include forecast values.
+  const V = activeObserved();
 
   let recNino = { v: -Infinity, t: null };
   let recNina = { v:  Infinity, t: null };
@@ -642,16 +848,17 @@ function computeStats() {
   }
 
   // Super El Niño count uses the ONI rule on the observed 3-month mean series
-  // regardless of the display toggle, since that is how events are defined:
-  // ≥ +0.5 °C for five consecutive overlapping seasons, peak ≥ +2.0 °C.
+  // for the active baseline: ≥ +0.5 °C for five consecutive overlapping
+  // seasons, peak ≥ +2.0 °C.
+  const S = SERIES[baseMode].obsS.v;
   let superCount = 0, run = 0, runPeak = -Infinity;
   const closeRun = () => {
-    if (run >= 5 && runPeak >= 2.0) superCount++;
+    if (run >= EVENT_MIN_SEAS && runPeak >= 2.0) superCount++;
     run = 0; runPeak = -Infinity;
   };
   for (let t = 0; t < N; t++) {
-    const v = obsS[t];
-    if (v !== null && v >= 0.5) { run++; runPeak = Math.max(runPeak, v); }
+    const v = S[t];
+    if (v !== null && v >= EVENT_THRESH) { run++; runPeak = Math.max(runPeak, v); }
     else closeRun();
   }
   closeRun();
@@ -673,6 +880,18 @@ function periodLabelLong(t) {
   if (!smooth3) return `${MON_FULL[m]} ${y}`;
   const pm = (m + 11) % 12, nm = (m + 1) % 12;
   return `${MON_SHORT[pm]}–${MON_SHORT[nm]} ${y} (3-mo mean)`;
+}
+
+function seasonLabel(t) {
+  if (t === null || t < 0) return '';
+  const y = base + Math.floor(t / 12), m = t % 12;
+  const pm = (m + 11) % 12, nm = (m + 1) % 12;
+  return `${MON_INIT[pm]}${MON_INIT[m]}${MON_INIT[nm]} ${y}`;
+}
+
+function monthLabel(t) {
+  if (t === null || t < 0) return '';
+  return `${MON_SHORT[t % 12]} ${base + Math.floor(t / 12)}`;
 }
 
 
@@ -701,6 +920,7 @@ function updateChips() {
   }
 
   $('chip-super-v').textContent = s.superCount;
+  $('chip-super-p').textContent = `ONI rule · ${BASELINES[baseMode].short}`;
 }
 
 
@@ -711,56 +931,68 @@ function updateChips() {
 // Which years contain a value at or above +2.0 °C anywhere in their column?
 function superColumnSet() {
   const ro  = ROW_ORDERS[rowOrder];
+  const V   = SERIES[baseMode].obs.v;
   const set = new Set();
   for (const y of colYears) {
     for (let i = 0; i < 12; i++) {
       const t = tIndex(y + ro.offs[i], ro.months[i]);
-      if (t >= 0 && t < N && obsV[t] !== null && obsV[t] >= 2.0) { set.add(y); break; }
+      if (t >= 0 && t < N && V[t] !== null && V[t] >= 2.0) { set.add(y); break; }
     }
   }
   return set;
 }
 
 /**
- * Draw the month gutter, the heatmap cells and the year axis.
+ * Draw the month gutter, the heatmap cells, the ENSO event ribbon, the year
+ * axis and the monthly-σ marginal panel.
  * All coordinates are logical px; the caller sets up any scale transform.
+ * `y0` is the top of the header band, not the top of the grid.
  */
 function drawGrid(ctx, o) {
-  const { x0, y0, cw, ch, labelW, axisH } = o;
-  const monFont  = o.monFont  || 13;
-  const axisFont = o.axisFont || 12;
-  const ro       = ROW_ORDERS[rowOrder];
-  const supers   = superColumnSet();
-  const gw       = colYears.length * cw;
-  const gh       = 12 * ch;
+  const { x0, y0, cw, ch, labelW } = o;
+  const headerH   = o.headerH   ?? HEADER_ROW;
+  const ribbonGap = o.ribbonGap ?? RIBBON_GAP;
+  const ribbonH   = o.ribbonH   ?? RIBBON_H;
+  const marginGap = o.marginGap ?? MARGIN_GAP;
+  const marginW   = o.marginW   ?? MARGIN_W;
+  const barW      = o.barW      ?? SIGMA_BAR_W;
+  const monFont   = o.monFont   || 13;
+  const axisFont  = o.axisFont  || 12;
+  const panelFont = o.panelFont || 12;
+
+  const ro     = ROW_ORDERS[rowOrder];
+  const supers = superColumnSet();
+  const gy     = y0 + headerH;             // grid top
+  const gx     = x0 + labelW;              // grid left
+  const gw     = colYears.length * cw;
+  const gh     = 12 * ch;
+  const ry     = gy + gh + ribbonGap;      // ribbon top
+  const ay     = ry + ribbonH;             // axis top
 
   // ── Month labels (left gutter) ──
-  ctx.font         = `600 ${monFont}px 'Courier Prime', monospace`;
-  ctx.textAlign    = 'right';
   ctx.textBaseline = 'middle';
   for (let r = 0; r < 12; r++) {
     const m = ro.months[r];
+    ctx.font      = `600 ${monFont}px 'Courier Prime', monospace`;
+    ctx.textAlign = 'right';
     ctx.fillStyle = '#A6A499';
-    ctx.fillText(MON_SHORT[m].toUpperCase(), x0 + labelW - 8, y0 + r * ch + ch / 2);
+    ctx.fillText(MON_SHORT[m].toUpperCase(), x0 + labelW - 8, gy + r * ch + ch / 2);
     // "+1" marker on rows that belong to the following calendar year
     if (ro.offs[r] === 1) {
       ctx.fillStyle = '#57534a';
       ctx.font      = `400 ${Math.max(10, monFont - 3)}px 'Courier Prime', monospace`;
       ctx.textAlign = 'left';
-      ctx.fillText('+1', x0 + 2, y0 + r * ch + ch / 2);
-      ctx.textAlign = 'right';
-      ctx.font      = `600 ${monFont}px 'Courier Prime', monospace`;
+      ctx.fillText('+1', x0 + 2, gy + r * ch + ch / 2);
     }
   }
 
   // ── Cells ──
-  const gx = x0 + labelW;
   colYears.forEach((year, ci) => {
     const cx = gx + ci * cw;
     for (let r = 0; r < 12; r++) {
       const { v, kind } = cellAt(year, r);
       const isForecast  = kind === K_FCST;
-      const cy = y0 + r * ch;
+      const cy = gy + r * ch;
 
       let rgb = anomalyRGB(v, isForecast);
       if (showSupers && !isForecast && (v === null || v < 2.0)) {
@@ -788,22 +1020,50 @@ function drawGrid(ctx, o) {
   ctx.fillStyle = 'rgba(232,228,217,0.22)';
   colYears.forEach((year, ci) => {
     if (year % 10 !== 0 || ci === 0) return;
-    ctx.fillRect(Math.round(gx + ci * cw), y0, 1, gh);
+    ctx.fillRect(Math.round(gx + ci * cw), gy, 1, gh);
   });
 
   // ── Current-year marker ──
   const curIdx = colYears.indexOf(currentColumnYear());
   if (curIdx >= 0) {
     ctx.fillStyle = '#6D96D8';
-    ctx.fillRect(Math.round(gx + curIdx * cw), y0 - 3, Math.max(2, cw), 3);
+    ctx.fillRect(Math.round(gx + curIdx * cw), gy - 3, Math.max(2, cw), 3);
   }
 
-  // ── Year axis ──
-  const ay   = y0 + gh;
-  const step = cw >= 7 ? 10 : 20;
-  ctx.fillStyle = 'rgba(232,228,217,0.14)';
-  ctx.fillRect(gx, ay, gw, 1);
+  // ── Event ribbon ──
+  const T0 = timeOriginT();
+  const xAt = t => gx + ((t - T0) / 12) * cw;
 
+  ctx.fillStyle = 'rgba(232,228,217,0.05)';
+  ctx.fillRect(gx, ry, gw, ribbonH);
+  for (const ep of episodes) {
+    const xa = Math.max(gx, xAt(ep.t0));
+    const xb = Math.min(gx + gw, xAt(ep.t1 + 1));
+    if (xb <= xa) continue;
+    let rgb = anomalyRGB(ep.peak, ep.fcst);
+    if (showSupers && Math.abs(ep.peak) < 2.0) rgb = rgb.map(c => Math.round(c * 0.14 + 12));
+    ctx.fillStyle = rgbStr(rgb);
+    ctx.fillRect(xa, ry + 1, Math.max(1, xb - xa), ribbonH - 2);
+    if (ep.fcst) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(109,150,216,0.75)';
+      ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+      ctx.strokeRect(xa + 0.5, ry + 1.5, Math.max(1, xb - xa) - 1, ribbonH - 3);
+      ctx.restore();
+    }
+  }
+  ctx.fillStyle = 'rgba(232,228,217,0.14)';
+  ctx.fillRect(gx, ry, gw, 1);
+  ctx.fillRect(gx, ry + ribbonH - 1, gw, 1);
+
+  ctx.font         = `500 ${Math.max(10, panelFont - 1)}px 'Courier Prime', monospace`;
+  ctx.fillStyle    = '#948F82';
+  ctx.textAlign    = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('EVENTS', x0 + labelW - 8, ry + ribbonH / 2);
+
+  // ── Year axis ──
+  const step = cw >= 7 ? 10 : 20;
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'top';
   colYears.forEach((year, ci) => {
@@ -819,6 +1079,32 @@ function drawGrid(ctx, o) {
     ctx.font = `600 ${axisFont}px 'Courier Prime', monospace`;
     ctx.fillText(String(year), cx, ay + 8);
   });
+
+  // ── Monthly-σ marginal panel ──
+  const px = gx + gw + marginGap;
+  const sig = monthSigma();
+  const maxSig = sig.reduce((a, v) => (v === null ? a : Math.max(a, v)), 0) || 1;
+
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font         = `500 ${panelFont}px 'Courier Prime', monospace`;
+  ctx.fillStyle    = '#948F82';
+  ctx.fillText('σ (°C)', px, y0 + headerH / 2);
+
+  for (let r = 0; r < 12; r++) {
+    const v  = sig[r];
+    const cy = gy + r * ch;
+    ctx.fillStyle = 'rgba(232,228,217,0.06)';
+    ctx.fillRect(px, cy + 3, barW, ch - 7);
+    if (v === null) continue;
+    // Flat accent, deliberately NOT the diverging anomaly ramp — σ is a
+    // different quantity and shouldn't be read against the same colour key.
+    ctx.fillStyle = '#6D96D8';
+    ctx.fillRect(px, cy + 3, Math.max(1, (v / maxSig) * barW), ch - 7);
+    ctx.fillStyle = '#A6A499';
+    ctx.font      = `400 ${panelFont}px 'Courier Prime', monospace`;
+    ctx.fillText(v.toFixed(2), px + barW + 8, cy + ch / 2);
+  }
 }
 
 // The column the "today" marker belongs to under the active row ordering.
@@ -844,36 +1130,49 @@ function sizeCanvas(canvas, w, h, scale) {
 }
 
 function renderHeatmap() {
-  const W = LABEL_W + gridW();
-  const H = gridH() + AXIS_H;
+  const W = canvasW(), H = canvasH();
 
   const ctx = sizeCanvas($('heatmap'), W, H, dpr);
   ctx.fillStyle = '#1E2320';
   ctx.fillRect(0, 0, W, H);
 
-  drawGrid(ctx, { x0: 0, y0: 3, cw: cellW, ch: CELL_H, labelW: LABEL_W, axisH: AXIS_H });
+  drawGrid(ctx, { x0: 0, y0: 0, cw: cellW, ch: CELL_H, labelW: LABEL_W });
 
   sizeCanvas($('hover-layer'), W, H, dpr);
   drawHover();
 }
 
 function drawHover() {
-  const canvas = $('hover-layer');
-  const ctx    = canvas.getContext('2d');
-  const W = LABEL_W + gridW(), H = gridH() + AXIS_H;
-  ctx.clearRect(0, 0, W, H);
+  const ctx = $('hover-layer').getContext('2d');
+  ctx.clearRect(0, 0, canvasW(), canvasH());
   if (!hoverCell) return;
+
+  const gy = HEADER_ROW;
+
+  if (hoverCell.episode) {
+    const ep = hoverCell.episode;
+    const T0 = timeOriginT();
+    const xAt = t => LABEL_W + ((t - T0) / 12) * cellW;
+    const xa = Math.max(LABEL_W, xAt(ep.t0));
+    const xb = Math.min(LABEL_W + gridW(), xAt(ep.t1 + 1));
+    ctx.save();
+    ctx.strokeStyle = '#E8E4D9';
+    ctx.lineWidth   = 2;
+    ctx.strokeRect(xa - 1, gy + gridH() + RIBBON_GAP - 1, (xb - xa) + 2, RIBBON_H + 2);
+    ctx.restore();
+    return;
+  }
 
   const { col, row } = hoverCell;
   const x = LABEL_W + col * cellW;
-  const y = 3 + row * CELL_H;
+  const y = gy + row * CELL_H;
 
   ctx.save();
   ctx.strokeStyle = 'rgba(232,228,217,0.22)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(LABEL_W, y + CELL_H / 2 - 0.5); ctx.lineTo(LABEL_W + gridW(), y + CELL_H / 2 - 0.5);
-  ctx.moveTo(x + cellW / 2 - 0.5, 3); ctx.lineTo(x + cellW / 2 - 0.5, 3 + gridH());
+  ctx.moveTo(x + cellW / 2 - 0.5, gy); ctx.lineTo(x + cellW / 2 - 0.5, gy + gridH());
   ctx.stroke();
 
   ctx.strokeStyle = '#E8E4D9';
@@ -913,12 +1212,11 @@ function drawLegend() {
     ticks.appendChild(sp);
   });
 
-  const bands = $('legend-bands');
-  bands.style.cssText = `margin-left:${LABEL_W}px;max-width:${w}px`;
+  $('legend-bands').style.cssText = `margin-left:${LABEL_W}px;max-width:${w}px`;
 
-  $('legend-title').textContent = smooth3
-    ? 'Niño 3.4 Anomaly (°C) · 3-Month Running Mean · 1981–2010 Baseline'
-    : 'Niño 3.4 Anomaly (°C) · Monthly · 1981–2010 Baseline';
+  $('legend-title').textContent =
+    `Niño 3.4 Anomaly (°C) · ${smooth3 ? '3-Month Running Mean' : 'Monthly'} · `
+    + BASELINES[baseMode].label;
 }
 
 
@@ -927,36 +1225,56 @@ function drawLegend() {
 // ════════════════════════════════════════════════════════════════
 
 function hitTest(clientX, clientY) {
-  const canvas = $('heatmap');
-  const rect   = canvas.getBoundingClientRect();
+  const rect = $('heatmap').getBoundingClientRect();
   const x = clientX - rect.left;
-  const y = clientY - rect.top - 3;
+  const y = clientY - rect.top;
+  const gy = HEADER_ROW;
+
+  // Ribbon band first — it sits below the grid on the same x scale.
+  const ry = gy + gridH() + RIBBON_GAP;
+  if (y >= ry - 2 && y <= ry + RIBBON_H + 2 && x >= LABEL_W && x <= LABEL_W + gridW()) {
+    const T0 = timeOriginT();
+    const t  = T0 + ((x - LABEL_W) / cellW) * 12;
+    const ep = episodes.find(e => t >= e.t0 && t < e.t1 + 1);
+    return ep ? { episode: ep } : null;
+  }
+
   const col = Math.floor((x - LABEL_W) / cellW);
-  const row = Math.floor(y / CELL_H);
+  const row = Math.floor((y - gy) / CELL_H);
   if (col < 0 || col >= colYears.length || row < 0 || row >= 12) return null;
   return { col, row };
 }
 
 function showTooltip(hit, clientX, clientY, lift) {
   const tooltip = $('tooltip');
-  const year    = colYears[hit.col];
-  const cell    = cellAt(year, hit.row);
-
-  const color = (cell.v !== null) ? rgbHex(anomalyRGB(cell.v)) : '#555';
-  tooltip.querySelector('.tt-period').textContent = periodLabelLong(
-    cell.t >= 0 ? cell.t : tIndex(cell.year, cell.month));
-
   const ttv = tooltip.querySelector('.tt-value');
-  ttv.textContent = (cell.v !== null)
-    ? `${cell.v > 0 ? '+' : ''}${cell.v.toFixed(2)}°C` : '—';
-  ttv.style.color = color;
-  tooltip.querySelector('.tt-class').textContent = classify(cell.v);
+  let fcst = false, prov = false;
 
-  tooltip.querySelector('.tt-badge.forecast').style.display =
-    cell.kind === K_FCST ? 'inline-block' : 'none';
-  tooltip.querySelector('.tt-badge.provisional').style.display =
-    cell.kind === K_PROV ? 'inline-block' : 'none';
+  if (hit.episode) {
+    const ep = hit.episode;
+    const seasons = ep.t1 - ep.t0 + 1;
+    tooltip.querySelector('.tt-period').textContent = episodeName(ep);
+    ttv.textContent = `${ep.peak > 0 ? '+' : ''}${ep.peak.toFixed(2)}°C`;
+    ttv.style.color = rgbHex(anomalyRGB(ep.peak));
+    // Name the statistic explicitly: an episode peak is a 3-month mean, which
+    // is a smaller number than the monthly peak shown in the Record chips.
+    tooltip.querySelector('.tt-class').textContent =
+      `${seasons} season${seasons === 1 ? '' : 's'} · peak 3-mo mean ${seasonLabel(ep.peakT)}`;
+    fcst = ep.fcst;
+  } else {
+    const cell = cellAt(colYears[hit.col], hit.row);
+    tooltip.querySelector('.tt-period').textContent = periodLabelLong(
+      cell.t >= 0 ? cell.t : tIndex(cell.year, cell.month));
+    ttv.textContent = (cell.v !== null)
+      ? `${cell.v > 0 ? '+' : ''}${cell.v.toFixed(2)}°C` : '—';
+    ttv.style.color = (cell.v !== null) ? rgbHex(anomalyRGB(cell.v)) : '#555';
+    tooltip.querySelector('.tt-class').textContent = classify(cell.v);
+    fcst = cell.kind === K_FCST;
+    prov = cell.kind === K_PROV;
+  }
 
+  tooltip.querySelector('.tt-badge.forecast').style.display    = fcst ? 'inline-block' : 'none';
+  tooltip.querySelector('.tt-badge.provisional').style.display = prov ? 'inline-block' : 'none';
   tooltip.classList.add('visible');
 
   const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
@@ -977,6 +1295,12 @@ function hideTooltip() {
   drawHover();
 }
 
+function sameHit(a, b) {
+  if (!a || !b) return false;
+  if (a.episode || b.episode) return a.episode === b.episode;
+  return a.col === b.col && a.row === b.row;
+}
+
 function setupTooltip() {
   const canvas = $('heatmap');
 
@@ -987,10 +1311,7 @@ function setupTooltip() {
       if (e.pointerType === 'mouse') hideTooltip();
       return;
     }
-    if (!hoverCell || hoverCell.col !== hit.col || hoverCell.row !== hit.row) {
-      hoverCell = hit;
-      drawHover();
-    }
+    if (!sameHit(hoverCell, hit)) { hoverCell = hit; drawHover(); }
     showTooltip(hit, e.clientX, e.clientY, e.pointerType !== 'mouse');
   });
 
@@ -1050,13 +1371,9 @@ function updateForecastStatus() {
   $('fcast-date').textContent   = fmtDate(FORECAST.issued);
 }
 
-function updateRowOrderNote() {
-  $('row-order-note').textContent = ROW_ORDERS[rowOrder].note;
-}
-
-function monthLabel(t) {
-  if (t === null || t < 0) return '';
-  return `${MON_SHORT[t % 12]} ${base + Math.floor(t / 12)}`;
+function updateModeNote() {
+  $('mode-note').textContent =
+    ROW_ORDERS[rowOrder].note + '  ' + BASELINES[baseMode].note;
 }
 
 function updateProvNote() {
@@ -1075,7 +1392,8 @@ function updateProvNote() {
 
 function relayout() {
   buildColumns();
-  cellW = computeCellW();
+  cellW    = computeCellW();
+  episodes = computeEpisodes();
   renderHeatmap();
   drawLegend();
   // If the grid overflows its container, open on the most recent years —
@@ -1084,11 +1402,17 @@ function relayout() {
   if (outer.scrollWidth > outer.clientWidth + 1) outer.scrollLeft = outer.scrollWidth;
 }
 
+function refresh() {
+  episodes = computeEpisodes();
+  renderHeatmap();
+}
+
 function toggleForecast() {
   showForecast = !showForecast;
   $('btn-forecast').classList.toggle('is-active', showForecast);
+  hideTooltip();
   updateForecastStatus();
-  renderHeatmap();
+  refresh();
 }
 
 function toggleSupers() {
@@ -1100,8 +1424,9 @@ function toggleSupers() {
 function toggleSmooth() {
   smooth3 = !smooth3;
   $('btn-smooth').classList.toggle('is-active', smooth3);
+  hideTooltip();
   updateChips();
-  renderHeatmap();
+  refresh();
   drawLegend();
 }
 
@@ -1111,7 +1436,18 @@ function setRowOrder(order) {
   document.querySelectorAll('#row-order .cc-segmented-btn').forEach(b =>
     b.classList.toggle('is-active', b.dataset.order === order));
   hideTooltip();
-  updateRowOrderNote();
+  updateModeNote();
+  relayout();
+}
+
+function setBaseline(mode) {
+  if (!BASELINES[mode] || mode === baseMode) return;
+  baseMode = mode;
+  document.querySelectorAll('#baseline .cc-segmented-btn').forEach(b =>
+    b.classList.toggle('is-active', b.dataset.baseline === mode));
+  hideTooltip();
+  updateModeNote();
+  updateChips();
   relayout();
 }
 
@@ -1129,19 +1465,25 @@ async function exportPNG() {
   try {
     if (document.fonts && document.fonts.ready) await document.fonts.ready;
 
-    const PAD      = 28;
-    const EX_CW    = 9;
-    const EX_CH    = 32;
-    const EX_LABEL = 56;
-    const EX_AXIS  = 26;
+    const PAD       = 28;
+    const EX_CW     = 9;
+    const EX_CH     = 32;
+    const EX_LABEL  = 60;
+    const EX_HEADER = 20;
+    const EX_RGAP   = 7;
+    const EX_RIBBON = 18;
+    const EX_AXIS   = 26;
+    const EX_MGAP   = 14;
+    const EX_MARGIN = 124;
+    const EX_BAR    = 68;
 
     const HEADER_H = 108;
     const gw = colYears.length * EX_CW;
-    const gh = 12 * EX_CH;
+    const bodyH = EX_HEADER + 12 * EX_CH + EX_RGAP + EX_RIBBON + EX_AXIS;
 
-    const W = PAD * 2 + EX_LABEL + gw;
+    const W = PAD * 2 + EX_LABEL + gw + EX_MGAP + EX_MARGIN;
     const LEG_BLOCK = 84;
-    const H = HEADER_H + gh + EX_AXIS + 26 + LEG_BLOCK + 46;
+    const H = HEADER_H + bodyH + 30 + LEG_BLOCK + 46;
 
     const off = document.createElement('canvas');
     off.width  = Math.round(W * EXPORT_SCALE);
@@ -1167,18 +1509,18 @@ async function exportPNG() {
     const span = `${minYear}–${colYears[colYears.length - 1]}`;
     ctx.fillText(
       `${smooth3 ? '3-month running mean' : 'Monthly'} SST anomaly · ${span} · `
-      + `HadISST 1.1 via NOAA PSL · 1981–2010 baseline`, PAD, 78);
+      + `HadISST 1.1 via NOAA PSL · ${BASELINES[baseMode].label}`, PAD, 78);
 
-    // ── Grid ──
-    const GY = HEADER_H;
+    // ── Grid + ribbon + σ panel ──
     drawGrid(ctx, {
-      x0: PAD, y0: GY, cw: EX_CW, ch: EX_CH,
-      labelW: EX_LABEL, axisH: EX_AXIS,
-      monFont: 14, axisFont: 13
+      x0: PAD, y0: HEADER_H, cw: EX_CW, ch: EX_CH, labelW: EX_LABEL,
+      headerH: EX_HEADER, ribbonGap: EX_RGAP, ribbonH: EX_RIBBON,
+      marginGap: EX_MGAP, marginW: EX_MARGIN, barW: EX_BAR,
+      monFont: 14, axisFont: 13, panelFont: 13
     });
 
     // ── Legend ──
-    const LEG_Y = GY + gh + EX_AXIS + 30;
+    const LEG_Y = HEADER_H + bodyH + 34;
     const LEG_X = PAD + EX_LABEL;
     const LEG_W = Math.min(gw, 720);
 
@@ -1202,8 +1544,8 @@ async function exportPNG() {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#948F82';
     ctx.font = "400 13px 'Courier Prime', monospace";
-    const keys = [];
-    keys.push(ROW_ORDERS[rowOrder].label);
+    const keys = [ROW_ORDERS[rowOrder].label];
+    keys.push(`${episodes.length} episodes (ONI rule)`);
     if (provSummary.count) keys.push('dotted = provisional CPC/IRI');
     if (showForecast) keys.push(`dashed = model forecast (issued ${fmtDate(FORECAST.issued)})`);
     if (showSupers)   keys.push('super events highlighted');
@@ -1219,7 +1561,7 @@ async function exportPNG() {
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = `enso-heatmap-${rowOrder}${smooth3 ? '-3mo' : ''}-contextclimate.png`;
+    a.download = `enso-heatmap-${rowOrder}-${baseMode}${smooth3 ? '-3mo' : ''}-contextclimate.png`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   } catch (err) {
@@ -1278,8 +1620,10 @@ async function init() {
 
     document.querySelectorAll('#row-order .cc-segmented-btn').forEach(b =>
       b.addEventListener('click', () => setRowOrder(b.dataset.order)));
+    document.querySelectorAll('#baseline .cc-segmented-btn').forEach(b =>
+      b.addEventListener('click', () => setBaseline(b.dataset.baseline)));
 
-    updateRowOrderNote();
+    updateModeNote();
     updateProvNote();
     updateForecastStatus();
     updateChips();
