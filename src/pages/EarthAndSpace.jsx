@@ -5,7 +5,7 @@ import SectionNav from './SectionNav'
 // ── Accent colors per section ─────────────────────────────────────────────────
 const ACCENT = {
   essrt:    '#B78F36',          // brass/ledger gold — reference/document feel
-  geology:  'var(--accent-earth)', // deep teal-cyan
+  geology:  'var(--accent-geology)', // moss green
   meteor:   '#4F9FBB',          // deep sky-cyan
   astro:    '#998FC2',          // deep indigo-purple
 }
@@ -521,6 +521,15 @@ export default function EarthAndSpace() {
 
       {/* Hero */}
       <section className="page-hero">
+
+        {/* Display notice — top-right of the hero, level with the title */}
+        <span className="display-note">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
+            <rect x="1.5" y="2.5" width="13" height="9" rx="1" />
+            <path d="M5 14h6" />
+          </svg>
+          Built for Chromebook &amp; desktop
+        </span>
 
         <p className="page-eyebrow">Interactive Learning Tools</p>
         <h1 className="page-title">Earth &amp; Space Science</h1>
