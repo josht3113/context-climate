@@ -93,6 +93,12 @@
   }
   .key-swatch.partial { border: 1px dotted rgba(232,228,217,0.8); }
   .key-swatch.nodata  { background: #1E2320; border: 1px solid var(--color-border); }
+  .key-swatch.trend-sig { background: #c96a2c; }
+  .key-swatch.trend-ns  { background: transparent; border: 1px dashed #c96a2c; }
+  .key-note {
+    font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted);
+    letter-spacing: 0.2px; line-height: 1.7; margin-top: 10px; max-width: 980px;
+  }
 
   /* ── TOOLTIP ──────────────────────────────────────────────── */
   .tooltip {
@@ -203,7 +209,11 @@
     <div class="legend-keys">
       <span class="legend-key"><span class="key-swatch nodata"></span>No data</span>
       <span class="legend-key"><span class="key-swatch partial"></span>Incomplete month</span>
+      <span class="legend-key"><span class="key-swatch trend-sig"></span>Trend significant at 95%</span>
+      <span class="legend-key"><span class="key-swatch trend-ns"></span>No detectable trend</span>
     </div>
+    <div class="key-note" id="keyNote"></div>
+    <div class="key-note" id="hintNote" style="color:var(--color-text-secondary)"></div>
   </div>
 </div>
 
@@ -241,9 +251,20 @@
   var MIN_CELL_W   = 12;   // px per year column (floor; below this the chart scrolls)
   var MAX_CELL_W   = 34;
   var LABEL_W      = 48;   // px for the month-label gutter
-  var GRID_TOP     = 4;    // room for the current-year marker
-  var AXIS_H       = 24;   // px for the year axis strip
+  var HEADER_ROW   = 18;   // px band above the grid (trend-panel title, current-year marker)
+  var STRIP_GAP    = 8;
+  var STRIP_H      = 96;   // px for the time-series strip below the grid
+  var AXIS_H       = 24;   // px for the year axis strip (shared by grid and strip)
+  var MARGIN_GAP   = 10;
+  var MARGIN_W     = 124;  // px for the per-month trend panel
+  var TREND_BAR_W  = 32;   // px half-width of a signed trend bar
   var EXPORT_SCALE = 3;    // fixed export multiplier, independent of devicePixelRatio
+
+  var TREND_NEG = '#c96a2c';   // losing ice — same warm/cool sense as the anomaly ramp
+  var TREND_POS = '#3c6ea8';   // gaining ice
+  var SEL_ACCENT = '#D08425';  // selected month row accent
+  var SERIES_INK = '#E8E4D9';  // strip observations — must NOT be a TREND_* colour,
+                               // or the fitted line disappears into the data line
 
   var FIRST_FULL_YEAR = 1979; // satellite record starts Oct 1978; 1979 is the first complete year
 
@@ -324,7 +345,10 @@
     hover: null,
     pinned: false,
     latest: null,         // {year, month, cell}
-    rank: null            // cached rankLatest() result
+    rank: null,           // cached rankLatest() result
+    trends: [],           // [12] per-calendar-month OLS trend objects
+    stripMonth: null,     // null = annual mean; 0-11 = that calendar month
+    strip: null           // cached {points, trend, lo, hi} for the strip
   };
 
   // ══════════════════════════════════════════════════════════════
@@ -518,6 +542,8 @@
     STATE.colYears = cols;
     STATE.maxYear  = maxYear;
     STATE.latest   = findLatest(grid, cols);
+    STATE.trends   = computeTrends();
+    STATE.strip    = buildStrip();
   }
 
   function baselineOnSlots(grid, m, slots){
@@ -595,26 +621,168 @@
   }
 
   // ══════════════════════════════════════════════════════════════
+  // TRENDS
+  // ══════════════════════════════════════════════════════════════
+
+  // Two-sided 95% critical t, interpolated from a small table. df can be
+  // fractional here because the autocorrelation correction below produces an
+  // effective sample size rather than a whole count of years.
+  function tCrit95(df){
+    if (df < 1) return Infinity;
+    var K = [1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,40,60,120,100000];
+    var V = [12.706,4.303,3.182,2.776,2.571,2.447,2.365,2.306,2.262,2.228,
+             2.179,2.131,2.086,2.060,2.042,2.021,2.000,1.980,1.960];
+    if (df >= K[K.length-1]) return 1.96;
+    for (var i = 0; i < K.length-1; i++){
+      if (df <= K[i+1]){
+        var t = (df - K[i]) / (K[i+1] - K[i]);
+        return lerp(V[i], V[i+1], t);
+      }
+    }
+    return 1.96;
+  }
+
+  /**
+   * Least-squares trend of ys on xs, with the standard error inflated for
+   * lag-1 autocorrelation in the residuals (Santer et al. 2000). Sea ice
+   * years are not independent draws — a plain OLS t-test would overstate
+   * significance, which matters most in the Antarctic where several months
+   * genuinely have no detectable trend.
+   */
+  function olsTrend(xs, ys){
+    var n = xs.length;
+    if (n < 10) return null;
+    var mx = mean(xs), my = mean(ys), sxx = 0, sxy = 0, i;
+    for (i = 0; i < n; i++){ sxx += (xs[i]-mx)*(xs[i]-mx); sxy += (xs[i]-mx)*(ys[i]-my); }
+    if (!sxx) return null;
+
+    var slope = sxy/sxx, intercept = my - slope*mx;
+    var res = [], sse = 0;
+    for (i = 0; i < n; i++){
+      var r = ys[i] - (intercept + slope*xs[i]);
+      res.push(r); sse += r*r;
+    }
+
+    var num = 0, den = 0;
+    for (i = 1; i < n; i++) num += res[i]*res[i-1];
+    for (i = 0; i < n; i++) den += res[i]*res[i];
+    var r1 = den ? Math.max(0, Math.min(0.95, num/den)) : 0;
+    var nEff = Math.max(4, Math.min(n, n * (1 - r1) / (1 + r1)));
+
+    var seOLS = Math.sqrt((sse/(n-2)) / sxx);
+    var se = seOLS * Math.sqrt(n / nEff);
+    var tStat = se ? slope/se : 0;
+
+    return {
+      slope: slope, intercept: intercept, n: n, r1: r1, nEff: nEff,
+      se: se, t: tStat, sig: Math.abs(tStat) > tCrit95(nEff - 2),
+      perDecade: slope * 10
+    };
+  }
+
+  // Per-calendar-month trend in extent. Complete months only — an incomplete
+  // month is a different statistic and would tug the fit.
+  function computeTrends(){
+    var out = [];
+    for (var m = 0; m < 12; m++){
+      var xs = [], ys = [];
+      STATE.colYears.forEach(function(y){
+        var c = STATE.grid[y] && STATE.grid[y][m];
+        if (c && c.v !== null && !c.partial){ xs.push(y); ys.push(c.v); }
+      });
+      out.push(olsTrend(xs, ys));
+    }
+    return out;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // TIME-SERIES STRIP
+  // ══════════════════════════════════════════════════════════════
+
+  // One point per year: either a single calendar month, or the annual mean.
+  // An annual point requires all twelve months complete — in raw mode a
+  // part-year mean is dominated by whichever half of the seasonal cycle was
+  // observed, so a partial annual value would be actively misleading.
+  function buildStrip(){
+    var m = STATE.stripMonth, raw = (STATE.mode === 'raw');
+    var pts = [], xs = [], ys = [];
+
+    STATE.colYears.forEach(function(y){
+      var row = STATE.grid[y], v = null;
+      if (row){
+        if (m === null){
+          var vals = [], ok = true;
+          for (var k = 0; k < 12; k++){
+            var cc = row[k];
+            if (!cc || cc.v === null || cc.partial){ ok = false; break; }
+            vals.push(raw ? cc.v : cc.anom);
+          }
+          if (ok && vals.length === 12) v = mean(vals);
+        } else {
+          var c = row[m];
+          if (c && c.v !== null && !c.partial) v = raw ? c.v : c.anom;
+        }
+      }
+      pts.push({ year: y, v: v });
+      if (v !== null){ xs.push(y); ys.push(v); }
+    });
+
+    var lo = Infinity, hi = -Infinity;
+    ys.forEach(function(v){ lo = Math.min(lo, v); hi = Math.max(hi, v); });
+    if (!isFinite(lo)){ lo = 0; hi = 1; }
+    if (!raw){ lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    var padv = (hi - lo) * 0.10 || 0.5;
+
+    return { points: pts, trend: olsTrend(xs, ys), lo: lo - padv, hi: hi + padv };
+  }
+
+  function stripLabel(){
+    return STATE.stripMonth === null ? 'ANNUAL' : MON_SHORT[STATE.stripMonth].toUpperCase();
+  }
+
+  function setStripMonth(m){
+    STATE.stripMonth = (STATE.stripMonth === m) ? null : m;
+    STATE.strip = buildStrip();
+    updateKeyNote();
+    renderHeatmap();
+  }
+
+  // ══════════════════════════════════════════════════════════════
   // GRID DRAWING (shared by the on-screen canvas and the PNG export)
   // ══════════════════════════════════════════════════════════════
 
   function drawGrid(ctx, o){
     ctx.save();   // never leak textAlign/textBaseline/font back to the caller
+
     var x0 = o.x0, y0 = o.y0, cw = o.cw, ch = o.ch, labelW = o.labelW;
-    var monFont  = o.monFont  || 13;
-    var axisFont = o.axisFont || 12;
-    var mode = STATE.mode;
-    var cols = STATE.colYears;
-    var gx = x0 + labelW, gy = y0;
+    var headerH   = o.headerH   != null ? o.headerH   : HEADER_ROW;
+    var stripGap  = o.stripGap  != null ? o.stripGap  : STRIP_GAP;
+    var stripH    = o.stripH    != null ? o.stripH    : STRIP_H;
+    var marginGap = o.marginGap != null ? o.marginGap : MARGIN_GAP;
+    var marginW   = o.marginW   != null ? o.marginW   : MARGIN_W;
+    var barW      = o.barW      != null ? o.barW      : TREND_BAR_W;
+    var monFont   = o.monFont   || 13;
+    var axisFont  = o.axisFont  || 12;
+    var panelFont = o.panelFont || 12;
+
+    var mode = STATE.mode, cols = STATE.colYears;
+    var gx = x0 + labelW, gy = y0 + headerH;
     var gw = cols.length * cw, gh = 12 * ch;
+    var sy = gy + gh + stripGap;    // strip top
+    var ay = sy + stripH;           // shared year axis top
 
     // ── Month labels (left gutter) ──
     ctx.textBaseline = 'middle';
-    ctx.textAlign = 'right';
-    ctx.font = "600 " + monFont + "px 'Courier Prime', monospace";
     for (var r = 0; r < 12; r++){
-      ctx.fillStyle = '#A6A499';
+      var sel = (STATE.stripMonth === r);
+      ctx.textAlign = 'right';
+      ctx.font = (sel ? '700 ' : '600 ') + monFont + "px 'Courier Prime', monospace";
+      ctx.fillStyle = sel ? SEL_ACCENT : '#A6A499';
       ctx.fillText(MON_SHORT[r].toUpperCase(), x0 + labelW - 8, gy + r*ch + ch/2);
+      if (sel){
+        ctx.fillStyle = SEL_ACCENT;
+        ctx.fillRect(x0 + labelW - 4, gy + r*ch, 3, ch - 1);
+      }
     }
 
     // ── Cells ──
@@ -641,11 +809,22 @@
       }
     });
 
-    // ── Decade rules ──
+    // ── Selected-row bracket ──
+    if (STATE.stripMonth !== null){
+      ctx.save();
+      ctx.strokeStyle = SEL_ACCENT;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(gx - 0.5, gy + STATE.stripMonth*ch - 0.5, gw + 1, ch);
+      ctx.restore();
+    }
+
+    // ── Decade rules, across both grid and strip ──
     ctx.fillStyle = 'rgba(232,228,217,0.22)';
     cols.forEach(function(year, ci){
       if (year % 10 !== 0 || ci === 0) return;
-      ctx.fillRect(Math.round(gx + ci*cw), gy, 1, gh);
+      var rx = Math.round(gx + ci*cw);
+      ctx.fillRect(rx, gy, 1, gh);
+      ctx.fillRect(rx, sy, 1, stripH);
     });
 
     // ── Current-year marker ──
@@ -655,8 +834,11 @@
       ctx.fillRect(Math.round(gx + curIdx*cw), gy - 3, Math.max(2, cw), 3);
     }
 
-    // ── Year axis ──
-    var ay = gy + gh;
+    drawTrendPanel(ctx, gx + gw + marginGap, y0, headerH, gy, ch, marginW, barW, panelFont);
+    drawStrip(ctx, x0, labelW, gx, gw, sy, stripH, cw, panelFont,
+              gx + gw + marginGap, marginW);
+
+    // ── Shared year axis ──
     var step = cw >= 20 ? 5 : 10;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
@@ -673,17 +855,158 @@
     ctx.restore();
   }
 
+  // ── Per-month trend panel (right margin) ──────────────────────
+  function drawTrendPanel(ctx, px, y0, headerH, gy, ch, marginW, barW, font){
+    var trends = STATE.trends;
+    var maxAbs = 0;
+    trends.forEach(function(t){ if (t) maxAbs = Math.max(maxAbs, Math.abs(t.perDecade)); });
+    if (!maxAbs) maxAbs = 1;
+
+    var cx = px + barW;   // zero line
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = "500 " + font + "px 'Courier Prime', monospace";
+    ctx.fillStyle = '#948F82';
+    ctx.fillText('M KM\u00b2/DECADE', px, y0 + headerH/2);
+
+    // zero line — the axis every bar is measured from, so keep it legible
+    ctx.fillStyle = 'rgba(232,228,217,0.38)';
+    ctx.fillRect(Math.round(cx), gy, 1, 12*ch);
+
+    for (var r = 0; r < 12; r++){
+      var t = trends[r], cy = gy + r*ch;
+      ctx.fillStyle = 'rgba(232,228,217,0.035)';
+      ctx.fillRect(px, cy + 3, barW*2, ch - 7);
+      if (!t) continue;
+
+      var w = Math.abs(t.perDecade) / maxAbs * barW;
+      var bx = t.perDecade < 0 ? cx - w : cx;
+      var col = t.perDecade < 0 ? TREND_NEG : TREND_POS;
+      if (t.sig){
+        ctx.fillStyle = col;
+        ctx.fillRect(bx, cy + 3, Math.max(1, w), ch - 7);
+      } else {
+        // Hollow = no trend detectable once year-to-year autocorrelation is
+        // accounted for. Filling it would assert a decline that isn't there.
+        ctx.save();
+        ctx.strokeStyle = col;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2,2]);
+        ctx.strokeRect(bx + 0.5, cy + 3.5, Math.max(1, w) - 1, ch - 8);
+        ctx.restore();
+      }
+
+      ctx.fillStyle = (STATE.stripMonth === r) ? SEL_ACCENT : '#A6A499';
+      ctx.font = "400 " + font + "px 'Courier Prime', monospace";
+      ctx.textAlign = 'right';
+      ctx.fillText((t.perDecade > 0 ? '+' : '') + t.perDecade.toFixed(2), px + marginW, cy + ch/2);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // ── Time-series strip (below the grid, same x scale) ──────────
+  function drawStrip(ctx, x0, labelW, gx, gw, sy, stripH, cw, font, px, marginW){
+    var S = STATE.strip;
+    if (!S) return;
+    var PAD = 12;
+    var span = (S.hi - S.lo) || 1;
+    var yAt = function(v){ return sy + stripH - PAD - ((v - S.lo)/span) * (stripH - 2*PAD); };
+    var xAt = function(ci){ return gx + ci*cw + cw/2; };
+
+    ctx.fillStyle = 'rgba(232,228,217,0.04)';
+    ctx.fillRect(gx, sy, gw, stripH);
+
+    // Zero reference (anomaly mode) — the line the trend is measured against.
+    if (STATE.mode !== 'raw' && S.lo <= 0 && S.hi >= 0){
+      ctx.fillStyle = 'rgba(232,228,217,0.22)';
+      ctx.fillRect(gx, Math.round(yAt(0)), gw, 1);
+    }
+
+    // Fitted trend
+    if (S.trend){
+      var y1 = S.trend.intercept + S.trend.slope * STATE.colYears[0];
+      var y2 = S.trend.intercept + S.trend.slope * STATE.colYears[STATE.colYears.length-1];
+      ctx.save();
+      ctx.strokeStyle = S.trend.perDecade < 0 ? TREND_NEG : TREND_POS;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash(S.trend.sig ? [] : [4,3]);
+      ctx.beginPath();
+      ctx.moveTo(xAt(0), yAt(y1));
+      ctx.lineTo(xAt(STATE.colYears.length-1), yAt(y2));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Series
+    ctx.save();
+    ctx.strokeStyle = SERIES_INK;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    var started = false;
+    S.points.forEach(function(pt, ci){
+      if (pt.v === null){ started = false; return; }
+      var X = xAt(ci), Y = yAt(pt.v);
+      if (started) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); started = true; }
+    });
+    ctx.stroke();
+    ctx.restore();
+
+    var dotR = Math.max(1.5, Math.min(3, cw/8));
+    S.points.forEach(function(pt, ci){
+      if (pt.v === null) return;
+      ctx.beginPath();
+      ctx.arc(xAt(ci), yAt(pt.v), dotR, 0, Math.PI*2);
+      ctx.fillStyle = SERIES_INK;
+      ctx.fill();
+    });
+
+    // Gutter label — "ANNUAL" overflows a 48px gutter at the base size, so
+    // shrink to fit rather than letting it run off the left edge.
+    var label = stripLabel(), lf = font + 1;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    while (lf > 8){
+      ctx.font = "700 " + lf + "px 'Courier Prime', monospace";
+      if (ctx.measureText(label).width <= labelW - 12) break;
+      lf--;
+    }
+    ctx.fillStyle = SEL_ACCENT;
+    ctx.fillText(label, x0 + labelW - 6, sy + stripH/2);
+
+    // Trend readout sits in the right margin, beside the strip — inside the
+    // plot it would sooner or later land on top of the series.
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    var ry = sy + 8;
+    if (!S.trend){
+      ctx.fillStyle = '#948F82';
+      ctx.font = "400 " + font + "px 'Courier Prime', monospace";
+      ctx.fillText('no trend', px, ry);
+    } else {
+      ctx.fillStyle = S.trend.perDecade < 0 ? TREND_NEG : TREND_POS;
+      ctx.font = "700 " + (font + 5) + "px 'Courier Prime', monospace";
+      ctx.fillText((S.trend.perDecade > 0 ? '+' : '') + S.trend.perDecade.toFixed(3), px, ry);
+      ctx.fillStyle = '#A6A499';
+      ctx.font = "400 " + font + "px 'Courier Prime', monospace";
+      ctx.fillText('M km\u00b2/decade', px, ry + font + 10);
+      ctx.fillStyle = S.trend.sig ? '#A6A499' : '#948F82';
+      ctx.fillText(S.trend.sig ? 'p < 0.05' : 'not significant', px, ry + 2*font + 16);
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════
   // ON-SCREEN RENDER
   // ══════════════════════════════════════════════════════════════
 
   function gridW(){ return STATE.colYears.length * STATE.cellW; }
   function gridH(){ return 12 * CELL_H; }
-  function canvasW(){ return LABEL_W + gridW(); }
-  function canvasH(){ return GRID_TOP + gridH() + AXIS_H; }
+  function canvasW(){ return LABEL_W + gridW() + MARGIN_GAP + MARGIN_W; }
+  function canvasH(){ return HEADER_ROW + gridH() + STRIP_GAP + STRIP_H + AXIS_H; }
+  function stripTop(){ return HEADER_ROW + gridH() + STRIP_GAP; }
 
   function computeCellW(){
-    var avail = (document.body.clientWidth || 900) - 48 - LABEL_W - 2;
+    var avail = (document.body.clientWidth || 900) - 48 - LABEL_W - MARGIN_GAP - MARGIN_W - 2;
     var w = Math.floor(avail / Math.max(1, STATE.colYears.length));
     return Math.max(MIN_CELL_W, Math.min(MAX_CELL_W, w));
   }
@@ -703,7 +1026,7 @@
     var ctx = sizeCanvas($('heatmapCanvas'), W, H, STATE.dpr);
     ctx.fillStyle = '#1E2320';
     ctx.fillRect(0, 0, W, H);
-    drawGrid(ctx, { x0: 0, y0: GRID_TOP, cw: STATE.cellW, ch: CELL_H, labelW: LABEL_W });
+    drawGrid(ctx, { x0: 0, y0: 0, cw: STATE.cellW, ch: CELL_H, labelW: LABEL_W });
     sizeCanvas($('hoverLayer'), W, H, STATE.dpr);
     drawHover();
   }
@@ -713,15 +1036,28 @@
     ctx.clearRect(0, 0, canvasW(), canvasH());
     if (!STATE.hover) return;
     var x = LABEL_W + STATE.hover.col * STATE.cellW;
-    var y = GRID_TOP + STATE.hover.row * CELL_H;
+
+    if (STATE.hover.strip){
+      ctx.save();
+      ctx.strokeStyle = 'rgba(232,228,217,0.5)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + STATE.cellW/2 - 0.5, stripTop());
+      ctx.lineTo(x + STATE.cellW/2 - 0.5, stripTop() + STRIP_H);
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    var y = HEADER_ROW + STATE.hover.row * CELL_H;
     ctx.save();
     ctx.strokeStyle = 'rgba(232,228,217,0.22)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(LABEL_W, y + CELL_H/2 - 0.5);
     ctx.lineTo(LABEL_W + gridW(), y + CELL_H/2 - 0.5);
-    ctx.moveTo(x + STATE.cellW/2 - 0.5, GRID_TOP);
-    ctx.lineTo(x + STATE.cellW/2 - 0.5, GRID_TOP + gridH());
+    ctx.moveTo(x + STATE.cellW/2 - 0.5, HEADER_ROW);
+    ctx.lineTo(x + STATE.cellW/2 - 0.5, HEADER_ROW + gridH() + STRIP_GAP + STRIP_H);
     ctx.stroke();
     ctx.strokeStyle = '#E8E4D9';
     ctx.lineWidth = 2;
@@ -823,21 +1159,63 @@
 
   function hitTest(clientX, clientY){
     var rect = $('heatmapCanvas').getBoundingClientRect();
-    var col = Math.floor((clientX - rect.left - LABEL_W) / STATE.cellW);
-    var row = Math.floor((clientY - rect.top - GRID_TOP) / CELL_H);
-    if (col < 0 || col >= STATE.colYears.length || row < 0 || row >= 12) return null;
+    var x = clientX - rect.left, y = clientY - rect.top;
+    var col = Math.floor((x - LABEL_W) / STATE.cellW);
+    var row = Math.floor((y - HEADER_ROW) / CELL_H);
+    var inCols = col >= 0 && col < STATE.colYears.length;
+
+    // Strip band, on the same x scale as the grid.
+    var st = stripTop();
+    if (y >= st && y <= st + STRIP_H && inCols) return { col: col, strip: true };
+
+    // Left gutter beside a month row — selects that row for the strip.
+    if (x >= 0 && x < LABEL_W && row >= 0 && row < 12) return { row: row, gutter: true };
+
+    if (!inCols || row < 0 || row >= 12) return null;
     return { col: col, row: row };
   }
 
   function showTooltip(hit, clientX, clientY, lift){
     var tooltip = $('tooltip');
-    var year = STATE.colYears[hit.col], m = hit.row;
-    var c = (STATE.grid[year] || [])[m];
-
-    tooltip.querySelector('.tt-period').textContent = MON_FULL[m] + ' ' + year;
     var ttv = tooltip.querySelector('.tt-value');
     var tts = tooltip.querySelector('.tt-sub');
     var badge = tooltip.querySelector('.tt-badge');
+
+    if (hit.gutter){
+      var t = STATE.trends[hit.row];
+      tooltip.querySelector('.tt-period').textContent = MON_FULL[hit.row] + ' trend';
+      ttv.textContent = t ? ((t.perDecade > 0 ? '+' : '') + t.perDecade.toFixed(3)) : '\u2014';
+      ttv.style.color = !t ? '#948F82' : (t.perDecade < 0 ? TREND_NEG : TREND_POS);
+      tts.textContent = t
+        ? ('M km\u00b2/decade \u00b7 ' + t.n + ' yrs \u00b7 ' +
+           (t.sig ? 'significant at 95%' : 'not significant') +
+           ' \u00b7 click to plot')
+        : 'not enough complete years';
+      badge.style.display = 'none';
+      placeTooltip(tooltip, clientX, clientY, lift);
+      return;
+    }
+
+    if (hit.strip){
+      var sp = STATE.strip && STATE.strip.points[hit.col];
+      tooltip.querySelector('.tt-period').textContent =
+        stripLabel() + ' ' + STATE.colYears[hit.col];
+      ttv.textContent = (sp && sp.v !== null)
+        ? ((STATE.mode === 'raw' ? '' : (sp.v > 0 ? '+' : '')) + sp.v.toFixed(2) + ' M km\u00b2')
+        : 'No complete value';
+      ttv.style.color = (sp && sp.v !== null)
+        ? rgbHex(cellColor(sp.v, STATE.mode)) : '#948F82';
+      tts.textContent = STATE.stripMonth === null
+        ? 'annual mean \u00b7 needs all 12 complete months'
+        : MON_FULL[STATE.stripMonth] + ' only';
+      badge.style.display = 'none';
+      placeTooltip(tooltip, clientX, clientY, lift);
+      return;
+    }
+
+    var year = STATE.colYears[hit.col], m = hit.row;
+    var c = (STATE.grid[year] || [])[m];
+    tooltip.querySelector('.tt-period').textContent = MON_FULL[m] + ' ' + year;
 
     if (!c || c.v === null){
       ttv.textContent = 'No data';
@@ -856,6 +1234,10 @@
       badge.textContent = c.days + ' of ' + Math.round(c.expected) + ' days';
     }
 
+    placeTooltip(tooltip, clientX, clientY, lift);
+  }
+
+  function placeTooltip(tooltip, clientX, clientY, lift){
     tooltip.classList.add('visible');
     var tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
     var tx = clientX + 14;
@@ -875,6 +1257,12 @@
     drawHover();
   }
 
+  function sameHit(a, b){
+    if (!a || !b) return false;
+    return a.col === b.col && a.row === b.row &&
+           !!a.strip === !!b.strip && !!a.gutter === !!b.gutter;
+  }
+
   function setupTooltip(){
     var canvas = $('heatmapCanvas');
 
@@ -882,15 +1270,16 @@
       if (e.pointerType !== 'mouse' && !STATE.pinned) return;
       var hit = hitTest(e.clientX, e.clientY);
       if (!hit){ if (e.pointerType === 'mouse') hideTooltip(); return; }
-      if (!STATE.hover || STATE.hover.col !== hit.col || STATE.hover.row !== hit.row){
-        STATE.hover = hit; drawHover();
-      }
+      if (!sameHit(STATE.hover, hit)){ STATE.hover = hit; drawHover(); }
       showTooltip(hit, e.clientX, e.clientY, e.pointerType !== 'mouse');
     });
 
     canvas.addEventListener('pointerdown', function(e){
       var hit = hitTest(e.clientX, e.clientY);
       if (!hit){ hideTooltip(); return; }
+      // Clicking a month row (gutter or cell) drives the strip below; clicking
+      // the row that's already plotted returns the strip to the annual mean.
+      if (hit.row !== undefined && !hit.strip) setStripMonth(hit.row);
       STATE.hover = hit;
       STATE.pinned = e.pointerType !== 'mouse';
       drawHover();
@@ -909,6 +1298,26 @@
   // ══════════════════════════════════════════════════════════════
   // NOTES
   // ══════════════════════════════════════════════════════════════
+
+  // Methodology travels with the exported image; the interaction hint does
+  // not — "click a row" means nothing on a static PNG.
+  function methodText(){
+    return 'Trend panel: least-squares change in monthly extent per decade over ' +
+      STATE.colYears[0] + '\u2013' + STATE.colYears[STATE.colYears.length-1] +
+      ', complete months only. Standard errors are inflated for lag-1 autocorrelation ' +
+      '(Santer et al. 2000), so a hollow bar means no trend is detectable once ' +
+      'year-to-year persistence is accounted for \u2014 not that the slope is zero. ' +
+      'Strip: ' + (STATE.stripMonth === null
+        ? 'annual mean extent, which requires all twelve months complete'
+        : MON_FULL[STATE.stripMonth] + ' only') + '.';
+  }
+
+  function updateKeyNote(){
+    $('keyNote').textContent = methodText();
+    $('hintNote').textContent =
+      'Click any month row (or its label) to plot that month\u2019s series below the grid; ' +
+      'click it again to return to the annual mean.';
+  }
 
   function updateModeNote(){
     $('modeNote').textContent = MODE_NOTES[STATE.mode].replace(
@@ -966,6 +1375,7 @@
     updateChips();
     updateModeNote();
     updateCoverageNote();
+    updateKeyNote();
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -974,20 +1384,24 @@
 
   function downloadHeatmapPNG(){
     var PAD = 32, EX_CW = 22, EX_CH = 32, EX_LABEL = 56, EX_AXIS = 26;
+    var EX_HEADER = 20, EX_SGAP = 10, EX_STRIP = 118;
+    var EX_MGAP = 14, EX_MARGIN = 138, EX_BAR = 38;
     var cols = STATE.colYears;
     var gw = cols.length * EX_CW, gh = 12 * EX_CH;
+    var bodyH = EX_HEADER + gh + EX_SGAP + EX_STRIP + EX_AXIS;
     var HEADER_H = 116;
-    var totalW = PAD*2 + EX_LABEL + gw;
+    var totalW = PAD*2 + EX_LABEL + gw + EX_MGAP + EX_MARGIN;
 
     var measure = document.createElement('canvas').getContext('2d');
     measure.font = "400 14px 'Courier Prime', monospace";
-    var footText = ($('footnote').textContent + ' ' + $('coverageNote').textContent).trim();
+    var footText = ($('footnote').textContent + ' ' + $('coverageNote').textContent + ' ' +
+                    methodText()).trim();
     var footLines = footText ? wrapText(measure, footText, gw) : [];
     var citeText  = ($('citation').textContent || '').trim();
     var citeLines = citeText ? wrapText(measure, citeText, gw) : [];
 
     var LEG_BLOCK = 86, STAT_BLOCK = 86, LINE_H = 21;
-    var totalH = PAD + HEADER_H + gh + EX_AXIS + 30 + LEG_BLOCK + STAT_BLOCK
+    var totalH = PAD + HEADER_H + bodyH + 30 + LEG_BLOCK + STAT_BLOCK
                + footLines.length*LINE_H + citeLines.length*LINE_H + 40 + PAD;
 
     var canvas = document.createElement('canvas');
@@ -1019,12 +1433,16 @@
         ? 'Monthly mean extent, fixed 0\u201320 M km\u00b2 scale'
         : 'Anomaly vs. ' + STATE.baselineStart + '\u2013' + STATE.baselineEnd + ' average') +
       ' \u00b7 ' + cols[0] + '\u2013' + cols[cols.length-1] +
+      ' \u00b7 strip: ' + (STATE.stripMonth === null
+        ? 'annual mean' : MON_FULL[STATE.stripMonth]) +
       ' \u00b7 through ' + formatDate(STATE.data.updated_through), x, y);
 
     y = PAD + HEADER_H;
-    drawGrid(ctx, { x0: PAD, y0: y, cw: EX_CW, ch: EX_CH,
-                    labelW: EX_LABEL, monFont: 14, axisFont: 13 });
-    y += gh + EX_AXIS + 34;
+    drawGrid(ctx, { x0: PAD, y0: y, cw: EX_CW, ch: EX_CH, labelW: EX_LABEL,
+                    headerH: EX_HEADER, stripGap: EX_SGAP, stripH: EX_STRIP,
+                    marginGap: EX_MGAP, marginW: EX_MARGIN, barW: EX_BAR,
+                    monFont: 14, axisFont: 13, panelFont: 13 });
+    y += bodyH + 34;
 
     // Legend
     var legX = PAD + EX_LABEL, legW = Math.min(gw, 760);
@@ -1120,6 +1538,7 @@
       b.classList.toggle('is-active', b.dataset.mode === STATE.mode);
     });
     hideTooltip();
+    STATE.strip = buildStrip();   // strip units follow the mode
     renderHeatmap();
     renderLegend();
     updateChips();
