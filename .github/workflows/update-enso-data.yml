@@ -2,8 +2,18 @@ name: Cache ENSO Data
 
 on:
   schedule:
-    - cron: '15 14 * * *'   # daily at 14:15 UTC — no-ops (no commit) if NOAA hasn't published a new month yet
+    # Three passes a day. GitHub's scheduler is best-effort and routinely
+    # runs 5-30 min late at the top of the hour, so these sit off-peak.
+    # Monthly ERSST posts within ~a week of month end; the CPC weekly file
+    # posts Mondays. Nothing here commits unless a file actually changed.
+    - cron: '17 6 * * *'
+    - cron: '17 14 * * *'
+    - cron: '17 22 * * *'
   workflow_dispatch:
+
+concurrency:
+  group: enso-data
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -14,37 +24,78 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Niño 3.4 data from NOAA PSL
-        run: |
-          curl -L \
-            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0" \
-            -H "Accept: text/plain, */*" \
-            -H "Referer: https://psl.noaa.gov/gcos_wgsp/Timeseries/Nino34/" \
-            -o /tmp/nino34_raw.txt \
-            "https://psl.noaa.gov/data/timeseries/month/data/nino34.long.anom.data"
-          echo "Downloaded $(wc -c < /tmp/nino34_raw.txt) bytes"
-          echo "First line: $(head -1 /tmp/nino34_raw.txt)"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: Validate — must be numeric data, not HTML
+      # Each source downloads independently. A failure here NEVER overwrites
+      # a good committed file — it writes a marker that the validate step
+      # reads, so one dead source can't take the other two down with it.
+      - name: Download sources
         run: |
-          first=$(head -1 /tmp/nino34_raw.txt | tr -d '[:space:]')
-          if [[ "$first" =~ ^[0-9]{4} ]]; then
-            echo "✓ Valid data file — starts with year: $first"
-            cp /tmp/nino34_raw.txt public/nino34.long.anom.data
-          else
-            echo "✗ PSL returned HTML or invalid content — keeping existing committed file"
-            echo "First 300 chars of download:"
-            head -c 300 /tmp/nino34_raw.txt
-            echo ""
-            # Exit 0 so Pages build still runs; existing file in repo is preserved
-            exit 0
-          fi
+          mkdir -p /tmp/enso
+          UA="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+
+          fetch () {
+            name="$1"; url="$2"
+            echo "── $name"
+            if curl -fsSL \
+                 --retry 4 --retry-delay 5 --retry-all-errors \
+                 --max-time 90 --connect-timeout 20 \
+                 -H "User-Agent: $UA" \
+                 -H "Accept: text/plain, */*" \
+                 -o "/tmp/enso/$name.raw" \
+                 "$url"; then
+              echo "   ok — $(wc -c < /tmp/enso/$name.raw) bytes"
+            else
+              echo "   FAILED (curl exit $?)"
+              rm -f "/tmp/enso/$name.raw"
+            fi
+          }
+
+          # HadISST 1.1 — the 1870 spine. Long record, slower to publish.
+          fetch hadisst "https://psl.noaa.gov/data/timeseries/month/data/nino34.long.anom.data"
+
+          # ERSST v5 — what CPC's published ONI is actually computed from.
+          # 1950-present, same Standard PSL Format, posts within days of month end.
+          fetch ersst5 "https://psl.noaa.gov/data/correlation/nina34.anom.data"
+
+          # CPC weekly Niño-region SSTs — updated Mondays. Drives the
+          # provisional tip on the developing-event line.
+          fetch weekly "https://www.cpc.ncep.noaa.gov/data/indices/wksst8110.for"
+
+      - name: Validate, parse and build meta
+        id: build
+        run: python3 .github/scripts/build_enso_data.py
 
       - name: Commit if data changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/nino34.long.anom.data
-          git diff --staged --quiet \
-            && echo "Data unchanged — no commit needed" \
-            || (git commit -m "chore: update Niño 3.4 anomaly data [automated]" && git push)
+          for f in public/nino34.long.anom.data \
+                   public/nino34.ersst5.anom.data \
+                   public/enso-meta.json; do
+            [ -f "$f" ] && git add "$f" || true
+          done
+          if git diff --staged --quiet; then
+            echo "No change — nothing to commit."
+          else
+            git commit -m "chore: update ENSO data [automated]"
+            # Another run may have landed between checkout and push.
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" || true
+            git push
+          fi
+
+      # Runs last and on purpose: the run goes RED if any source was
+      # rejected, even though good files were still committed above. A
+      # silent green run on stale data is the failure mode this replaces.
+      - name: Report source failures
+        if: always()
+        run: |
+          if [ -f /tmp/enso/FAILURES ]; then
+            echo "::error::One or more ENSO sources failed validation:"
+            cat /tmp/enso/FAILURES
+            exit 1
+          fi
+          echo "All sources validated."
