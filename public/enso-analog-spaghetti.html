@@ -22,6 +22,11 @@
       --cur-dev:   #FFE000;
     }
 
+    /* Shared component classes set `display`, which is an author rule and so
+       beats the UA's `[hidden] { display: none }`. Without this, anything
+       toggled via the hidden attribute still renders. */
+    [hidden] { display: none !important; }
+
     .wrap { max-width: 1280px; margin: 0 auto; }
 
     /* ── Header ── */
@@ -1329,20 +1334,25 @@ let freshParts = [];
 
 function renderFreshness() {
   const el = document.getElementById('fresh');
-  if (!META) { el.textContent = ''; freshParts = []; return; }
   const parts = [];
-  const src = META.sources || {};
-  const latest = src.ersst5?.latest || src.hadisst?.latest;
   let stale = false;
-  if (latest) {
-    const [y, m] = latest.split('-').map(Number);
+
+  const src = META?.sources || {};
+  const metaLatest = src.ersst5?.latest || src.hadisst?.latest;
+  // Without meta, fall back to the month the loaded data actually ends at —
+  // staleness matters most in exactly the state where meta is missing.
+  const fromData = latestMonth(rawData);
+  const y = metaLatest ? +metaLatest.split('-')[0] : fromData?.year;
+  const m = metaLatest ? +metaLatest.split('-')[1] : (fromData ? fromData.month + 1 : null);
+
+  if (y && m) {
     const now = new Date();
-    const age = (now.getUTCFullYear() - y) * 12 + (now.getUTCMonth() + 1 - m);
-    stale = age > 2;
+    stale = (now.getUTCFullYear() - y) * 12 + (now.getUTCMonth() + 1 - m) > 2;
     parts.push(`Monthly data through ${MO[m - 1]} ${y}`);
   }
-  if (META.weekly?.latest_date) parts.push(`weekly through ${META.weekly.latest_date}`);
-  if (META.generated_at) parts.push(`cached ${META.generated_at.slice(0, 10)}`);
+  if (META?.weekly?.latest_date) parts.push(`weekly through ${META.weekly.latest_date}`);
+  if (META?.generated_at) parts.push(`cached ${META.generated_at.slice(0, 10)}`);
+  if (!parts.length) { el.textContent = ''; freshParts = []; return; }
 
   freshParts = parts;
   el.innerHTML = `<span class="fresh-dot${stale ? ' stale' : ''}"></span>` +
