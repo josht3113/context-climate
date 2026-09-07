@@ -304,35 +304,55 @@ canvas:focus-visible{outline:2px solid var(--tool-accent); outline-offset:2px;}
 
 <!-- ============================= TAB 3: REAL TIDE DATA ============================= -->
 <div class="panel" id="panel-real">
-  <div class="stage"><canvas id="realCanvas"></canvas></div>
+  <div class="stage"><canvas id="realCanvas" tabindex="0"></canvas></div>
   <div class="rail">
     <div class="rail-scroll">
 
     <div class="rail-card tight">
       <div class="toggle-group cc-tab-bar">
         <button class="cc-tab toggle-btn active" data-station="kp">Kings Point</button>
-        <button class="cc-tab toggle-btn" data-station="mt">Montauk Point</button>
+        <button class="cc-tab toggle-btn" data-station="mt">Montauk</button>
+        <button class="cc-tab toggle-btn" data-station="both">Both</button>
+      </div>
+      <div class="toggle-group cc-tab-bar" style="margin-top:8px">
+        <button class="cc-tab" id="normBtn">Scale each to its own range</button>
+      </div>
+      <p class="hint" id="zoomHint">Drag across the chart to zoom in</p>
+    </div>
+
+    <div class="rail-card">
+      <div class="stat-rows">
+        <div class="stat-row"><span class="stat-value" id="outCursor" style="font-size:15px; line-height:1.5">Hover the chart</span><span class="stat-label">At the<br>cursor</span></div>
+        <div class="stat-row"><span class="stat-value" id="outMoon" style="font-size:16px">—</span><span class="stat-label">Moon<br>phase</span></div>
       </div>
     </div>
 
     <div class="rail-card">
       <div class="stat-rows">
-        <div class="stat-row"><span class="stat-value" id="rangeSpring" style="color:#3CA3AE">—</span><span class="stat-label">Spring tide range</span></div>
-        <div class="stat-row"><span class="stat-value" id="rangeNeap" style="color:#9aa3c0">—</span><span class="stat-label">Neap tide range</span></div>
-        <div class="stat-row"><span class="stat-value" id="rangeWindow" style="color:#bcc1d4">—</span><span class="stat-label">Window shown</span></div>
+        <div class="stat-row"><span class="stat-value" id="outGreatest" style="font-size:18px">—</span><span class="stat-label" id="outGreatestWhen">Greatest range</span></div>
+        <div class="stat-row"><span class="stat-value" id="outLeast" style="font-size:18px">—</span><span class="stat-label" id="outLeastWhen">Least range</span></div>
+        <div class="stat-row"><span class="stat-value" id="outRangeRatio" style="font-size:18px">—</span><span class="stat-label">Greatest : least<br>range ratio</span></div>
+        <div class="stat-row"><span class="stat-value" id="outWindow" style="font-size:15px">Jun 4 – Jul 2, 2026</span><span class="stat-label">Window<br>shown</span></div>
       </div>
     </div>
 
     <div class="rail-card">
       <p class="detail-title" style="color:var(--color-text-primary); font-size:18px;">Same forcing, different coastline</p>
-      <p class="detail-body">Around the same May–June 2026 new moon, <b style="color:#3CA3AE">Kings Point's</b> spring high tide reached <b style="color:#3CA3AE">9.2 ft</b> — while <b style="color:#F5A340">Montauk Point's</b>, facing the open Atlantic just 70 miles east, reached only <b style="color:#F5A340">3.6 ft</b>. Long Island Sound narrows like a funnel toward its western end, and the incoming tidal wave resonates and piles up against that geometry. The Moon and Sun set the <i>rhythm</i> everywhere identically — the coastline sets the <i>size</i>.</p>
+      <p class="detail-body">Both stations peak on the same night. At the June 14 new moon, <b style="color:#3CA3AE">Kings Point</b> reached <b style="color:#3CA3AE">9.17 ft</b> and <b style="color:#F5A340">Montauk Point</b> — facing the open Atlantic 70 miles east — reached <b style="color:#F5A340">3.23 ft</b>, and got there <b>2h 11m earlier</b>. Long Island Sound narrows like a funnel toward its western end, so the tidal wave takes time to travel up it and piles up against that geometry when it arrives.</p>
     </div>
 
-    <p class="foot-note">Source: NOAA tide predictions, Station 8516945 (Kings Point) &amp; 8510560 (Montauk Point) · Datum: MLLW · via Tide-Forecast.com. Curves are smoothed between predicted high/low points. Predictions assume calm weather — storm surge and wind setup can shift actual water levels well beyond what's shown.</p>
+    <div class="callout">
+      The equilibrium model on the previous tab predicts a spring-to-neap range ratio near <b>2.7×</b>. Over this same month Kings Point runs <b>1.7×</b> and Montauk <b>4.3×</b>. Note too that the smallest ranges arrive around Jun 25, four days after the first-quarter Moon — the Moon was near apogee.
+    </div>
 
-  </div>
+    <p class="foot-note">Source: NOAA CO-OPS predicted highs and lows, Stations 8516945 (Kings Point) &amp; 8510560 (Montauk Point), Jun 4 – Jul 2 2026, datum MLLW, local time. Curves are smoothed between predicted high/low points. Predictions assume calm weather — storm surge and wind setup can shift actual water levels well beyond what's shown.</p>
+
+    </div>
   <div class="rail-foot">
-    <div class="action-row"><button class="cc-btn cc-btn-sm" id="realPngBtn">↓ PNG</button></div>
+    <div class="action-row">
+      <button class="cc-btn cc-btn-sm" id="realPngBtn">↓ PNG</button>
+      <button class="cc-btn cc-btn-sm" id="realResetBtn">Reset</button>
+    </div>
   </div>
   </div>
 </div>
@@ -456,6 +476,32 @@ function createPlayer(btn, onTick){
   btn.addEventListener('click', ()=>{ playing? pause(): play(); });
   setIcon();
   return {play,pause,isPlaying:()=>playing};
+}
+
+/* ── Moon phase, as seen from Earth ─────────────────────────────────
+   E is elongation from the Sun in degrees (0 new, 180 full). The lit
+   region is the limb semicircle on the lit side closed by a terminator
+   ellipse whose x-radius is pr·cos E — zero at the quarters, a full
+   limb at new and at full. */
+function drawPhaseDisc(ctx, px, py, pr, E, waxing){
+  const c = Math.cos(E*Math.PI/180);
+  ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2);
+  ctx.fillStyle='#191d27'; ctx.fill();
+  ctx.strokeStyle='rgba(174,184,212,0.4)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.save();
+  ctx.translate(px,py); if(!waxing) ctx.scale(-1,1); ctx.translate(-px,-py);
+  ctx.beginPath();
+  ctx.arc(px,py,pr,-Math.PI/2,Math.PI/2,false);
+  ctx.ellipse(px,py,pr*Math.abs(c),pr,0,Math.PI/2,-Math.PI/2, c > 0);
+  ctx.closePath();
+  ctx.fillStyle='#e8ecf6'; ctx.fill();
+  ctx.restore();
+}
+function phaseNameFor(E, waxing){
+  if(E < 11)  return 'New Moon';
+  if(E > 169) return 'Full Moon';
+  if(E >= 79 && E <= 101) return waxing ? 'First Quarter' : 'Third Quarter';
+  return (waxing ? 'Waxing ' : 'Waning ') + (E > 101 ? 'Gibbous' : 'Crescent');
 }
 
 /* Draws a wavy "ray" — genuinely parallel start-to-end, with a gentle wave riding along it
@@ -938,13 +984,7 @@ tabBtns.forEach(btn=>{
   /* Elongation from the Sun as seen from Earth: 0° new, 180° full. */
   function elong(deg){ const a = norm(deg-180); return a > 180 ? 360-a : a; }
   const waxing = deg => norm(deg-180) < 180;
-  function phaseName(deg){
-    const E = elong(deg), w = waxing(deg);
-    if(E < 11)  return 'New Moon';
-    if(E > 169) return 'Full Moon';
-    if(E >= 79 && E <= 101) return w ? 'First Quarter' : 'Third Quarter';
-    return (w ? 'Waxing ' : 'Waning ') + (E > 101 ? 'Gibbous' : 'Crescent');
-  }
+  const phaseName = deg => phaseNameFor(elong(deg), waxing(deg));
 
   function drawSun(ctx){
     const sx = 84, sy = cy;
@@ -973,22 +1013,6 @@ tabBtns.forEach(btn=>{
   function drawLitHalf(ctx, x, y, r){
     ctx.beginPath(); ctx.arc(x,y,r,Math.PI/2, Math.PI*1.5, false);
     ctx.fillStyle='#e8ecf6'; ctx.fill();
-  }
-
-  /* The same Moon as it appears from Earth — the thing students actually name. */
-  function drawPhaseDisc(ctx, px, py, pr, deg){
-    const E = elong(deg)*D2R, c = Math.cos(E);
-    ctx.beginPath(); ctx.arc(px,py,pr,0,Math.PI*2);
-    ctx.fillStyle='#191d27'; ctx.fill();
-    ctx.strokeStyle='rgba(174,184,212,0.4)'; ctx.lineWidth=1; ctx.stroke();
-    ctx.save();
-    ctx.translate(px,py); if(!waxing(deg)) ctx.scale(-1,1); ctx.translate(-px,-py);
-    ctx.beginPath();
-    ctx.arc(px,py,pr,-Math.PI/2,Math.PI/2,false);
-    ctx.ellipse(px,py,pr*Math.abs(c),pr,0,Math.PI/2,-Math.PI/2, c > 0);
-    ctx.closePath();
-    ctx.fillStyle='#e8ecf6'; ctx.fill();
-    ctx.restore();
   }
 
   function drawStrip(ctx){
@@ -1126,7 +1150,7 @@ tabBtns.forEach(btn=>{
 
     // …and the same Moon as it looks from the ground
     const IX = 900, IY = 92;
-    drawPhaseDisc(ctx, IX, IY, 30, moonDeg);
+    drawPhaseDisc(ctx, IX, IY, 30, elong(moonDeg), waxing(moonDeg));
     ctx.font='600 12px "Courier Prime"'; ctx.textAlign='center'; ctx.textBaseline='bottom';
     ctx.fillStyle='rgba(255,255,255,0.45)';
     ctx.fillText('FROM EARTH', IX, IY-38);
@@ -1258,203 +1282,410 @@ tabBtns.forEach(btn=>{
    ============================================================ */
 (function(){
   const KP_DATA = [
-    [1.933,1,7.52],[8.467,0,0.48],[14.55,1,7.02],[20.633,0,1.1],
-    [26.6,1,7.48],[33.1,0,0.49],[39.2,1,7.09],[45.367,0,1.12],
-    [51.333,1,7.42],[57.833,0,0.51],[63.933,1,7.2],[70.217,0,1.1],
-    [76.167,1,7.33],[82.617,0,0.54],[88.733,1,7.37],[95.117,0,1.03],
-    [101.033,1,7.23],[107.45,0,0.57],[113.567,1,7.6],
-    [120.05,0,0.88],[125.983,1,7.13],[132.3,0,0.6],[138.45,1,7.86],
-    [145.083,0,0.67],[150.983,1,7.08],[157.217,0,0.61],[163.4,1,8.16],
-    [170.283,0,0.38],[176.1,1,7.13],[182.217,0,0.56],[188.417,1,8.49],
-    [195.533,0,0.01],[201.217,1,7.31],[207.25,0,0.42],[213.417,1,8.83],
-    [220.6,0,-0.36],[226.217,1,7.55],[232.267,0,0.24],[238.35,1,9.08],
-    [245.617,0,-0.63],[251.167,1,7.75],[257.317,0,0.08],[263.3,1,9.17],
-    [270.583,0,-0.79],[276.133,1,7.89],[282.4,0,-0.03],
-    [288.283,1,9.11],[295.483,0,-0.83],[301.133,1,7.99],[307.45,0,-0.06],
-    [313.283,1,8.91],[320.383,0,-0.75],[326.117,1,8.04],[332.467,0,0.02],
-    [338.3,1,8.6],[345.283,0,-0.56],[351.1,1,8.04],[357.533,0,0.17],
-    [363.35,1,8.21],[370.217,0,-0.31],[376.133,1,8.02],[382.65,0,0.33],
-    [388.467,1,7.8],[395.167,0,-0.03],[401.15,1,8.01],[407.7,0,0.43],
-    [413.533,1,7.43],[420.083,0,0.28],[426.083,1,7.96],
-    [432.7,0,0.49],[438.55,1,7.12],[445.0,0,0.6],[451.017,1,7.9],
-    [457.683,0,0.5],[463.583,1,6.91],[469.933,0,0.88],[475.967,1,7.84],
-    [482.633,0,0.44],[488.583,1,6.84],[494.833,0,1.06],[500.85,1,7.83],
-    [507.517,0,0.34],[513.483,1,6.88],[519.7,0,1.14],[525.683,1,7.84],
-    [532.333,0,0.25],[538.283,1,6.97],[544.483,0,1.15],[550.417,1,7.83],
-    [557.1,0,0.21],[563.017,1,7.06],[569.217,0,1.13],[575.117,1,7.8],
-    [581.817,0,0.22],[587.717,1,7.11],[593.883,0,1.1],[599.75,1,7.75],
-    [606.483,0,0.26],[612.383,1,7.14],[618.467,0,1.08],
-    [624.283,1,7.68],[631.05,0,0.31],[636.967,1,7.14],[642.883,0,1.06],
-    [648.65,1,7.65],[655.467,0,0.35],[661.383,1,7.15],[667.2,0,1.01],
-    [673.033,1,7.67],[679.7,0,0.33],[685.667,1,7.23],[691.683,0,0.93]
+    [1.95,1,7.516],[8.5,0,0.477],[14.6,1,7.033],[20.65,0,1.117],
+    [26.617,1,7.47],[33.133,0,0.491],[39.233,1,7.099],[45.4,0,1.137],
+    [51.367,1,7.411],[57.85,0,0.514],[63.95,1,7.214],[70.217,0,1.124],
+    [76.167,1,7.329],[82.633,0,0.544],[88.75,1,7.385],[95.133,0,1.046],
+    [101.05,1,7.231],[107.467,0,0.575],[113.583,1,7.608],[120.083,0,0.894],
+    [125.983,1,7.137],[132.333,0,0.602],[138.467,1,7.872],[145.117,0,0.67],
+    [151,1,7.086],[157.25,0,0.603],[163.417,1,8.172],[170.283,0,0.371],
+    [176.1,1,7.14],[182.233,0,0.545],[188.417,1,8.508],[195.517,0,0.004],
+    [201.2,1,7.318],[207.25,0,0.415],[213.4,1,8.837],[220.617,0,-0.35],
+    [226.217,1,7.547],[232.283,0,0.244],[238.35,1,9.078],[245.617,0,-0.623],
+    [251.167,1,7.746],[257.333,0,0.086],[263.3,1,9.169],[270.583,0,-0.787],
+    [276.133,1,7.89],[282.417,0,-0.025],[288.267,1,9.103],[295.5,0,-0.829],
+    [301.133,1,7.984],[307.45,0,-0.055],[313.283,1,8.904],[320.383,0,-0.748],
+    [326.117,1,8.034],[332.483,0,0.022],[338.3,1,8.596],[345.3,0,-0.563],
+    [351.117,1,8.045],[357.55,0,0.177],[363.367,1,8.211],[370.233,0,-0.314],
+    [376.133,1,8.035],[382.65,0,0.33],[388.45,1,7.806],[395.183,0,-0.033],
+    [401.117,1,8.011],[407.717,0,0.433],[413.517,1,7.43],[420.1,0,0.27],
+    [426.083,1,7.964],[432.717,0,0.484],[438.55,1,7.113],[445.017,0,0.578],
+    [451.017,1,7.899],[457.7,0,0.483],[463.583,1,6.901],[469.917,0,0.848],
+    [475.95,1,7.846],[482.633,0,0.427],[488.567,1,6.829],[494.817,0,1.036],
+    [500.85,1,7.829],[507.517,0,0.341],[513.467,1,6.87],[519.667,0,1.129],
+    [525.667,1,7.833],[532.333,0,0.265],[538.267,1,6.961],[544.467,0,1.15],
+    [550.417,1,7.829],[557.1,0,0.225],[563.017,1,7.049],[569.2,0,1.13],
+    [575.117,1,7.799],[581.817,0,0.226],[587.717,1,7.11],[593.883,0,1.097],
+    [599.75,1,7.746],[606.467,0,0.258],[612.367,1,7.139],[618.45,0,1.07],
+    [624.283,1,7.683],[631.05,0,0.304],[636.95,1,7.146],[642.867,0,1.048],
+    [648.65,1,7.646],[655.467,0,0.336],[661.383,1,7.16],[667.2,0,0.999],
+    [673.05,1,7.66],[679.733,0,0.312],[685.7,1,7.231],[691.7,0,0.93]
   ];
   const MT_DATA = [
-    [1.133,1,2.79],[7.883,0,0.15],[13.883,1,2.03],[19.35,0,0.22],
-    [26.433,1,2.64],[33.283,0,0.18],[39.267,1,2.05],[44.767,0,0.31],
-    [51.85,1,2.57],[58.417,0,0.12],[64.55,1,2.19],[70.25,0,0.26],
-    [77.05,1,2.58],[83.317,0,0.02],[89.583,1,2.42],[95.383,0,0.13],
-    [102.033,1,2.61],[108.067,0,-0.08],[114.467,1,2.65],
-    [120.283,0,-0.01],[126.85,1,2.63],[132.717,0,-0.15],[139.217,1,2.85],
-    [145.05,0,-0.13],[151.567,1,2.62],[157.283,0,-0.2],[163.9,1,2.99],
-    [169.733,0,-0.19],[176.2,1,2.57],[181.783,0,-0.21],[188.533,1,3.06],
-    [194.35,0,-0.2],[200.767,1,2.49],[206.25,0,-0.19],[213.117,1,3.05],
-    [218.933,0,-0.16],[225.267,1,2.4],[230.75,0,-0.13],[237.65,1,2.97],
-    [243.5,0,-0.06],[249.733,1,2.29],[255.25,0,-0.04],[262.15,1,2.84],
-    [268.083,0,0.08],[274.183,1,2.16],[279.817,0,0.08],
-    [286.633,1,2.68],[292.683,0,0.24],[298.717,1,2.04],[304.4,0,0.23],
-    [311.167,1,2.51],[317.35,0,0.4],[323.35,1,1.91],[329.067,0,0.4],
-    [335.767,1,2.35],[342.117,0,0.55],[348.083,1,1.8],[353.817,0,0.58],
-    [360.5,1,2.22],[367.05,0,0.65],[373.0,1,1.73],[378.733,0,0.73],
-    [385.383,1,2.12],[392.2,0,0.67],[398.1,1,1.74],[403.9,0,0.81],
-    [410.467,1,2.08],[417.417,0,0.58],[423.467,1,1.86],[429.283,0,0.77],
-    [435.7,1,2.12],[442.367,0,0.42],[448.75,1,2.09],[454.583,0,0.58],
-    [460.9,1,2.23],[467.117,0,0.22],[473.617,1,2.38],[479.583,0,0.31],
-    [485.833,1,2.37],[491.817,0,0.01],[498.333,1,2.7],
-    [504.417,0,0.03],[510.667,1,2.51],[516.5,0,-0.18],[523.05,1,3.0],
-    [529.217,0,-0.21],[535.45,1,2.62],[541.2,0,-0.34],[547.767,1,3.25],
-    [554.0,0,-0.39],[560.233,1,2.68],[565.917,0,-0.43],[572.533,1,3.42],
-    [578.783,0,-0.48],[585.017,1,2.69],[590.65,0,-0.46],[597.317,1,3.48],
-    [603.6,0,-0.46],[609.85,1,2.64],[615.417,0,-0.4],[622.15,1,3.44],
-    [628.467,0,-0.35],[634.717,1,2.55],[640.233,0,-0.26],[647.033,1,3.3],
-    [653.4,0,-0.19],[659.667,1,2.44],[665.117,0,-0.07],
-    [672.0,1,3.1],[678.467,0,-0.01],[684.717,1,2.35],[690.1,0,0.15]
+    [0.317,1,2.293],[7.033,0,0.273],[13.033,1,1.797],[18.9,0,0.774],
+    [25.067,1,2.214],[31.833,0,0.304],[37.867,1,1.817],[43.833,0,0.801],
+    [49.783,1,2.131],[56.583,0,0.329],[62.617,1,1.879],[68.783,0,0.779],
+    [74.467,1,2.038],[81.283,0,0.354],[87.367,1,1.99],[93.717,0,0.707],
+    [99.183,1,1.939],[105.983,0,0.375],[112.133,1,2.154],[118.667,0,0.585],
+    [124.05,1,1.851],[130.683,0,0.378],[136.933,1,2.367],[143.633,0,0.421],
+    [149.033,1,1.804],[155.433,0,0.355],[161.767,1,2.61],[168.55,0,0.234],
+    [174,1,1.821],[180.25,0,0.302],[186.567,1,2.849],[193.467,0,0.049],
+    [198.883,1,1.889],[205.117,0,0.223],[211.383,1,3.047],[218.383,0,-0.116],
+    [223.733,1,1.987],[230.033,0,0.132],[236.233,1,3.178],[243.267,0,-0.243],
+    [248.617,1,2.09],[255,0,0.047],[261.117,1,3.231],[268.117,0,-0.316],
+    [273.5,1,2.181],[279.933,0,0],[286.017,1,3.203],[292.967,0,-0.324],
+    [298.417,1,2.246],[304.85,0,0.022],[310.917,1,3.095],[317.817,0,-0.273],
+    [323.367,1,2.285],[329.817,0,0.117],[335.833,1,2.918],[342.717,0,-0.183],
+    [348.367,1,2.312],[354.867,0,0.25],[360.783,1,2.693],[367.65,0,-0.075],
+    [373.367,1,2.345],[379.983,0,0.374],[385.7,1,2.44],[392.55,0,0.051],
+    [398.333,1,2.382],[405.067,0,0.465],[410.6,1,2.175],[417.4,0,0.199],
+    [423.267,1,2.412],[430.167,0,0.522],[435.517,1,1.922],[442.233,0,0.363],
+    [448.217,1,2.434],[455.233,0,0.543],[460.5,1,1.719],[467.067,0,0.522],
+    [473.15,1,2.458],[480.217,0,0.538],[485.5,1,1.602],[491.867,0,0.653],
+    [498.033,1,2.482],[505.117,0,0.52],[510.4,1,1.572],[516.633,0,0.738],
+    [522.817,1,2.503],[529.917,0,0.494],[535.2,1,1.608],[541.4,0,0.77],
+    [547.567,1,2.519],[554.633,0,0.456],[559.95,1,1.685],[566.167,0,0.756],
+    [572.3,1,2.533],[579.267,0,0.405],[584.7,1,1.777],[590.9,0,0.713],
+    [597.05,1,2.547],[603.883,0,0.346],[609.45,1,1.862],[615.6,0,0.668],
+    [621.767,1,2.555],[628.483,0,0.291],[634.2,1,1.922],[640.267,0,0.645],
+    [646.45,1,2.546],[653.117,0,0.255],[658.967,1,1.957],[664.933,0,0.655],
+    [671.133,1,2.512],[677.783,0,0.247],[683.75,1,1.981],[689.65,0,0.689],
+    [695.8,1,2.448]
   ];
 
+  /* Both stations, one window: NOAA predicted highs and lows for
+     Jun 4 – Jul 2 2026, hours from Jun 4 00:00 local. Same clock for both,
+     so the curves can be laid on one axis honestly. */
+  const T0 = Date.UTC(2026,5,4,0,0);
+  const SPAN = 672;                      // 28 days
+  const MOON = [[102.05,'3rd Qtr'],[262.94,'New'],[425.95,'1st Qtr'],[619.98,'Full']];
+  const NEW_MOON_T = 262.94, SYNODIC_H = 29.530588*24;
+
   const STATIONS = {
-    kp: {
-      name:'Kings Point, NY', color:[60,163,174],
-      data:KP_DATA, span:691.683,
-      windowLabel:'Jun 4 – Jul 2, 2026',
-      moon:[[102.00,'Last Qtr'],[262.90,'New'],[425.92,'1st Qtr'],[619.93,'Full']],
-      springRange:'9.96 ft', neapRange:'5.74 ft'
-    },
-    mt: {
-      name:'Montauk Point, NY', color:[245,163,64],
-      data:MT_DATA, span:690.1,
-      windowLabel:'Mar 25 – Apr 22, 2026',
-      moon:[[15.28,'1st Qtr'],[190.18,'Full'],[384.85,'Last Qtr'],[559.85,'New']],
-      springRange:'3.94 ft', neapRange:'0.93 ft'
-    }
+    kp: { name:'Kings Point, NY',   id:'8516945', color:[60,163,174], data:KP_DATA },
+    mt: { name:'Montauk Point, NY', id:'8510560', color:[245,163,64], data:MT_DATA }
   };
 
-  const Y_MIN = -1.5, Y_MAX = 10;
-  const LW = 1100, LH = 560;
+  const LW = 1100, LH = 630;
+  const PAD = {L:64, R:24, T:98, B:72};
+  function plot(){
+    return { x0:PAD.L, y0:PAD.T, w:LW-PAD.L-PAD.R, h:LH-PAD.T-PAD.B };
+  }
 
-  let station = 'kp';
+  let mode = 'kp';          // 'kp' | 'mt' | 'both'
+  let normalized = false;
+  let view = {t0:0, t1:SPAN};
+  let cursor = null;        // hours, or null
+  let brush = null;         // {t0,t1} while dragging
 
-  function heightAt(data, span, t){
-    t = ((t % span)+span)%span;
+  /* ── data helpers ──────────────────────────────────────────────── */
+  function heightAt(data, t){
+    if(t <= data[0][0]) return data[0][2];
+    if(t >= data[data.length-1][0]) return data[data.length-1][2];
     let i=0;
-    while(i<data.length-1 && data[i+1][0] < t) i++;
-    if(i>=data.length-1) i = data.length-2;
-    const [t0,,v0] = data[i];
-    const [t1,,v1] = data[i+1];
+    while(i<data.length-2 && data[i+1][0] < t) i++;
+    const [t0,,v0] = data[i], [t1,,v1] = data[i+1];
     const f = (t-t0)/(t1-t0);
-    const eased = 0.5 - 0.5*Math.cos(Math.PI*f);
-    return lerp(v0,v1,eased);
+    return lerp(v0, v1, 0.5 - 0.5*Math.cos(Math.PI*f));
+  }
+  /* mid-point and half-range from every high/low in the record — the
+     normalisation that lets two very different coastlines be overlaid */
+  function stats(data){
+    const H = data.filter(d=>d[1]===1).map(d=>d[2]);
+    const L = data.filter(d=>d[1]===0).map(d=>d[2]);
+    const mean = a => a.reduce((s,x)=>s+x,0)/a.length;
+    const mh = mean(H), ml = mean(L);
+    let best=null, worst=null;
+    for(let i=0;i<data.length-1;i++){
+      if(data[i][1]===data[i+1][1]) continue;
+      const r = Math.abs(data[i][2]-data[i+1][2]);
+      const t = (data[i][0]+data[i+1][0])/2;
+      if(!best  || r > best.r)  best  = {r,t};
+      if(!worst || r < worst.r) worst = {r,t};
+    }
+    const mid=(mh+ml)/2, amp=(mh-ml)/2;
+    const hi=Math.max(...H), lo=Math.min(...L);
+    return {mid, amp, greatest:best, least:worst, hi, lo,
+            nhi:(hi-mid)/amp, nlo:(lo-mid)/amp};
+  }
+  const ST = { kp:stats(KP_DATA), mt:stats(MT_DATA) };
+  const valueAt = (key,t) => normalized
+    ? (heightAt(STATIONS[key].data,t) - ST[key].mid)/ST[key].amp
+    : heightAt(STATIONS[key].data,t);
+
+  const shown = () => mode==='both' ? ['kp','mt'] : [mode];
+
+  function yRange(){
+    if(normalized){
+      const hi = Math.max(ST.kp.nhi, ST.mt.nhi), lo = Math.min(ST.kp.nlo, ST.mt.nlo);
+      const pad = (hi-lo)*0.08;
+      return [lo-pad, hi+pad];
+    }
+    if(mode==='both') return [-1.2, 9.8];
+    const s = ST[mode];
+    const pad = (s.hi-s.lo)*0.12;
+    return [s.lo-pad, s.hi+pad];
+  }
+
+  function fmtDate(t, withTime){
+    const d = new Date(T0 + t*3600*1000);
+    const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()];
+    const s = mo+' '+d.getUTCDate();
+    if(!withTime) return s;
+    const hh = String(d.getUTCHours()).padStart(2,'0'), mm = String(d.getUTCMinutes()).padStart(2,'0');
+    return s+' '+hh+':'+mm;
+  }
+  const moonAge   = t => (((t-NEW_MOON_T) % SYNODIC_H)+SYNODIC_H)%SYNODIC_H;
+  const elongAt   = t => { const e = moonAge(t)/SYNODIC_H*360; return e>180 ? 360-e : e; };
+  const waxingAt  = t => moonAge(t) < SYNODIC_H/2;
+
+  /* ── drawing ───────────────────────────────────────────────────── */
+  function ticks(){
+    const span = view.t1-view.t0, out=[];
+    let step, withTime=false;
+    if(span >= 14*24)      step = 7*24;
+    else if(span >= 4*24)  step = 24;
+    else if(span >= 36)    step = 12, withTime=true;
+    else                   step = 6,  withTime=true;
+    const first = Math.ceil(view.t0/step)*step;
+    for(let t=first; t<=view.t1; t+=step) out.push({t, label: span>=14*24 ? 'd'+Math.round(t/24) : fmtDate(t,withTime)});
+    return out;
   }
 
   function render(ctx){
-    const st = STATIONS[station];
+    const p = plot();
+    const [Y0,Y1] = yRange();
+    const xOf = t => p.x0 + (t-view.t0)/(view.t1-view.t0)*p.w;
+    const yOf = v => p.y0 + p.h*(1-(v-Y0)/(Y1-Y0));
+    const tOf = x => view.t0 + (x-p.x0)/p.w*(view.t1-view.t0);
+
     ctx.clearRect(0,0,LW,LH);
     ctx.fillStyle='#0a0c14'; ctx.fillRect(0,0,LW,LH);
 
-    const padL=64, padR=24, padT=72, padB=72;
-    const plotW = LW-padL-padR, plotH = LH-padT-padB;
-
-    function xOf(t){ return padL + (t/st.span)*plotW; }
-    function yOf(v){ return padT + plotH*(1-(v-Y_MIN)/(Y_MAX-Y_MIN)); }
-
-    // title — its own clear row, well above the plot and the moon-phase label row
-    const [r,g,b] = st.color;
+    // title
+    const wspan = view.t1-view.t0;
+    const wlabel = wspan < SPAN-0.5
+      ? fmtDate(view.t0, wspan<48)+' – '+fmtDate(view.t1, wspan<48)+', 2026'
+      : 'Jun 4 – Jul 2, 2026';
     ctx.font='700 18px "Courier Prime"'; ctx.textAlign='left'; ctx.textBaseline='top';
-    ctx.fillStyle=`rgba(${r},${g},${b},0.95)`;
-    ctx.fillText(st.name.toUpperCase()+' — '+st.windowLabel, 18, 14);
+    if(mode==='both'){
+      const kp=STATIONS.kp.color, mt=STATIONS.mt.color;
+      ctx.fillStyle=`rgba(${kp.join(',')},0.95)`; ctx.fillText('KINGS POINT', 18, 14);
+      const w1 = ctx.measureText('KINGS POINT').width;
+      ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.fillText('  vs  ', 18+w1, 14);
+      const w2 = ctx.measureText('  vs  ').width;
+      ctx.fillStyle=`rgba(${mt.join(',')},0.95)`; ctx.fillText('MONTAUK POINT', 18+w1+w2, 14);
+      const w3 = ctx.measureText('MONTAUK POINT').width;
+      ctx.fillStyle='rgba(255,255,255,0.5)';
+      ctx.fillText('   —   '+wlabel+(normalized?'   —   each scaled to its own mean range':''), 18+w1+w2+w3, 14);
+    } else {
+      const [r,g,b] = STATIONS[mode].color;
+      ctx.fillStyle=`rgba(${r},${g},${b},0.95)`;
+      ctx.fillText(STATIONS[mode].name.toUpperCase()+' — '+wlabel, 18, 14);
+    }
 
     // gridlines + y labels
+    const gstep = normalized ? 0.5 : (Y1-Y0 > 6 ? 2 : 1);
     ctx.font='500 15px "Courier Prime"'; ctx.textAlign='right'; ctx.textBaseline='middle';
-    for(let v=0; v<=Y_MAX; v+=2){
-      const y = yOf(v);
+    for(let v=Math.ceil(Y0/gstep)*gstep; v<=Y1; v+=gstep){
+      const y=yOf(v);
       ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
-      ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(padL+plotW,y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(p.x0,y); ctx.lineTo(p.x0+p.w,y); ctx.stroke();
       ctx.fillStyle='rgba(255,255,255,0.55)';
-      ctx.fillText(v+'ft', padL-10, y);
+      ctx.fillText(normalized ? v.toFixed(1) : (Math.round(v*10)/10)+'ft', p.x0-10, y);
     }
-    const y0 = yOf(0);
-    ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(padL,y0); ctx.lineTo(padL+plotW,y0); ctx.stroke();
-
-    // curve
-    ctx.beginPath();
-    const N=420;
-    for(let i=0;i<=N;i++){
-      const t = (i/N)*st.span;
-      const v = heightAt(st.data, st.span, t);
-      const x = xOf(t), y = yOf(v);
-      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    if(Y0 < 0 && Y1 > 0){
+      ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(p.x0,yOf(0)); ctx.lineTo(p.x0+p.w,yOf(0)); ctx.stroke();
     }
-    ctx.strokeStyle = `rgba(${r},${g},${b},0.9)`;
-    ctx.lineWidth=2.2; ctx.stroke();
-    ctx.lineTo(padL+plotW, padT+plotH); ctx.lineTo(padL, padT+plotH); ctx.closePath();
-    ctx.fillStyle = `rgba(${r},${g},${b},0.08)`; ctx.fill();
 
-    // moon phase markers — clear band above the plot, separated from the title row above it
-    st.moon.forEach(([t,label])=>{
-      const x = xOf(t);
-      ctx.beginPath(); ctx.moveTo(x,padT-8); ctx.lineTo(x,padT+plotH);
+    // moon-phase markers
+    MOON.forEach(([t,label])=>{
+      if(t < view.t0 || t > view.t1) return;
+      const x = xOf(t), syz = (label==='New' || label==='Full');
+      ctx.beginPath(); ctx.moveTo(x,p.y0-8); ctx.lineTo(x,p.y0+p.h);
       ctx.strokeStyle='rgba(174,184,212,0.22)'; ctx.setLineDash([2,5]); ctx.lineWidth=1; ctx.stroke();
       ctx.setLineDash([]);
       ctx.font='600 15px "Courier Prime"'; ctx.textAlign='center'; ctx.textBaseline='bottom';
       ctx.fillStyle='rgba(174,184,212,0.85)';
-      ctx.fillText(label.toUpperCase(), x, padT-10);
-      const isSyzygy = label==='New' || label==='Full';
+      ctx.fillText(label.toUpperCase(), x, p.y0-10);
       ctx.font='700 14px "Courier Prime"'; ctx.textBaseline='top';
-      ctx.fillStyle = isSyzygy? `rgba(${r},${g},${b},0.9)` : 'rgba(255,255,255,0.45)';
-      ctx.fillText(isSyzygy?'SPRING':'NEAP', x, padT+plotH+18);
+      ctx.fillStyle = syz ? 'rgba(60,163,174,0.9)' : 'rgba(255,255,255,0.45)';
+      ctx.fillText(syz?'SPRING':'NEAP', x, p.y0+p.h+18);
     });
 
-    // x axis day ticks — a second row, clear of the spring/neap labels above it
+    // curves
+    const N = Math.max(600, Math.round(p.w*1.5));
+    ctx.save();
+    ctx.beginPath(); ctx.rect(p.x0, p.y0-2, p.w, p.h+4); ctx.clip();
+    shown().forEach(key=>{
+      const [r,g,b] = STATIONS[key].color;
+      ctx.beginPath();
+      for(let i=0;i<=N;i++){
+        const t = view.t0 + (i/N)*(view.t1-view.t0);
+        const x = xOf(t), y = yOf(valueAt(key,t));
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle = `rgba(${r},${g},${b},${mode==='both'?0.95:0.9})`;
+      ctx.lineWidth = view.t1-view.t0 < 120 ? 2.6 : 2.0;
+      ctx.stroke();
+      if(mode !== 'both'){
+        ctx.lineTo(p.x0+p.w, p.y0+p.h); ctx.lineTo(p.x0, p.y0+p.h); ctx.closePath();
+        ctx.fillStyle = `rgba(${r},${g},${b},0.08)`; ctx.fill();
+      }
+    });
+    ctx.restore();
+
+    // x ticks
     ctx.font='500 14px "Courier Prime"'; ctx.textAlign='center'; ctx.textBaseline='top';
     ctx.fillStyle='rgba(255,255,255,0.5)';
-    const totalDays = Math.floor(st.span/24);
-    for(let d=0; d<=totalDays; d+=7){
-      const x = xOf(d*24);
-      ctx.fillText('d'+d, x, padT+plotH+42);
+    ticks().forEach(tk=> ctx.fillText(tk.label, xOf(tk.t), p.y0+p.h+42));
+
+    // brush selection
+    if(brush){
+      const a=xOf(Math.min(brush.t0,brush.t1)), b=xOf(Math.max(brush.t0,brush.t1));
+      ctx.fillStyle='rgba(232,228,217,0.10)'; ctx.fillRect(a,p.y0,b-a,p.h);
+      ctx.strokeStyle='rgba(232,228,217,0.35)'; ctx.lineWidth=1;
+      ctx.strokeRect(a+0.5,p.y0+0.5,b-a-1,p.h-1);
     }
 
-    document.getElementById('rangeSpring').textContent = st.springRange;
-    document.getElementById('rangeSpring').style.color = `rgb(${r},${g},${b})`;
-    document.getElementById('rangeNeap').textContent = st.neapRange;
-    document.getElementById('rangeWindow').textContent = st.windowLabel;
+    // cursor: crosshair, a dot per visible station, and the Moon overhead
+    if(cursor !== null && cursor >= view.t0 && cursor <= view.t1){
+      const x = xOf(cursor);
+      ctx.beginPath(); ctx.moveTo(x,p.y0); ctx.lineTo(x,p.y0+p.h);
+      ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1; ctx.stroke();
+      shown().forEach(key=>{
+        const [r,g,b] = STATIONS[key].color, y = yOf(valueAt(key,cursor));
+        ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2); ctx.fillStyle=`rgb(${r},${g},${b})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(x,y,9,0,Math.PI*2);
+        ctx.strokeStyle=`rgba(${r},${g},${b},0.5)`; ctx.lineWidth=1.5; ctx.stroke();
+      });
+      drawPhaseDisc(ctx, x, p.y0-50, 15, elongAt(cursor), waxingAt(cursor));
+    }
+
+    updateReadouts();
+  }
+
+  function swatch(key, txt){
+    const [r,g,b] = STATIONS[key].color;
+    return `<span style="color:rgb(${r},${g},${b})">${txt}</span>`;
+  }
+  function updateReadouts(){
+    const keys = shown();
+    const unit = normalized ? '' : ' ft';
+    const g = document.getElementById.bind(document);
+
+    g('outGreatest').innerHTML = keys.map(k=>swatch(k, ST[k].greatest.r.toFixed(2)+' ft')).join(' / ');
+    g('outLeast').innerHTML    = keys.map(k=>swatch(k, ST[k].least.r.toFixed(2)+' ft')).join(' / ');
+    g('outRangeRatio').innerHTML = keys.map(k=>swatch(k, (ST[k].greatest.r/ST[k].least.r).toFixed(1)+'×')).join(' / ');
+    g('outGreatestWhen').textContent = 'Greatest range · ' + fmtDate(ST[keys[0]].greatest.t);
+    g('outLeastWhen').textContent    = 'Least range · ' + fmtDate(ST[keys[0]].least.t);
+
+    if(cursor === null){
+      g('outCursor').innerHTML = '<span style="color:var(--color-text-muted)">Hover the chart</span>';
+      g('outMoon').textContent = '—';
+    } else {
+      g('outCursor').innerHTML = fmtDate(cursor,true) + '<br>' +
+        keys.map(k=>swatch(k, (normalized? valueAt(k,cursor).toFixed(2) : heightAt(STATIONS[k].data,cursor).toFixed(2)+' ft'))).join(' &nbsp;/&nbsp; ');
+      g('outMoon').textContent = phaseNameFor(elongAt(cursor), waxingAt(cursor));
+    }
+    const span = view.t1-view.t0, zoomed = span < SPAN-0.5;
+    g('outWindow').textContent = zoomed
+      ? fmtDate(view.t0, span<48)+' – '+fmtDate(view.t1, span<48)
+      : 'Jun 4 – Jul 2, 2026';
+    g('zoomHint').textContent = zoomed ? 'Click the chart to zoom back out' : 'Drag across the chart to zoom in';
   }
 
   const stage = createStage('realCanvas', LW, LH, render);
 
+  /* ── cursor, brush-zoom ────────────────────────────────────────── */
+  const canvas = stage.canvas;
+  let dragStart = null, dragging = false;
+  const tAt = x => {
+    const p = plot();
+    return view.t0 + Math.max(0,Math.min(1,(x-p.x0)/p.w))*(view.t1-view.t0);
+  };
+  const inPlot = pt => {
+    const p = plot();
+    return pt.x >= p.x0 && pt.x <= p.x0+p.w && pt.y >= p.y0-56 && pt.y <= p.y0+p.h+10;
+  };
+
+  canvas.addEventListener('pointerdown', e=>{
+    const pt = stage.toLogical(e);
+    if(!inPlot(pt)) return;
+    dragStart = tAt(pt.x); dragging = false;
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  canvas.addEventListener('pointermove', e=>{
+    const pt = stage.toLogical(e);
+    if(dragStart !== null){
+      const t = tAt(pt.x);
+      if(Math.abs(t-dragStart) > (view.t1-view.t0)*0.008) dragging = true;
+      brush = dragging ? {t0:dragStart, t1:t} : null;
+      cursor = t;
+      stage.draw();
+      return;
+    }
+    cursor = inPlot(pt) ? tAt(pt.x) : null;
+    canvas.style.cursor = inPlot(pt) ? 'crosshair' : 'default';
+    stage.draw();
+  });
+  const endDrag = e=>{
+    if(dragStart === null) return;
+    if(dragging && brush){
+      const a = Math.min(brush.t0,brush.t1), b = Math.max(brush.t0,brush.t1);
+      if(b-a > 3) view = {t0:a, t1:b};
+    } else {
+      view = {t0:0, t1:SPAN};       // a plain click zooms back out
+    }
+    dragStart = null; dragging = false; brush = null;
+    if(canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+    stage.draw();
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', ()=>{ if(dragStart===null){ cursor=null; stage.draw(); } });
+
+  /* ── controls ──────────────────────────────────────────────────── */
+  function syncButtons(){
+    document.querySelectorAll('#panel-real .toggle-btn').forEach(b=>{
+      const on = b.dataset.station === mode;
+      b.classList.toggle('active', on);
+      if(b.dataset.station === 'kp' || b.dataset.station === 'mt'){
+        const [r,g,bl] = STATIONS[b.dataset.station].color;
+        b.style.borderColor = on ? `rgb(${r},${g},${bl})` : '';
+        b.style.color       = on ? `rgb(${r},${g},${bl})` : '';
+        b.style.backgroundColor = on ? `rgba(${r},${g},${bl},0.12)` : '';
+      }
+    });
+    const nb = document.getElementById('normBtn');
+    nb.classList.toggle('active', normalized);
+    nb.disabled = mode !== 'both';
+    nb.style.opacity = mode === 'both' ? '' : '0.4';
+  }
   document.querySelectorAll('#panel-real .toggle-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      station = btn.dataset.station;
-      const c = station==='kp' ? 'rgb(60,163,174)' : 'rgb(245,163,64)';
-      document.querySelectorAll('#panel-real .toggle-btn').forEach(b=>{
-        const on = b===btn;
-        b.classList.toggle('active', on);
-        b.style.borderColor = on? c : '';
-        b.style.backgroundColor = on? c.replace('rgb','rgba').replace(')',',0.12)') : '';
-        b.style.color = on? c : '';
-      });
-      stage.draw();
+      mode = btn.dataset.station;
+      if(mode !== 'both') normalized = false;
+      syncButtons(); stage.draw();
     });
+  });
+  document.getElementById('normBtn').addEventListener('click', ()=>{
+    if(mode !== 'both') return;
+    normalized = !normalized;
+    if(normalized && view.t1-view.t0 > SPAN-0.5){
+      const c = cursor === null ? NEW_MOON_T : cursor;
+      view = {t0:Math.max(0,c-36), t1:Math.min(SPAN,c+36)};
+    }
+    syncButtons(); stage.draw();
+  });
+  document.getElementById('realResetBtn').addEventListener('click', ()=>{
+    mode='kp'; normalized=false; view={t0:0,t1:SPAN}; cursor=null;
+    syncButtons(); stage.draw();
   });
 
   document.getElementById('realPngBtn').addEventListener('click', ()=>{
-    const st = STATIONS[station];
+    const label = mode==='both' ? 'Kings Point vs Montauk Point' : STATIONS[mode].name;
     exportPNG(stage, {
       title:'Tidal Rhythm — Real Tide Data',
-      subtitle:`${st.name} · ${st.windowLabel}`,
-      footer:'NOAA tide predictions · Datum: MLLW   ·   contextclimate.io',
-      filename:`real-tide-data_${station}.png`
+      subtitle:`${label} · ${fmtDate(view.t0)} – ${fmtDate(view.t1)}, 2026${normalized?' · scaled to each station’s mean range':''}`,
+      footer:'NOAA tide predictions · Stations 8516945 & 8510560 · Datum: MLLW   ·   contextclimate.io',
+      filename:`real-tide-data_${mode}${normalized?'_normalized':''}.png`
     });
   });
 
+  syncButtons();
   stage.resize();
 })();
 </script>
