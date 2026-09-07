@@ -26,7 +26,7 @@ body {
 }
 .top-bar {
   width: 100%;
-  padding: 8px 20px 8px clamp(40px, 22vw, 380px);
+  padding: 5px 20px 5px clamp(40px, 22vw, 380px);
   background: rgba(0,0,10,0.7);
   border-bottom: 1px solid var(--color-border);
   display: flex;
@@ -36,7 +36,7 @@ body {
 }
 .top-bar h1 {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 23px;
   font-weight: 700;
   color: var(--tool-accent);
   letter-spacing: 0.3px;
@@ -47,7 +47,7 @@ body {
 #mainCanvas { flex: 1; width: 100%; display: block; }
 .controls {
   width: 100%;
-  padding: 8px 20px 8px clamp(40px, 22vw, 380px);
+  padding: 5px 20px 5px clamp(40px, 22vw, 380px);
   background: rgba(0,0,10,0.75);
   border-top: 1px solid var(--color-border);
   display: flex;
@@ -113,6 +113,14 @@ input[type=range]::-moz-range-thumb {
   color: var(--color-text-muted);
 }
 #pngBtn { border-color: var(--color-border-hover); }
+
+/* Below ~1000px the wide left inset costs more than it's worth — it pushes the
+   header onto three lines and eats the orbital area. */
+@media (max-width: 1000px) {
+  .top-bar, .controls { padding-left: 20px; }
+  .top-bar h1 { font-size: 19px; }
+  .top-bar p  { font-size: 13px; }
+}
 </style>
 </head>
 <body>
@@ -148,20 +156,31 @@ const canvas = document.getElementById('mainCanvas');
 let ctx      = canvas.getContext('2d');
 
 /* ── RESIZE ─────────────────────────────────────────────────────────────── */
+let CW = 0, CH = 0;                    // logical (CSS px) canvas size
 function resize() {
   const topBar   = document.querySelector('.top-bar');
   const controls = document.querySelector('.controls');
-  canvas.width  = window.innerWidth;
-  canvas.height = Math.max(320, window.innerHeight - topBar.offsetHeight - controls.offsetHeight);
+  const dpr = window.devicePixelRatio || 1;
+  CW = window.innerWidth;
+  CH = Math.max(320, window.innerHeight - topBar.offsetHeight - controls.offsetHeight);
+  canvas.width  = Math.round(CW * dpr);
+  canvas.height = Math.round(CH * dpr);
+  canvas.style.width  = CW + 'px';
+  canvas.style.height = CH + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // draw in CSS px, render at device res
 }
 resize();
 window.addEventListener('resize', resize);
 
 /* ── ORBITAL CONSTANTS ───────────────────────────────────────────────────── */
 const W_E   = 360 / 365.25;   // Earth °/day
-const W_M   = 360 / 27.3;     // Moon sidereal °/day — W_M * 27.3 = exactly 360°
+// True sidereal period. Rounding it to 27.3 made the two textbook constants
+// inconsistent — the Moon overshot New Moon by 0.3° at day 29.5307. With the
+// exact value the phase cycle closes exactly at T_SYN, so the Moon lands on
+// the New Moon marker rather than near it. Both still display as 27.3 / 29.5.
+const T_SID = 27.3217;
+const W_M   = 360 / T_SID;    // Moon sidereal °/day — W_M * T_SID = exactly 360°
 const W_S   = W_M - W_E;      // Synodic °/day ≈ 12.19
-const T_SID = 27.3;
 const T_SYN = 29.5307;
 
 const EARTH_ANG0 = 210;               // deg from +x, CW on screen
@@ -182,6 +201,7 @@ const STARS = (() => {
 let t = 0, playing = false, speed = 8, lastTs = null;
 let pauseSid = false, pauseSyn = false;
 let didPauseSid = false, didPauseSyn = false;
+let barRect = null, scrubbing = false;   // timeline hit-box (set by drawInfoBar)
 
 /* ── MATH ────────────────────────────────────────────────────────────────── */
 const RAD  = Math.PI / 180;
@@ -190,28 +210,37 @@ const mod360 = a => ((a % 360) + 360) % 360;
 
 /* ── LAYOUT ──────────────────────────────────────────────────────────────── */
 // Bottom strip reserved for info bar; orbit centered in remaining space.
-const INFO_H = 68;
+const INFO_H = 60;
 
 // Core geometry math, independent of which canvas it targets — shared by the
 // live on-screen layout() and the offscreen PNG-export layout.
 function computeOrbitGeometry(W, OrbH) {
-  const sx = W * 0.58;               // Sun x — left-of-centre so orbit has room
-  const sy = OrbH * 0.50;            // Sun y — vertically centred in orbital area
+  // Sun sits low-right; the Earth-Moon system rides the upper-left arc of the
+  // orbit. Earth travels only ~29 deg over the whole animation, so the rest of
+  // the orbit circle is allowed to run off-frame. That buys a much larger Moon
+  // orbit, which is the circle the 26.9 deg payoff is actually measured on.
+  const sx = W * 0.66;
+  const sy = OrbH * 0.72;
+  const margin = 30;
 
-  const margin = 28;
-  const Re = Math.min(sx - margin, W - sx - margin,
-                      sy - margin, OrbH - sy - margin) * 0.90;
+  // Earth's screen offset from the Sun over the animated arc (210 deg -> 181 deg):
+  // |cos| peaks near 1.0, |sin| peaks at 0.5. K = Moon-orbit radius as a
+  // fraction of Re; PAD leaves room for the Moon body and its label.
+  const K = 0.40, PAD = 0.12;
+  const ReH = (sx - margin) / (1.00 + K + PAD);
+  const ReV = (sy - margin) / (0.50 + K + PAD);
+  const Re  = Math.min(ReH, ReV);
 
-  const Rm      = Math.max(36, Math.min(Re * 0.32, 80));   // Moon orbit radius
-  const rEarth  = Math.max(16, Re * 0.078);                // Earth body radius
-  const rMoon   = Math.max(10, Re * 0.050);                // Moon body radius
-  const rSun    = Math.max(20, Re * 0.090);                // Sun core radius
+  const Rm      = Math.max(44, Math.min(Re * K, 260));   // Moon orbit radius
+  const rEarth  = Math.max(15, Rm * 0.20);               // Earth body radius
+  const rMoon   = Math.max(9,  Rm * 0.125);              // Moon body radius
+  const rSun    = Math.max(20, Re * 0.085);              // Sun core radius
 
   return { sx, sy, Re, Rm, rEarth, rMoon, rSun };
 }
 
 function layout() {
-  const W = canvas.width, H = canvas.height;
+  const W = CW, H = CH;
   const OrbH = H - INFO_H;           // height of orbital viewport
   return { W, H, OrbH, ...computeOrbitGeometry(W, OrbH) };
 }
@@ -232,12 +261,14 @@ function moonPos(tDays, L) {
            ang, ex: e.x, ey: e.y };
 }
 
-// Ghost = Moon's absolute position at t=0 (New Moon, fixed in space)
-function ghostPos(L) {
-  return {
-    x: L.sx + L.Re * Math.cos(d2r(EARTH_ANG0)) + L.Rm * Math.cos(d2r(MOON_ANG0)),
-    y: L.sy + L.Re * Math.sin(d2r(EARTH_ANG0)) + L.Rm * Math.sin(d2r(MOON_ANG0))
-  };
+// Ghost = where New Moon happens NOW: the point on the Moon's *current* orbit
+// lying in the Earth->Sun direction. It rides the orbit with Earth, so the Moon
+// visibly chases it and catches it at day 29.5. At t=0 the two coincide.
+function ghostPos(tDays, L) {
+  const e   = earthPos(tDays, L);
+  const dir = Math.atan2(L.sy - e.y, L.sx - e.x);
+  return { x: e.x + L.Rm * Math.cos(dir),
+           y: e.y + L.Rm * Math.sin(dir), dir, ex: e.x, ey: e.y };
 }
 
 function synodic(tDays)    { return mod360(W_S * tDays); }
@@ -377,6 +408,12 @@ function drawEarth(e, L) {
   [[-0.18, -0.28, 0.42], [0.36, 0.26, 0.26]].forEach(([dx, dy, cr]) => {
     ctx.beginPath(); ctx.arc(e.x + r*dx, e.y + r*dy, r*cr, 0, Math.PI*2); ctx.fill();
   });
+  // Night side — the half facing away from the Sun
+  const sunDirE = Math.atan2(L.sy - e.y, L.sx - e.x);
+  ctx.fillStyle = 'rgba(3,5,24,0.55)';
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, r, sunDirE + Math.PI / 2, sunDirE + Math.PI * 1.5);
+  ctx.closePath(); ctx.fill();
   ctx.strokeStyle = 'rgba(120,185,255,0.65)';
   ctx.lineWidth = Math.max(1, r * 0.13);
   ctx.beginPath(); ctx.arc(e.x, e.y, r, 0, Math.PI * 2); ctx.stroke();
@@ -395,8 +432,15 @@ function drawMoonBody(m, syn, L) {
     g.addColorStop(1, 'transparent');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(m.x, m.y, r * 2.2, 0, Math.PI*2); ctx.fill();
   }
-  ctx.fillStyle = '#b4aca0';
+  // From overhead the terminator is a straight line: exactly half is always lit,
+  // and the lit half points at the Sun. That is the phase, seen from above.
+  const sunDirM = Math.atan2(L.sy - m.y, L.sx - m.x);
+  ctx.fillStyle = '#4a4740';
   ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ddd6c2';
+  ctx.beginPath();
+  ctx.arc(m.x, m.y, r, sunDirM - Math.PI / 2, sunDirM + Math.PI / 2);
+  ctx.closePath(); ctx.fill();
   ctx.strokeStyle = 'rgba(200,192,165,0.55)';
   ctx.lineWidth = Math.max(1, r * 0.12);
   ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI * 2); ctx.stroke();
@@ -406,27 +450,23 @@ function drawMoonBody(m, syn, L) {
   ctx.fillText('Moon', m.x, m.y + r + r * 1.3);
 }
 
-function drawGhostMoon(L) {
+function drawGhostMoon(g, L) {
   const alpha = Math.min(1, Math.max(0, (t - 0.3) / 1.2));
   if (alpha <= 0) return;
-  const g = ghostPos(L);
   const r = L.rMoon;
   ctx.save();
-  ctx.globalAlpha = alpha * 0.28;
-  const grd = ctx.createRadialGradient(g.x, g.y, r * 0.3, g.x, g.y, r * 2.2);
-  grd.addColorStop(0, 'rgba(170,170,180,0.22)'); grd.addColorStop(1, 'transparent');
-  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(g.x, g.y, r * 2.2, 0, Math.PI*2); ctx.fill();
-  ctx.fillStyle = '#52546a';
-  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI*2); ctx.fill();
-  ctx.strokeStyle = 'rgba(150,152,165,0.50)'; ctx.lineWidth = Math.max(1, r * 0.14);
-  ctx.setLineDash([2, 4]);
-  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI*2); ctx.stroke();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(62,64,86,0.8)';
+  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(178,180,198,0.8)';
+  ctx.lineWidth = Math.max(1, r * 0.16);
+  ctx.setLineDash([3, 4]);
+  ctx.beginPath(); ctx.arc(g.x, g.y, r, 0, Math.PI * 2); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.globalAlpha = alpha * 0.55;
-  ctx.font = `bold ${Math.round(r * 1.0)}px "Courier Prime"`;
-  ctx.fillStyle = 'rgba(150,152,165,0.75)';
+  ctx.font = `bold ${Math.round(r * 0.95)}px "Courier Prime"`;
+  ctx.fillStyle = 'rgba(182,185,203,0.9)';
   ctx.textAlign = 'center';
-  ctx.fillText('Start (New Moon)', g.x, g.y + r + r * 1.3);
+  ctx.fillText('New Moon', g.x, g.y - r - r * 0.75);
   ctx.restore();
 }
 
@@ -467,11 +507,13 @@ function drawSiderealRef(earth, L) {
   ctx.restore();
 }
 
-function drawAngleViz(earth, moon, L) {
-  const syn = synodic(t);
+function drawAngleViz(earth, moon, ghost, L) {
+  // At exactly T_SYN the phase angle wraps to 0; show the closed 360° ring.
+  const syn = t >= T_SYN - 1e-6 ? 360 : synodic(t);
+  const gap = 360 - syn;          // how far the Moon still has to sweep
   ctx.save();
 
-  // Earth → Sun (dashed yellow)
+  // Earth → Sun (dashed yellow) — passes through the ghost marker
   ctx.strokeStyle = 'rgba(255,200,55,0.32)';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([5, 8]);
@@ -483,22 +525,41 @@ function drawAngleViz(earth, moon, L) {
   ctx.beginPath(); ctx.moveTo(earth.x, earth.y); ctx.lineTo(moon.x, moon.y); ctx.stroke();
   ctx.setLineDash([]);
 
-  if (syn > 3 && syn < 357) {
-    const dirSun = Math.atan2(L.sy - earth.y, L.sx - earth.x);
-    const arcR   = L.rEarth + 10;
-    ctx.strokeStyle = 'rgba(58,175,169,0.8)';
-    ctx.lineWidth   = 2.5;
-    // Arc sweeps CCW (anticlockwise=true) from Sun direction by synodic angle
-    ctx.beginPath(); ctx.arc(earth.x, earth.y, arcR, dirSun, dirSun - d2r(syn), true); ctx.stroke();
+  const gAng = Math.atan2(ghost.y - earth.y, ghost.x - earth.x);
+  const mAng = Math.atan2(moon.y  - earth.y, moon.x  - earth.x);
 
-    const midA = dirSun - d2r(syn / 2);   // mid-point of CCW arc
-    const ld   = arcR + 18;
-    ctx.font      = `bold ${Math.round(L.rEarth * 0.9)}px "Courier Prime"`;
-    ctx.fillStyle = '#3CA3AE';
-    ctx.textAlign = 'center';
-    ctx.fillText(syn.toFixed(0) + '°',
-      earth.x + Math.cos(midA) * ld,
-      earth.y + Math.sin(midA) * ld + 4);
+  const lbl = (txt, a, col, sz, out) => {
+    ctx.font = `bold ${sz}px "Courier Prime"`;
+    ctx.fillStyle = col;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, earth.x + Math.cos(a) * (L.Rm + out),
+                      earth.y + Math.sin(a) * (L.Rm + out));
+    ctx.textBaseline = 'alphabetic';
+  };
+
+  // Elapsed phase — ghost → Moon along the direction of travel = synodic angle
+  if (syn > 2) {
+    ctx.strokeStyle = 'rgba(58,175,169,0.65)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(earth.x, earth.y, L.Rm, gAng, gAng - d2r(syn), true);
+    ctx.stroke();
+    lbl(syn.toFixed(0) + '°', gAng - d2r(syn / 2), '#3CA3AE',
+        Math.round(L.rMoon * 0.95), L.rMoon * 1.5);
+  }
+
+  // Remaining gap — Moon → ghost. Drawn only once it is small enough to be the
+  // subject of the picture rather than most of the circle.
+  if (gap > 0.4 && gap < 110) {
+    ctx.strokeStyle = '#ffc850';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(earth.x, earth.y, L.Rm, mAng, mAng - d2r(gap), true);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    lbl(gap.toFixed(1) + '°', mAng - d2r(gap / 2), '#ffc850',
+        Math.round(L.rMoon * 1.1), L.rMoon * 2.6);
   }
   ctx.restore();
 }
@@ -523,7 +584,7 @@ function drawInfoBar(L) {
 
   const cy   = y0 + H / 2;
   // Match the CSS clamp(40px, 22vw, 380px) used by the top-bar and controls
-  const lpad = Math.max(40, Math.min(W * 0.22, 380));
+  const lpad = W <= 1000 ? 20 : Math.max(40, Math.min(W * 0.22, 380));
 
   // ── DAY COUNTER ─────────────────────────────────────────────────────────
   const dayFontSz = Math.round(Math.min(H * 0.52, 28));
@@ -536,6 +597,7 @@ function drawInfoBar(L) {
   // ── PROGRESS BAR ────────────────────────────────────────────────────────
   const bx = lpad + 118, bw = Math.min(W * 0.25, 240), bh = 6;
   const by = cy - bh / 2;
+  barRect = { x: bx, y: by - 12, w: bw, h: bh + 24 };   // drag target
 
   ctx.fillStyle = 'rgba(255,255,255,0.1)';
   rRect(bx, by, bw, bh, 3); ctx.fill();
@@ -551,58 +613,72 @@ function drawInfoBar(L) {
   ctx.fillStyle = '#ffc850';
   ctx.fillRect(tickX - 1, by - 4, 2, bh + 8);
 
-  ctx.font = `${Math.max(12, Math.round(bh * 1.7))}px "Courier Prime"`;
+  // The two ticks sit only 7.5% of the bar apart, so their labels go on
+  // separate rows — 27.3 below the bar, 29.5 above it.
+  ctx.font = `${Math.max(11, Math.round(bh * 1.7))}px "Courier Prime"`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(255,200,80,0.7)';
+  ctx.fillStyle = 'rgba(255,200,80,0.75)';
   ctx.fillText('27.3', tickX, by + bh + 5);
-  ctx.textBaseline = 'middle';
 
   // Tick at 29.5
   const tickX2 = bx + bw;
   ctx.fillStyle = 'rgba(58,175,169,0.7)';
   ctx.fillRect(tickX2 - 1, by - 4, 2, bh + 8);
-  ctx.font = `${Math.max(12, Math.round(bh * 1.7))}px "Courier Prime"`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(58,175,169,0.6)';
-  ctx.fillText('29.5', tickX2, by + bh + 5);
+  ctx.textBaseline = 'bottom';
+  ctx.fillStyle = 'rgba(58,175,169,0.7)';
+  ctx.fillText('29.5', tickX2, by - 6);
   ctx.textBaseline = 'middle';
+
+  // Drag knob
+  ctx.fillStyle = '#e8e6f0';
+  ctx.beginPath(); ctx.arc(bx + bw * prog, cy, 5.5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.stroke();
 
   // ── PHASE DISK + NAME ───────────────────────────────────────────────────
   const diskR = Math.min(H * 0.35, 20);
   const diskX = bx + bw + 24 + diskR;
   drawPhaseDisk(diskX, cy, diskR, syn);
 
-  const tx1 = diskX + diskR + 10;
-  ctx.textAlign = 'left';
-  ctx.font = `bold ${Math.round(diskR * 1.05)}px "Courier Prime"`;
-  ctx.fillStyle = '#ede080';
-  ctx.fillText(name.toUpperCase(), tx1, cy - diskR * 0.45);
+  // Blocks are measured and packed left-to-right; any block that would not
+  // fit is dropped rather than overprinted.
+  const fs1 = Math.round(diskR * 1.05);
+  const fs2 = Math.round(diskR * 0.82);
+  const GAP = 26;
+  const rowA = cy - diskR * 0.45, rowB = cy + diskR * 0.55;
+  let x = diskX + diskR + 10;
 
-  ctx.font = `${Math.round(diskR * 0.82)}px "Courier Prime"`;
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText((ill * 100).toFixed(0) + '% lit', tx1, cy + diskR * 0.55);
+  const widthOf = (txt, f) => { ctx.font = f; return ctx.measureText(txt).width; };
+  const fA = `bold ${fs1}px "Courier Prime"`, fB = `${fs2}px "Courier Prime"`;
 
-  // ── ANGLE STATS ─────────────────────────────────────────────────────────
-  const statsX = Math.min(tx1 + 160, W - 240);
-  const fs2    = Math.round(diskR * 0.82);
-  ctx.font = `${fs2}px "Courier Prime"`;
   ctx.textAlign = 'left';
 
-  ctx.fillStyle = 'rgba(58,175,169,0.9)';
-  ctx.fillText('Phase angle: ' + syn.toFixed(1) + '°', statsX, cy - diskR * 0.45);
+  // Phase name + illumination
+  const nm = name.toUpperCase(), lit = (ill * 100).toFixed(0) + '% lit';
+  const wName = Math.max(widthOf(nm, fA), widthOf(lit, fB));
+  ctx.font = fA; ctx.fillStyle = '#ede080';                 ctx.fillText(nm,  x, rowA);
+  ctx.font = fB; ctx.fillStyle = 'rgba(255,255,255,0.5)';   ctx.fillText(lit, x, rowB);
+  x += wName + GAP;
 
-  ctx.fillStyle = 'rgba(255,200,60,0.85)';
-  ctx.fillText('Earth moved: ' + orbP.toFixed(1) + '°', statsX, cy + diskR * 0.55);
+  // Angles
+  const a1 = 'Phase angle: ' + syn.toFixed(1) + '°';
+  const a2 = 'Earth moved: ' + orbP.toFixed(1) + '°';
+  const wAng = Math.max(widthOf(a1, fB), widthOf(a2, fB));
+  if (x + wAng < W - 14) {
+    ctx.font = fB;
+    ctx.fillStyle = 'rgba(58,175,169,0.9)';  ctx.fillText(a1, x, rowA);
+    ctx.fillStyle = 'rgba(255,200,60,0.85)'; ctx.fillText(a2, x, rowB);
+    x += wAng + GAP;
+  }
 
-  // Sidereal progress note
-  const sidDone = mod360(W_M * t) / 360;
-  const sideX = statsX + 200;
-  if (sideX + 160 < W) {
-    ctx.font = `${fs2}px "Courier Prime"`;
-    ctx.fillStyle = 'rgba(255,200,80,0.75)';
-    ctx.fillText('Moon orbit: ' + (sidDone * 100).toFixed(0) + '%', sideX, cy - diskR * 0.45);
-    ctx.fillStyle = 'rgba(200,200,220,0.5)';
-    ctx.fillText('Phase cycle: ' + (syn / 360 * 100).toFixed(0) + '%', sideX, cy + diskR * 0.55);
+  // Progress through each cycle
+  const done   = t >= T_SYN - 1e-6;
+  const b1 = 'Moon orbit: '  + (mod360(W_M * t) / 360 * 100).toFixed(0) + '%';
+  const b2 = 'Phase cycle: ' + (done ? 100 : syn / 360 * 100).toFixed(0) + '%';
+  const wPrg = Math.max(widthOf(b1, fB), widthOf(b2, fB));
+  if (x + wPrg < W - 14) {
+    ctx.font = fB;
+    ctx.fillStyle = 'rgba(255,200,80,0.75)'; ctx.fillText(b1, x, rowA);
+    ctx.fillStyle = 'rgba(200,200,220,0.5)'; ctx.fillText(b2, x, rowB);
   }
 
   ctx.textBaseline = 'alphabetic';
@@ -611,79 +687,64 @@ function drawInfoBar(L) {
 /* ── PAUSE OVERLAY ───────────────────────────────────────────────────────── */
 function drawPauseOverlay(L) {
   if (!pauseSid && !pauseSyn) return;
+  const syn  = synodic(t);
+  const gold = pauseSid && !pauseSyn;
 
-  const W = L.W;
+  const bw = Math.min(440, L.W - 40);
+  const bh = gold ? 106 : 128;
+  const bx = 24;                       // lower-left: clear of the Earth-Moon system
+  const by = L.OrbH - bh - 16;
+  const px = bx + 20;
 
-  const bw = Math.min(520, W - 40);
-  const bh = 192;
-  const bx = W / 2 - bw / 2;
-  // Anchor box to the bottom of the orbital area, just above the info bar
-  const by = L.OrbH - bh - 8;
-  const syn = synodic(t);
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.7)';
+  ctx.shadowBlur  = 26;
+  ctx.fillStyle   = 'rgba(8,6,28,0.97)';
+  ctx.strokeStyle = gold ? '#ffc850' : '#3CA3AE';
+  ctx.lineWidth   = 1.5;
+  rRect(bx, by, bw, bh, 12); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'left';
 
-  if (pauseSid && !pauseSyn) {
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur  = 28;
-    ctx.fillStyle = 'rgba(8,6,28,0.97)'; ctx.strokeStyle = '#ffc850'; ctx.lineWidth = 1.5;
-    rRect(bx, by, bw, bh, 14); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'center';
-
-    ctx.font = 'bold 22px "Courier Prime"';
+  if (gold) {
+    ctx.font = 'bold 16px "Courier Prime"';
     ctx.fillStyle = '#ffc850';
-    ctx.fillText('⏸  SIDEREAL ORBIT COMPLETE — Day 27.3', W/2, by + 38);
-
-    ctx.font = '15px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillText('The Moon has completed exactly 360° around Earth', W/2, by + 68);
-    ctx.fillText('relative to the distant stars (★ reference line).', W/2, by + 88);
+    ctx.fillText('DAY 27.3 — SIDEREAL ORBIT COMPLETE', px, by + 30);
 
     ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = '#ffaa66';
-    ctx.fillText('But Earth has moved ' + (W_E * T_SID).toFixed(1) + '° — New Moon alignment NOT restored yet.', W/2, by + 116);
-    ctx.fillText('Compare the Moon\'s position to the gray ● ghost.', W/2, by + 134);
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillText('Moon back on the ★ line. Earth moved '
+                 + (W_E * T_SID).toFixed(1) + '°.', px, by + 56);
 
-    ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = 'rgba(58,175,169,0.9)';
-    ctx.fillText('Phase angle: ' + syn.toFixed(1) + '° — still ' + (360 - syn).toFixed(1) + '° short of New Moon.', W/2, by + 160);
+    ctx.font = 'bold 14px "Public Sans"';
+    ctx.fillStyle = '#ffc850';
+    ctx.fillText((360 - syn).toFixed(1) + '° still to sweep to reach New Moon.', px, by + 78);
 
-    ctx.font = '12px "Courier Prime"';
+    ctx.font = '11px "Courier Prime"';
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('PRESS SPACE OR CLICK PLAY TO CONTINUE  →', W/2, by + 182);
-    ctx.restore();
-
+    ctx.fillText('SPACE OR PLAY TO CONTINUE  →', px, by + 96);
   } else {
-    ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.7)';
-    ctx.shadowBlur  = 28;
-    ctx.fillStyle = 'rgba(8,6,28,0.97)'; ctx.strokeStyle = '#3CA3AE'; ctx.lineWidth = 1.5;
-    rRect(bx, by, bw, bh, 14); ctx.fill(); ctx.stroke();
-    ctx.shadowBlur = 0;
-    ctx.textAlign = 'center';
-
-    ctx.font = 'bold 22px "Courier Prime"';
+    ctx.font = 'bold 16px "Courier Prime"';
     ctx.fillStyle = '#3CA3AE';
-    ctx.fillText('✓  SYNODIC MONTH COMPLETE — Day 29.5', W/2, by + 38);
+    ctx.fillText('DAY 29.5 — SYNODIC MONTH COMPLETE', px, by + 30);
 
-    ctx.font = '15px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillText('Moon–Sun–Earth alignment restored.  New Moon again.', W/2, by + 68);
+    ctx.font = '14px "Public Sans"';
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillText('Moon has caught the New Moon marker.', px, by + 56);
 
     ctx.font = '14px "Public Sans"';
     ctx.fillStyle = 'rgba(200,230,230,0.9)';
-    ctx.fillText('Sidereal month:  27.3 days  — one orbit relative to the stars', W/2, by + 100);
-    ctx.fillText('Synodic month:   29.5 days  — one phase cycle relative to the Sun', W/2, by + 120);
+    ctx.fillText('Sidereal 27.3 d  →  Synodic 29.5 d', px, by + 80);
 
-    ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,200,80,0.85)';
-    ctx.fillText('Extra 2.2 days = Earth\'s 26.9° orbital drift during the Moon\'s orbit.', W/2, by + 152);
+    ctx.font = 'bold 14px "Public Sans"';
+    ctx.fillStyle = 'rgba(255,200,80,0.9)';
+    ctx.fillText('+2.2 d  =  Earth\'s ' + (W_E * T_SID).toFixed(1) + '° of orbital drift.', px, by + 102);
 
-    ctx.font = '12px "Courier Prime"';
+    ctx.font = '11px "Courier Prime"';
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('PRESS SPACE OR ↺ RESET TO RESTART', W/2, by + 180);
-    ctx.restore();
+    ctx.fillText('SPACE OR ↺ RESET TO RESTART', px, by + 120);
   }
+  ctx.restore();
 }
 
 /* ── RENDER LOOP ─────────────────────────────────────────────────────────── */
@@ -704,6 +765,7 @@ function frame(ts) {
   const L     = layout();
   const earth = earthPos(t, L);
   const moon  = moonPos(t, L);
+  const ghost = ghostPos(t, L);
   const syn   = synodic(t);
 
   ctx.fillStyle = '#07071a';
@@ -712,10 +774,10 @@ function frame(ts) {
   drawStars(L.W, L.H);
   drawOrbitCircle(L);
   drawSun(L);
-  drawAngleViz(earth, moon, L);
   drawMoonOrbitCircle(earth, L.Rm);
+  drawAngleViz(earth, moon, ghost, L);
   drawSiderealRef(earth, L);
-  drawGhostMoon(L);
+  drawGhostMoon(ghost, L);
   drawEarth(earth, L);
   drawMoonBody(moon, syn, L);
   drawInfoBar(L);
@@ -744,7 +806,7 @@ function wrapText(c, text, x, y, maxW, lineH) {
 function exportPNG() {
   const SCALE = 2;
   const EW = 1200, HEADER_H = 130, STAT_H = 76, FOOTER_H = 46;
-  const DIAG_H = 620;
+  const DIAG_H = 660;
   const EH = HEADER_H + DIAG_H + STAT_H + FOOTER_H;
 
   const off = document.createElement('canvas');
@@ -778,13 +840,14 @@ function exportPNG() {
   const L = { W: EW, H: DIAG_H + INFO_H, OrbH: DIAG_H, ...computeOrbitGeometry(EW, DIAG_H) };
   const earth = earthPos(t, L);
   const moon  = moonPos(t, L);
+  const ghost = ghostPos(t, L);
   drawStars(EW, DIAG_H + INFO_H);
   drawOrbitCircle(L);
   drawSun(L);
-  drawAngleViz(earth, moon, L);
   drawMoonOrbitCircle(earth, L.Rm);
+  drawAngleViz(earth, moon, ghost, L);
   drawSiderealRef(earth, L);
-  drawGhostMoon(L);
+  drawGhostMoon(ghost, L);
   drawEarth(earth, L);
   drawMoonBody(moon, synodic(t), L);
   ctx.restore();
@@ -896,8 +959,48 @@ document.getElementById('jump295').addEventListener('click', () => {
   updatePlayBtn();
 });
 
+function setTime(nt) {
+  t = Math.min(T_SYN, Math.max(0, nt));
+  playing = false;
+  pauseSid = pauseSyn = false;
+  didPauseSid = t >= T_SID - 1e-6;    // don't re-trigger a stop already passed
+  didPauseSyn = t >= T_SYN - 1e-6;
+  lastTs = null;
+  updatePlayBtn();
+}
+
+function overBar(px, py) {
+  return barRect && px >= barRect.x - 8 && px <= barRect.x + barRect.w + 8
+                 && py >= barRect.y     && py <= barRect.y + barRect.h;
+}
+function localPos(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: e.clientX - r.left, y: e.clientY - r.top };
+}
+function scrubTo(px) {
+  const f = Math.min(1, Math.max(0, (px - barRect.x) / barRect.w));
+  setTime(f * T_SYN);
+}
+
+canvas.addEventListener('pointerdown', e => {
+  const p = localPos(e);
+  if (!overBar(p.x, p.y)) return;
+  scrubbing = true;
+  canvas.setPointerCapture(e.pointerId);
+  scrubTo(p.x);
+});
+canvas.addEventListener('pointermove', e => {
+  const p = localPos(e);
+  if (scrubbing) scrubTo(p.x);
+  else canvas.style.cursor = overBar(p.x, p.y) ? 'ew-resize' : 'default';
+});
+canvas.addEventListener('pointerup',     () => { scrubbing = false; });
+canvas.addEventListener('pointercancel', () => { scrubbing = false; });
+
 document.addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); document.getElementById('playBtn').click(); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); setTime(t + (e.shiftKey ? 1 : 0.1)); }
+  else if (e.code === 'ArrowLeft')  { e.preventDefault(); setTime(t - (e.shiftKey ? 1 : 0.1)); }
 });
 
 document.getElementById('pngBtn').addEventListener('click', exportPNG);
