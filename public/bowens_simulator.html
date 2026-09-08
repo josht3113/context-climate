@@ -312,24 +312,32 @@ function glowAt(T){
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   MAGMA CHAMBER — crystals settle out and stack up as a layered cumulate,
-   so the pile is a readable stratigraphy of the reaction series.
+   THE INTRUSION — heat leaves through the country rock, so crystals
+   nucleate on the cold contact and grow inward, welded in place. The body
+   zones from the margin toward the core and the residual melt shrinks to a
+   pocket in the middle. Nothing settles: the early crystals are separated
+   from the melt because they are stuck to the wall, not because they sank.
    ═══════════════════════════════════════════════════════════════════ */
 var cv = $('cv'), cx = cv.getContext('2d');
-var CW = 480, CH = 380;
-var EX = 240, EY = 186, ERX = 204, ERY = 138;
-var RY0 = Math.floor(EY - ERY), RH = Math.ceil(ERY*2) + 1;
+var CW = 480, CH = 380, NPIX = CW * CH;
+var PX = 240, PY = 190, PRX = 181, PRY = 138;
 
 var bgCan = document.createElement('canvas'); bgCan.width = CW; bgCan.height = CH;
-var offCan = document.createElement('canvas'); offCan.width = CW; offCan.height = RH;
+var offCan = document.createElement('canvas'); offCan.width = CW; offCan.height = CH;
 var offCx = offCan.getContext('2d');
-var REG = cx.createImageData(CW, RH), RD = REG.data;
+var REG = cx.createImageData(CW, CH), RD = REG.data;
 
-var rowW = new Float32Array(RH), cumBelow = new Float32Array(RH + 1), AREA = 0;
-var pileCol = new Uint8Array(CW * RH * 3);
-var inEll = new Uint8Array(CW * RH);
-var shim = new Float32Array(CW * RH), vign = new Float32Array(CW * RH);
-var F2Y = new Float32Array(202);
+var mask = new Uint8Array(NPIX);
+var fPx = new Float32Array(NPIX);          /* fraction of the body solid by the time this pixel freezes */
+var zoneCol = new Uint8Array(NPIX * 3);
+var shim = new Float32Array(NPIX);
+var FRINGE = [], ZONES = [], plutonPath = null;
+
+/* a lumpy, non-elliptical body — a clean oval reads as a container */
+function plutonR(th){
+  return 1 + 0.110*Math.sin(3*th + 0.7) + 0.058*Math.sin(5*th + 2.1)
+           + 0.022*Math.sin(7*th + 4.3);
+}
 
 function finvT(f){
   var lo = 0, hi = NT - 1;
@@ -337,162 +345,252 @@ function finvT(f){
   return T0 - lo * STEP;
 }
 
-(function buildChamber(){
-  var rand = rng(70413), y, x, r, i;
-
-  for (r=0;r<RH;r++){
-    y = RY0 + r;
-    var t = (y - EY) / ERY;
-    rowW[r] = Math.abs(t) >= 1 ? 0 : 2 * ERX * Math.sqrt(1 - t*t);
+/* exact Euclidean distance to the nearest zero cell
+   (Felzenszwalb & Huttenlocher: separable 1-D parabola envelopes).
+   A chamfer approximation gives octagonal level sets, which made the
+   residual melt pocket look like a cut gem. */
+function edt1d(f, n, d, v, zz){
+  var k = 0, q, s2;
+  v[0] = 0; zz[0] = -1e20; zz[1] = 1e20;
+  for (q=1;q<n;q++){
+    s2 = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]);
+    while (s2 <= zz[k]){ k--; s2 = ((f[q] + q*q) - (f[v[k]] + v[k]*v[k])) / (2*q - 2*v[k]); }
+    k++; v[k] = q; zz[k] = s2; zz[k+1] = 1e20;
   }
-  for (r=RH-1;r>=0;r--) cumBelow[r] = cumBelow[r+1] + rowW[r];
-  AREA = cumBelow[0] || 1;
+  k = 0;
+  for (q=0;q<n;q++){
+    while (zz[k+1] < q) k++;
+    d[q] = (q - v[k])*(q - v[k]) + f[v[k]];
+  }
+}
+/* Inward offsets of a lumpy outline collapse onto the medial axis, which is
+   made of straight segments — geometrically correct, but it makes the last
+   melt pocket look like a cut gem. Smoothing the depth field (only over the
+   body, so the contact isn't dragged inward) rounds the front without
+   touching the area bookkeeping, which is recomputed from this field. */
+function blurMasked(src, msk, radius, passes){
+  var a = Float32Array.from(src), b = new Float32Array(NPIX), i, x, y, pi, sum, cnt, k;
+  for (pi=0; pi<passes; pi++){
+    for (y=0;y<CH;y++) for (x=0;x<CW;x++){
+      i = y*CW + x; if (!msk[i]){ b[i] = 0; continue; }
+      sum = 0; cnt = 0;
+      for (k=-radius;k<=radius;k++){
+        var xx = x + k; if (xx < 0 || xx >= CW) continue;
+        var j = y*CW + xx; if (!msk[j]) continue;
+        sum += a[j]; cnt++;
+      }
+      b[i] = cnt ? sum/cnt : a[i];
+    }
+    for (y=0;y<CH;y++) for (x=0;x<CW;x++){
+      i = y*CW + x; if (!msk[i]){ a[i] = 0; continue; }
+      sum = 0; cnt = 0;
+      for (k=-radius;k<=radius;k++){
+        var yy = y + k; if (yy < 0 || yy >= CH) continue;
+        var j2 = yy*CW + x; if (!msk[j2]) continue;
+        sum += b[j2]; cnt++;
+      }
+      a[i] = cnt ? sum/cnt : b[i];
+    }
+  }
+  return a;
+}
 
-  /* fraction crystallized → pile-top row, area-correct inside the ellipse */
-  for (i=0;i<=201;i++){
-    var f = i / 201 * AREA, rr = RH - 1;
-    while (rr > 0 && cumBelow[rr] < f) rr--;
-    F2Y[i] = rr;
+function edt(src){
+  var BIG = 1e18, g = new Float64Array(NPIX), i, x, y;
+  for (i=0;i<NPIX;i++) g[i] = src[i] ? BIG : 0;
+  var n = Math.max(CW, CH);
+  var f = new Float64Array(n), d = new Float64Array(n);
+  var v = new Int32Array(n), zz = new Float64Array(n + 1);
+  for (x=0;x<CW;x++){
+    for (y=0;y<CH;y++) f[y] = g[y*CW + x];
+    edt1d(f, CH, d, v, zz);
+    for (y=0;y<CH;y++) g[y*CW + x] = d[y];
+  }
+  for (y=0;y<CH;y++){
+    for (x=0;x<CW;x++) f[x] = g[y*CW + x];
+    edt1d(f, CW, d, v, zz);
+    for (x=0;x<CW;x++) g[y*CW + x] = d[x];
+  }
+  var out = new Float32Array(NPIX);
+  for (i=0;i<NPIX;i++) out[i] = Math.sqrt(g[i]);
+  return out;
+}
+
+(function buildIntrusion(){
+  var rand = rng(70413), i, x, y, th, rho;
+
+  plutonPath = new Path2D();
+  for (var a=0; a<=360; a++){
+    th = a * Math.PI / 180;
+    var r = plutonR(th);
+    var xx = PX + Math.cos(th)*PRX*r, yy = PY + Math.sin(th)*PRY*r;
+    if (a === 0) plutonPath.moveTo(xx, yy); else plutonPath.lineTo(xx, yy);
+  }
+  plutonPath.closePath();
+
+  var inv = new Uint8Array(NPIX), total = 0;
+  for (y=0;y<CH;y++) for (x=0;x<CW;x++){
+    i = y*CW + x;
+    var nx = (x - PX) / PRX, ny = (y - PY) / PRY;
+    rho = Math.sqrt(nx*nx + ny*ny); th = Math.atan2(ny, nx);
+    var inside = rho < plutonR(th);
+    mask[i] = inside ? 1 : 0; inv[i] = inside ? 0 : 1;
+    if (inside) total++;
+    shim[i] = Math.sin(x*0.058 + y*0.047)*3.0 + Math.sin(x*0.019 - y*0.034)*2.6 + Math.sin(x*0.128 + y*0.021)*1.6;
+  }
+  var dIn = blurMasked(edt(mask), mask, 9, 3), dOut = edt(inv);
+  var dmax = 0;
+  for (i=0;i<NPIX;i++) if (mask[i] && dIn[i] > dmax) dmax = dIn[i];
+  if (dmax <= 0) dmax = 1;
+
+  /* Depth below the contact -> fraction of the body already solid, by area,
+     so the front sweeps inward at the rate the mass balance says it should. */
+  var NB = 512, hist = new Float64Array(NB), cum = new Float64Array(NB + 1);
+  for (i=0;i<NPIX;i++) if (mask[i]){
+    var bq = (dIn[i] / dmax * NB) | 0; if (bq > NB-1) bq = NB-1; hist[bq]++;
+  }
+  for (i=0;i<NB;i++) cum[i+1] = cum[i] + hist[i];
+  for (i=0;i<NPIX;i++){
+    if (!mask[i]){ fPx[i] = 2; continue; }
+    var u = dIn[i] / dmax * NB, bi = u | 0; if (bi > NB-1) bi = NB-1;
+    fPx[i] = (cum[bi] + hist[bi] * (u - bi)) / total;
   }
 
-  for (r=0;r<RH;r++){
-    y = RY0 + r;
-    var fPx = cumBelow[r] / AREA;
-    var Tl = finvT(fPx);
-    var act = activity(Tl), keys = [], cums = [], acc = 0;
-    for (var k in act){ acc += act[k]; keys.push(k); cums.push(acc); }
+  /* one assemblage lookup per zone rather than per pixel */
+  for (var z=0; z<=255; z++){
+    var Tl = finvT(z/255), act = activity(Tl);
+    var keys = [], cums = [], acc = 0, k;
+    for (k in act){ acc += act[k]; keys.push(k); cums.push(acc); }
     if (!keys.length){ keys = ['olivine']; cums = [1]; acc = 1; }
-    /* mean colour of this layer — individual grains are pulled toward it so
-       the cumulate reads as rock rather than speckle noise */
-    var mr=0, mg=0, mb=0;
-    for (var q0=0;q0<keys.length;q0++){
-      var cq = minCol(keys[q0], Tl), wq = act[keys[q0]] / acc;
-      mr += cq[0]*wq; mg += cq[1]*wq; mb += cq[2]*wq;
+    var mr = 0, mg = 0, mb = 0;
+    for (var q=0;q<keys.length;q++){
+      var c = minCol(keys[q], Tl), w = act[keys[q]] / acc;
+      mr += c[0]*w; mg += c[1]*w; mb += c[2]*w;
     }
-    mr *= 0.92; mg *= 0.92; mb *= 0.92;
-    for (x=0;x<CW;x++){
-      var dx = (x - EX) / ERX, dy = (y - EY) / ERY;
-      var inside = dx*dx + dy*dy <= 1;
-      i = r*CW + x;
-      inEll[i] = inside ? 1 : 0;
-      shim[i] = Math.sin(x*0.058 + y*0.047)*3.0 + Math.sin(x*0.019 - y*0.034)*2.6 + Math.sin(x*0.128 + y*0.021)*1.6;
-      vign[i] = Math.min(1, dx*dx + dy*dy);
-      if (!inside) continue;
-      /* grain cells are laid on a wobbled lattice — a square grid reads as
-         a checkerboard at this size */
-      /* A whole magma chamber is kilometres across, so individual grains
-         are far below one pixel: the cumulate is drawn as smooth
-         compositional layering with only a light grain speckle over it. */
-      var wx = x + Math.sin(y*0.71)*1.6, wy = y + Math.sin(x*0.63)*1.3;
-      var gx = (wx/3.2)|0, gy = (wy/3.2)|0;
-      var h = ((gx*73856093) ^ (gy*19349663)) & 0x7fffffff;
-      var u = (h % 10007) / 10007 * acc, pick = keys[keys.length-1];
-      for (var q=0;q<cums.length;q++) if (u <= cums[q]){ pick = keys[q]; break; }
-      var c = minCol(pick, Tl);
-      var rhythm = Math.sin(y*0.62 + Math.sin(x*0.010)*1.4) * 3.6;   /* layered-intrusion banding */
-      var mot = Math.sin(x*0.047 + y*0.036)*2.6 + Math.sin(x*0.016 - y*0.029)*2.2;
-      var nz = ((h >> 7) % 100) / 100 * 7 - 3.5 + mot + rhythm;
-      var b3 = i*3;
-      pileCol[b3]   = cl((c[0]*0.20 + mr*0.80) + nz);
-      pileCol[b3+1] = cl((c[1]*0.20 + mg*0.80) + nz*0.94);
-      pileCol[b3+2] = cl((c[2]*0.20 + mb*0.80) + nz*0.86);
-    }
+    ZONES.push({ T:Tl, keys:keys, cums:cums, acc:acc, mr:mr*0.86, mg:mg*0.86, mb:mb*0.86 });
   }
 
-  /* country rock + cavity */
+  for (y=0;y<CH;y++) for (x=0;x<CW;x++){
+    i = y*CW + x; if (!mask[i]) continue;
+    var Z = ZONES[Math.min(255, (fPx[i]*255)|0)];
+    var wx = x + Math.sin(y*0.71)*1.6, wy = y + Math.sin(x*0.63)*1.3;
+    var gx = (wx/3.2)|0, gy = (wy/3.2)|0;
+    var h = ((gx*73856093) ^ (gy*19349663)) & 0x7fffffff;
+    var uu = (h % 10007) / 10007 * Z.acc, pick = Z.keys[Z.keys.length-1];
+    for (var qq=0; qq<Z.cums.length; qq++) if (uu <= Z.cums[qq]){ pick = Z.keys[qq]; break; }
+    var cc = minCol(pick, Z.T);
+    var mot = Math.sin(x*0.047 + y*0.036)*2.6 + Math.sin(x*0.016 - y*0.029)*2.2;
+    var nz = ((h >> 7) % 100) / 100 * 7 - 3.5 + mot;
+    var b3 = i*3;
+    zoneCol[b3]   = cl((cc[0]*0.20 + Z.mr*0.80) + nz);
+    zoneCol[b3+1] = cl((cc[1]*0.20 + Z.mg*0.80) + nz*0.94);
+    zoneCol[b3+2] = cl((cc[2]*0.20 + Z.mb*0.80) + nz*0.86);
+  }
+
+  /* crystals growing inward off the front — sampled on a jittered grid,
+     each oriented along the local inward normal */
+  for (y=8;y<CH-8;y+=8) for (x=8;x<CW-8;x+=8){
+    var jx = Math.round(x + (rand()-0.5)*7), jy = Math.round(y + (rand()-0.5)*7);
+    i = jy*CW + jx;
+    if (!mask[i] || dIn[i] < 3) continue;
+    var g1 = dIn[i+1] - dIn[i-1], g2 = dIn[i+CW] - dIn[i-CW];
+    if (g1 === 0 && g2 === 0) continue;
+    FRINGE.push({ x:jx, y:jy, f:fPx[i], a:Math.atan2(g2, g1),
+                  L:2.8 + rand()*3.4, W:1.35 + rand()*1.2, s:rand() });
+  }
+
+  /* ── country rock: bedded, cut clean across by the intrusion ── */
   var bx = bgCan.getContext('2d');
-  bx.fillStyle = '#20241C'; bx.fillRect(0,0,CW,CH);
   var img = bx.createImageData(CW, CH), d = img.data;
   for (y=0;y<CH;y++) for (x=0;x<CW;x++){
-    var ii = (y*CW + x)*4;
-    var n = ((x*47 + y*29 + ((x*y) & 127)) & 0xff) * 0.09 - 11;
-    var band = Math.sin(y*0.09 + Math.sin(x*0.012)*1.7) * 5;
-    d[ii]   = cl(38 + n + band);
-    d[ii+1] = cl(41 + n + band*0.9);
-    d[ii+2] = cl(34 + n*0.9 + band*0.8);
-    d[ii+3] = 255;
+    i = y*CW + x;
+    var b = i*4;
+    if (mask[i]){ d[b]=16; d[b+1]=18; d[b+2]=13; d[b+3]=255; continue; }
+    var n = ((x*47 + y*29 + ((x*y) & 127)) & 0xff) * 0.075 - 9.5;
+    /* dipping beds in the country rock, cut clean across by the intrusion —
+       the layering belongs to the rock it cuts, not to the igneous body */
+    var bed = y + Math.sin(x*0.0115)*15 + x*0.10;
+    var bp = ((bed % 24) + 24) % 24;
+    var line = bp < 2.0 ? -17 : (bp < 3.4 ? 9 : (bp < 12 ? 3 : -3));
+    /* baked contact aureole — a hint, not a halo */
+    var au = dOut[i] < 22 ? (1 - dOut[i]/22) : 0; au *= au;
+    d[b]   = cl(42 + n + line + au*15);
+    d[b+1] = cl(45 + n + line*0.92 + au*7);
+    d[b+2] = cl(37 + n*0.9 + line*0.8 + au*2);
+    d[b+3] = 255;
   }
   bx.putImageData(img, 0, 0);
-  bx.save();
-  bx.beginPath(); bx.ellipse(EX, EY, ERX + 5, ERY + 5, 0, 0, Math.PI*2);
-  bx.strokeStyle = 'rgba(10,10,8,.55)'; bx.lineWidth = 9; bx.stroke();
-  bx.beginPath(); bx.ellipse(EX, EY, ERX, ERY, 0, 0, Math.PI*2);
-  bx.fillStyle = '#101208'; bx.fill();
-  bx.restore();
-})();
-
-var MUSH = new Int8Array(CW);
-(function(){ var rd = rng(3355);
-  for (var x=0;x<CW;x++) MUSH[x] = Math.round(2.6 + Math.sin(x*0.09)*1.8 + Math.sin(x*0.031+1.3)*1.6 + (rd()-0.5)*1.4);
-})();
-
-var PART = [];
-(function(){ var rd = rng(9182);
-  for (var i=0;i<52;i++) PART.push({ x: 30 + rd()*420, ph: rd(), sp: 0.5 + rd()*1.2, r: 1.5 + rd()*2.6 });
 })();
 
 function drawChamber(T, p){
-  var f = crysFrac(T);
-  var topRow = F2Y[Math.max(0, Math.min(201, Math.round(f / 1 * 201)))];
+  var F = crysFrac(T);
   var gl = glowAt(T);
-  var hot = (T - T1) / TR; if (hot < 0) hot = 0;
-  var act = activity(T);
+  var hot = (T - T1) / TR; if (hot < 0) hot = 0; if (hot > 1) hot = 1;
+  var act = activity(T), keys = Object.keys(act);
 
-  for (var r=0;r<RH;r++){
-    var isPile = r >= topRow;
-    for (var x=0;x<CW;x++){
-      var i = r*CW + x, b = i*4;
-      if (!inEll[i]){ RD[b+3] = 0; continue; }
-      RD[b+3] = 255;
-      var b3 = i*3;
-      if (isPile && r - topRow < MUSH[x]){
-        var svm = shim[i], km = (1 + svm*0.026) * (1 - 0.34*vign[i]*vign[i]);
-        RD[b] = cl(gl[0]*km); RD[b+1] = cl(gl[1]*km); RD[b+2] = cl(gl[2]*km);
-        continue;
+  for (var i=0;i<NPIX;i++){
+    var b = i*4;
+    if (!mask[i]){ RD[b+3] = 0; continue; }
+    RD[b+3] = 255;
+    var f = fPx[i], b3 = i*3;
+    if (f <= F){
+      /* solid — the freshly frozen shell just behind the front is still hot */
+      var near = (F - f) < 0.05 ? (1 - (F - f)/0.05) : 0;
+      var q = near*near*hot*0.62;
+      RD[b]   = cl(zoneCol[b3]  *(1-q*0.25) + gl[0]*q);
+      RD[b+1] = cl(zoneCol[b3+1]*(1-q*0.25) + gl[1]*q);
+      RD[b+2] = cl(zoneCol[b3+2]*(1-q*0.25) + gl[2]*q);
+    } else {
+      /* the melt is coldest against the contact and hottest in the core */
+      var deep = F < 0.999 ? (f - F) / (1 - F) : 1; if (deep > 1) deep = 1;
+      var sv = shim[i], k = (1 + sv*0.026) * (0.78 + 0.22 * Math.sqrt(deep));
+      var nz = ((i*97 + 31) & 0xff) * 0.030 - 3.8;
+      var mr2 = gl[0]*k + nz, mg2 = gl[1]*k + nz*0.4, mb2 = gl[2]*k + nz*0.2;
+      /* crystal mush: the front is gradational, not a knife edge */
+      var mu = (f - F) / 0.032;
+      if (mu < 1){
+        var w = (1 - mu); w = w*w*0.78;
+        mr2 = mr2*(1-w) + zoneCol[b3]  *w;
+        mg2 = mg2*(1-w) + zoneCol[b3+1]*w;
+        mb2 = mb2*(1-w) + zoneCol[b3+2]*w;
       }
-      if (isPile){
-        var dr2 = r - topRow - MUSH[x];
-        var near = dr2 < 7 ? (7 - Math.max(0, dr2)) / 7 : 0;
-        if (dr2 < 0){ RD[b+3] = 0; continue; }
-        var vg = 1 - 0.20 * Math.max(0, (r - topRow) / RH);
-        RD[b]   = cl(pileCol[b3]  *vg + gl[0]*near*near*hot*0.50);
-        RD[b+1] = cl(pileCol[b3+1]*vg + gl[1]*near*near*hot*0.50);
-        RD[b+2] = cl(pileCol[b3+2]*vg + gl[2]*near*near*hot*0.50);
-      } else {
-        var sv = shim[i], k = (1 + sv*0.026) * (1 - 0.34*vign[i]*vign[i]);
-        var nz = ((i*97 + 31) & 0xff) * 0.030 - 3.8;
-        RD[b]   = cl(gl[0]*k + nz);
-        RD[b+1] = cl(gl[1]*k + nz*0.4);
-        RD[b+2] = cl(gl[2]*k + nz*0.2);
-      }
+      RD[b] = cl(mr2); RD[b+1] = cl(mg2); RD[b+2] = cl(mb2);
     }
   }
   offCx.putImageData(REG, 0, 0);
   cx.drawImage(bgCan, 0, 0);
-  cx.drawImage(offCan, 0, RY0);
+  cx.drawImage(offCan, 0, 0);
 
-  /* settling crystals, positioned deterministically so scrubbing works */
-  var meltTopY = RY0 + 6, pileY = RY0 + topRow;
-  var keys = Object.keys(act);
-  if (keys.length && pileY - meltTopY > 14){
-    for (var q=0;q<PART.length;q++){
-      var pt = PART[q];
-      var u = (pt.ph + p * pt.sp * 7) % 1;
-      var y = meltTopY + u * (pileY - meltTopY);
-      var dx = (pt.x - EX) / ERX, dy = (y - EY) / ERY;
-      if (dx*dx + dy*dy > 0.92) continue;
-      var mk = keys[q % keys.length];
-      var c = minCol(mk, T);
-      cx.beginPath();
-      cx.ellipse(pt.x, y, pt.r*1.5, pt.r, 0.5, 0, Math.PI*2);
-      cx.fillStyle = 'rgba(' + cl(c[0]*1.15) + ',' + cl(c[1]*1.15) + ',' + cl(c[2]*1.15) + ',' + (0.62 + 0.3*(1-u)) + ')';
-      cx.fill();
+  /* heat bleeding into the country rock */
+  if (hot > 0.02){
+    cx.save();
+    for (var s=0;s<3;s++){
+      cx.lineWidth = 6 + s*9;
+      cx.strokeStyle = 'rgba(' + (gl[0]|0) + ',' + (gl[1]|0) + ',' + (gl[2]|0) + ',' + (hot*0.055/(s+1)) + ')';
+      cx.stroke(plutonPath);
     }
+    cx.restore();
+  }
+
+  /* the growth fringe: crystals nucleated on the front, reaching into the melt */
+  if (keys.length && F > 0.012 && F < 0.90){
+    cx.save();
+    for (var q2=0;q2<FRINGE.length;q2++){
+      var fr = FRINGE[q2], dd = fr.f - F;
+      if (dd <= 0 || dd > 0.055) continue;
+      var vis = 1 - dd/0.055;
+      var c = minCol(keys[q2 % keys.length], T);
+      cx.beginPath();
+      cx.ellipse(fr.x, fr.y, fr.L*(0.5 + vis*0.5), fr.W, fr.a, 0, Math.PI*2);
+      cx.fillStyle = 'rgba(' + cl(c[0]*1.18 + 20) + ',' + cl(c[1]*1.18 + 18) + ',' + cl(c[2]*1.18 + 16) + ',' + (0.34 + 0.44*vis) + ')';
+      cx.fill();
+      cx.strokeStyle = 'rgba(24,18,10,' + (0.20 + 0.22*vis) + ')'; cx.lineWidth = 0.7; cx.stroke();
+    }
+    cx.restore();
   }
 
   cx.save();
-  cx.beginPath(); cx.ellipse(EX, EY, ERX, ERY, 0, 0, Math.PI*2);
-  cx.strokeStyle = 'rgba(232,228,217,.20)'; cx.lineWidth = 1.5; cx.stroke();
+  cx.strokeStyle = 'rgba(232,228,217,.26)'; cx.lineWidth = 1.4; cx.stroke(plutonPath);
   cx.restore();
 }
 
