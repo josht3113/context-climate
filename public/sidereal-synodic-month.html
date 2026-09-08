@@ -44,7 +44,7 @@ body {
 }
 .top-bar p { font-size: 14px; color: var(--color-text-secondary); line-height: 1.4; }
 .top-bar p strong { color: var(--color-text-primary); }
-#mainCanvas { flex: 1; width: 100%; display: block; }
+#mainCanvas { flex: 1 1 auto; width: 100%; display: block; min-height: 140px; }
 .controls {
   width: 100%;
   padding: 5px 20px 5px clamp(40px, 22vw, 380px);
@@ -121,13 +121,46 @@ input[type=range]::-moz-range-thumb {
   .top-bar h1 { font-size: 19px; }
   .top-bar p  { font-size: 13px; }
 }
+
+/* Phones. The header was the real thief here: a nowrap title beside a flex
+   sibling squeezed the subtitle to one word per line and ate ~40% of the
+   screen. Stack them and swap in the short subtitle. */
+.sub-short { display: none; }
+@media (max-width: 760px) {
+  .top-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    padding: 5px 12px;
+  }
+  .top-bar h1 { font-size: 17px; white-space: normal; }
+  .top-bar p  { font-size: 12.5px; }
+  .sub-long   { display: none; }
+  .sub-short  { display: block; }
+
+  .controls { padding: 5px 12px; gap: 7px; }
+  .controls .sep, .jump-label { display: none; }
+  .cc-btn.tool-btn { padding: 6px 10px; font-size: 13px; }
+  .speed-wrap { gap: 6px; }
+  .speed-wrap span, #speedVal { font-size: 12px; }
+  input[type=range] { width: 66px; }
+}
+
+@media (max-height: 430px) {
+  .top-bar  { padding-top: 3px; padding-bottom: 3px; }
+  .top-bar h1 { font-size: 15px; }
+  .sub-long, .sub-short { display: none; }
+  .controls { padding-top: 3px; padding-bottom: 3px; }
+  .cc-btn.tool-btn { padding: 4px 9px; font-size: 12px; }
+}
 </style>
 </head>
 <body>
 
 <div class="top-bar">
   <h1>SIDEREAL vs SYNODIC MONTH</h1>
-  <p>Why does a full phase cycle take <strong>29.5 days</strong> when the Moon orbits Earth in only <strong>27.3 days?</strong></p>
+  <p class="sub-long">Why does a full phase cycle take <strong>29.5 days</strong> when the Moon orbits Earth in only <strong>27.3 days?</strong></p>
+  <p class="sub-short">Why <strong>29.5 days</strong>, not <strong>27.3?</strong></p>
 </div>
 
 <canvas id="mainCanvas"></canvas>
@@ -158,19 +191,20 @@ let ctx      = canvas.getContext('2d');
 /* ── RESIZE ─────────────────────────────────────────────────────────────── */
 let CW = 0, CH = 0;                    // logical (CSS px) canvas size
 function resize() {
-  const topBar   = document.querySelector('.top-bar');
-  const controls = document.querySelector('.controls');
+  // Measure the box flex actually gave us rather than computing it — writing a
+  // floored height back onto the element made the canvas push the chrome off
+  // screen on short viewports.
+  const r   = canvas.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
-  CW = window.innerWidth;
-  CH = Math.max(320, window.innerHeight - topBar.offsetHeight - controls.offsetHeight);
+  CW = Math.max(240, Math.round(r.width));
+  CH = Math.max(140, Math.round(r.height));
   canvas.width  = Math.round(CW * dpr);
   canvas.height = Math.round(CH * dpr);
-  canvas.style.width  = CW + 'px';
-  canvas.style.height = CH + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);   // draw in CSS px, render at device res
 }
 resize();
 window.addEventListener('resize', resize);
+if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
 
 /* ── ORBITAL CONSTANTS ───────────────────────────────────────────────────── */
 const W_E   = 360 / 365.25;   // Earth °/day
@@ -219,7 +253,9 @@ function computeOrbitGeometry(W, OrbH) {
   // orbit. Earth travels only ~29 deg over the whole animation, so the rest of
   // the orbit circle is allowed to run off-frame. That buys a much larger Moon
   // orbit, which is the circle the 26.9 deg payoff is actually measured on.
-  const sx = W * 0.66;
+  // On a phone the orbit is width-limited, so push the Sun further right to
+  // buy radius; the outer glow clipping the edge costs nothing.
+  const sx = W * (W < 620 ? 0.78 : 0.66);
   const sy = OrbH * 0.72;
   const margin = 30;
 
@@ -571,9 +607,8 @@ function drawInfoBar(L) {
   const name = phaseName(syn);
   const orbP = W_E * t;
 
-  const y0 = L.OrbH;     // top of info strip
-  const W  = L.W;
-  const H  = INFO_H;
+  const y0 = L.OrbH, W = L.W, H = INFO_H;
+  const compact = W < 620;
 
   // Background
   ctx.fillStyle = 'rgba(4,4,22,0.92)';
@@ -583,58 +618,95 @@ function drawInfoBar(L) {
   ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
 
   const cy   = y0 + H / 2;
-  // Match the CSS clamp(40px, 22vw, 380px) used by the top-bar and controls
-  const lpad = W <= 1000 ? 20 : Math.max(40, Math.min(W * 0.22, 380));
-
-  // ── DAY COUNTER ─────────────────────────────────────────────────────────
-  const dayFontSz = Math.round(Math.min(H * 0.52, 28));
-  ctx.font = `bold ${dayFontSz}px "Courier Prime"`;
-  ctx.fillStyle = '#e8e6f0';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('Day ' + t.toFixed(1), lpad, cy);
-
-  // ── PROGRESS BAR ────────────────────────────────────────────────────────
-  const bx = lpad + 118, bw = Math.min(W * 0.25, 240), bh = 6;
-  const by = cy - bh / 2;
-  barRect = { x: bx, y: by - 12, w: bw, h: bh + 24 };   // drag target
-
-  ctx.fillStyle = 'rgba(255,255,255,0.1)';
-  rRect(bx, by, bw, bh, 3); ctx.fill();
-
+  const lpad = compact ? 12
+             : W <= 1000 ? 20
+             : Math.max(40, Math.min(W * 0.22, 380));
   const prog = Math.min(1, t / T_SYN);
-  if (prog > 0) {
-    ctx.fillStyle = '#3CA3AE';
-    rRect(bx, by, bw * prog, bh, 3); ctx.fill();
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  // Shared bar painter. The x-allowance for the day counter is measured off
+  // 'Day 29.5' rather than the live string, so the bar doesn't jitter as the
+  // day count changes width.
+  function drawBar(bx, bw, barY, thick, knobR, ticks) {
+    const by = barY - thick / 2;
+    barRect = { x: bx, y: barY - 15, w: bw, h: 30 };
+
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    rRect(bx, by, bw, thick, thick / 2); ctx.fill();
+    if (prog > 0) {
+      ctx.fillStyle = '#3CA3AE';
+      rRect(bx, by, bw * prog, thick, thick / 2); ctx.fill();
+    }
+
+    const tickX  = bx + bw * (T_SID / T_SYN);
+    const tickX2 = bx + bw;
+    ctx.fillStyle = '#ffc850';
+    ctx.fillRect(tickX - 1, by - 4, 2, thick + 8);
+    ctx.fillStyle = 'rgba(58,175,169,0.7)';
+    ctx.fillRect(tickX2 - 1, by - 4, 2, thick + 8);
+
+    if (ticks) {
+      // The ticks sit 7.5% of the bar apart, so their labels go on separate
+      // rows — 27.3 below the bar, 29.5 above it.
+      ctx.font = `${Math.max(11, Math.round(thick * 1.7))}px "Courier Prime"`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(255,200,80,0.75)';
+      ctx.fillText('27.3', tickX, by + thick + 5);
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = 'rgba(58,175,169,0.7)';
+      ctx.fillText('29.5', tickX2, by - 6);
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
+    }
+
+    ctx.fillStyle = '#e8e6f0';
+    ctx.beginPath(); ctx.arc(bx + bw * prog, barY, knobR, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.stroke();
   }
 
-  // Tick at 27.3
-  const tickX = bx + bw * (T_SID / T_SYN);
-  ctx.fillStyle = '#ffc850';
-  ctx.fillRect(tickX - 1, by - 4, 2, bh + 8);
+  /* ── Compact (phone): two rows — timeline above, phase readout below ─────── */
+  if (compact) {
+    const rowA = y0 + 19, rowB = y0 + 43;
 
-  // The two ticks sit only 7.5% of the bar apart, so their labels go on
-  // separate rows — 27.3 below the bar, 29.5 above it.
-  ctx.font = `${Math.max(11, Math.round(bh * 1.7))}px "Courier Prime"`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(255,200,80,0.75)';
-  ctx.fillText('27.3', tickX, by + bh + 5);
+    ctx.font = 'bold 15px "Courier Prime"';
+    ctx.fillStyle = '#e8e6f0';
+    ctx.fillText('Day ' + t.toFixed(1), lpad, rowA);
+    const dayW = ctx.measureText('Day 29.5').width;
 
-  // Tick at 29.5
-  const tickX2 = bx + bw;
-  ctx.fillStyle = 'rgba(58,175,169,0.7)';
-  ctx.fillRect(tickX2 - 1, by - 4, 2, bh + 8);
-  ctx.textBaseline = 'bottom';
-  ctx.fillStyle = 'rgba(58,175,169,0.7)';
-  ctx.fillText('29.5', tickX2, by - 6);
-  ctx.textBaseline = 'middle';
+    const bx = lpad + dayW + 12;
+    drawBar(bx, Math.max(60, W - bx - 14), rowA, 5, 6, false);
 
-  // Drag knob
+    const dR = 11, dX = lpad + dR;
+    drawPhaseDisk(dX, rowB, dR, syn);
+
+    let x = dX + dR + 8;
+    const put = (txt, font, col, gap) => {
+      ctx.font = font;
+      if (x + ctx.measureText(txt).width > W - 10) return;
+      ctx.fillStyle = col; ctx.fillText(txt, x, rowB);
+      x += ctx.measureText(txt).width + gap;
+    };
+    put(name.toUpperCase(),            'bold 13px "Courier Prime"', '#ede080', 10);
+    put((ill * 100).toFixed(0) + '% lit', '12px "Courier Prime"', 'rgba(255,255,255,0.5)', 12);
+    put('Phase ' + syn.toFixed(0) + '°', '12px "Courier Prime"', 'rgba(58,175,169,0.9)', 12);
+    put('Earth ' + orbP.toFixed(1) + '°', '12px "Courier Prime"', 'rgba(255,200,60,0.85)', 12);
+
+    ctx.textBaseline = 'alphabetic';
+    return;
+  }
+
+  /* ── Full width: single row ──────────────────────────────────────────────── */
+  const dayFs = Math.round(Math.min(H * 0.52, 28));
+  ctx.font = `bold ${dayFs}px "Courier Prime"`;
   ctx.fillStyle = '#e8e6f0';
-  ctx.beginPath(); ctx.arc(bx + bw * prog, cy, 5.5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillText('Day ' + t.toFixed(1), lpad, cy);
 
-  // ── PHASE DISK + NAME ───────────────────────────────────────────────────
+  const bx = lpad + Math.max(118, ctx.measureText('Day 29.5').width + 22);
+  const bw = Math.min(W * 0.25, 240);
+  drawBar(bx, bw, cy, 6, 5.5, true);
+
   const diskR = Math.min(H * 0.35, 20);
   const diskX = bx + bw + 24 + diskR;
   drawPhaseDisk(diskX, cy, diskR, syn);
@@ -647,17 +719,17 @@ function drawInfoBar(L) {
   const rowA = cy - diskR * 0.45, rowB = cy + diskR * 0.55;
   let x = diskX + diskR + 10;
 
-  const widthOf = (txt, f) => { ctx.font = f; return ctx.measureText(txt).width; };
   const fA = `bold ${fs1}px "Courier Prime"`, fB = `${fs2}px "Courier Prime"`;
-
-  ctx.textAlign = 'left';
+  const widthOf = (txt, f) => { ctx.font = f; return ctx.measureText(txt).width; };
 
   // Phase name + illumination
   const nm = name.toUpperCase(), lit = (ill * 100).toFixed(0) + '% lit';
   const wName = Math.max(widthOf(nm, fA), widthOf(lit, fB));
-  ctx.font = fA; ctx.fillStyle = '#ede080';                 ctx.fillText(nm,  x, rowA);
-  ctx.font = fB; ctx.fillStyle = 'rgba(255,255,255,0.5)';   ctx.fillText(lit, x, rowB);
-  x += wName + GAP;
+  if (x + wName < W - 14) {
+    ctx.font = fA; ctx.fillStyle = '#ede080';               ctx.fillText(nm,  x, rowA);
+    ctx.font = fB; ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillText(lit, x, rowB);
+    x += wName + GAP;
+  }
 
   // Angles
   const a1 = 'Phase angle: ' + syn.toFixed(1) + '°';
@@ -671,7 +743,7 @@ function drawInfoBar(L) {
   }
 
   // Progress through each cycle
-  const done   = t >= T_SYN - 1e-6;
+  const done = t >= T_SYN - 1e-6;
   const b1 = 'Moon orbit: '  + (mod360(W_M * t) / 360 * 100).toFixed(0) + '%';
   const b2 = 'Phase cycle: ' + (done ? 100 : syn / 360 * 100).toFixed(0) + '%';
   const wPrg = Math.max(widthOf(b1, fB), widthOf(b2, fB));
@@ -687,63 +759,70 @@ function drawInfoBar(L) {
 /* ── PAUSE OVERLAY ───────────────────────────────────────────────────────── */
 function drawPauseOverlay(L) {
   if (!pauseSid && !pauseSyn) return;
-  const syn  = synodic(t);
-  const gold = pauseSid && !pauseSyn;
+  const syn    = synodic(t);
+  const gold   = pauseSid && !pauseSyn;
+  const accent = gold ? '#ffc850' : '#3CA3AE';
 
-  const bw = Math.min(440, L.W - 40);
-  const bh = gold ? 106 : 128;
-  const bx = 24;                       // lower-left: clear of the Earth-Moon system
-  const by = L.OrbH - bh - 16;
-  const px = bx + 20;
+  // Scale to the smaller of the two constraints — narrow phones and short
+  // landscape viewports both need the box to shrink.
+  const k   = Math.min(Math.max(0.72, Math.min(1, (L.W - 32) / 460)),
+                       Math.max(0.70, Math.min(1, L.OrbH / 300)));
+  const f1  = Math.round(16 * k), f2 = Math.round(14 * k), f3 = Math.round(11 * k);
+  const pad = Math.round(20 * k);
+  const fD  = `${f2}px "Public Sans"`, fDB = `bold ${f2}px "Public Sans"`;
+  const dim = 'rgba(255,255,255,0.3)', body = 'rgba(255,255,255,0.88)';
+
+  // [text, font, colour, baseline step from the previous line]
+  const lines = gold ? [
+    ['DAY 27.3 — SIDEREAL ORBIT COMPLETE',                              `bold ${f1}px "Courier Prime"`, accent, 26],
+    ['Moon back on the ★ line. Earth moved ' + (W_E * T_SID).toFixed(1) + '°.', fD,  body,   24],
+    [(360 - syn).toFixed(1) + '° still to sweep to reach New Moon.',     fDB, accent, 21],
+    ['SPACE OR PLAY TO CONTINUE  →',                                    `${f3}px "Courier Prime"`, dim, 19],
+  ] : [
+    ['DAY 29.5 — SYNODIC MONTH COMPLETE',                               `bold ${f1}px "Courier Prime"`, accent, 26],
+    ['Moon has caught the New Moon marker.',                            fD,  body, 24],
+    ['Sidereal 27.3 d  →  Synodic 29.5 d',                              fD,  'rgba(200,230,230,0.9)', 22],
+    ["+2.2 d  =  Earth's " + (W_E * T_SID).toFixed(1) + '° of orbital drift.', fDB, 'rgba(255,200,80,0.9)', 22],
+    ['SPACE OR ↺ RESET TO RESTART',                                     `${f3}px "Courier Prime"`, dim, 19],
+  ];
+
+  let textW = 0, bh = pad * 0.5;
+  lines.forEach(([txt, f, , step]) => {
+    ctx.font = f;
+    textW = Math.max(textW, ctx.measureText(txt).width);
+    bh += step * k;
+  });
+  const bw = Math.min(L.W - 24, textW + pad * 2);
+
+  // Place the box in whichever band has more clearance. On a phone the diagram
+  // is width-limited and sits low, so that's the empty strip above it; on a
+  // wide screen it's the strip below.
+  const e   = earthPos(t, L);
+  const top = Math.min(e.y - L.Rm, L.sy - L.rSun) - 26;   // room for labels above
+  const bot = Math.max(e.y + L.Rm, L.sy + L.rSun) + 30;   // body labels sit below
+  const useTop = (top - 12) > (L.OrbH - bot - 12);
+
+  const bx = L.W > 700 ? 24 : Math.round((L.W - bw) / 2);
+  const by = useTop ? Math.max(12, (top - bh) * 0.5)
+                    : Math.max(12, L.OrbH - bh - 14);
 
   ctx.save();
   ctx.shadowColor = 'rgba(0,0,0,0.7)';
   ctx.shadowBlur  = 26;
   ctx.fillStyle   = 'rgba(8,6,28,0.97)';
-  ctx.strokeStyle = gold ? '#ffc850' : '#3CA3AE';
+  ctx.strokeStyle = accent;
   ctx.lineWidth   = 1.5;
   rRect(bx, by, bw, bh, 12); ctx.fill(); ctx.stroke();
   ctx.shadowBlur = 0;
+
   ctx.textAlign = 'left';
-
-  if (gold) {
-    ctx.font = 'bold 16px "Courier Prime"';
-    ctx.fillStyle = '#ffc850';
-    ctx.fillText('DAY 27.3 — SIDEREAL ORBIT COMPLETE', px, by + 30);
-
-    ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.fillText('Moon back on the ★ line. Earth moved '
-                 + (W_E * T_SID).toFixed(1) + '°.', px, by + 56);
-
-    ctx.font = 'bold 14px "Public Sans"';
-    ctx.fillStyle = '#ffc850';
-    ctx.fillText((360 - syn).toFixed(1) + '° still to sweep to reach New Moon.', px, by + 78);
-
-    ctx.font = '11px "Courier Prime"';
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('SPACE OR PLAY TO CONTINUE  →', px, by + 96);
-  } else {
-    ctx.font = 'bold 16px "Courier Prime"';
-    ctx.fillStyle = '#3CA3AE';
-    ctx.fillText('DAY 29.5 — SYNODIC MONTH COMPLETE', px, by + 30);
-
-    ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.fillText('Moon has caught the New Moon marker.', px, by + 56);
-
-    ctx.font = '14px "Public Sans"';
-    ctx.fillStyle = 'rgba(200,230,230,0.9)';
-    ctx.fillText('Sidereal 27.3 d  →  Synodic 29.5 d', px, by + 80);
-
-    ctx.font = 'bold 14px "Public Sans"';
-    ctx.fillStyle = 'rgba(255,200,80,0.9)';
-    ctx.fillText('+2.2 d  =  Earth\'s ' + (W_E * T_SID).toFixed(1) + '° of orbital drift.', px, by + 102);
-
-    ctx.font = '11px "Courier Prime"';
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fillText('SPACE OR ↺ RESET TO RESTART', px, by + 120);
-  }
+  ctx.textBaseline = 'alphabetic';
+  let cy = by;
+  lines.forEach(([txt, f, col, step]) => {
+    cy += step * k;
+    ctx.font = f; ctx.fillStyle = col;
+    ctx.fillText(txt, bx + pad, cy);
+  });
   ctx.restore();
 }
 
