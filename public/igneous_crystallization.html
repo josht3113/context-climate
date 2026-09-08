@@ -7,502 +7,1277 @@
 <title>Igneous Crystallization Simulator</title>
 <style>
   /* Tool-specific layout only — shared chrome (colors, type, buttons,
-     panels, gauges, tags) lives in core-sample-tools.css */
-  :root { --tool-accent: var(--accent-earth); } /* Earth & Space section */
+     panels, gauges, tags) lives in core-sample-tools.css.
+     CONTENT colors below (mineral palettes, incandescence ramp) encode
+     real meaning and are deliberately tool-local. */
+  :root {
+    --tool-accent: var(--accent-earth);
+    --scope: 456px;
+  }
 
   body { display: flex; flex-direction: column; align-items: center; }
 
   .cc-eyebrow, .cc-title { text-align: center; }
   .cc-eyebrow { margin-bottom: 10px; }
-  .cc-title { margin-bottom: 22px; }
+  .cc-title { margin-bottom: 20px; }
 
-  #desc { max-width: 600px; margin: 0 auto 20px; min-height: 20px; text-align: center; }
+  /* ── Three-column instrument layout ──────────────────────────────── */
+  .rig {
+    display: grid;
+    grid-template-columns: 310px var(--scope) 246px;
+    gap: 20px;
+    align-items: start;
+    max-width: 1092px;
+  }
+  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
-  .viz-row { display: flex; gap: 14px; align-items: stretch; justify-content: center; }
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 12px 13px 13px;
+  }
+  .card-h {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--color-text-muted);
+    margin: 0 0 9px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  }
+  .card-h em { font-style: normal; color: var(--color-text-secondary); letter-spacing: .04em; text-transform: none; }
 
-  #cv { width: min(500px, calc(100vw - 80px)); aspect-ratio: 1; flex-shrink: 0; }
+  /* ── ESSRT p.14 rock chart (the control surface) ──────────────────── */
+  .chart { display: grid; grid-template-columns: 63px repeat(4, 1fr); gap: 3px; }
+  .ch-corner { }
+  .ch-col {
+    font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--color-text-muted);
+    text-align: center; line-height: 1.15; padding-bottom: 3px; align-self: end;
+  }
+  .ch-row {
+    font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0;
+    color: var(--color-text-muted); text-align: right; padding-right: 5px;
+    display: flex; flex-direction: column; justify-content: center; line-height: 1.2;
+  }
+  .ch-row b { font-family: var(--font-body); font-weight: 600; color: var(--color-text-secondary); font-size: 10.5px; letter-spacing: -.01em; }
+  .cell {
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-secondary);
+    font-family: var(--font-body); font-size: 9.8px; font-weight: 500; line-height: 1.2;
+    padding: 6px 1px; min-height: 44px; cursor: pointer; text-align: center;
+    letter-spacing: -.01em; hyphens: none;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .14s ease, color .14s ease, background .14s ease;
+  }
+  .cell:hover:not(.dead) { border-color: var(--color-border-hover); color: var(--color-text-primary); }
+  .cell.on { border-color: var(--tool-accent); background: rgba(60,163,174,.15); color: var(--color-text-primary); font-weight: 600; }
+  .cell.dead { background: transparent; border-color: transparent; color: rgba(148,143,130,.4); cursor: default; }
+  .cell:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 1px; }
 
-  .gauge-col { display: flex; flex-direction: column; align-items: center; width: 40px; gap: 4px; }
-  .gauge-col .cc-gauge-track { width: 12px; }
-  #tf-track { flex: 1; }
-  #df-track { height: 100px; }
+  .grad {
+    display: grid; grid-template-columns: 63px 1fr; gap: 0 5px;
+    margin-top: 7px; font-family: var(--font-mono); font-size: 9px;
+    letter-spacing: .05em; color: var(--color-text-muted); text-transform: uppercase;
+  }
+  .grad-bar { height: 4px; border-radius: 2px; background: linear-gradient(to right,#C9C3B4,#9E9C90,#5E6656,#3A4436); }
+  .grad-ends { display: flex; justify-content: space-between; padding-top: 2px; }
 
-  .cc-reveal { margin-top: 26px; text-align: center; }
+  /* ── Composition properties ───────────────────────────────────────── */
+  .props { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .prop { background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 6px 9px; }
+  .prop-l { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--color-text-muted); }
+  .prop-v { font-family: var(--font-mono); font-size: 16px; color: var(--color-text-primary); line-height: 1.25; }
+  .prop-v small { font-size: 10px; color: var(--color-text-muted); }
 
-  .replay-wrap { text-align: center; margin-top: 14px; }
+  /* ── Microscope aperture ──────────────────────────────────────────── */
+  .scope-wrap { position: relative; width: var(--scope); height: var(--scope); }
+  .scope {
+    position: absolute; inset: 0; border-radius: 50%; overflow: hidden;
+    background: #12140F;
+    box-shadow: inset 0 0 0 1px rgba(232,228,217,.20),
+                inset 0 0 44px rgba(0,0,0,.62),
+                0 14px 44px rgba(0,0,0,.42);
+  }
+  .scope canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+  #ov { pointer-events: none; }
+  .scope-ring {
+    position: absolute; inset: -7px; border-radius: 50%; pointer-events: none;
+    border: 1px solid rgba(232,228,217,.10);
+    background: conic-gradient(from 210deg, rgba(232,228,217,.055), transparent 28%, transparent 68%, rgba(232,228,217,.035));
+  }
+  .scope-wrap.busy .scope { filter: saturate(.35) brightness(.75); }
 
-  @media (max-width: 560px) {
-    .viz-row { flex-direction: column; align-items: center; gap: 20px; }
-    #tf-track { flex: none; height: 70px; }
-    #df-track { height: 70px; }
+
+  .sbar {
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: 30px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    pointer-events: none;
+    background: rgba(10,12,9,.58); padding: 6px 13px 5px; border-radius: var(--radius-md);
+    backdrop-filter: blur(2px);
+  }
+  .sbar-fov { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: rgba(232,228,217,.62); line-height: 1; }
+  .sbar-line { height: 3px; background: #E8E4D9; border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.5); }
+  .sbar-txt { font-family: var(--font-mono); font-size: 11px; color: #E8E4D9; letter-spacing: .06em; line-height: 1; }
+
+  .tip {
+    position: absolute; z-index: 5; pointer-events: none; opacity: 0;
+    transform: translate(-50%, -100%); transition: opacity .12s ease;
+    background: rgba(18,20,15,.94); border: 1px solid var(--color-border-hover);
+    border-radius: var(--radius-md); padding: 5px 9px 6px; white-space: nowrap;
+  }
+  .tip.on { opacity: 1; }
+  .tip-n { font-family: var(--font-body); font-size: 12.5px; font-weight: 600; color: var(--color-text-primary); display: flex; align-items: center; gap: 6px; }
+  .tip-d { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .tip-m { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-muted); letter-spacing: .04em; }
+
+  .busy-txt {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    color: rgba(60,163,174,.85); pointer-events: none;
+  }
+  .scope-wrap.busy .busy-txt { display: flex; }
+
+  /* ── Transport ────────────────────────────────────────────────────── */
+  .transport { display: flex; align-items: center; gap: 10px; }
+  .tbtn {
+    width: 34px; height: 34px; flex-shrink: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center; font-size: 13px;
+  }
+  input[type=range].scrub {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 22px; background: transparent; cursor: pointer; margin: 0;
+  }
+  input[type=range].scrub::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: var(--color-surface-2); border: 1px solid var(--color-border); }
+  input[type=range].scrub::-moz-range-track { height: 5px; border-radius: 3px; background: var(--color-surface-2); border: 1px solid var(--color-border); }
+  input[type=range].scrub::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--tool-accent); border: 2px solid var(--color-bg); margin-top: -6px; }
+  input[type=range].scrub::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--tool-accent); border: 2px solid var(--color-bg); }
+  input[type=range].scrub:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; border-radius: 4px; }
+
+  .viewrow .cc-segmented-btn { padding: 9px 15px; }
+  .viewrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stats .cc-stat-chip { padding: 7px 10px; gap: 0; }
+  .stats .cc-stat-label { font-size: 9.5px; letter-spacing: .09em; }
+  .stat-n { font-family: var(--font-mono); font-size: 15px; color: var(--color-text-primary); line-height: 1.35; white-space: nowrap; }
+
+  /* ── Bowen temperature axis ───────────────────────────────────────── */
+  .bow { position: relative; height: 392px; margin: 2px 0 0; }
+  .bow-rail {
+    position: absolute; left: 30px; top: 0; bottom: 0; width: 2px;
+    background: linear-gradient(to bottom,#F5C24A,#F08B1E,#D8480C,#7E1E06,#2C1A14);
+    border-radius: 1px;
+  }
+  .bow-tick { position: absolute; left: 0; width: 26px; text-align: right; font-family: var(--font-mono); font-size: 9px; color: rgba(148,143,130,.62); transform: translateY(-50%); }
+  .bow-line { position: absolute; left: 22px; right: 0; height: 0; border-top: 1px dashed rgba(232,228,217,.5); transform: translateY(-0.5px); transition: top .09s linear; }
+  .bow-line span {
+    position: absolute; right: 0; top: -8px; font-family: var(--font-mono); font-size: 11px;
+    color: var(--color-bg); background: var(--tool-accent); padding: 0 5px; border-radius: 2px; line-height: 16px; font-weight: 700;
+  }
+  .mrow {
+    position: absolute; left: 38px; right: 0; display: flex; align-items: center; gap: 6px;
+    transform: translateY(-50%); opacity: .38;
+    transition: opacity .3s ease, background .3s ease;
+    padding: 2px 5px; border-radius: var(--radius-sm); border: 1px solid transparent;
+  }
+  .mrow.on { opacity: 1; border-color: rgba(232,228,217,.14); background: var(--color-surface-2); }
+  .mrow.now { border-color: var(--tool-accent); }
+  .mdot { width: 11px; height: 11px; border-radius: 2px; flex-shrink: 0; border: 1px solid rgba(0,0,0,.45); }
+  .mnm { font-family: var(--font-body); font-size: 11.5px; color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mtc { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-muted); }
+  .mpc { font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-secondary); min-width: 28px; text-align: right; }
+  .mlead { position: absolute; left: 26px; width: 10px; height: 1px; background: rgba(232,228,217,.42); transform: translateY(-0.5px); }
+
+  /* ── Result + shelf ───────────────────────────────────────────────── */
+  .out { max-width: 1120px; width: 100%; margin-top: 22px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+  .rock-h { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .rock-n { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.05; color: var(--color-text-primary); }
+  .rock-t { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--tool-accent); }
+  .rock-s { font-family: var(--font-body); font-size: 13.5px; color: var(--color-text-secondary); }
+  .rock-tags { margin-top: 11px; display: flex; gap: 7px; flex-wrap: wrap; }
+
+  .shelf { display: flex; gap: 9px; flex-wrap: wrap; align-items: flex-start; min-height: 74px; }
+  .spec { background: none; border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 5px; cursor: pointer; width: 76px; transition: border-color .14s ease; }
+  .spec:hover { border-color: var(--tool-accent); }
+  .spec img { display: block; width: 64px; height: 64px; border-radius: 50%; }
+  .spec span { display: block; font-family: var(--font-mono); font-size: 8.5px; color: var(--color-text-secondary); text-align: center; line-height: 1.2; margin-top: 4px; letter-spacing: .02em; }
+  .shelf-empty { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); letter-spacing: .05em; align-self: center; }
+
+  .foot { margin-top: 20px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+
+  /* ── Narrow layout ────────────────────────────────────────────────── */
+  @media (max-width: 1100px) {
+    :root { --scope: 440px; }
+    .rig { grid-template-columns: 250px var(--scope); grid-template-areas: "l m" "r r"; }
+    .col-l { grid-area: l; } .col-m { grid-area: m; } .col-r { grid-area: r; }
+    .bow { height: 300px; }
+    .out { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 780px) {
+    body { padding: 24px 12px 40px; }
+    :root { --scope: min(400px, calc(100vw - 44px)); }
+    .rig { grid-template-columns: minmax(0, var(--scope)); grid-template-areas: "l" "m" "r"; justify-content: center; }
+    .stats { grid-template-columns: 1fr 1fr; }
+    .cc-title { font-size: 26px; }
   }
 </style>
 </head>
 <body>
 
-<p class="cc-eyebrow">Cooling rate → crystal texture → rock type</p>
+<p class="cc-eyebrow">Cooling rate × composition → texture → rock</p>
 <h1 class="cc-title">Igneous Crystallization</h1>
 
-<div class="cc-btn-row" style="margin-bottom:10px;">
-  <button class="cc-btn" data-k="slow">① Deep intrusive</button>
-  <button class="cc-btn" data-k="fast">② Surface lava flow</button>
-  <button class="cc-btn" data-k="glassy">③ Explosive eruption</button>
-  <button class="cc-btn" data-k="porphyritic">④ Porphyritic</button>
-</div>
+<div class="rig">
 
-<div class="cc-btn-row" style="margin-bottom:20px;">
-  <span class="cc-btn-row-label">Composition:</span>
-  <button class="cc-btn on" data-c="felsic">Felsic — granitic</button>
-  <button class="cc-btn" data-c="mafic">Mafic — basaltic</button>
-</div>
-
-<p id="desc" class="cc-subtitle">Select a cooling environment above</p>
-
-<div class="viz-row">
-  <canvas id="cv" class="cc-canvas-frame" width="420" height="420"></canvas>
-
-  <div class="gauge-col">
-    <div class="cc-gauge-label">temp</div>
-    <div class="cc-gauge-track" id="tf-track">
-      <div id="tf" class="cc-gauge-fill" style="background:linear-gradient(to top,#c82800,#e86000,#f5a200);transition:height 90ms linear"></div>
+  <!-- ── LEFT: the chart ─────────────────────────────────────────── -->
+  <div class="col col-l">
+    <div class="card">
+      <p class="card-h">Igneous rock chart <em id="cellName">—</em></p>
+      <div class="chart" id="chart"></div>
+      <div class="grad">
+        <div></div>
+        <div>
+          <div class="grad-bar"></div>
+          <div class="grad-ends"><span>light</span><span>dark</span></div>
+        </div>
+      </div>
     </div>
-    <div id="tr" class="cc-gauge-value">—</div>
 
-    <div class="cc-gauge-divider"></div>
-
-    <div class="cc-gauge-label">depth</div>
-    <div class="cc-gauge-track" id="df-track">
-      <div id="df" class="cc-gauge-fill" style="background:linear-gradient(to top,#3a2010,#7a5030);transition:height 180ms ease-out"></div>
+    <div class="card">
+      <p class="card-h">Composition <em id="compName">—</em></p>
+      <div class="props">
+        <div class="prop"><div class="prop-l">Density</div><div class="prop-v" id="pDens">—<small> g/cm³</small></div></div>
+        <div class="prop"><div class="prop-l">Colour index</div><div class="prop-v" id="pCidx">—<small>% dark</small></div></div>
+        <div class="prop"><div class="prop-l">Liquidus</div><div class="prop-v" id="pT0">—<small> °C</small></div></div>
+        <div class="prop"><div class="prop-l">Solidus</div><div class="prop-v" id="pT1">—<small> °C</small></div></div>
+      </div>
     </div>
-    <div id="dr" class="cc-gauge-value">—</div>
+  </div>
+
+  <!-- ── MIDDLE: the specimen ────────────────────────────────────── -->
+  <div class="col col-m">
+    <div class="scope-wrap" id="scopeWrap">
+      <div class="scope">
+        <canvas id="cv" width="480" height="480"></canvas>
+        <canvas id="ov" width="480" height="480"></canvas>
+      </div>
+      <div class="scope-ring"></div>
+      <div class="sbar" id="sbar"><div class="sbar-line" id="sbarLine"></div><div class="sbar-txt" id="sbarTxt"></div><div class="sbar-fov" id="apLbl"></div></div>
+      <div class="busy-txt">Sectioning specimen…</div>
+      <div class="tip" id="tip"><div class="tip-n"><span class="tip-d" id="tipDot"></span><span id="tipName"></span></div><div class="tip-m" id="tipMeta"></div></div>
+    </div>
+
+    <div class="transport">
+      <button class="cc-btn tbtn" id="play" aria-label="Play or pause">❚❚</button>
+      <input type="range" class="scrub" id="scrub" min="0" max="1000" value="0" aria-label="Crystallization progress">
+      <button class="cc-btn tbtn" id="replay" aria-label="Replay from start">↺</button>
+    </div>
+
+    <div class="viewrow">
+      <div class="cc-segmented" id="lightSeg">
+        <button class="cc-segmented-btn on" data-light="ppl">Plane light</button>
+        <button class="cc-segmented-btn" data-light="xpl">Crossed polars</button>
+      </div>
+      <div class="cc-segmented" id="scaleSeg">
+        <button class="cc-segmented-btn on" data-scale="grain">Grain scale</button>
+        <button class="cc-segmented-btn" data-scale="hand">Hand sample</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="cc-stat-chip"><span class="cc-stat-label">Temp</span><span class="stat-n" id="sTemp">—</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Depth</span><span class="stat-n" id="sDepth">—</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Elapsed</span><span class="stat-n" id="sTime">—</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Crystals</span><span class="stat-n" id="sSolid">—</span></div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: Bowen's series ───────────────────────────────────── -->
+  <div class="col col-r">
+    <div class="card">
+      <p class="card-h">Crystallization order <em>Bowen</em></p>
+      <div class="bow" id="bow">
+        <div class="bow-rail"></div>
+        <div class="bow-line" id="bowLine" style="top:0"><span id="bowT">—</span></div>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="cc-reveal" id="res">
-  <div class="cc-stat-value" id="tex" style="margin-bottom:4px;"></div>
-  <div class="cc-stat-label" id="rks" style="margin-bottom:10px;"></div>
-  <div class="cc-stat-note" id="nt" style="margin-bottom:14px;"></div>
-  <div class="cc-tag">ESSRT p. 14 — Bowen's Reaction Series</div>
+<!-- ── Result + shelf ────────────────────────────────────────────── -->
+<div class="out">
+  <div class="card cc-reveal" id="res">
+    <div class="rock-h"><span class="rock-n" id="rockN">—</span><span class="rock-t" id="rockT"></span></div>
+    <div class="rock-s" id="rockS"></div>
+    <div class="rock-tags">
+      <span class="cc-tag" id="tagGrain"></span>
+      <span class="cc-tag" id="tagEnv"></span>
+    </div>
+  </div>
+  <div class="card">
+    <p class="card-h">Specimen shelf <em>click to reload</em></p>
+    <div class="shelf" id="shelf"><span class="shelf-empty">Completed runs collect here for comparison</span></div>
+  </div>
 </div>
 
-<div class="replay-wrap">
-  <button id="rp" class="cc-btn" style="display:none">↺ Replay</button>
+<div class="foot">
+  <span class="cc-tag">ESSRT p. 14 — Bowen's Reaction Series</span>
+  <span class="cc-tag">ESSRT p. 14 — Mineral Composition of Igneous Rocks</span>
 </div>
 
 <script>
-var cv=document.getElementById('cv'),cx=cv.getContext('2d');
-var W=cv.width,H=cv.height;
-var token=0,cur=null,comp='felsic';
+'use strict';
 
-// ── Stage configs ──────────────────────────────────────────────────────────
-var SC={
-  slow:        {dur:13000,fast:false,desc:'Magma cooling slowly over millions of years, kilometers underground',                                       tex:'Phaneritic',  rks:'Granite · Gabbro · Diorite',                            nt:'Crystal size: several mm to cm — visible to the naked eye',                                                               t0:900, t1:620,depth:15},
-  fast:        {dur:4000,fast:true, desc:"Lava cooling rapidly over days to weeks at Earth's surface",                                               tex:'Aphanitic',   rks:'Basalt · Rhyolite · Andesite',                          nt:'Crystal size: < 1mm — requires magnification to see',                                                                     t0:1100,t1:760,depth:0},
-  glassy:      {dur:1800,fast:false,desc:'Magma quenched almost instantly — no time for crystal structure to form',                                   tex:'Glassy',      rks:'Obsidian · Pumice · Scoria',                             nt:'No crystalline structure — amorphous solid glass',                                                                        t0:1200,t1:680,depth:0},
-  porphyritic: {dur:9000,fast:false,desc:'Slow underground cooling builds large phenocrysts — then eruption causes rapid groundmass crystallization', tex:'Porphyritic', rks:'Porphyry · Porphyritic basalt · Porphyritic rhyolite',   nt:'Large phenocrysts (slow cooling) within fine-grained groundmass (fast cooling) — evidence of two-stage cooling history',  t0:1200,t1:620}
+/* ═══════════════════════════════════════════════════════════════════════
+   DATA
+   Mineral percentages, densities and colour index read from the ESSRT
+   p.14 "Mineral Composition of Igneous Rocks" graph. Crystallization
+   temperatures are representative values for each melt, ordered by
+   Bowen's Reaction Series (also ESSRT p.14).
+   ═══════════════════════════════════════════════════════════════════ */
+
+var MIN = {
+  olivine:   {n:'Olivine',       col:[108,128,66],  ar:1.5,  fx:'plain', xpl:[[228,124,178],[152,224,142],[244,220,116]]},
+  pyroxene:  {n:'Pyroxene',      col:[56,66,50],    ar:1.7,  fx:'cleav', xpl:[[118,176,208],[166,208,150],[208,168,192]]},
+  plag:      {n:'Plagioclase',   col:[206,206,203], ar:2.2,  fx:'twin',  xpl:[[190,192,198],[126,128,134],[218,220,224]]},
+  amphibole: {n:'Amphibole',     col:[38,42,45],    ar:2.4,  fx:'cleav', xpl:[[92,154,174],[118,182,144],[164,172,192]]},
+  biotite:   {n:'Biotite',       col:[54,38,24],    ar:2.4,  fx:'mica',  xpl:[[148,96,46],[182,130,60],[110,72,36]]},
+  kFeld:     {n:'K-feldspar',    col:[206,158,140], ar:1.5,  fx:'perth', xpl:[[170,166,162],[136,134,132],[194,190,184]]},
+  muscovite: {n:'Muscovite',     col:[204,202,192], ar:2.4,  fx:'mica',  xpl:[[222,146,192],[150,218,192],[232,212,134]]},
+  quartz:    {n:'Quartz',        col:[142,144,146], ar:1.15, fx:'quartz',xpl:[[202,202,198],[166,166,164],[224,224,220]]}
 };
 
-// ── Mineral color palettes ─────────────────────────────────────────────────
-var MC={
-  olivine:  [[84,110,44],[92,120,50],[78,102,40],[98,128,56],[74,96,36]],
-  pyroxene: [[38,54,28],[44,60,34],[32,46,22],[50,66,38],[36,52,26]],
-  caPlag:   [[208,210,215],[215,217,222],[201,203,208],[219,221,226],[206,208,213]],
-  naPlag:   [[204,204,207],[211,211,214],[198,198,201],[217,217,220],[207,207,210]],
-  amphibole:[[24,26,33],[30,32,39],[20,21,28],[36,38,45],[22,23,30]],
-  biotite:  [[52,38,23],[62,46,28],[44,32,18],[68,50,30],[56,42,24]],
-  kFeld:    [[212,150,130],[222,158,138],[204,142,122],[230,164,144],[216,154,133]],
-  muscovite:[[200,198,188],[210,208,198],[192,190,180],[216,214,204],[204,202,192]],
-  quartz:   [[104,111,121],[114,121,131],[97,104,114],[121,129,139],[109,116,126]]
-};
+var COMPS = [
+  { key:'felsic', n:'Felsic', sub:'granitic', dens:2.7, T0:930, T1:640,
+    mins:[ {k:'amphibole',pct:15,T:890,sz:0.60},{k:'plag',pct:12,T:845,sz:1.00,col:[214,212,206]},{k:'biotite',pct:13,T:800,sz:0.62},
+           {k:'kFeld',pct:32,T:730,sz:1.38},{k:'quartz',pct:28,T:665,sz:1.05} ] },
+  { key:'intermediate', n:'Intermediate', sub:'andesitic', dens:2.8, T0:1100, T1:790,
+    mins:[ {k:'plag',pct:40,T:1030,sz:1.18,col:[188,187,184]},{k:'amphibole',pct:37,T:960,sz:0.86},{k:'biotite',pct:13,T:880,sz:0.60},
+           {k:'quartz',pct:5,T:830,sz:0.82},{k:'kFeld',pct:5,T:815,sz:0.85} ] },
+  { key:'mafic', n:'Mafic', sub:'basaltic', dens:3.0, T0:1230, T1:1000,
+    mins:[ {k:'olivine',pct:8,T:1190,sz:0.88},{k:'plag',pct:47,T:1150,sz:1.04,col:[140,143,149]},{k:'pyroxene',pct:40,T:1110,sz:0.96},
+           {k:'amphibole',pct:5,T:1030,sz:0.72} ] },
+  { key:'ultramafic', n:'Ultramafic', sub:'peridotitic', dens:3.3, T0:1520, T1:1240,
+    mins:[ {k:'olivine',pct:65,T:1480,sz:1.12},{k:'pyroxene',pct:30,T:1340,sz:0.94},{k:'plag',pct:5,T:1270,sz:0.72,col:[138,140,147]} ] }
+];
+var DARK = {olivine:1, pyroxene:1, amphibole:1, biotite:1};
 
-// ── Mineral assemblages per composition ───────────────────────────────────
-var MA={
-  felsic:[
-    {key:'kFeld',    nP:0.20,col:MC.kFeld,    ar:1.6,cnt:36},
-    {key:'naPlag',   nP:0.12,col:MC.naPlag,   ar:2.4,cnt:50},
-    {key:'quartz',   nP:0.48,col:MC.quartz,   ar:1.1,cnt:54},
-    {key:'muscovite',nP:0.34,col:MC.muscovite,ar:3.4,cnt:18},
-    {key:'amphibole',nP:0.03,col:MC.amphibole,ar:4.0,cnt:12}
-  ],
-  mafic:[
-    {key:'pyroxene', nP:0.15,col:MC.pyroxene, ar:1.8,cnt:98},
-    {key:'caPlag',   nP:0.08,col:MC.caPlag,   ar:2.7,cnt:78},
-    {key:'olivine',  nP:0.03,col:MC.olivine,  ar:2.3,cnt:52},
-    {key:'amphibole',nP:0.35,col:MC.amphibole,ar:4.5,cnt:20}
-  ]
-};
+/* Field of view and grain size are real millimetres — the scale bar and
+   the hand-sample lock both read straight off these. */
+var TEX = [
+  { key:'pegmatitic', n:'Pegmatitic', grainMm:24, fovMm:130, dur:15000, depth:9,  secs:6.3e13,
+    grain:'> 10 mm', env:'Very slow cooling in a water-rich residual melt' },
+  { key:'phaneritic', n:'Phaneritic', grainMm:4.0, fovMm:40, dur:12000, depth:15, secs:1.9e13,
+    grain:'1–10 mm', env:'Slow cooling deep underground' },
+  { key:'porphyritic', n:'Porphyritic', grainMm:0.55, fovMm:26, dur:12000, depth:12, secs:7.9e12,
+    grain:'two sizes', env:'Slow at depth, then erupted and chilled', two:true, phenoMm:6.5 },
+  { key:'aphanitic', n:'Aphanitic', grainMm:0.3, fovMm:4, dur:5200, depth:0, secs:7.8e5,
+    grain:'< 1 mm', env:'Rapid cooling at the surface' },
+  { key:'vesicular', n:'Vesicular', grainMm:0.28, fovMm:40, dur:4000, depth:0, secs:2.2e4,
+    grain:'< 1 mm + cavities', env:'Gas escaping from erupting lava', ves:true },
+  { key:'glassy', n:'Glassy', grainMm:0, fovMm:40, dur:2400, depth:0, secs:90,
+    grain:'none', env:'Quenched too fast for crystals to form', glass:true }
+];
 
-// ── Utilities ──────────────────────────────────────────────────────────────
-function rng(seed){var s=seed>>>0;return function(){s=(Math.imul(s,1664525)+1013904223)>>>0;return s/4294967296;};}
-function hashStr(k){var h=5381;for(var i=0;i<k.length;i++)h=((h<<5)+h+k.charCodeAt(i))&0x7fffffff;return h+1;}
+/* rock[textureIndex][compIndex] — null means the combination is not on
+   the chart (ultramafic magma effectively never reaches the surface). */
+var ROCK = [
+  ['Pegmatite',           'Pegmatite',             'Pegmatite',         null],
+  ['Granite',             'Diorite',               'Gabbro',            'Peridotite'],
+  ['Porphyritic rhyolite','Porphyritic andesite',  'Porphyritic basalt',null],
+  ['Rhyolite',            'Andesite',              'Basalt',            null],
+  ['Pumice',              'Vesicular andesite',    'Scoria',            null],
+  ['Obsidian',            null,                    null,                null]
+];
 
-// Scale mineral counts to reach a target seed total; optionally cap aspect ratio for aphanitic mode
-function scaledMinerals(c,target,arMax){
-  var base=MA[c],tot=base.reduce(function(s,m){return s+m.cnt;},0),sc=target/tot;
-  return base.map(function(m){return {key:m.key,nP:m.nP,col:m.col,ar:arMax?Math.min(arMax,m.ar):m.ar,cnt:Math.max(1,Math.round(m.cnt*sc))};});
-}
+var W = 480, H = 480, NPX = W * H;
+var AR_CAP = 2.55;
+var SEED_CAP = 6200;
 
-// ── Anisotropic Voronoi + per-mineral data (slow / fast modes) ────────────
-var SD={};
-function buildMineralData(cacheKey,mnList){
-  if(SD[cacheKey])return SD[cacheKey];
-  var rand=rng(hashStr(cacheKey));
-  var total=mnList.reduce(function(s,m){return s+m.cnt;},0);
-  var sX=new Float32Array(total),sY=new Float32Array(total);
-  var sCos=new Float32Array(total),sSin=new Float32Array(total);
-  var sAx=new Float32Array(total),sNP=new Float32Array(total);
-  var sR=new Uint8Array(total),sG=new Uint8Array(total),sB=new Uint8Array(total);
-  var sMKey=[];
-  var si=0;
-  for(var m=0;m<mnList.length;m++){
-    var mn=mnList[m];
-    for(var gi=0;gi<mn.cnt;gi++){
-      var c=mn.col[Math.floor(rand()*mn.col.length)],nz=(rand()-.5)*28;
-      var theta=rand()*Math.PI,axV=mn.ar+(rand()-.5)*.45;
-      sX[si]=rand()*W;sY[si]=rand()*H;
-      sCos[si]=Math.cos(theta);sSin[si]=Math.sin(theta);
-      sAx[si]=axV;sNP[si]=Math.max(0.01,Math.min(0.80,mn.nP+(rand()-.5)*.15));
-      sR[si]=Math.min(255,Math.max(0,(c[0]+nz)|0));
-      sG[si]=Math.min(255,Math.max(0,(c[1]+nz)|0));
-      sB[si]=Math.min(255,Math.max(0,(c[2]+nz)|0));
-      sMKey[si]=mn.key;si++;
+/* ═══════════════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════════ */
+function rng(seed){ var s = seed >>> 0 || 1; return function(){ s = (Math.imul(s,1664525) + 1013904223) >>> 0; return s / 4294967296; }; }
+function hashStr(k){ var h = 5381; for (var i=0;i<k.length;i++) h = ((h<<5) + h + k.charCodeAt(i)) & 0x7fffffff; return h + 1; }
+function cl(v){ return v < 0 ? 0 : v > 255 ? 255 : v | 0; }
+function rgbCss(c){ return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+
+/* Incandescence — colour of the melt at a real temperature (°C). */
+var GLOW = [[420,40,8,3],[620,132,22,5],[820,204,58,8],[1000,242,100,16],[1200,252,158,52],[1400,255,206,124],[1650,255,238,196]];
+function glowAt(T){
+  if (T <= GLOW[0][0]) return [GLOW[0][1],GLOW[0][2],GLOW[0][3]];
+  for (var i=1;i<GLOW.length;i++){
+    if (T <= GLOW[i][0]){
+      var a = GLOW[i-1], b = GLOW[i], f = (T - a[0]) / (b[0] - a[0]);
+      return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
     }
   }
-  var S=total;
-  var nI=new Int32Array(W*H),nD=new Float32Array(W*H),nA=new Float32Array(W*H),nA2=new Float32Array(W*H);
-  for(var py=0;py<H;py++){
-    for(var px=0;px<W;px++){
-      var idx=py*W+px,bd1=1e9,bd2=1e9,bs=0;
-      for(var s=0;s<S;s++){
-        var dx=px-sX[s],dy=py-sY[s];
-        var rx=dx*sCos[s]+dy*sSin[s],ry=-dx*sSin[s]+dy*sCos[s],iax=1/sAx[s];
-        var dd=(rx*iax)*(rx*iax)+ry*ry;
-        if(dd<bd1){bd2=bd1;bd1=dd;bs=s;}else if(dd<bd2)bd2=dd;
+  return [GLOW[6][1],GLOW[6][2],GLOW[6][3]];
+}
+
+var YR = 3.15576e7;
+function fmtTime(sec){
+  if (sec < 1) return sec.toFixed(2) + ' s';
+  if (sec < 100) return Math.round(sec) + ' s';
+  if (sec < 5400) return (sec/60).toFixed(sec < 600 ? 1 : 0) + ' min';
+  if (sec < 1.9e5) return (sec/3600).toFixed(sec < 3.6e4 ? 1 : 0) + ' h';
+  if (sec < YR*0.6) return (sec/86400).toFixed(sec < 8.64e5 ? 1 : 0) + ' d';
+  var y = sec / YR;
+  if (y < 1e4) return Math.round(y).toLocaleString('en-US') + ' yr';
+  if (y < 1e6) return Math.round(y/1e3).toLocaleString('en-US') + ' kyr';
+  return (y/1e6).toFixed(y < 1e7 ? 2 : 1) + ' Myr';
+}
+var SB_STEPS = [0.1,0.2,0.5,1,2,5,10,20,50,100];
+function scaleBarFor(fovMm){
+  var want = fovMm / 4, best = SB_STEPS[0];
+  for (var i=0;i<SB_STEPS.length;i++) if (SB_STEPS[i] <= want) best = SB_STEPS[i];
+  return best;
+}
+function fmtMm(mm){ return mm >= 10 ? (mm/10) + ' cm' : mm + ' mm'; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VORONOI — grid-accelerated, anisotropic, additively weighted.
+   Weights let a handful of phenocrysts own large territories in the same
+   pass as hundreds of groundmass grains. Cost is per-pixel constant in
+   seed count, so a 6000-grain aphanitic field costs about what a 30-grain
+   granite does.
+   ═══════════════════════════════════════════════════════════════════ */
+function voronoi(sX, sY, sCos, sSin, sAx, sWt, nHeavy, wMaxL){
+  var S = sX.length, L = S - nHeavy;   /* heavy seeds are brute-forced; the
+                                          rest go in the bin grid, so the
+                                          early-exit bound stays tight */
+  var cell = Math.max(4, Math.round(Math.sqrt(W * H / Math.max(1, L))));
+  var gw = Math.ceil(W / cell), gh = Math.ceil(H / cell), NC = gw * gh;
+  var start = new Int32Array(NC + 1), bin = new Int32Array(S);
+  var s, i;
+  for (s=nHeavy;s<S;s++){
+    var gx = Math.min(gw-1, (sX[s]/cell)|0), gy = Math.min(gh-1, (sY[s]/cell)|0);
+    bin[s] = gy*gw + gx; start[bin[s]+1]++;
+  }
+  for (i=0;i<NC;i++) start[i+1] += start[i];
+  var items = new Int32Array(Math.max(1,L)), fill = new Int32Array(NC);
+  for (s=nHeavy;s<S;s++){ var c = bin[s]; items[start[c] + fill[c]++] = s; }
+
+  var own = new Int32Array(NPX), d2a = new Float32Array(NPX), d2b = new Float32Array(NPX), de = new Float32Array(NPX);
+  var maxR = Math.max(gw, gh), ax2 = AR_CAP * AR_CAP;
+
+  for (var py=0; py<H; py++){
+    var cy = Math.min(gh-1, (py/cell)|0);
+    for (var px=0; px<W; px++){
+      var b1 = 1e18, b2 = 1e18, bs = -1, dx, dy, rx, ry, u, dd, q;
+
+      for (q=0; q<nHeavy; q++){
+        dx = px - sX[q]; dy = py - sY[q];
+        rx = dx*sCos[q] + dy*sSin[q]; ry = -dx*sSin[q] + dy*sCos[q];
+        u = rx / sAx[q];
+        dd = u*u + ry*ry - sWt[q];
+        if (dd < b1){ b2 = b1; b1 = dd; bs = q; } else if (dd < b2) b2 = dd;
       }
-      nI[idx]=bs;
-      var ex=px-sX[bs],ey=py-sY[bs];
-      nD[idx]=Math.sqrt(ex*ex+ey*ey);nA[idx]=bd1;nA2[idx]=bd2;
+
+      var cx0 = Math.min(gw-1, (px/cell)|0);
+      for (var r=0; r<=maxR; r++){
+        if (bs >= 0 && r > 0){
+          var rm = (r-1) * cell;
+          if (rm > 0 && rm*rm > ax2 * (b2 + wMaxL)) break;
+        }
+        var y0 = cy-r, y1 = cy+r, x0 = cx0-r, x1 = cx0+r;
+        var gyA = y0 < 0 ? 0 : y0, gyB = y1 > gh-1 ? gh-1 : y1;
+        for (var gy2=gyA; gy2<=gyB; gy2++){
+          var edgeY = (gy2 === y0 || gy2 === y1);
+          var gxA = x0 < 0 ? 0 : x0, gxB = x1 > gw-1 ? gw-1 : x1;
+          for (var gx2=gxA; gx2<=gxB; gx2++){
+            if (!edgeY && gx2 !== x0 && gx2 !== x1) continue;
+            var cc = gy2*gw + gx2, e = start[cc+1];
+            for (var t=start[cc]; t<e; t++){
+              q = items[t];
+              dx = px - sX[q]; dy = py - sY[q];
+              rx = dx*sCos[q] + dy*sSin[q]; ry = -dx*sSin[q] + dy*sCos[q];
+              u = rx / sAx[q];
+              dd = u*u + ry*ry - sWt[q];
+              if (dd < b1){ b2 = b1; b1 = dd; bs = q; }
+              else if (dd < b2) b2 = dd;
+            }
+          }
+        }
+      }
+      if (bs < 0) bs = 0;
+      var ii = py*W + px;
+      own[ii] = bs; d2a[ii] = b1; d2b[ii] = b2 > 1e17 ? b1 + 1e6 : b2;
+      var ex = px - sX[bs], ey = py - sY[bs];
+      de[ii] = Math.sqrt(ex*ex + ey*ey);
     }
   }
-  var maxD=0,maxNP=0;
-  for(var i=0;i<W*H;i++)if(nD[i]>maxD)maxD=nD[i];
-  for(var s=0;s<S;s++)if(sNP[s]>maxNP)maxNP=sNP[s];
-  SD[cacheKey]={sX:sX,sY:sY,sCos:sCos,sSin:sSin,sNP:sNP,sR:sR,sG:sG,sB:sB,sMKey:sMKey,nI:nI,nD:nD,nA:nA,nA2:nA2,gS:maxD/(1-maxNP-.025),S:S};
-  return SD[cacheKey];
+  return {own:own, d1:d2a, d2:d2b, de:de, S:S};
 }
 
-// ── Mineral optical effects (twinning, cleavage, perthite, conchoidal) ────
-function applyMineralFX(r,g,b,mk,i,cx_,cy_,cosA,sinA){
-  var ppx=i%W,ppy=(i/W)|0,dx=ppx-cx_,dy=ppy-cy_;
-  if(mk==='caPlag'||mk==='naPlag'){
-    var perp=dx*sinA-dy*cosA,twin=((((perp/2.6)|0)%2)+2)%2,tw=twin?10:-6;
-    r=Math.min(255,Math.max(0,r+tw));g=Math.min(255,Math.max(0,g+tw));b=Math.min(255,Math.max(0,b+tw));
-  }else if(mk==='biotite'){
-    var perp=dx*sinA-dy*cosA,band=(((perp/3.2)|0)%3+3)%3;
-    if(band===0){r=Math.min(255,r+48);g=Math.min(255,g+30);b=Math.min(255,b+2);}
-    else if(band===2){r=Math.max(0,r-10);g=Math.max(0,g-6);}
-  }else if(mk==='muscovite'){
-    var perp=dx*sinA-dy*cosA,band=(((perp/2.8)|0)%4+4)%4;
-    if(band===0){r=Math.min(255,r+35);g=Math.min(255,g+35);b=Math.min(255,b+35);}
-    else if(band===1){r=Math.max(0,r-14);g=Math.max(0,g-14);b=Math.max(0,b-14);}
-  }else if(mk==='kFeld'){
-    var perp=dx*sinA-dy*cosA,para=dx*cosA+dy*sinA;
-    var lam=(((perp*.38+para*.05)/4.5)|0)%3,lp=(lam%3+3)%3;
-    if(lp===0){r=Math.min(255,r+18);g=Math.min(255,g+10);b=Math.min(255,b+8);}
-    else if(lp===2){r=Math.max(0,r-12);g=Math.max(0,g-5);b=Math.min(255,b+10);}
-  }else if(mk==='quartz'){
-    var q1=((ppx*31+ppy*17+(ppx^(ppy*7)))&0xff)-128;
-    var q2=((ppx*53+ppy*41+(ppy^(ppx*11)))&0xff)-128;
-    var qn=(q1+q2)*.038;
-    r=Math.min(255,Math.max(0,(r+qn)|0));
-    g=Math.min(255,Math.max(0,(g+qn)|0));
-    b=Math.min(255,Math.max(0,(b+qn*1.15)|0));
-  }
-  return [r,g,b];
-}
+/* ═══════════════════════════════════════════════════════════════════════
+   FIELD BUILD — seeds, crystallization thresholds, and the two colour
+   buffers (plane light / crossed polars), all precomputed once so that
+   scrubbing the timeline is a threshold test per pixel.
+   ═══════════════════════════════════════════════════════════════════ */
 
-// ── Pixel render pass (anisotropic Voronoi + mineral shaders) ─────────────
-function renderMinerals(st,p){
-  var img=cx.createImageData(W,H),d=img.data;
-  var sX=st.sX,sY=st.sY,sCos=st.sCos,sSin=st.sSin,sNP=st.sNP;
-  var sR=st.sR,sG=st.sG,sB=st.sB,sMKey=st.sMKey;
-  var nI=st.nI,nD=st.nD,nA=st.nA,nA2=st.nA2,gS=st.gS;
-  for(var i=0;i<W*H;i++){
-    var si=nI[i],nP=sNP[si],crysT=nP+nD[i]/gS,bi=i*4;
-    if(p>=crysT){
-      var bf=(nA2[i]>0&&nA[i]/nA2[i]>0.70)?0.54:1.0;
-      var rgb=applyMineralFX(sR[si],sG[si],sB[si],sMKey[si],i,sX[si],sY[si],sCos[si],sSin[si]);
-      var nz=((i*73+17)&0xff)*.013-.85;
-      d[bi  ]=Math.min(255,Math.max(0,(rgb[0]*bf+nz)|0));
-      d[bi+1]=Math.min(255,Math.max(0,(rgb[1]*bf+nz)|0));
-      d[bi+2]=Math.min(255,Math.max(0,(rgb[2]*bf+nz)|0));
-    }else{
-      var glow=(nP<=p)?Math.max(0,1-(crysT-p)*gS*.062):0,heat=1-p*.68;
-      var nzM=((i*97+31)&0xff)*.065-3.2;
-      d[bi  ]=Math.min(255,Math.max(0,(192+heat*56+glow*62+nzM)|0));
-      d[bi+1]=Math.min(255,Math.max(0,(50+heat*28+glow*30+nzM*.28)|0));
-      d[bi+2]=Math.min(255,Math.max(0,(5+glow*7)|0));
+var MOTT = null;
+function buildMottle(){
+  if (MOTT) return MOTT;
+  MOTT = new Float32Array(NPX);
+  var CS = 9, gw = Math.ceil(W/CS) + 2, gh = Math.ceil(H/CS) + 2;
+  var lat = new Float32Array(gw*gh), rd = rng(20260908);
+  for (var i=0;i<lat.length;i++) lat[i] = rd() - 0.5;
+  for (var y=0;y<H;y++){
+    var fy = y/CS, iy = fy|0, ty = fy-iy, sy = ty*ty*(3-2*ty);
+    for (var x=0;x<W;x++){
+      var fx = x/CS, ix = fx|0, tx = fx-ix, sx = tx*tx*(3-2*tx);
+      var a = lat[iy*gw+ix],     b = lat[iy*gw+ix+1];
+      var c = lat[(iy+1)*gw+ix], d = lat[(iy+1)*gw+ix+1];
+      MOTT[y*W+x] = (a + (b-a)*sx) * (1-sy) + (c + (d-c)*sx) * sy;
     }
-    d[bi+3]=255;
   }
-  cx.putImageData(img,0,0);
+  return MOTT;
 }
 
-// ── Isotropic Voronoi (porphyritic phenocryst territory) ──────────────────
-function buildVoronoi(pts){
-  var N=pts.length,own=new Int32Array(W*H),dst=new Float32Array(W*H),mxD=new Float32Array(N);
-  for(var y=0;y<H;y++)for(var x=0;x<W;x++){
-    var md=1e12,best=0;
-    for(var i=0;i<N;i++){var dx=x-pts[i].x,dy=y-pts[i].y,d2=dx*dx+dy*dy;if(d2<md){md=d2;best=i;}}
-    var ii=y*W+x;own[ii]=best;dst[ii]=Math.sqrt(md);if(dst[ii]>mxD[best])mxD[best]=dst[ii];
-  }
-  var norm=new Float32Array(W*H);
-  for(var i=0;i<W*H;i++)norm[i]=dst[i]/mxD[own[i]];
-  var bnd=new Uint8Array(W*H);
-  for(var y=1;y<H-1;y++)for(var x=1;x<W-1;x++){
-    var ii=y*W+x,c=own[ii];
-    if(own[ii-1]!==c||own[ii+1]!==c||own[ii-W]!==c||own[ii+W]!==c)bnd[ii]=1;
-  }
-  return {own:own,norm:norm,bnd:bnd};
+function mcol(compI, k){
+  var C = COMPS[compI];
+  for (var i=0;i<C.mins.length;i++) if (C.mins[i].k === k) return C.mins[i].col || MIN[k].col;
+  return MIN[k].col;
 }
 
-// ── Gauge helpers ──────────────────────────────────────────────────────────
-function setTemp(raw,sc){
-  var t=Math.round(sc.t0-(sc.t0-sc.t1)*raw),pct=(t-400)/(1400-400)*100;
-  document.getElementById('tf').style.height=Math.max(0,pct)+'%';
-  document.getElementById('tr').innerHTML=t+'<br>°C';
-}
-function setDepth(km){
-  document.getElementById('df').style.height=Math.min(km/15,1)*100+'%';
-  document.getElementById('dr').innerHTML=km+'<br>km';
-}
-function showResult(sc){
-  document.getElementById('tex').textContent=sc.tex;
-  document.getElementById('rks').textContent=sc.rks;
-  document.getElementById('nt').textContent=sc.nt;
-  document.getElementById('res').classList.add('on');
-  document.getElementById('rp').style.display='inline-block';
-}
-function showBuilding(){
-  cx.fillStyle='#1E2320';cx.fillRect(0,0,W,H);
-  cx.fillStyle='rgba(60,163,174,.6)';cx.font='13px "Courier Prime",monospace';
-  cx.textAlign='center';cx.textBaseline='middle';
-  cx.fillText('Building crystals\u2026',W/2,H/2);
-}
+var EZK = 2.4, EZD = 1 - Math.exp(-EZK);
+function ez(p){ p = p < 0 ? 0 : p > 1 ? 1 : p; return (1 - Math.exp(-EZK*p)) / EZD; }
+function ezI(u){ u = u < 0 ? 0 : u > 1 ? 1 : u; return -Math.log(1 - u*EZD) / EZK; }
 
-// ── Slow / Fast crystallization (anisotropic Voronoi + mineral shaders) ───
-function runCrystal(key,tk){
-  var sc=SC[key];
-  // Slow: few seeds = large phaneritic grains visible to the naked eye; Fast: many small aphanitic grains
-  var target=sc.fast?350:20,arMax=sc.fast?1.4:null;
-  var mnList=scaledMinerals(comp,target,arMax);
-  var cacheKey=key+'_'+comp;
-  setDepth('depth' in sc?sc.depth:0);
-  showBuilding();
-  // Double rAF lets the browser paint "Building crystals…" before the blocking Voronoi compute
-  requestAnimationFrame(function(){requestAnimationFrame(function(){
-    if(token!==tk)return;
-    var st=buildMineralData(cacheKey,mnList);
-    if(token!==tk)return;
-    var t0=performance.now(),dur=sc.dur;
-    function frm(now){
-      if(token!==tk)return;
-      var raw=Math.min((now-t0)/dur,1),p=raw<.5?2*raw*raw:-1+(4-2*raw)*raw;
-      setTemp(raw,sc);renderMinerals(st,p);
-      if(raw<1)requestAnimationFrame(frm);
-      else{setTemp(1,sc);renderMinerals(st,1);showResult(sc);}
+function tempCurve(texI, compI){
+  var T = TEX[texI], C = COMPS[compI], R = C.T0 - C.T1;
+  if (!T.two) return { at:function(p){ return C.T0 - R * ez(p); },
+                       inv:function(t){ return ezI((C.T0 - t) / R); } };
+  var Tm = C.T0 - 0.40 * R, Tn = Tm - 12;
+  return {
+    at:function(p){
+      if (p <= 0.45) return C.T0 - (C.T0 - Tm) * ez(p / 0.45);
+      if (p <= 0.50) return Tm - 12 * ((p - 0.45) / 0.05);
+      return Tn - (Tn - C.T1) * ez((p - 0.50) / 0.50);
+    },
+    inv:function(t){
+      if (t >= Tm) return 0.45 * ezI((C.T0 - t) / (C.T0 - Tm));
+      if (t >= Tn) return 0.45 + 0.05 * ((Tm - t) / 12);
+      return 0.50 + 0.50 * ezI((Tn - t) / (Tn - C.T1));
     }
-    requestAnimationFrame(frm);
+  };
+}
+
+function buildField(texI, compI, fovMm){
+  var T = TEX[texI], C = COMPS[compI];
+  var rand = rng(hashStr(T.key + '|' + C.key + '|' + fovMm));
+  var pxmm = W / fovMm;
+  var curve = tempCurve(texI, compI);
+
+  /* — seed inventory ————————————————————————————————— */
+  var heavyN = 0, mkList = [], wtList = [], nucList = [], dunList = [];
+  var i, j, k;
+
+  if (T.two){
+    heavyN = Math.max(3, Math.min(18, Math.round(Math.pow(fovMm / T.phenoMm, 2) * 0.34)));
+    var phk = C.mins[0].k, phT = C.mins[0].T;
+    var phR = T.phenoMm * pxmm * 0.5;
+    for (i=0;i<heavyN;i++){
+      var pn = Math.min(0.24, Math.max(0.04, curve.inv(phT)));
+      mkList.push(phk); wtList.push(phR*phR); nucList.push(pn); dunList.push(0.43);
+    }
+  }
+  if (!T.glass){
+    var nLight = Math.round(Math.pow(fovMm / T.grainMm, 2));
+    nLight = Math.max(2, Math.min(SEED_CAP, nLight));
+    var pool = [], wsum = 0, wq = [];
+    for (i=0;i<C.mins.length;i++){
+      var szi = C.mins[i].sz || 1;
+      wq[i] = C.mins[i].pct / (szi * szi);
+      wsum += wq[i];
+    }
+    for (i=0;i<C.mins.length;i++){
+      var cnt = Math.max(1, Math.round(wq[i] / wsum * nLight));
+      for (j=0;j<cnt;j++) pool.push(i);
+    }
+    for (i=pool.length-1;i>0;i--){ var q0 = (rand()*(i+1))|0, t0 = pool[i]; pool[i] = pool[q0]; pool[q0] = t0; }
+    while (pool.length < nLight) pool.push(0);
+    pool.length = nLight;
+    for (i=pool.length-1;i>0;i--){ var q = (rand()*(i+1))|0, tmp = pool[i]; pool[i] = pool[q]; pool[q] = tmp; }
+    var meanR2 = W * H / nLight / Math.PI;
+    for (i=0;i<nLight;i++){
+      var m = C.mins[pool[i]];
+      var np = curve.inv(m.T);
+      if (T.two) np = Math.max(0.53, np);
+      var sz = m.sz || 1;
+      np = Math.min(0.985, Math.max(0.005, np));
+      mkList.push(m.k); wtList.push((sz*sz - 1) * meanR2 * 1.35);
+      nucList.push(np); dunList.push(np + (1 - np) * (T.two ? 0.98 : 0.95));
+    }
+  }
+
+  var S = mkList.length;
+  var out = {
+    tex:texI, comp:compI, fovMm:fovMm, curve:curve, S:S, heavyN:heavyN,
+    seedMin:mkList, glass:!!T.glass,
+    grainPx: S ? Math.sqrt(W*H/Math.max(1,S-heavyN)) * 0.5 : W
+  };
+
+  var gpx = out.grainPx;
+  var fineK = gpx < 9 ? (1 - gpx/9) * 0.5 : 0;
+  var fineC = [0,0,0];
+  if (fineK > 0){
+    var tp = 0;
+    C.mins.forEach(function(m){
+      var c0 = m.col || MIN[m.k].col;
+      fineC[0] += c0[0]*m.pct; fineC[1] += c0[1]*m.pct; fineC[2] += c0[2]*m.pct; tp += m.pct;
+    });
+    fineC[0] = fineC[0]/tp*0.70; fineC[1] = fineC[1]/tp*0.70; fineC[2] = fineC[2]/tp*0.70;
+  }
+
+  if (S === 0){
+    out.crysT = null;
+    out.own = null;
+  } else {
+    var sX = new Float32Array(S), sY = new Float32Array(S), sCos = new Float32Array(S), sSin = new Float32Array(S);
+    var sAx = new Float32Array(S), sWt = new Float32Array(S), sTh = new Float32Array(S), sHash = new Int32Array(S);
+    var sR = new Float32Array(S), sG = new Float32Array(S), sB = new Float32Array(S);
+    var xR = new Float32Array(S), xG = new Float32Array(S), xB = new Float32Array(S), xE = new Float32Array(S);
+    for (i=0;i<S;i++){
+      var mk = mkList[i], M = MIN[mk];
+      var margin = i < heavyN ? 0.16 : 0;
+      sX[i] = (margin + rand()*(1-2*margin)) * W;
+      sY[i] = (margin + rand()*(1-2*margin)) * H;
+      var th = rand() * Math.PI;
+      sTh[i] = th; sCos[i] = Math.cos(th); sSin[i] = Math.sin(th);
+      sAx[i] = Math.max(1, Math.min(AR_CAP, M.ar + (rand()-0.5)*0.45));
+      sWt[i] = wtList[i];
+      var nz = (rand()-0.5) * 26, bc = mcol(compI, mk);
+      var br = bc[0] + nz, bg = bc[1] + nz, bb = bc[2] + nz;
+      if (fineK > 0){
+        br = br*(1-fineK) + fineC[0]*fineK;
+        bg = bg*(1-fineK) + fineC[1]*fineK;
+        bb = bb*(1-fineK) + fineC[2]*fineK;
+      }
+      sR[i] = cl(br); sG[i] = cl(bg); sB[i] = cl(bb);
+      var hs = (rand()*3)|0; sHash[i] = hs;
+      var xc = M.xpl[hs];
+      var ex = Math.pow(Math.abs(Math.sin(2*th)), 0.55) * 0.9 + 0.1;
+      xR[i] = xc[0]; xG[i] = xc[1]; xB[i] = xc[2]; xE[i] = ex;
+    }
+
+    var wMaxL = 0;
+    for (i=heavyN;i<S;i++) if (sWt[i] > wMaxL) wMaxL = sWt[i];
+    var V = voronoi(sX, sY, sCos, sSin, sAx, sWt, heavyN, wMaxL);
+    var own = V.own, d1 = V.d1, d2 = V.d2, de = V.de;
+
+    var maxDe = new Float32Array(S);
+    for (i=0;i<NPX;i++){ var o = own[i]; if (de[i] > maxDe[o]) maxDe[o] = de[i]; }
+    for (i=0;i<S;i++) if (maxDe[i] <= 0) maxDe[i] = 1;
+
+    var crysT = new Float32Array(NPX);
+    var colP = new Uint8Array(NPX*3), colX = new Uint8Array(NPX*3);
+    var mott = buildMottle();
+    /* lamella / cleavage spacing scales with the grain, so a 0.3 mm
+       groundmass grain is not drawn with the same stripes as a 3 cm
+       pegmatite crystal */
+    var bwid = new Float32Array(S);
+    for (i=0;i<S;i++) bwid[i] = Math.max(1.7, maxDe[i] * 0.155);
+    var K = 2.4 * out.grainPx;
+
+    for (i=0;i<NPX;i++){
+      var s = own[i], np = nucList[s];
+      var nrm = de[i] / maxDe[s]; if (nrm > 1) nrm = 1;
+      /* radius grows fast on nucleation and slows as the melt is used up */
+      var ct = np + (dunList[s] - np) * Math.pow(nrm, 1.25);
+      crysT[i] = ct > 1 ? 1 : ct;
+
+      var gap = d2[i] - d1[i];
+      var bs = gap < K ? (1 - gap/K) : 0;
+      var f = 1 - 0.50 * bs * bs;
+
+      var px = i % W, py = (i / W) | 0;
+      var dx = px - sX[s], dy = py - sY[s];
+      var co = sCos[s], si = sSin[s];
+      var para = dx*co + dy*si, perp = -dx*si + dy*co;
+      var mk2 = mkList[s], fx = MIN[mk2].fx, bw = bwid[s];
+
+      var mo = mott[i] * 9;
+      var r = sR[s] + mo, g = sG[s] + mo*0.92, b = sB[s] + mo*0.84, twinB = 0;
+
+      if (fx === 'twin'){
+        var band = ((((perp/bw)|0) % 2) + 2) % 2;
+        twinB = band;
+        var tw = band ? 4.5 : -4.5;
+        r += tw; g += tw; b += tw;
+      } else if (fx === 'mica'){
+        var mb = ((((perp/(bw*0.62))|0) % 3) + 3) % 3;
+        if (mb === 0){ r += 13; g += 10; b += 5; }
+        else if (mb === 2){ r -= 5; g -= 4; b -= 2; }
+      } else if (fx === 'cleav'){
+        var c1 = ((((perp/(bw*0.9))|0) % 3) + 3) % 3;
+        if (c1 === 0){ r -= 5.5; g -= 5.5; b -= 5; }
+        var c2 = ((((para/(bw*1.5))|0) % 4) + 4) % 4;
+        if (c2 === 0){ r += 4.5; g += 4.5; b += 4; }
+      } else if (fx === 'perth'){
+        var lp = (((((perp*0.4 + para*0.06)/(bw*1.25))|0) % 3) + 3) % 3;
+        if (lp === 0){ r += 8; g += 5.5; b += 5; }
+        else if (lp === 2){ r -= 6; g -= 3; b += 4; }
+      } else if (fx === 'quartz'){
+        var q1 = ((px*31 + py*17 + (px ^ (py*7))) & 0xff) - 128;
+        var q2 = ((px*53 + py*41 + (py ^ (px*11))) & 0xff) - 128;
+        var qn = (q1 + q2) * 0.022;
+        r += qn; g += qn; b += qn*1.1;
+      } else {
+        var f1 = ((px*47 + py*29 + ((px*py) & 63)) & 0xff);
+        if (f1 > 243){ r -= 16; g -= 16; b -= 12; }
+      }
+
+      var nz2 = ((i*73 + 17) & 0xff) * 0.011 - 0.7;
+      var b3 = i*3;
+      colP[b3]   = cl(r*f + nz2);
+      colP[b3+1] = cl(g*f + nz2);
+      colP[b3+2] = cl(b*f + nz2);
+
+      /* crossed polars — interference colour × extinction. Twin lamellae
+         extinguish at different orientations, which is what makes
+         plagioclase stripe under the microscope. */
+      var ext = xE[s];
+      if (fx === 'twin' && twinB) ext = Math.pow(Math.abs(Math.sin(2*(sTh[s]+0.34))), 0.55) * 0.9 + 0.1;
+      if (fx === 'mica'){ var mb2 = ((((perp/(bw*0.62))|0) % 3) + 3) % 3; if (mb2 === 0) ext *= 1.14; }
+      if (fx === 'cleav'){ var c3 = ((((perp/(bw*0.9))|0) % 3) + 3) % 3; if (c3 === 0) ext *= 0.82; }
+      var xf = ext * (1 - 0.6*bs*bs) * (1 + mott[i]*0.16);
+      colX[b3]   = cl(xR[s]*xf + nz2);
+      colX[b3+1] = cl(xG[s]*xf + nz2);
+      colX[b3+2] = cl(xB[s]*xf + nz2);
+    }
+    out.crysT = crysT; out.own = own; out.colP = colP; out.colX = colX;
+  }
+
+  /* — vesicles ——————————————————————————————————————— */
+  out.ves = null;
+  if (T.ves){
+    var felsic = compI === 0;
+    var nV = felsic ? 210 : 54;
+    var rMm = felsic ? 0.82 : 2.1;
+    var vT = new Float32Array(NPX), vS = new Float32Array(NPX);
+    for (i=0;i<NPX;i++) vT[i] = 2;
+    for (var v=0; v<nV; v++){
+      var bx = rand()*W, by = rand()*H;
+      var br = (rMm * (0.45 + rand()*1.5)) * pxmm;
+      if (br < 2.5) br = 2.5;
+      var app = 0.28 + rand()*0.52;
+      var x0v = Math.max(0, (bx-br)|0), x1v = Math.min(W-1, (bx+br)|0);
+      var y0v = Math.max(0, (by-br)|0), y1v = Math.min(H-1, (by+br)|0);
+      for (var yy=y0v; yy<=y1v; yy++) for (var xx=x0v; xx<=x1v; xx++){
+        var ddx = xx-bx, ddy = yy-by, dr = Math.sqrt(ddx*ddx + ddy*ddy);
+        if (dr > br) continue;
+        var idx = yy*W + xx, sh = 1 - dr/br;
+        if (app < vT[idx]) vT[idx] = app;
+        if (sh > vS[idx]) vS[idx] = sh;
+      }
+    }
+    out.ves = {t:vT, s:vS};
+  }
+
+  /* — solidified fraction, for the readout ——————————————— */
+  var cdf = new Float32Array(102);
+  if (out.crysT){
+    for (i=0;i<NPX;i++){ var bq = (out.crysT[i]*100)|0; if (bq>100) bq=100; cdf[bq+1]++; }
+    for (i=0;i<101;i++) cdf[i+1] += cdf[i];
+    for (i=0;i<102;i++) cdf[i] /= NPX;
+  }
+  out.cdf = cdf;
+
+  return out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STATE + RENDER
+   ═══════════════════════════════════════════════════════════════════ */
+var cv = document.getElementById('cv'), cx = cv.getContext('2d');
+var ov = document.getElementById('ov'), ox = ov.getContext('2d');
+var IMG = cx.createImageData(W, H), IDATA = IMG.data;
+for (var _i=0;_i<NPX;_i++) IDATA[_i*4+3] = 255;
+
+var SHIM = new Float32Array(NPX);
+(function(){
+  for (var y=0;y<H;y++) for (var x=0;x<W;x++)
+    SHIM[y*W+x] = Math.sin(x*0.031 + y*0.027)*5.2 + Math.sin(x*0.013 - y*0.019)*3.4 + Math.sin(x*0.071 + y*0.009)*1.6;
+})();
+
+var GLASS = [19, 16, 21];
+var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+var st = { tex:-1, comp:0, scale:'grain', light:'ppl', p:0, playing:false, field:null, token:0, hoverSeed:-1 };
+var CACHE = [];   /* small LRU — each field is a few MB */
+
+function fovFor(texI){ return st.scale === 'hand' ? 40 : TEX[texI].fovMm; }
+
+function getField(texI, compI, fovMm){
+  var key = texI + '|' + compI + '|' + fovMm;
+  for (var i=0;i<CACHE.length;i++) if (CACHE[i].key === key){
+    var hit = CACHE.splice(i,1)[0]; CACHE.push(hit); return hit.f;
+  }
+  var f = buildField(texI, compI, fovMm);
+  CACHE.push({key:key, f:f});
+  while (CACHE.length > 6) CACHE.shift();
+  return f;
+}
+
+function depthAt(F, p){
+  var T = TEX[F.tex];
+  if (!T.two) return T.depth;
+  if (p <= 0.45) return T.depth;
+  if (p >= 0.55) return 0;
+  var u = (p - 0.45) / 0.10;
+  return T.depth * (1 - u*u);
+}
+function elapsedAt(F, p){
+  var T = TEX[F.tex];
+  if (!T.two) return T.secs * p;
+  if (p <= 0.45) return T.secs * (p / 0.45);
+  return T.secs + 4.3e5 * Math.max(0, (p - 0.50) / 0.50);
+}
+
+function render(p){
+  var F = st.field; if (!F) return;
+  var C = COMPS[F.comp], T = TEX[F.tex];
+  var Tc = F.curve.at(p);
+  var hot = (Tc - C.T1) / (C.T0 - C.T1); if (hot < 0) hot = 0; if (hot > 1) hot = 1;
+  var gl = glowAt(Tc);
+  var mix = Math.pow(hot, 1.5) * 0.88;
+  var col = st.light === 'xpl' ? F.colX : F.colP;
+  var crysT = F.crysT, ves = F.ves;
+  var glassMix = F.glass ? p*p : 0;
+  var gm0 = 1 - glassMix, gm1 = glassMix;
+  var xplGlass = st.light === 'xpl';
+  var d = IDATA;
+
+  for (var i=0;i<NPX;i++){
+    var b = i*4, r, g, bl;
+
+    if (ves && ves.t[i] <= p){
+      var sh = ves.s[i], edge = sh < 0.18 ? (0.18 - sh) * 5.4 : 0;
+      var dk = 1 - sh*0.72;
+      var hv = hot * (1 - sh*0.55) * 0.34;
+      r  = 30*dk + edge*62 + gl[0]*hv;
+      g  = 25*dk + edge*54 + gl[1]*hv;
+      bl = 23*dk + edge*48 + gl[2]*hv;
+      d[b] = cl(r); d[b+1] = cl(g); d[b+2] = cl(bl);
+      continue;
+    }
+
+    if (crysT && crysT[i] <= p){
+      var b3 = i*3;
+      r = col[b3]; g = col[b3+1]; bl = col[b3+2];
+      d[b]   = (r + (gl[0]-r)*mix) | 0;
+      d[b+1] = (g + (gl[1]-g)*mix) | 0;
+      d[b+2] = (bl + (gl[2]-bl)*mix) | 0;
+      continue;
+    }
+
+    var sv = SHIM[i], k = 1 + sv*0.019;
+    var nz = ((i*97 + 31) & 0xff) * 0.028 - 3.6;
+    var mr = gl[0]*k + nz, mg = gl[1]*k + nz*0.4, mb = gl[2]*k + nz*0.2;
+    if (glassMix > 0){
+      var gr = GLASS[0] + sv*0.5, gg = GLASS[1] + sv*0.42, gb = GLASS[2] + sv*0.72;
+      if (xplGlass){ gr = 6 + sv*0.2; gg = 6 + sv*0.2; gb = 8 + sv*0.25; }
+      mr = mr*gm0 + gr*gm1; mg = mg*gm0 + gg*gm1; mb = mb*gm0 + gb*gm1;
+    }
+    d[b] = cl(mr); d[b+1] = cl(mg); d[b+2] = cl(mb);
+  }
+  cx.putImageData(IMG, 0, 0);
+
+  /* eruption flash */
+  if (T.two && p > 0.44 && p < 0.60){
+    var fa = 1 - Math.abs(p - 0.47) / 0.13; if (fa < 0) fa = 0;
+    cx.fillStyle = 'rgba(255,132,26,' + (fa*0.42) + ')';
+    cx.fillRect(0,0,W,H);
+  }
+  paintReadouts(F, p, Tc);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   READOUTS
+   ═══════════════════════════════════════════════════════════════════ */
+var $ = function(id){ return document.getElementById(id); };
+
+function paintReadouts(F, p, Tc){
+  var T = TEX[F.tex], C = COMPS[F.comp];
+  $('sTemp').textContent = Math.round(Tc) + ' °C';
+  var dk = depthAt(F, p);
+  $('sDepth').textContent = dk < 0.05 ? 'surface' : dk.toFixed(dk < 10 ? 1 : 0) + ' km';
+  $('sTime').textContent = fmtTime(elapsedAt(F, p));
+  var bq = (p*100)|0; if (bq > 100) bq = 100;
+  var frac = F.cdf ? F.cdf[bq+1] : (F.glass ? 0 : 0);
+  $('sSolid').textContent = F.glass ? '0 %' : Math.round(frac*100) + ' %';
+
+  var axH = BOWH;
+  var u = (C.T0 - Tc) / (C.T0 - C.T1); if (u < 0) u = 0; if (u > 1) u = 1;
+  $('bowLine').style.top = (12 + u*(axH-24)) + 'px';
+  $('bowT').textContent = Math.round(Tc) + '°';
+  for (var i=0;i<mrows.length;i++){
+    var m = mrows[i];
+    var on = Tc <= m.T;
+    m.el.classList.toggle('on', on);
+    m.el.classList.toggle('now', on && Tc > m.T - (C.T0 - C.T1)*0.10);
+  }
+}
+
+var BOWH = 392, mrows = [];
+function buildBowen(compI){
+  var C = COMPS[compI], bow = $('bow');
+  BOWH = bow.clientHeight || 392;
+  Array.prototype.slice.call(bow.querySelectorAll('.mrow,.bow-tick,.mlead')).forEach(function(e){ e.remove(); });
+  mrows = [];
+
+  var top = 12, bot = BOWH - 12, span = bot - top;
+  for (var t=0;t<=4;t++){
+    var tk = document.createElement('div');
+    tk.className = 'bow-tick';
+    tk.style.top = (top + span*t/4) + 'px';
+    tk.textContent = (t === 0 || t === 4 || t === 2) ? Math.round(C.T0 - (C.T0 - C.T1)*t/4) + '°' : '·';
+    bow.appendChild(tk);
+  }
+
+  var items = C.mins.map(function(m){
+    return { k:m.k, T:m.T, pct:m.pct, y: top + span * (C.T0 - m.T) / (C.T0 - C.T1) };
+  }).sort(function(a,b){ return a.y - b.y; });
+  for (var i=1;i<items.length;i++) if (items[i].y - items[i-1].y < 27) items[i].y = items[i-1].y + 27;
+  var over = items[items.length-1].y - bot;
+  if (over > 0) for (i=items.length-1;i>=0;i--){ items[i].y -= over; if (i>0 && items[i].y - items[i-1].y >= 27) break; }
+
+  items.forEach(function(it){
+    var trueY = top + span * (C.T0 - it.T) / (C.T0 - C.T1);
+    var lead = document.createElement('div');
+    lead.className = 'mlead';
+    lead.style.top = trueY + 'px';
+    bow.appendChild(lead);
+
+    var el = document.createElement('div');
+    el.className = 'mrow';
+    el.style.top = it.y + 'px';
+    var M = MIN[it.k];
+    el.innerHTML = '<span class="mdot" style="background:' + rgbCss(mcol(compI, it.k)) + '"></span>' +
+                   '<span class="mnm">' + M.n + '</span>' +
+                   '<span class="mtc">' + it.T + '°</span>' +
+                   '<span class="mpc">' + it.pct + '%</span>';
+    el.title = M.n + ' — ' + it.pct + '% by volume, crystallizes near ' + it.T + ' °C';
+    bow.appendChild(el);
+    mrows.push({ el:el, T:it.T, k:it.k });
+  });
+}
+
+function paintComposition(compI){
+  var C = COMPS[compI];
+  $('compName').textContent = C.n + ' · ' + C.sub;
+  $('pDens').innerHTML = C.dens.toFixed(1) + '<small> g/cm³</small>';
+  var ci = 0;
+  C.mins.forEach(function(m){ if (DARK[m.k]) ci += m.pct; });
+  $('pCidx').innerHTML = ci + '<small>% dark</small>';
+  $('pT0').innerHTML = C.T0 + '<small> °C</small>';
+  $('pT1').innerHTML = C.T1 + '<small> °C</small>';
+}
+
+function paintScale(F){
+  var fov = F.fovMm;
+  var mm = scaleBarFor(fov);
+  var px = mm / fov * $('scopeWrap').clientWidth;
+  $('sbarLine').style.width = px + 'px';
+  $('sbarTxt').textContent = fmtMm(mm);
+  $('apLbl').textContent = 'view ' + fmtMm(fov) + (fov <= 12 ? ' · hand lens' : '');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   THE CHART — control surface, laid out like ESSRT p.14
+   ═══════════════════════════════════════════════════════════════════ */
+var cells = [];
+(function buildChart(){
+  var ch = $('chart');
+  ch.appendChild(Object.assign(document.createElement('div'), {className:'ch-corner'}));
+  COMPS.forEach(function(C){
+    var d = document.createElement('div');
+    d.className = 'ch-col';
+    d.innerHTML = C.n.replace('Intermediate','Inter-<br>mediate').replace('Ultramafic','Ultra-<br>mafic');
+    ch.appendChild(d);
+  });
+  TEX.forEach(function(T, ti){
+    var lab = document.createElement('div');
+    lab.className = 'ch-row';
+    lab.innerHTML = '<b>' + T.n + '</b>' + T.grain;
+    ch.appendChild(lab);
+    cells[ti] = [];
+    COMPS.forEach(function(C, ci){
+      var name = ROCK[ti][ci];
+      var b = document.createElement(name ? 'button' : 'div');
+      b.className = 'cell' + (name ? '' : ' dead');
+      b.textContent = name || '—';
+      if (name){
+        b.type = 'button';
+        b.setAttribute('data-t', ti); b.setAttribute('data-c', ci);
+        b.setAttribute('aria-label', name + ' — ' + T.n.toLowerCase() + ', ' + C.n.toLowerCase() + ', crystals ' + T.grain);
+        b.addEventListener('click', function(){ select(ti, ci); });
+        b.addEventListener('keydown', arrowNav);
+      }
+      ch.appendChild(b);
+      cells[ti][ci] = name ? b : null;
+    });
+  });
+})();
+
+function arrowNav(e){
+  var ti = +this.getAttribute('data-t'), ci = +this.getAttribute('data-c'), dt = 0, dc = 0;
+  if (e.key === 'ArrowUp') dt = -1; else if (e.key === 'ArrowDown') dt = 1;
+  else if (e.key === 'ArrowLeft') dc = -1; else if (e.key === 'ArrowRight') dc = 1;
+  else return;
+  e.preventDefault();
+  for (var s=1; s<=6; s++){
+    var nt = ti + dt*s, nc = ci + dc*s;
+    if (nt < 0 || nt >= TEX.length || nc < 0 || nc >= COMPS.length) return;
+    if (cells[nt][nc]){ cells[nt][nc].focus(); select(nt, nc); return; }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SELECTION + TRANSPORT
+   ═══════════════════════════════════════════════════════════════════ */
+var raf = 0, lastTs = 0;
+
+function select(texI, compI, keepP){
+  var tk = ++st.token;
+  st.tex = texI; st.comp = compI;
+  cells.forEach(function(row){ row.forEach(function(b){ if (b) b.classList.remove('on'); }); });
+  if (cells[texI][compI]) cells[texI][compI].classList.add('on');
+
+  $('cellName').textContent = ROCK[texI][compI] || '—';
+  paintComposition(compI);
+  buildBowen(compI);
+  $('res').classList.remove('on');
+  clearHover();
+
+  var wrap = $('scopeWrap');
+  wrap.classList.add('busy');
+  cx.fillStyle = '#12140F'; cx.fillRect(0,0,W,H);
+
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){
+    if (st.token !== tk) return;
+    var F = getField(texI, compI, fovFor(texI));
+    if (st.token !== tk) return;
+    st.field = F;
+    wrap.classList.remove('busy');
+    $('sbar').style.display = '';
+    paintScale(F);
+    if (!keepP){ st.p = 0; }
+    if (REDUCED){ st.p = 1; stop(); render(1); finish(); }
+    else play();
   });});
 }
 
-// ── Glassy (no crystal structure — unchanged) ─────────────────────────────
-function runGlassy(key,tk){
-  var sc=SC[key],rand=rng(55);
-  var shim=new Float32Array(W*H);
-  for(var y=0;y<H;y++)for(var x=0;x<W;x++)
-    shim[y*W+x]=Math.sin(x*.038+y*.033)*5+Math.sin(x*.014-y*.019)*3;
-  var ves=Array.from({length:28},function(){return {x:rand()*W,y:rand()*H,r:4+rand()*13,at:.1+rand()*.55};});
-  var img=cx.createImageData(W,H),pd=img.data;
-  for(var i=0;i<W*H;i++)pd[i*4+3]=255;
-  setDepth(0);
-  var t0=performance.now();
-  function frm(now){
-    if(token!==tk)return;
-    var raw=Math.min((now-t0)/sc.dur,1),p=raw*raw;
-    setTemp(raw,sc);
-    for(var i=0;i<W*H;i++){
-      var b=i*4,sv=shim[i];
-      pd[b]  =(145*(1-p)+(12+sv*.25)*p)|0;
-      pd[b+1]=(46*(1-p)+9*p)|0;
-      pd[b+2]=(8*(1-p)+(17+sv*.45)*p)|0;
-    }
-    cx.putImageData(img,0,0);
-    ves.forEach(function(v){
-      if(raw>v.at){
-        var vp=Math.min((raw-v.at)/.22,1);
-        cx.beginPath();cx.arc(v.x,v.y,v.r*vp,0,Math.PI*2);
-        cx.fillStyle='rgba(4,4,9,'+vp*.5+')';cx.fill();
-        cx.strokeStyle='rgba(28,24,38,'+vp*.45+')';cx.lineWidth=1;cx.stroke();
-      }
+function frame(ts){
+  if (!st.playing){ raf = 0; return; }
+  var F = st.field; if (!F){ raf = 0; return; }
+  if (!lastTs) lastTs = ts;
+  var dt = Math.min(64, ts - lastTs); lastTs = ts;
+  st.p += dt / TEX[F.tex].dur;
+  if (st.p >= 1){ st.p = 1; stop(); render(1); syncScrub(); finish(); return; }
+  render(st.p); syncScrub();
+  raf = requestAnimationFrame(frame);
+}
+function play(){
+  if (!st.field) return;
+  if (st.p >= 1) st.p = 0;
+  st.playing = true; lastTs = 0;
+  $('play').textContent = '❚❚';
+  if (!raf) raf = requestAnimationFrame(frame);
+}
+function stop(){
+  st.playing = false;
+  if (raf){ cancelAnimationFrame(raf); raf = 0; }
+  $('play').textContent = '▶';
+}
+function syncScrub(){ $('scrub').value = Math.round(st.p * 1000); }
+
+function finish(){
+  var F = st.field; if (!F) return;
+  var T = TEX[F.tex], C = COMPS[F.comp], name = ROCK[F.tex][F.comp];
+  $('rockN').textContent = name;
+  $('rockT').textContent = T.n;
+  $('rockS').textContent = C.n + ' · ' + T.env.toLowerCase() +
+    (T.depth ? ' · ' + T.depth + ' km' : '') + ' · ' + fmtTime(T.secs) +
+    (T.two ? ' then ' + fmtTime(4.3e5) : '');
+  $('tagGrain').textContent = T.two ? 'Phenocrysts in a fine groundmass' : 'Crystal size ' + T.grain;
+  $('tagEnv').textContent = (T.two ? 'Intrusive → extrusive' : T.depth ? 'Intrusive' : 'Extrusive') +
+                            ' · ' + C.dens.toFixed(1) + ' g/cm³';
+  $('res').classList.add('on');
+  addSpecimen(F, name, T.n);
+}
+
+$('play').addEventListener('click', function(){ st.playing ? stop() : play(); });
+$('replay').addEventListener('click', function(){ if (!st.field) return; st.p = 0; play(); });
+$('scrub').addEventListener('input', function(){
+  if (!st.field) return;
+  stop(); st.p = +this.value / 1000; render(st.p);
+  if (st.p >= 1) finish();
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   VIEW TOGGLES
+   ═══════════════════════════════════════════════════════════════════ */
+function segWire(id, attr, fn){
+  var seg = $(id);
+  seg.querySelectorAll('.cc-segmented-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      if (b.classList.contains('on')) return;
+      seg.querySelectorAll('.cc-segmented-btn').forEach(function(x){ x.classList.remove('on'); });
+      b.classList.add('on');
+      fn(b.getAttribute(attr));
     });
-    if(raw<1)requestAnimationFrame(frm);else showResult(sc);
-  }
-  requestAnimationFrame(frm);
-}
-
-// ── Porphyritic (two-population Voronoi + mineral colors + optical FX) ────
-function runPorphyritic(key,tk){
-  var sc=SC[key];
-  var rand=rng(hashStr('porph_'+comp));
-  var nPh=6,nMx=240;
-
-  // Phenocryst mineral = most prominent mineral in this composition
-  var phMin=MA[comp][0];
-
-  // Distribute groundmass grains proportionally across all composition minerals
-  var mxKeys=[],mxBase=MA[comp];
-  var mxTotal=mxBase.reduce(function(s,m){return s+m.cnt;},0);
-  mxBase.forEach(function(m){
-    var c=Math.max(1,Math.round(m.cnt/mxTotal*nMx));
-    for(var i=0;i<c;i++)mxKeys.push(m.key);
   });
-  while(mxKeys.length<nMx)mxKeys.push(mxBase[0].key);
-  mxKeys=mxKeys.slice(0,nMx);
-  // Shuffle mineral assignments so grains don't cluster by type
-  for(var i=mxKeys.length-1;i>0;i--){var j=(rand()*(i+1))|0,tmp=mxKeys[i];mxKeys[i]=mxKeys[j];mxKeys[j]=tmp;}
-
-  // Build per-grain color and orientation for mineral shaders
-  function grainColor(key){
-    var col=MC[key],c=col[(rand()*col.length)|0],nz=(rand()-.5)*28;
-    return [Math.min(255,Math.max(0,(c[0]+nz)|0)),Math.min(255,Math.max(0,(c[1]+nz)|0)),Math.min(255,Math.max(0,(c[2]+nz)|0))];
-  }
-
-  var phPts=[],phCos=[],phSin=[],phCol=[];
-  for(var i=0;i<nPh;i++){
-    phPts.push({x:70+rand()*(W-140),y:70+rand()*(H-140)});
-    var th=rand()*Math.PI;phCos.push(Math.cos(th));phSin.push(Math.sin(th));
-    phCol.push(grainColor(phMin.key));
-  }
-
-  var mxPts=[],mxCos=[],mxSin=[],mxCol=[];
-  for(var i=0;i<nMx;i++){
-    mxPts.push({x:rand()*W,y:rand()*H});
-    var th=rand()*Math.PI;mxCos.push(Math.cos(th));mxSin.push(Math.sin(th));
-    mxCol.push(grainColor(mxKeys[i]));
-  }
-
-  showBuilding();
-  if(token!==tk)return;
-  var phV=buildVoronoi(phPts);
-  if(token!==tk)return;
-  var allPts=phPts.concat(mxPts);
-  var allV=buildVoronoi(allPts);
-  if(token!==tk)return;
-
-  var img=cx.createImageData(W,H),pd=img.data;
-  for(var i=0;i<W*H;i++){pd[i*4]=145;pd[i*4+1]=46;pd[i*4+2]=8;pd[i*4+3]=255;}
-
-  var P1=6000,P2=3000,TOTAL=P1+P2,PHRESH=0.42;
-  setDepth(12);
-  var t0=performance.now();
-
-  function frm(now){
-    if(token!==tk)return;
-    var el=now-t0,rawAll=Math.min(el/TOTAL,1);
-    var p1r=Math.min(el/P1,1),p2r=el<=P1?0:Math.min((el-P1)/P2,1);
-    var p1=p1r<.5?2*p1r*p1r:-1+(4-2*p1r)*p1r;
-    var p2=p2r<.5?2*p2r*p2r:-1+(4-2*p2r)*p2r;
-    var temp=el<=P1?Math.round(1200-250*p1r):Math.round(950-330*p2r);
-    document.getElementById('tf').style.height=Math.max(0,(temp-400)/(1400-400)*100)+'%';
-    document.getElementById('tr').innerHTML=temp+'<br>°C';
-    setDepth(el<=P1?12:Math.round(12*(1-p2r*p2r)));
-    var pThresh=PHRESH*p1;
-    for(var i=0;i<W*H;i++){
-      var b=i*4;
-      var phRevealed=phV.norm[i]<=pThresh;
-      var fullOwner=allV.own[i],isPhOwned=fullOwner<nPh;
-      var isPhEdge=!phRevealed&&isPhOwned&&p2>0.01;
-      var nz=((i*73+17)&0xff)*.013-.85;
-      if(phRevealed||isPhEdge){
-        var ci=phV.own[i],f=(phRevealed?phV.bnd[i]:allV.bnd[i])?.38:1;
-        var c=phCol[ci];
-        var rgb=applyMineralFX(c[0],c[1],c[2],phMin.key,i,phPts[ci].x,phPts[ci].y,phCos[ci],phSin[ci]);
-        pd[b]=Math.min(255,Math.max(0,(rgb[0]*f+nz)|0));
-        pd[b+1]=Math.min(255,Math.max(0,(rgb[1]*f+nz)|0));
-        pd[b+2]=Math.min(255,Math.max(0,(rgb[2]*f+nz)|0));
-      }else if(!isPhOwned&&allV.norm[i]<=p2){
-        var ci=fullOwner-nPh,f=allV.bnd[i]?.35:1,mk=mxKeys[ci],c=mxCol[ci];
-        var rgb=applyMineralFX(c[0],c[1],c[2],mk,i,mxPts[ci].x,mxPts[ci].y,mxCos[ci],mxSin[ci]);
-        pd[b]=Math.min(255,Math.max(0,(rgb[0]*f+nz)|0));
-        pd[b+1]=Math.min(255,Math.max(0,(rgb[1]*f+nz)|0));
-        pd[b+2]=Math.min(255,Math.max(0,(rgb[2]*f+nz)|0));
-      }else{
-        var gv=1-rawAll*.42;
-        pd[b]=(145*gv)|0;pd[b+1]=(46*gv)|0;pd[b+2]=(8*gv)|0;
-      }
-    }
-    cx.putImageData(img,0,0);
-    if(el>P1-40&&el<P1+280){
-      var fa=Math.max(0,1-(el-P1+40)/320);
-      cx.fillStyle='rgba(255,120,8,'+fa*.6+')';cx.fillRect(0,0,W,H);
-    }
-    if(rawAll<1)requestAnimationFrame(frm);else showResult(sc);
-  }
-  requestAnimationFrame(frm);
 }
-
-// ── Main entry ─────────────────────────────────────────────────────────────
-function run(key){
-  var tk=++token;cur=key;
-  var r=document.getElementById('res');
-  r.classList.remove('on');r.style.opacity='0';r.style.transform='translateY(5px)';
-  document.getElementById('rp').style.display='none';
-  document.getElementById('desc').textContent=SC[key].desc;
-  cx.fillStyle='#1E2320';cx.fillRect(0,0,W,H);
-  setTimeout(function(){
-    if(token!==tk)return;
-    if(key==='glassy')runGlassy(key,tk);
-    else if(key==='porphyritic')runPorphyritic(key,tk);
-    else runCrystal(key,tk);
-  },12);
-}
-
-// ── Idle state ─────────────────────────────────────────────────────────────
-cx.fillStyle='#1E2320';cx.fillRect(0,0,W,H);
-cx.fillStyle='rgba(166,164,153,.55)';cx.font='13px "Courier Prime",monospace';
-cx.textAlign='center';cx.textBaseline='middle';
-cx.fillText('Select a cooling environment to begin',W/2,H/2);
-
-// ── Button listeners ───────────────────────────────────────────────────────
-document.querySelectorAll('[data-k]').forEach(function(b){
-  b.addEventListener('click',function(){
-    document.querySelectorAll('[data-k]').forEach(function(x){x.classList.remove('on');});
-    b.classList.add('on');run(b.dataset.k);
-  });
+segWire('lightSeg', 'data-light', function(v){
+  st.light = v;
+  if (st.field) render(st.p);
 });
-document.querySelectorAll('[data-c]').forEach(function(b){
-  b.addEventListener('click',function(){
-    document.querySelectorAll('[data-c]').forEach(function(x){x.classList.remove('on');});
-    b.classList.add('on');comp=b.dataset.c;
-    SD={};// Flush cache — new composition needs fresh Voronoi
-    if(cur)run(cur);
-  });
+segWire('scaleSeg', 'data-scale', function(v){
+  st.scale = v;
+  if (st.tex >= 0) select(st.tex, st.comp, true);
 });
-document.getElementById('rp').addEventListener('click',function(){if(cur)run(cur);});
 
-// ── Deep link ─────────────────────────────────────────────────────────────
-// ?c=<felsic|mafic> sets composition, ?k=<environment> selects a cooling
-// environment. Used by the p.15 Rock Cycle tool.
-(function(){
-  var p=new URLSearchParams(location.search);
-  var c=p.get('c');
-  if(c){var cb=document.querySelector('[data-c="'+c+'"]');if(cb)cb.click();}
-  var q=p.get('k');
-  if(!q)return;
-  var b=document.querySelector('[data-k="'+q+'"]');
-  if(b)b.click();
+/* ═══════════════════════════════════════════════════════════════════════
+   HOVER — identify the grain under the pointer
+   ═══════════════════════════════════════════════════════════════════ */
+var hoverPend = 0;
+function clearHover(){
+  st.hoverSeed = -1;
+  ox.clearRect(0,0,W,H);
+  $('tip').classList.remove('on');
+}
+function outlineSeed(s){
+  var F = st.field, own = F.own;
+  var img = ox.createImageData(W, H), d = img.data;
+  for (var y=0;y<H;y++){
+    for (var x=0;x<W;x++){
+      var i = y*W + x;
+      if (own[i] !== s) continue;
+      var edge = (x === 0 || own[i-1] !== s) || (x === W-1 || own[i+1] !== s) ||
+                 (y === 0 || own[i-W] !== s) || (y === H-1 || own[i+W] !== s);
+      var b = i*4;
+      d[b] = 255; d[b+1] = 252; d[b+2] = 235;
+      d[b+3] = edge ? 210 : 26;
+    }
+  }
+  ox.putImageData(img, 0, 0);
+}
+$('scopeWrap').addEventListener('mousemove', function(e){
+  var F = st.field; if (!F || !F.own) return;
+  var r = this.getBoundingClientRect();
+  var lx = e.clientX - r.left, ly = e.clientY - r.top;
+  var cxp = lx / r.width - 0.5, cyp = ly / r.height - 0.5;
+  if (cxp*cxp + cyp*cyp > 0.25){ clearHover(); return; }
+  var x = Math.max(0, Math.min(W-1, (lx / r.width * W) | 0));
+  var y = Math.max(0, Math.min(H-1, (ly / r.height * H) | 0));
+  var i = y*W + x;
+
+  var tip = $('tip');
+  tip.style.left = lx + 'px';
+  tip.style.top = (ly - 14) + 'px';
+  tip.classList.add('on');
+
+  if (F.ves && F.ves.t[i] <= st.p){
+    if (st.hoverSeed !== -2){ st.hoverSeed = -2; ox.clearRect(0,0,W,H); }
+    $('tipDot').style.background = '#15130F';
+    $('tipName').textContent = 'Gas cavity';
+    $('tipMeta').textContent = 'vesicle — trapped volcanic gas';
+    return;
+  }
+  if (!F.crysT || F.crysT[i] > st.p){
+    if (st.hoverSeed !== -3){ st.hoverSeed = -3; ox.clearRect(0,0,W,H); }
+    var Tc = F.curve.at(st.p);
+    $('tipDot').style.background = rgbCss(glowAt(Tc).map(function(v){ return v|0; }));
+    $('tipName').textContent = F.glass && st.p > 0.75 ? 'Volcanic glass' : 'Melt';
+    $('tipMeta').textContent = F.glass && st.p > 0.75 ? 'no crystal structure' : Math.round(Tc) + ' °C — not yet crystallized';
+    return;
+  }
+  var s = F.own[i];
+  if (s !== st.hoverSeed){
+    st.hoverSeed = s;
+    if (hoverPend) cancelAnimationFrame(hoverPend);
+    hoverPend = requestAnimationFrame(function(){ hoverPend = 0; if (st.hoverSeed === s) outlineSeed(s); });
+  }
+  var mk = F.seedMin[s], M = MIN[mk], C = COMPS[F.comp];
+  var rec = null;
+  for (var q=0;q<C.mins.length;q++) if (C.mins[q].k === mk) rec = C.mins[q];
+  $('tipDot').style.background = rgbCss(mcol(F.comp, mk));
+  $('tipName').textContent = M.n;
+  $('tipMeta').textContent = rec ? rec.pct + '% by volume · crystallizes ' + rec.T + ' °C' : '';
+});
+$('scopeWrap').addEventListener('mouseleave', clearHover);
+
+var rsz = 0;
+window.addEventListener('resize', function(){
+  clearTimeout(rsz);
+  rsz = setTimeout(function(){
+    if (st.comp >= 0) buildBowen(st.comp);
+    if (st.field){ paintScale(st.field); render(st.p); }
+  }, 140);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SPECIMEN SHELF
+   ═══════════════════════════════════════════════════════════════════ */
+var thumb = document.createElement('canvas'); thumb.width = thumb.height = 64;
+var tcx = thumb.getContext('2d');
+var shelf = [];
+function addSpecimen(F, name, texName){
+  var key = F.tex + '|' + F.comp;
+  for (var i=0;i<shelf.length;i++) if (shelf[i].key === key) return;
+  tcx.drawImage(cv, 0, 0, 64, 64);
+  shelf.push({ key:key, tex:F.tex, comp:F.comp, name:name, url:thumb.toDataURL('image/png') });
+  if (shelf.length > 6) shelf.shift();
+  paintShelf();
+}
+function paintShelf(){
+  var el = $('shelf');
+  if (!shelf.length){ el.innerHTML = '<span class="shelf-empty">Completed runs collect here for comparison</span>'; return; }
+  el.innerHTML = '';
+  shelf.forEach(function(s){
+    var b = document.createElement('button');
+    b.className = 'spec';
+    b.innerHTML = '<img src="' + s.url + '" alt="' + s.name + '"><span>' + s.name + '</span>';
+    b.addEventListener('click', function(){ select(s.tex, s.comp); });
+    el.appendChild(b);
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   IDLE STATE + DEEP LINKS
+   ?c=<felsic|intermediate|mafic|ultramafic>  ?k=<texture>
+   Legacy values used by the p.15 Rock Cycle tool still resolve:
+   k=slow → phaneritic, k=fast → aphanitic, k=glassy, k=porphyritic.
+   ═══════════════════════════════════════════════════════════════════ */
+(function idle(){
+  cx.fillStyle = '#12140F'; cx.fillRect(0,0,W,H);
+  cx.fillStyle = 'rgba(166,164,153,.5)';
+  cx.font = '13px "Courier Prime",monospace';
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  cx.fillText('Choose a rock from the chart', W/2, H/2);
+  $('apLbl').textContent = '';
+  $('sbar').style.display = 'none';
+  $('play').textContent = '▶';
 })();
+
+var LEGACY = { slow:'phaneritic', fast:'aphanitic', glassy:'glassy', porphyritic:'porphyritic' };
+(function deepLink(){
+  var q = new URLSearchParams(location.search);
+  var ci = 0, cq = q.get('c');
+  if (cq) for (var i=0;i<COMPS.length;i++) if (COMPS[i].key === cq) ci = i;
+  var kq = q.get('k');
+  if (!kq){ if (cq){ paintComposition(ci); buildBowen(ci); st.comp = ci; } return; }
+  var tk = LEGACY[kq] || kq, ti = -1;
+  for (var j=0;j<TEX.length;j++) if (TEX[j].key === tk) ti = j;
+  if (ti < 0) return;
+  if (!ROCK[ti][ci]){ for (var c2=0;c2<COMPS.length;c2++) if (ROCK[ti][c2]){ ci = c2; break; } }
+  $('sbar').style.display = '';
+  select(ti, ci);
+})();
+
+if (st.tex < 0){ paintComposition(st.comp); buildBowen(st.comp); }
 </script>
 </body>
 </html>
