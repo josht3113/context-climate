@@ -155,10 +155,11 @@
   .stagewrap input { flex: 1; }
   .stagewrap output { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); min-width: 34px; text-align: right; }
 
-  .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-top: 12px; }
+  .stats { display: grid; grid-template-columns: 1.85fr 1.15fr .8fr .85fr .62fr; gap: 7px; margin-top: 12px; }
   .stats .cc-stat-chip { padding: 6px 8px; align-items: flex-start; gap: 0; }
   .stats .cc-stat-label { font-size: 9px; letter-spacing: .07em; }
   .stat-n { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-primary); line-height: 1.25; white-space: nowrap; }
+  #sRock, #sTex { white-space: normal; font-size: 12.5px; line-height: 1.18; overflow-wrap: break-word; }
   .stat-n small { font-size: 9.5px; color: var(--color-text-muted); }
 
   /* ── P–T diagram ────────────────────────────────────────────────── */
@@ -204,7 +205,7 @@
   }
   @media (max-width: 500px) {
     :root { --scope: calc(100vw - 44px); }
-    .stats { grid-template-columns: repeat(3, 1fr); }
+    .stats { grid-template-columns: repeat(3, minmax(0,1fr)); }
   }
 </style>
 </head>
@@ -380,6 +381,25 @@ var MIN = {
 var DARKM = {biotite:1, chlorite:1, hornblende:1, actinolite:1, glaucophane:1, omphacite:1,
              cpx:1, opx:1, pyroxene:1, olivine:1, oxide:1, graphite:1, organic:1,
              garnet:1, staurolite:1, epidote:1, diopside:1, pumpellyite:1};
+
+/* A pebble in a conglomerate is a whole rock, not a mineral, so the clasts
+   are their own population: rounded, orders of magnitude coarser than the
+   sand around them, and each a different lithology. That two-population,
+   clast-plus-matrix look is what a conglomerate IS, and it is what separates
+   it from the interlocking single-population mosaic of a granite.
+   `gs` is the internal grain size in px at reference scale, `spk` how much
+   the internal grains vary, `w` the relative abundance. */
+var CLAST = [
+  {k:'vquartz',  n:'Vein quartz',      col:[218,216,210], gs:3.4, spk:7,  w:0.19},
+  {k:'quartzite',n:'Quartzite pebble', col:[190,190,186], gs:4.6, spk:10, w:0.17},
+  {k:'chert',    n:'Chert',            col:[130,72,58],   gs:1.6, spk:6,  w:0.09},
+  {k:'jasper',   n:'Jasper',           col:[156,58,42],   gs:1.6, spk:7,  w:0.06},
+  {k:'basaltic', n:'Basaltic pebble',  col:[52,56,52],    gs:2.0, spk:7,  w:0.21},
+  {k:'granitoid',n:'Granitoid pebble', col:[196,170,152], gs:6.0, spk:20, w:0.16},
+  {k:'sandstone',n:'Sandstone pebble', col:[180,150,112], gs:3.6, spk:14, w:0.12}
+];
+var CLAST_CDF = (function(){ var r=[],t=0,i; for(i=0;i<CLAST.length;i++) t+=CLAST[i].w;
+  var run=0; for(i=0;i<CLAST.length;i++){ run+=CLAST[i].w/t; r.push(run); } return r; })();
 
 /* Michel-Lévy interference colours by retardation in nm — first order runs
    grey → white → yellow → orange → red, then the higher orders cycle
@@ -580,12 +600,16 @@ var PROTO = [
       [600, {calcite:84, diopside:9, tremolite:2, wollastonite:2, oxide:3}],
       [820, {calcite:80, wollastonite:11, diopside:6, oxide:3}]
     ] },
-  { key:'conglomerate', n:'Conglomerate', sub:'coarse clastic', d0:1.20, fertile:0, clastic:1,
+  { key:'conglomerate', n:'Conglomerate', sub:'coarse clastic', d0:0.26, fertile:0, clastic:1,
+    clastMm:9.0,
+    /* modes here describe the SAND MATRIX between the pebbles. The pebbles
+       themselves are whole rocks, not minerals, so they are a separate
+       population with their own lithologies — see CLAST below. */
     nodes:[
-      [25,  {quartz:56, lithic:20, kFeld:10, clay:9, oxide:5}],
-      [300, {quartz:60, lithic:19, kFeld:9, muscovite:8, oxide:4}],
-      [550, {quartz:62, lithic:16, kFeld:9, muscovite:9, biotite:2, oxide:2}],
-      [820, {quartz:63, lithic:14, kFeld:10, biotite:7, muscovite:4, oxide:2}]
+      [25,  {quartz:68, kFeld:8, clay:19, muscovite:2, oxide:3}],
+      [300, {quartz:70, kFeld:8, muscovite:17, clay:3, oxide:2}],
+      [550, {quartz:69, kFeld:8, muscovite:18, biotite:3, oxide:2}],
+      [820, {quartz:68, kFeld:9, biotite:13, muscovite:8, oxide:2}]
     ] },
   { key:'coal', n:'Bituminous coal', sub:'organic', d0:0.02, fertile:0,
     nodes:[
@@ -784,6 +808,9 @@ function stateAt(protoKey, pathKey, u){
     proto:pr, path:pa, u:u, idx:idx, T:T, P:P, t:tm, past:past,
     peakT:peakT, peakP:peakP, depth:P*KM_PER_KBAR, peakDepth:peakP*KM_PER_KBAR,
     modes:m, grain:d, Rs:Rs, align:align, platy:pf, fol:fol, seg:seg, melt:melt,
+    /* detrital grains sit in pore space that closes as they weld together —
+       the difference between a sandstone and a quartzite of the same minerals */
+    poro:(pr.clastic ? 1 - smoothstep(160, 340, peakT) : 0),
     facies:faciesAt(peakT, peakP), liveFacies:faciesAt(T, P), foliated:(fol >= 0.18 || seg >= 0.42),
     h2oLost:Math.max(0, h2o0 - h2o), h2o:h2o, dens:density(m),
     alsi:alsiPoly(peakT, peakP), aboveSolidus:peakT > solidusT(peakP), aboveDehyd:peakT > dehydT(peakP)
@@ -924,7 +951,81 @@ function effGrain(st){
 }
 function fovFor(st, scaleMode){
   if (scaleMode === 'hand') return 40;
+  if (st.proto.clastMm) return clamp(st.proto.clastMm * 3.8, 8, 46);
   return clamp(effGrain(st) * 22, 0.32, 46);
+}
+
+/* ── PEBBLES ──────────────────────────────────────────────────────────────
+   Packed as circles in the UNSTRAINED frame, then mapped through the strain
+   ellipse, so they end up as non-overlapping ellipses whose axial ratio is
+   the finite strain itself. A stretched-pebble conglomerate is the cleanest
+   strain gauge in geology: the ratio you measure off the picture is the
+   number in the readout. The matrix recrystallises and so records less. */
+function buildClasts(st, fovMm, RW){
+  if (!st.proto.clastMm) return [];
+  var rand = rng(50021), out = [];
+  var pxPerMm = RW / fovMm;
+  var baseR = st.proto.clastMm * 0.5 * pxPerMm;
+  var Rs = st.Rs, sq = Math.sqrt(Rs);
+  var UW = RW / sq, UH = RW * sq;               /* the unstrained frame */
+  var tries = 0, target = Math.round(0.62 * UW * UH / (Math.PI * baseR * baseR * 0.62));
+  target = Math.min(34, Math.max(6, target));
+  while (out.length < target && tries < 2600){
+    tries++;
+    var r = baseR * (0.32 + rand()*1.18);
+    var ux = rand() * UW, uy = rand() * UH, ok = true;
+    for (var i=0;i<out.length;i++){
+      var o = out[i], dx = ux-o.ux, dy = uy-o.uy;
+      if (dx*dx + dy*dy < (r + o.r) * (r + o.r) * 0.80){ ok = false; break; }
+    }
+    if (!ok) continue;
+    var q = rand(), li = 0;
+    while (li < CLAST_CDF.length-1 && q > CLAST_CDF[li]) li++;
+    out.push({ ux:ux, uy:uy, r:r, lith:li,
+               x: ux*sq, y: uy/sq, a: r*sq, b: r/sq,
+               w2:(rand()-0.5)*0.15, w3:(rand()-0.5)*0.12, w4:(rand()-0.5)*0.09,
+               p2:rand()*6.283, p3:rand()*6.283, p4:rand()*6.283,
+               sd:(rand()*9973)|0 });
+  }
+  return out;
+}
+/* One hash per cell, three values sliced out of it: two for the jitter that
+   makes the internal grains irregular, one for the grain's own colour. A
+   plain floor(x/g) grid reads as a checkerboard, which is what a pebble
+   must not look like. */
+function cellN(gx, gy, sd){
+  var n = (Math.imul(gx, 374761393) + Math.imul(gy, 668265263) + Math.imul(sd, 1013904223)) | 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177) | 0;
+  return (n ^ (n >>> 16)) >>> 0;
+}
+/* nearest jittered cell point: returns [value 0-1, edge closeness 0-1] */
+var _wv = [0, 0];
+function worley(x, y, g, sd){
+  var fx = x/g, fy = y/g, ix = Math.floor(fx), iy = Math.floor(fy);
+  var b1 = 1e9, b2 = 1e9, bv = 0;
+  for (var oy=-1; oy<=1; oy++) for (var ox=-1; ox<=1; ox++){
+    var n = cellN(ix+ox, iy+oy, sd);
+    var jx = (ix+ox) + (n & 1023)/1024, jy = (iy+oy) + ((n >>> 10) & 1023)/1024;
+    var dx = fx-jx, dy = fy-jy, dd = dx*dx + dy*dy;
+    if (dd < b1){ b2 = b1; b1 = dd; bv = ((n >>> 20) & 4095)/4096; }
+    else if (dd < b2) b2 = dd;
+  }
+  _wv[0] = bv;
+  _wv[1] = b2 > 0 ? b1/b2 : 0;
+  return _wv;
+}
+
+/* radius multiplier of a pebble outline at angle theta — pebbles are worn
+   round but not circular */
+function clastEdge(c, th){
+  return 1 + c.w2*Math.cos(2*th + c.p2) + c.w3*Math.cos(3*th + c.p3) + c.w4*Math.cos(4*th + c.p4);
+}
+function clastHit(c, px, py){
+  var dx = px - c.x, dy = py - c.y;
+  var u = dx / c.a, v = dy / c.b, rr = Math.sqrt(u*u + v*v);
+  if (rr > 1.35) return -1;
+  var e = clastEdge(c, Math.atan2(v, u));
+  return rr <= e ? rr / e : -1;
 }
 
 function buildField(st, fovMm, RW, RH){
@@ -1002,12 +1103,27 @@ function buildField(st, fovMm, RW, RH){
   }
 
   /* ── foliation surface: a wavy plane, deflected around porphyroblasts ── */
+  var clasts = buildClasts(st, fovMm, RW);
   var wavy = clamp((d*pxPerMm - 3) / 26, 0, 1);
   var wA = st.fol * (2.5 + 24*wavy);
   var warpCol = new Float32Array(RW);
   for (i=0;i<RW;i++) warpCol[i] = wA*(Math.sin(i*6.283/RW*2.1)*0.60 + Math.sin(i*6.283/RW*0.85 + 1.4)*0.40);
   var warp = new Float32Array(NPX);
   for (var py=0; py<RH; py++){ var ro = py*RW; for (var px=0; px<RW; px++) warp[ro+px] = warpCol[px]; }
+  if (st.fol > 0.10 && clasts.length){
+    /* the matrix foliation wraps a pebble the same way it wraps a porphyroblast */
+    for (i=0;i<clasts.length;i++){
+      var C0 = clasts[i], infl0 = C0.b * 2.6;
+      var cx0b = C0.x, cy0b = C0.y;
+      var xa = Math.max(0,(cx0b-C0.a-infl0)|0), xb = Math.min(RW-1,(cx0b+C0.a+infl0)|0);
+      var ya = Math.max(0,(cy0b-C0.b-infl0)|0), yb = Math.min(RH-1,(cy0b+C0.b+infl0)|0);
+      for (var y2=ya; y2<=yb; y2++) for (var x2=xa; x2<=xb; x2++){
+        var ex = (x2-cx0b)/C0.a, ey = (y2-cy0b)/C0.b, er = Math.sqrt(ex*ex+ey*ey);
+        if (er < 1 || er > 2.4) continue;
+        warp[y2*RW+x2] += clamp(C0.b*0.55*(ey>0?1:-1)/(er*er) * st.fol, -C0.b*0.55, C0.b*0.55);
+      }
+    }
+  }
   if (st.fol > 0.15){
     for (i=0;i<nHeavy;i++){
       var bR = Math.sqrt(Math.max(qW[i],1)*Math.PI) * 1.0;
@@ -1109,6 +1225,7 @@ function buildField(st, fovMm, RW, RH){
   return { RW:RW, RH:RH, N:N, own:own, d1:dA, d2:dB, warp:warp,
            qX:qX, qY:qY, qPhi:qPhi, qCut:qCut, qMin:qMin, qA:qA, qW:qW,
            lam:lam, fine:fine, fineK:fineK, mean:[mr,mg,mb], grainPx:grainPx, pxPerMm:pxPerMm,
+           clasts:clasts, poro:st.poro,
            fovMm:fovMm, nHeavy:nHeavy, d:d };
 }
 
@@ -1171,6 +1288,11 @@ function colourField(F, st, light, stageDeg){
     bed = (1 - smoothstep(300, 520, st.peakT)) * (light==='xpl' ? 0.05 : 0.13);
   var bedK = 6.283 / (RH/5.5), bc = Math.cos(0.42), bs2 = Math.sin(0.42);
   var micaK = 6.283 / Math.max(3.4, F.grainPx * 0.52);
+  /* pore space is wide and dark early, then fills with cement and closes */
+  var poBand = (F.poro || 0) * 0.30 * clamp(F.grainPx/5, 0, 1);
+  var cem = clamp((F.poro||0), 0, 1);
+  var poR = 92 - 44*cem, poG = 82 - 44*cem, poB = 68 - 40*cem;
+  if (light === 'xpl'){ poR = 10; poG = 10; poB = 12; }
   var twinK = 1 / Math.max(1.6, F.grainPx * 0.16);
 
   for (var py=0; py<RH; py++){
@@ -1183,6 +1305,17 @@ function colourField(F, st, light, stageDeg){
       if (bf > 1) bf = 1;
 
       var r = gR[o], g = gG[o], bl = gB[o];
+
+      /* pore space between detrital grains, closing as they weld */
+      if (poBand > 0 && edge > 1 - poBand){
+        var pf2 = Math.min(1, (edge - (1 - poBand)) / (poBand * 0.72));
+        var o4p = ii*4;
+        img[o4p]   = cl(r + (poR - r)*pf2);
+        img[o4p+1] = cl(g + (poG - g)*pf2);
+        img[o4p+2] = cl(bl + (poB - bl)*pf2);
+        img[o4p+3] = 255;
+        continue;
+      }
 
       var fx = gFx[o];
       if (fx === 'mica' || fx === 'twin'){
@@ -1219,6 +1352,75 @@ function colourField(F, st, light, stageDeg){
 
       var o4 = ii*4;
       img[o4] = cl(r); img[o4+1] = cl(g); img[o4+2] = cl(bl); img[o4+3] = 255;
+    }
+  }
+
+  /* ── pebbles, drawn over the matrix ────────────────────────────────────
+     Each is a whole rock: its own lithology, its own internal grain size,
+     a worn-round outline, and an axial ratio equal to the finite strain.
+     With rising grade the internal fabric recrystallises and the boundary
+     against the matrix goes diffuse. */
+  var CL = F.clasts;
+  if (CL && CL.length){
+    var recry = smoothstep(380, 720, st.peakT);
+    var mR = mean[0], mG = mean[1], mB = mean[2];
+    for (var ci=0; ci<CL.length; ci++){
+      var C = CL[ci], L = CLAST[C.lith];
+      var gsz = Math.max(1.6, L.gs * (0.55 + 0.9*recry)) * (RW/452);
+      var spk = L.spk * (1 - 0.45*recry);
+      var x0 = Math.max(0, Math.floor(C.x - C.a*1.4)), x1 = Math.min(RW-1, Math.ceil(C.x + C.a*1.4));
+      var y0 = Math.max(0, Math.floor(C.y - C.b*1.4)), y1 = Math.min(RH-1, Math.ceil(C.y + C.b*1.4));
+      for (var cy=y0; cy<=y1; cy++){
+        for (var cxp=x0; cxp<=x1; cxp++){
+          var rr = clastHit(C, cxp, cy);
+          if (rr < 0) continue;
+          /* internal grain */
+          var wv = worley(cxp, cy, light==='xpl' ? gsz*1.8 : gsz, C.sd);
+          var hu = wv[0], wEdge = wv[1];
+          var cr, cg, cb;
+          if (light === 'xpl'){
+            /* a pebble is polycrystalline: a mosaic of first-order greys,
+               each internal grain at its own extinction position */
+            if (L.k === 'basaltic' || L.k === 'chert' || L.k === 'jasper'){
+              var vdk = 12 + hu*34; cr = vdk; cg = vdk; cb = vdk*0.96;
+            } else {
+              var br2 = 0.30 + 0.70*extAt(hu*3.1416 + stage);
+              var lev = 150 + hu*70;
+              cr = lev*br2; cg = lev*br2; cb = (lev-7)*br2;
+            }
+          } else {
+            var jt2 = (hu - 0.5) * 2 * spk;
+            if (L.k === 'granitoid'){
+              cr = hu < 0.40 ? 202 : hu < 0.70 ? 214 : hu < 0.90 ? 218 : 74;
+              cg = hu < 0.40 ? 158 : hu < 0.70 ? 214 : hu < 0.90 ? 214 : 70;
+              cb = hu < 0.40 ? 140 : hu < 0.70 ? 212 : hu < 0.90 ? 206 : 64;
+              cr += jt2*0.3; cg += jt2*0.3; cb += jt2*0.3;
+              /* pull the speckle together so a 9 mm pebble reads as one rock */
+              cr += (196-cr)*0.22; cg += (178-cg)*0.22; cb += (164-cb)*0.22;
+            } else {
+              cr = L.col[0] + jt2; cg = L.col[1] + jt2; cb = L.col[2] + jt2;
+            }
+            /* fine intra-grain noise so a flat pebble does not read as plastic */
+            var nz2 = (((cy*53 + cxp*97) & 255) * 0.026 - 3.3);
+            cr += nz2; cg += nz2; cb += nz2;
+            /* recrystallised pebbles drift toward the matrix composition */
+            cr += (mR - cr)*0.20*recry; cg += (mG - cg)*0.20*recry; cb += (mB - cb)*0.20*recry;
+          }
+          if (gsz > 2.2 && wEdge > 0.80){
+            var wf = 0.62 + (1-wEdge)*1.9; if (wf > 1) wf = 1;
+            cr *= wf; cg *= wf; cb *= wf;
+          }
+          /* rim: pressed against the matrix, diffuse at high grade */
+          var rimW = 0.055 + 0.10*recry;
+          if (rr > 1 - rimW){
+            var t2 = (rr - (1 - rimW)) / rimW;
+            var dk = 1 - 0.34*t2*(1 - 0.55*recry);
+            cr *= dk; cg *= dk; cb *= dk;
+          }
+          var oo = (cy*RW + cxp)*4;
+          img[oo] = cl(cr); img[oo+1] = cl(cg); img[oo+2] = cl(cb); img[oo+3] = 255;
+        }
+      }
     }
   }
   return img;
@@ -1715,8 +1917,24 @@ scopeEl.addEventListener('mousemove', function(e){
   var rect = scopeEl.getBoundingClientRect();
   var px = Math.round((e.clientX-rect.left)/rect.width*CW), py = Math.round((e.clientY-rect.top)/rect.height*CW);
   if (px<0||py<0||px>=CW||py>=CW){ tip.classList.remove('on'); return; }
-  var id = F.own[py*CW+px], mk = F.qMin[id], M = MIN[mk];
   var st = stateAt(ST.proto, ST.path, ST.u);
+  if (F.clasts && F.clasts.length){
+    for (var ci=0; ci<F.clasts.length; ci++){
+      if (clastHit(F.clasts[ci], px, py) < 0) continue;
+      var L = CLAST[F.clasts[ci].lith], C = F.clasts[ci];
+      tip.classList.add('on');
+      $('tipDot').style.background = 'rgb('+L.col[0]+','+L.col[1]+','+L.col[2]+')';
+      $('tipName').textContent = L.n;
+      $('tipMeta').innerHTML = ['clast — a whole rock, not a mineral',
+        'axial ratio ' + (C.a/C.b).toFixed(1) + ' : 1',
+        'long axis ' + (C.a*2/F.pxPerMm).toFixed(1) + ' mm'].join('<br>');
+      tip.style.left = Math.min(CW-215, px+16) + 'px';
+      tip.style.top  = Math.min(CW-70, py+14) + 'px';
+      ox.clearRect(0,0,CW,CW);
+      return;
+    }
+  }
+  var id = F.own[py*CW+px], mk = F.qMin[id], M = MIN[mk];
   tip.classList.add('on');
   $('tipDot').style.background = 'rgb('+M.col[0]+','+M.col[1]+','+M.col[2]+')';
   $('tipName').textContent = M.n;
