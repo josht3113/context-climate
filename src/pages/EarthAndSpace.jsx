@@ -452,8 +452,8 @@ const SECTIONS = [
       },
        {
         tags:        ['Weathering', 'Interactive'],
-        title:       "Bowen's Reaction Series & Godich Stability Series",
-        description: "Simulate mineral crystalization from cooling magma, then flip to weathering mode to watch the same minerals break down in reverse stability order.",
+        title:       "Goldich Stability Series",
+        description: "Manipulate variables such as climate and rock type to simulate weathering rates under different conditions.",
         footerTags:  ['Goldich Satbility Series', 'Weathering'],
         to:          '/bowens_goldich',
         thumb:       '/BowensGoldich_thumbnail.png',
