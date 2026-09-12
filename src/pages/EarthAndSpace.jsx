@@ -451,9 +451,9 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Metamorphic Rocks', 'Interactive'],
+        tags:        ['Contact Metamorphism', 'Interactive'],
         title:       'Contact Metamorphism Explorer',
-        description: 'Intrude a dike, sill, laccolith or stock into layered sedimentary rock and watch the aureole grow as heat conducts outward. Compare it with a buried lava flow, which bakes only the rock beneath it.',
+        description: 'Intrude a dike, sill, laccolith or stock into layered sedimentary rock and watch the aureole grow as heat conducts outward.',
         footerTags:  ['Contact Aureole', 'Hornfels', 'Intrusions'],
         to:          '/earthandspace/contact-metamorphism',
         thumb:       '/ContactMetamorphism_thumbnail.png',
