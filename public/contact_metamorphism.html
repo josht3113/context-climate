@@ -782,7 +782,7 @@ function nowTAt(st, x, y, z){  var d = sdBody(st,x,y,z); return nowTFromD(st, d,
    affine transform, which is exact for a parallel projection. Only the
    buffer resolution costs anything, so the block can be drawn large.
    ═══════════════════════════════════════════════════════════════════ */
-var BW = 1520, BH = 1230;
+var BW = 1520, BH = 1230, GUTTER = 344;
 var FW = 520, FH = 420, FQ = 1;
 var faceBuf = [], faceCtx = [];
 for (var fi=0; fi<3; fi++){
@@ -806,9 +806,9 @@ function makeProj(st, az, el, ys){
     if (p[0]<mnx) mnx=p[0]; if (p[0]>mxx) mxx=p[0];
     if (p[1]<mny) mny=p[1]; if (p[1]>mxy) mxy=p[1];
   }
-  var padX = 72, padY = 80;
-  P.sc = Math.min((BW-2*padX)/(mxx-mnx), (BH-2*padY)/(mxy-mny));
-  P.ox = BW/2 - (mnx+mxx)/2*P.sc;
+  var padL = GUTTER, padR = 72, padY = 80;
+  P.sc = Math.min((BW-padL-padR)/(mxx-mnx), (BH-2*padY)/(mxy-mny));
+  P.ox = padL + (BW-padL-padR)/2 - (mnx+mxx)/2*P.sc;
   P.oy = BH/2 - (mny+mxy)/2*P.sc;
   P.p = function(x,y,z){ var r = raw(x,y,z); return [r[0]*P.sc + P.ox, r[1]*P.sc + P.oy]; };
   return P;
@@ -935,60 +935,106 @@ function drawFace(g, P, buf, O, U, V, shade){
    The aureole width and the intrusion width are bracketed on the block
    face the way a field geologist annotates a cross-section, so the
    comparison between them happens on the picture. */
+/* Each bracket spans exactly the quantity its label names, and is placed
+   where the body genuinely has that dimension — a stock is only `w` across
+   at the depth where its radius equals a, and a laccolith is only `w` thick
+   over its centre. */
 function dimSpec(st){
   var cx = st.BX/2, k = st.body.key, a = st.a, aur = st.aur;
-  if (k === 'dike'){
-    var z0 = st.BZ*0.52;
-    return {o:'h', c:z0, b0:cx-a, b1:cx+a, a0:cx+a, a1:cx+a+aur};
-  }
-  if (k === 'sill' || k === 'flow'){
-    return {o:'v', c:st.BX*0.15, b0:st.top, b1:st.top+2*a, a0:st.top+2*a, a1:st.top+2*a+aur};
-  }
-  if (k === 'laccolith'){
-    var zl = st.top + st.a*0.9;
-    var Rl = st.BX*0.30;
-    return {o:'h', c:zl, b0:cx-Rl, b1:cx+Rl, a0:cx+Rl, a1:cx+Rl+aur};
-  }
-  var zs2 = st.top + st.BZ*0.22;
-  var rs = a*(0.52 + 0.95*clamp(zs2/st.BZ, 0, 1.4));
-  return {o:'h', c:zs2, b0:cx-rs, b1:cx+rs, a0:cx+rs, a1:cx+rs+aur};
+  if (k === 'dike')
+    return {o:'h', c:st.BZ*0.52, word:'wide',
+            b0:cx-a, b1:cx+a, a0:cx+a, a1:cx+a+aur};
+  if (k === 'sill' || k === 'flow')
+    return {o:'v', c:st.BX*0.15, word:'thick',
+            b0:st.top, b1:st.top+2*a, a0:st.top+2*a, a1:st.top+2*a+aur};
+  if (k === 'laccolith')
+    return {o:'v', c:cx, word:'thick',
+            b0:st.top, b1:st.top+2*a, a0:st.top+2*a, a1:st.top+2*a+aur};
+  /* stock: rad(z) = a·(0.52 + 0.95·z/BZ), so rad = a at z = 0.505·BZ */
+  return {o:'h', c:st.BZ*0.505, word:'across',
+          b0:cx-a, b1:cx+a, a0:cx+a, a1:cx+a+aur};
 }
 
 function drawDims(g, P, st, ys){
   if (st.emPhase || st.aur <= 0) return;
-  var D = dimSpec(st);
+  var D = dimSpec(st), bn = BODY_BY[ST.body].n;
   function pt(v){ return D.o === 'h' ? P.p(v, ys, D.c) : P.p(D.c, ys, v); }
-  function span(v0, v1, col, label, side){
-    var p1 = pt(v0), p2 = pt(v1);
-    var vx = p2[0]-p1[0], vy = p2[1]-p1[1], L = Math.hypot(vx,vy);
-    if (L < 6) return;
-    var nx = -vy/L, ny = vx/L;
-    g.strokeStyle = col; g.lineWidth = 3; g.lineCap = 'butt';
-    g.beginPath(); g.moveTo(p1[0],p1[1]); g.lineTo(p2[0],p2[1]); g.stroke();
-    var tk = 13;
-    g.beginPath();
-    g.moveTo(p1[0]-nx*tk, p1[1]-ny*tk); g.lineTo(p1[0]+nx*tk, p1[1]+ny*tk);
-    g.moveTo(p2[0]-nx*tk, p2[1]-ny*tk); g.lineTo(p2[0]+nx*tk, p2[1]+ny*tk);
-    g.stroke();
-    var mx = (p1[0]+p2[0])/2 + nx*side*44, my = (p1[1]+p2[1])/2 + ny*side*44;
-    g.font = '600 26px "Courier Prime",monospace';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    var tw = g.measureText(label).width;
-    g.strokeStyle = col; g.lineWidth = 1.6;
-    g.beginPath();
-    g.moveTo((p1[0]+p2[0])/2 + nx*side*tk, (p1[1]+p2[1])/2 + ny*side*tk);
-    g.lineTo(mx - nx*side*16, my - ny*side*16); g.stroke();
-    g.fillStyle = 'rgba(16,19,16,0.90)';
-    g.beginPath();
-    if (g.roundRect) g.roundRect(mx-tw/2-10, my-17, tw+20, 34, 7);
-    else g.rect(mx-tw/2-10, my-17, tw+20, 34);
-    g.fill();
-    g.strokeStyle = col; g.lineWidth = 1.4; g.stroke();
-    g.fillStyle = col; g.fillText(label, mx, my);
+
+  var items = [
+    { v0:D.b0, v1:D.b1, col:'#7CD4DC',
+      t1: bn.toUpperCase(), t2: fmtM(st.w) + ' ' + D.word, t3: '' },
+    { v0:D.a0, v1:D.a1, col:'#FAB04A',
+      t1: st.body.flow ? 'BAKED ZONE BELOW' : 'CONTACT AUREOLE',
+      t2: fmtM(st.aur) + ' of baked rock',
+      t3: (st.aur/st.w).toFixed(2) + ' × the ' + bn.toLowerCase() }
+  ];
+
+  /* where each bracket sits on screen */
+  for (var i=0;i<items.length;i++){
+    var it = items[i], p1 = pt(it.v0), p2 = pt(it.v1);
+    it.p1 = p1; it.p2 = p2;
+    it.tx = (p1[0]+p2[0])/2; it.ty = (p1[1]+p2[1])/2;
+    it.h = it.t3 ? 112 : 84;
   }
-  var s2 = D.o === 'v' ? -1 : 1;
-  span(D.b0, D.b1, 'rgba(120,206,214,0.98)', BODY_BY[ST.body].n.toLowerCase() + ' ' + fmtM(st.w), -1);
-  span(D.a0, D.a1, 'rgba(250,176,74,0.98)', 'aureole ' + fmtM(st.aur), s2);
+  /* stack the labels down the gutter without letting them collide */
+  items.sort(function(a,b){ return a.ty - b.ty; });
+  var yy = 0;
+  for (var q=0;q<items.length;q++){
+    var want = items[q].ty - items[q].h/2;
+    items[q].by = Math.max(want, yy);
+    yy = items[q].by + items[q].h + 26;
+  }
+  var over = yy - 26 - (BH - 120);
+  if (over > 0) for (var q2=0;q2<items.length;q2++) items[q2].by -= over;
+  for (var q3=0;q3<items.length;q3++) items[q3].by = Math.max(items[q3].by, 26);
+
+  var LX = 24, LW = GUTTER - 86;
+  /* shrink a line rather than let it run out of its box */
+  function fitFont(txt, px, weight){
+    for (var f=px; f>13; f--){
+      g.font = (weight ? weight+' ' : '') + f + 'px "Courier Prime",monospace';
+      if (g.measureText(txt).width <= LW - 34) return;
+    }
+  }
+  for (var m=0;m<items.length;m++){
+    var it2 = items[m], col = it2.col;
+
+    /* the bracket, on the block, with ticks square to the span */
+    var vx = it2.p2[0]-it2.p1[0], vy = it2.p2[1]-it2.p1[1], L = Math.hypot(vx,vy);
+    if (L > 3){
+      var nx = -vy/L, ny = vx/L, tk = 15;
+      g.strokeStyle = col; g.lineWidth = 2.6; g.lineCap = 'butt';
+      g.beginPath(); g.moveTo(it2.p1[0],it2.p1[1]); g.lineTo(it2.p2[0],it2.p2[1]);
+      g.moveTo(it2.p1[0]-nx*tk, it2.p1[1]-ny*tk); g.lineTo(it2.p1[0]+nx*tk, it2.p1[1]+ny*tk);
+      g.moveTo(it2.p2[0]-nx*tk, it2.p2[1]-ny*tk); g.lineTo(it2.p2[0]+nx*tk, it2.p2[1]+ny*tk);
+      g.stroke();
+    }
+
+    /* the leader — thin, so it never competes with the rock */
+    var bmy = it2.by + it2.h/2;
+    g.strokeStyle = col; g.globalAlpha = 0.80; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(LX+LW, bmy); g.lineTo(LX+LW+22, bmy); g.lineTo(it2.tx, it2.ty); g.stroke();
+    g.globalAlpha = 1;
+    g.beginPath(); g.arc(it2.tx, it2.ty, 4.5, 0, 6.284); g.fillStyle = col; g.fill();
+
+    /* the label, clear of the block */
+    g.fillStyle = 'rgba(16,19,16,0.93)';
+    g.beginPath();
+    if (g.roundRect) g.roundRect(LX, it2.by, LW, it2.h, 8); else g.rect(LX, it2.by, LW, it2.h);
+    g.fill();
+    g.strokeStyle = 'rgba(232,228,217,0.22)'; g.lineWidth = 1; g.stroke();
+    g.fillStyle = col; g.fillRect(LX, it2.by + 8, 5, it2.h - 16);
+
+    g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillStyle = col; fitFont(it2.t1, 20);
+    g.fillText(it2.t1, LX+20, it2.by+14);
+    g.fillStyle = '#E8E4D9'; fitFont(it2.t2, 30, '600');
+    g.fillText(it2.t2, LX+20, it2.by+42);
+    if (it2.t3){
+      g.fillStyle = 'rgba(198,195,184,0.80)'; fitFont(it2.t3, 20);
+      g.fillText(it2.t3, LX+20, it2.by+82);
+    }
+  }
 }
 
 /* ── Temperature ramp — the key for the two heat views ─────────────────── */
