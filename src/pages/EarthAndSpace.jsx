@@ -450,6 +450,15 @@ const SECTIONS = [
         thumb:       '/MetamorphicTransformation_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Metamorphic Rocks', 'Interactive'],
+        title:       'Contact Metamorphism Explorer',
+        description: 'Intrude a dike, sill, laccolith or stock into layered sedimentary rock and watch the aureole grow as heat conducts outward. Compare it with a buried lava flow, which bakes only the rock beneath it.',
+        footerTags:  ['Contact Aureole', 'Hornfels', 'Intrusions'],
+        to:          '/earthandspace/contact-metamorphism',
+        thumb:       '/ContactMetamorphism_thumbnail.png',
+        status:      'live',
+      },
        {
         tags:        ['Weathering', 'Interactive'],
         title:       "Goldich Stability Series",
