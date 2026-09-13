@@ -73,6 +73,8 @@ body{
 .note{font-family:var(--font-body);font-size:13px;color:var(--color-text-secondary);
   margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hide{display:none!important}
+.gifstat{font-family:var(--font-mono);font-size:12px;color:var(--tool-accent);
+  white-space:nowrap;min-width:0}
 
 @media (max-width:900px){
   .bar .sub{display:none}
@@ -715,39 +717,54 @@ function drawMech(g,L,o){
   // ── labels ──────────────────────────────────────────────────
   g.font='700 15px "Courier Prime", monospace';
   g.textAlign='center'; g.textBaseline='middle';
-  g.fillStyle=EARTH_C; g.fillText('EARTH', pe.x, pe.y+19);
+  g.lineWidth=3.5; g.strokeStyle='rgba(10,13,20,0.88)'; g.lineJoin='round';
+  const lbl=(t,x,y,col)=>{ g.strokeText(t,x,y); g.fillStyle=col; g.fillText(t,x,y); };
+  lbl('EARTH', pe.x, pe.y+19, EARTH_C);
   if(o.beat>0){
-    g.fillStyle=SUN_C;   g.fillText('SUN', ps.x, ps.y+20);
-    g.fillStyle=p.color; g.fillText(p.name.toUpperCase(), pq.x, pq.y-19);
+    lbl('SUN', ps.x, ps.y+20, SUN_C);
+    lbl(p.name.toUpperCase(), pq.x, pq.y-19, p.color);
   }
 
   // circle labels crossfade with the morph; suppressed on a small panel,
-  // where they would collide with the body labels
+  // where they would collide with the body labels.
+  // Two-stage, not a blend: the outgoing label fades out completely before the
+  // incoming one appears, or they overprint into mush at mid-morph.
   if(o.beat>0 && M.size>=340){
+    const aOut=clamp(1-m/0.45,0,1), aIn=clamp((m-0.55)/0.45,0,1);
     g.font='700 13px "Courier Prime", monospace';
-    g.textBaseline='bottom';
-    g.globalAlpha=1-m;
-    g.fillStyle='rgba(255,255,255,0.55)';
-    g.fillText('DEFERENT', cx, cy-p.a*sc-6);
-    g.fillStyle='rgba(60,163,174,0.70)';
-    g.fillText("SUN'S ORBIT", cx, cy-1*sc-6);
-    g.globalAlpha=m;
-    g.fillStyle='rgba(255,255,255,0.55)';
-    g.fillText(p.name.toUpperCase()+"'S ORBIT", cx, cy-p.a*sc-6);
-    g.fillStyle='rgba(60,163,174,0.70)';
-    g.fillText("EARTH'S ORBIT", cx, cy-1*sc-6);
+    g.textBaseline='bottom'; g.textAlign='center';
+    /* A body sitting where an orbit label goes makes both unreadable, so the
+       label yields to the body. */
+    const clearOf=(txt,lx,ly)=>{
+      const hw=g.measureText(txt).width/2+6;
+      return [pe,ps,pq].every(b=>
+        Math.abs(b.x-lx)>hw+14 || Math.abs(b.y-ly)>24);
+    };
+    const put=(txt,y,col)=>{ if(clearOf(txt,cx,y)){ g.fillStyle=col; g.fillText(txt,cx,y); } };
+    if(aOut>0.01){
+      g.globalAlpha=aOut;
+      put('DEFERENT', cy-p.a*sc-8, 'rgba(255,255,255,0.55)');
+      put("SUN'S ORBIT", cy-1*sc-8, 'rgba(60,163,174,0.70)');
+    }
+    if(aIn>0.01){
+      g.globalAlpha=aIn;
+      put(p.name.toUpperCase()+"'S ORBIT", cy-p.a*sc-8, 'rgba(255,255,255,0.55)');
+      put("EARTH'S ORBIT", cy-1*sc-8, 'rgba(60,163,174,0.70)');
+    }
     g.globalAlpha=1;
   }
 
   // longitude readout on the sight line
-  const lamNow=normLam(lon*180/Math.PI);
-  const lrad=(1-m)>0.5?R*0.62:R*0.80;
-  const lx=pe.x+c*lrad, ly=pe.y+s2*lrad;
-  g.font='700 15px "Courier Prime", monospace';
-  g.textAlign='center'; g.textBaseline='middle';
-  g.fillStyle='rgba('+rgb+',0.95)';
-  g.fillText('λ '+lamNow.toFixed(1)+'°',
-    clamp(lx,M.x+42,M.x+M.size-42), clamp(ly,M.y+30,M.y+M.size-30));
+  if(m<0.02 || m>0.98){
+    const lamNow=normLam(lon*180/Math.PI);
+    const lrad=(1-m)>0.5?R*0.62:R*0.80;
+    const lx=pe.x+c*lrad, ly=pe.y+s2*lrad;
+    g.font='700 15px "Courier Prime", monospace';
+    g.textAlign='center'; g.textBaseline='middle';
+    g.fillStyle='rgba('+rgb+',0.95)';
+    g.fillText('λ '+lamNow.toFixed(1)+'°',
+      clamp(lx,M.x+42,M.x+M.size-42), clamp(ly,M.y+30,M.y+M.size-30));
+  }
 
   g.restore();
 
@@ -756,8 +773,10 @@ function drawMech(g,L,o){
   g.textAlign='left'; g.textBaseline='top';
   const heads=['WHAT WE SEE FROM EARTH','PTOLEMY, c. 150 AD  ·  GEOCENTRIC','HELIOCENTRIC'];
   if(o.beat===2 && m<1){
-    g.globalAlpha=1-m; g.fillStyle=TXT_MD; g.fillText(heads[1],M.x+10,M.y+7);
-    g.globalAlpha=m;   g.fillStyle=TXT_MD; g.fillText(heads[2],M.x+10,M.y+7);
+    const aOut=clamp(1-m/0.45,0,1), aIn=clamp((m-0.55)/0.45,0,1);
+    g.fillStyle=TXT_MD;
+    if(aOut>0.01){ g.globalAlpha=aOut; g.fillText(heads[1],M.x+10,M.y+7); }
+    if(aIn>0.01){  g.globalAlpha=aIn;  g.fillText(heads[2],M.x+10,M.y+7); }
     g.globalAlpha=1;
   } else {
     g.fillStyle=TXT_MD; g.fillText(heads[o.beat],M.x+10,M.y+7);
@@ -866,17 +885,20 @@ function buildSteps(){
 
 function buildCtrls(){
   const p=P();
-  let h='<p class="note">'+note()+'</p><span class="spacer"></span>';
+  let h='<p class="note">'+note()+'</p>'+
+        '<span class="gifstat" id="gifStatus"></span><span class="spacer"></span>';
   h+=PKEYS.map(k=>'<button class="cc-btn cc-btn-sm plan'+(k===pKey?' is-active':'')+
       '" data-p="'+k+'">'+PL[k].name+'</button>').join('');
   if(beat===2){
-    h+='<button class="cc-btn cc-btn-sm'+(cmp?' is-active':'')+'" id="cmpBtn">Compare all three</button>';
-    h+='<button class="cc-btn cc-btn-sm" id="morphBtn">↺ Replay morph</button>';
+    h+='<button class="cc-btn cc-btn-sm'+(cmp?' is-active':'')+'" id="cmpBtn">Compare</button>';
+    h+='<button class="cc-btn cc-btn-sm" id="morphBtn">↺ Morph</button>';
   }
   h+='<button class="cc-btn cc-btn-sm" id="backBtn"'+(beat===0?' disabled style="opacity:.35"':'')+'>← Back</button>';
   h+='<button class="cc-btn cc-btn-sm primary" id="nextBtn">'+
      (beat===2?'↺ Start over':'Next →')+'</button>';
   h+='<button class="cc-btn cc-btn-sm" id="pngBtn">⬇ PNG</button>';
+  h+='<button class="cc-btn cc-btn-sm" id="gifBtn">⬇ GIF</button>';
+  if(beat===2) h+='<button class="cc-btn cc-btn-sm" id="gifMorphBtn">⬇ Morph GIF</button>';
   ctrlsEl.innerHTML=h;
 
   ctrlsEl.querySelectorAll('.plan').forEach(b=>b.onclick=()=>selPlanet(b.dataset.p));
@@ -887,6 +909,10 @@ function buildCtrls(){
   document.getElementById('backBtn').onclick=()=>goStep(beat-1);
   document.getElementById('nextBtn').onclick=()=>goStep(beat===2?0:beat+1);
   document.getElementById('pngBtn').onclick=exportPNG;
+  document.getElementById('gifBtn').onclick=()=>exportGIF('timeline');
+  const gm=document.getElementById('gifMorphBtn');
+  if(gm) gm.onclick=()=>exportGIF('morph');
+  setGifStatus(GIF_MSG);
 }
 
 function buildReads(){
@@ -984,13 +1010,13 @@ function frame(ts){
     if(day>T0.W1) day=T0.W0;
   }
 
-  if(LAY){
+  if(LAY && !gifBusy){
     drawScene(ctx,LAY,{
       key:pKey, day, beat, morph:beat===2?morphT:0,
       cmp:cmp&&beat===2, w:CW, h:CH
     });
+    syncScrub(); buildReads();
   }
-  syncScrub(); buildReads();
   requestAnimationFrame(frame);
 }
 
@@ -1037,6 +1063,290 @@ function exportPNG(){
     a.href=url; a.download='planetary-retrograde_'+pKey+'_step'+(beat+1)+'.png';
     a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   });
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   ANIMATED GIF EXPORT
+   Self-contained: median-cut palette over a 15-bit histogram, a
+   bin -> palette LUT, LZW, and inter-frame differencing against a
+   reserved transparent index 255. No library, nothing fetched.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── LZW, LSB-first ─────────────────────────────────────────── */
+function BitWriter(){ this.out=[]; this.acc=0; this.n=0; }
+BitWriter.prototype.write=function(code,size){
+  this.acc |= code << this.n; this.n += size;
+  while(this.n>=8){ this.out.push(this.acc & 0xFF); this.acc >>>= 8; this.n -= 8; }
+};
+BitWriter.prototype.end=function(){
+  if(this.n>0){ this.out.push(this.acc & 0xFF); this.acc=0; this.n=0; }
+  return this.out;
+};
+function lzwEncode(idx, minCode){
+  const clear=1<<minCode, eoi=clear+1;
+  let codeSize=minCode+1, next=eoi+1;
+  let dict=new Map();
+  const bw=new BitWriter();
+  bw.write(clear,codeSize);
+  let cur=idx[0];
+  for(let i=1;i<idx.length;i++){
+    const k=idx[i], key=(cur<<8)|k;
+    const v=dict.get(key);
+    if(v!==undefined){ cur=v; continue; }
+    bw.write(cur,codeSize);
+    /* The decoder is always one entry behind the encoder, so the code size
+       must grow on the check BEFORE `next` is incremented. Testing after the
+       increment grows one code too early and the stream decodes as garbage. */
+    if(next===4096){
+      bw.write(clear,codeSize);
+      dict=new Map(); next=eoi+1; codeSize=minCode+1;
+    } else {
+      if(next>=(1<<codeSize)) codeSize++;
+      dict.set(key,next); next++;
+    }
+    cur=k;
+  }
+  bw.write(cur,codeSize);
+  bw.write(eoi,codeSize);
+  return bw.end();
+}
+
+/* ── median cut over 5-bit-per-channel bins ─────────────────── */
+function buildPalette(hist, maxColors){
+  const bins=[];
+  for(let b=0;b<32768;b++) if(hist[b]) bins.push(b);
+  const box=arr=>{
+    let r0=31,r1=0,g0=31,g1=0,b0=31,b1=0,cnt=0;
+    for(const bn of arr){
+      const r=(bn>>10)&31, g=(bn>>5)&31, bl=bn&31, c=hist[bn];
+      if(r<r0)r0=r; if(r>r1)r1=r;
+      if(g<g0)g0=g; if(g>g1)g1=g;
+      if(bl<b0)b0=bl; if(bl>b1)b1=bl;
+      cnt+=c;
+    }
+    return {arr,r0,r1,g0,g1,b0,b1,cnt,
+            score:Math.max(r1-r0,g1-g0,b1-b0)*Math.cbrt(cnt)};
+  };
+  let boxes=[box(bins)];
+  while(boxes.length<maxColors){
+    let bi=-1,best=-1;
+    boxes.forEach((bx,i)=>{ if(bx.arr.length>1 && bx.score>best){best=bx.score;bi=i;} });
+    if(bi<0) break;
+    const bx=boxes[bi];
+    const rr=bx.r1-bx.r0, gg=bx.g1-bx.g0, bb=bx.b1-bx.b0;
+    const ax = rr>=gg && rr>=bb ? 10 : (gg>=bb ? 5 : 0);
+    const sorted=bx.arr.slice().sort((p,q)=>((p>>ax)&31)-((q>>ax)&31));
+    // cut at the weighted median so both halves carry similar pixel counts
+    let half=bx.cnt/2, acc=0, cut=0;
+    for(let i=0;i<sorted.length;i++){ acc+=hist[sorted[i]]; if(acc>=half){cut=i;break;} }
+    if(cut<=0) cut=0; if(cut>=sorted.length-1) cut=sorted.length-2;
+    boxes.splice(bi,1,box(sorted.slice(0,cut+1)),box(sorted.slice(cut+1)));
+  }
+  const pal=new Uint8Array(256*3);
+  boxes.forEach((bx,i)=>{
+    let r=0,g=0,b=0,c=0;
+    for(const bn of bx.arr){
+      const w=hist[bn];
+      r+=(((bn>>10)&31)*8+4)*w; g+=(((bn>>5)&31)*8+4)*w; b+=((bn&31)*8+4)*w; c+=w;
+    }
+    pal[i*3]=Math.min(255,Math.round(r/c));
+    pal[i*3+1]=Math.min(255,Math.round(g/c));
+    pal[i*3+2]=Math.min(255,Math.round(b/c));
+  });
+  return {pal, n:boxes.length};
+}
+/* bin -> nearest palette index, built once (luma-weighted) */
+function buildLUT(pal,n){
+  const lut=new Uint8Array(32768);
+  for(let b=0;b<32768;b++){
+    const r=((b>>10)&31)*8+4, g=((b>>5)&31)*8+4, bl=(b&31)*8+4;
+    let best=0,bd=Infinity;
+    for(let i=0;i<n;i++){
+      const dr=r-pal[i*3], dg=g-pal[i*3+1], db=bl-pal[i*3+2];
+      const d=0.299*dr*dr+0.587*dg*dg+0.114*db*db;
+      if(d<bd){bd=d;best=i;}
+    }
+    lut[b]=best;
+  }
+  return lut;
+}
+
+/* ── GIF assembly ───────────────────────────────────────────── */
+function GifWriter(w,h,pal){
+  this.w=w; this.h=h; this.bytes=[];
+  const B=this.bytes;
+  'GIF89a'.split('').forEach(c=>B.push(c.charCodeAt(0)));
+  B.push(w&255,w>>8, h&255,h>>8, 0xF7, 0, 0);
+  for(let i=0;i<768;i++) B.push(pal[i]||0);
+  B.push(0x21,0xFF,0x0B);
+  'NETSCAPE2.0'.split('').forEach(c=>B.push(c.charCodeAt(0)));
+  B.push(0x03,0x01,0,0,0x00);
+}
+GifWriter.prototype.frame=function(idx,x,y,w,h,delayCs,transparent){
+  const B=this.bytes;
+  B.push(0x21,0xF9,0x04, transparent?0x05:0x04, delayCs&255, delayCs>>8,
+         transparent?255:0, 0x00);
+  B.push(0x2C, x&255,x>>8, y&255,y>>8, w&255,w>>8, h&255,h>>8, 0x00);
+  B.push(8);
+  const data=lzwEncode(idx,8);
+  for(let i=0;i<data.length;i+=255){
+    const chunk=data.slice(i,i+255);
+    B.push(chunk.length);
+    for(const b of chunk) B.push(b);
+  }
+  B.push(0x00);
+};
+GifWriter.prototype.blob=function(){
+  this.bytes.push(0x3B);
+  return new Blob([new Uint8Array(this.bytes)],{type:'image/gif'});
+};
+
+/* ── frame plans ────────────────────────────────────────────── */
+const GIF_W=1000, GIF_H=470, GIF_HEAD=54;
+
+function timelinePlan(){
+  const T0=T(), N=46, out=[];
+  const key=[T0.s1,0,T0.s2];
+  for(let i=0;i<=N;i++){
+    const d=T0.W0+(T0.W1-T0.W0)*i/N;
+    // hold on the stationary points and opposition so those beats land
+    const near=key.some(k=>Math.abs(d-k) < (T0.W1-T0.W0)/N/2);
+    out.push({day:d, morph:beat===2?1:0, beat, delay:near?70:9});
+  }
+  out[out.length-1].delay=120;
+  return out;
+}
+function morphPlan(){
+  const N=30, out=[];
+  out.push({day, morph:0, beat:2, delay:110});
+  for(let i=1;i<N;i++) out.push({day, morph:i/N, beat:2, delay:7});
+  out.push({day, morph:1, beat:2, delay:150});
+  return out;
+}
+
+/* ── capture ────────────────────────────────────────────────── */
+let gifBusy=false, GIF_MSG='';
+function setGifStatus(t){
+  GIF_MSG=t||'';
+  const el=document.getElementById('gifStatus');
+  if(el) el.textContent=t||'';
+}
+function drawGifFrame(g,fr){
+  g.fillStyle='#1E2320'; g.fillRect(0,0,GIF_W,GIF_H+GIF_HEAD);
+  const a=at(pKey,fr.day);
+  g.textAlign='left'; g.textBaseline='alphabetic';
+  g.font='700 17px "Zilla Slab", serif';
+  g.fillStyle='#E8E4D9';
+  g.fillText('Planetary Retrograde — '+P().name, 16, 22);
+  g.font='400 13px "Courier Prime", monospace';
+  g.fillStyle='rgba(232,228,217,0.62)';
+  const line2 = fr.kind==='morph'
+    ? 'Ptolemy → heliocentric  ·  '+fmtDate(pKey,fr.day)+
+      '  ·  same sky either way'
+    : fmtDate(pKey,fr.day)+'  ·  '+(fr.day>=0?'+':'')+Math.round(fr.day)+
+      ' d from opposition  ·  λ '+normLam(lam0()+a.u).toFixed(1)+'°'+
+      '  ·  '+(a.retro?'RETROGRADE':'PROGRADE');
+  g.fillText(line2, 16, 42);
+  g.font='400 12px "Courier Prime", monospace';
+  g.fillStyle='rgba(232,228,217,0.38)';
+  g.textAlign='right';
+  g.fillText('contextclimate.io  ·  circular-orbit model', GIF_W-16, 42);
+
+  const L=computeLayout(GIF_W,GIF_H);
+  g.save(); g.translate(0,GIF_HEAD);
+  drawScene(g,L,{key:pKey, day:fr.day, beat:fr.beat, morph:fr.morph,
+                 cmp:false, w:GIF_W, h:GIF_H});
+  g.restore();
+}
+function yieldTick(){ return new Promise(r=>setTimeout(r,0)); }
+
+async function exportGIF(kind){
+  if(gifBusy) return;
+  gifBusy=true;
+  const wasPlaying=playing, savedDay=day, savedMorph=morphT, savedBeat=beat;
+  playing=false;
+  document.querySelectorAll('.cc-btn').forEach(b=>b.disabled=true);
+
+  try{
+    const plan=(kind==='morph'?morphPlan():timelinePlan()).map(f=>({...f,kind}));
+    const W=GIF_W, H=GIF_H+GIF_HEAD;
+    const oc=document.createElement('canvas');
+    oc.width=W; oc.height=H;
+    const g=oc.getContext('2d',{willReadFrequently:true});
+
+    // pass 1 — histogram, sampling every 6th frame
+    const hist=new Uint32Array(32768);
+    for(let i=0;i<plan.length;i+=6){
+      setGifStatus('sampling '+(i+1)+'/'+plan.length);
+      drawGifFrame(g,plan[i]);
+      const d=g.getImageData(0,0,W,H).data;
+      for(let p=0;p<d.length;p+=4)
+        hist[((d[p]>>3)<<10)|((d[p+1]>>3)<<5)|(d[p+2]>>3)]++;
+      await yieldTick();
+    }
+    setGifStatus('building palette…');
+    await yieldTick();
+    const {pal,n}=buildPalette(hist,255);
+    const lut=buildLUT(pal,n);
+
+    // pass 2 — encode, differencing each frame against the last
+    const gw=new GifWriter(W,H,pal);
+    let prev=null;
+    const cur=new Uint8Array(W*H);
+    for(let i=0;i<plan.length;i++){
+      setGifStatus('encoding '+(i+1)+'/'+plan.length);
+      drawGifFrame(g,plan[i]);
+      const d=g.getImageData(0,0,W,H).data;
+      for(let p=0,q=0;q<W*H;p+=4,q++)
+        cur[q]=lut[((d[p]>>3)<<10)|((d[p+1]>>3)<<5)|(d[p+2]>>3)];
+
+      if(!prev){
+        gw.frame(Array.from(cur),0,0,W,H,plan[i].delay,false);
+        prev=cur.slice();
+      } else {
+        let x0=W,y0=H,x1=-1,y1=-1;
+        for(let y=0;y<H;y++){
+          const row=y*W;
+          for(let x=0;x<W;x++){
+            if(cur[row+x]!==prev[row+x]){
+              if(x<x0)x0=x; if(x>x1)x1=x;
+              if(y<y0)y0=y; if(y>y1)y1=y;
+            }
+          }
+        }
+        if(x1<0){ // nothing moved — a 1x1 transparent pixel holds the frame
+          gw.frame([255],0,0,1,1,plan[i].delay,true);
+        } else {
+          const bw=x1-x0+1, bh=y1-y0+1, sub=new Array(bw*bh);
+          for(let y=0;y<bh;y++) for(let x=0;x<bw;x++){
+            const s=(y0+y)*W+(x0+x);
+            sub[y*bw+x] = cur[s]===prev[s] ? 255 : cur[s];
+          }
+          gw.frame(sub,x0,y0,bw,bh,plan[i].delay,true);
+          prev.set(cur);
+        }
+      }
+      if(i%3===0) await yieldTick();
+    }
+
+    const blob=gw.blob();
+    setGifStatus('GIF '+(blob.size/1048576).toFixed(2)+' MB');
+    const url=URL.createObjectURL(blob), a2=document.createElement('a');
+    a2.href=url;
+    a2.download='planetary-retrograde_'+pKey+'_'+
+      (kind==='morph'?'morph':'step'+(savedBeat+1))+'.gif';
+    a2.click();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  } catch(err){
+    setGifStatus('GIF failed: '+err.message);
+    throw err;
+  } finally {
+    day=savedDay; morphT=savedMorph; beat=savedBeat; playing=wasPlaying;
+    document.querySelectorAll('.cc-btn').forEach(b=>b.disabled=false);
+    buildCtrls();
+    gifBusy=false;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
