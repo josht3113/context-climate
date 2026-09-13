@@ -614,7 +614,7 @@ function stateAt(bodyKey, magKey, wU, dU, tU){
            Tm:Tm, T0:T0, Tc:Tc, frac:frac, aur:aur, aurU:aurU, reached:reached,
            tau:tau, s:s, t:t, midDepth:midDepth, em:em, emPhase: em < 1,
            PU: BX/44, xenoZ: clamp(top - BZ*0.008, 0, BZ*0.999),
-           aLoc:a, xenoD:1e9,
+           aLoc:a, xenoD:1e9, flowTop:top,
            above: B.flow ? 0 : aur, below: aur };
 }
 
@@ -667,7 +667,7 @@ function xenoSD(st, x, y, z){
 
 function sdBody(st, x, y, z){
   var cx = st.BX/2, cy = st.BY/2, a0 = st.a, k = st.body.key, em = st.em;
-  st.aLoc = a0; st.xenoD = 1e9;
+  st.aLoc = a0; st.xenoD = 1e9; st.flowTop = st.top;
   if (em <= 0.004) return 1e9;
   var d, a, g = 0.30 + 0.70*em;
 
@@ -701,6 +701,11 @@ function sdBody(st, x, y, z){
     var tap = clamp((front - x)/(st.BX*0.11), 0, 1);
     var thF = Math.max(0, a0*(0.34 + 0.66*tap) + wob(x, y)*0.8);
     st.aLoc = Math.max(thF, a0*0.20);
+    /* the flow's top is rubbly, so it sits wherever the wobble puts it —
+       and that surface, not the nominal depth, is what the overlying beds
+       were laid onto. Anything above it was deposited later and was never
+       heated, so `wasPresent` has to ask the real surface. */
+    st.flowTop = clamp(st.top + a0 - thF, st.top, st.top + 2*a0);
     d = Math.max(x - front, Math.abs(z - (st.top + a0)) - thF);
 
   } else if (k === 'laccolith'){
@@ -759,7 +764,7 @@ function layerAt(st, z){
   }
   return STRAT.length-1;
 }
-function wasPresent(st, z){ return st.body.flow ? z >= st.top : true; }
+function wasPresent(st, z){ return st.body.flow ? z >= st.flowTop : true; }
 /* during emplacement a lava flow is still at the surface — nothing on top */
 function notYetThere(st, z){ return st.body.flow && st.emPhase && z < st.top; }
 
@@ -1057,9 +1062,9 @@ function drawHachures(g, P, st, faces){
         var pu = uu + nu*sc, pv = vv + nv*sc;
         if (pu < -0.03 || pu > 1.03 || pv < -0.03 || pv > 1.03) continue;
         var zt = wz(pu,pv);
-        if (notYetThere(st, zt) || !wasPresent(st, zt)) continue;
+        if (notYetThere(st, zt)) continue;
         var dt = sdBody(st, wx(pu,pv), wy(pu,pv), zt);
-        if (dt < 0) continue;
+        if (dt < 0 || !wasPresent(st, zt)) continue;
         if (peakTFromD(st, dt, Math.max(st.aLoc, st.a*0.10), zt) < T_META) continue;
 
         /* the tick, square to the contact in the plane of the face */
