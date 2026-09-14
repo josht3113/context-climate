@@ -99,6 +99,15 @@ const SECTIONS = [
         thumb:      '/ENSOhurricanesThumbnail.png',
       },
       {
+        tags:       ['TROPICAL CYCLONES', 'SEASON TRACKING'],
+        title:      'Tropical ACE Tracker',
+        description:'Cumulative Accumulated Cyclone Energy for every basin, each season plotted against the whole satellite-era record and against its closest analog seasons.',
+        footerTags: ['All Basins', 'Global', 'ACE', 'Analogs'],
+        to:         '/tropical-ace',
+        accentVar:  '--accent-climate',
+        thumb:      '/TropicalACE_thumbnail.png',
+      },
+      {
         tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
         title:      'ENSO Analog Spaghetti',
         description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window with the current event bold on top. Compare past years to today at a glance.',
