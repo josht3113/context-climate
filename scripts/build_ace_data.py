@@ -224,6 +224,12 @@ class Accumulator:
         self.storms = {}
         self.latest = None
         self.n_points = 0
+        # Seasons for which IBTrACS carries ANY track in a basin, before the
+        # nature/intensity filters. This is what separates "the basin had a
+        # quiet season" from "the archive has no data for that season" — the
+        # two must not be treated alike, because one belongs in a normal as a
+        # zero and the other has to be left out of it.
+        self.seen = {}
 
     def _ace_slot(self, basin, season):
         b = self.ace.setdefault(basin, {})
@@ -257,8 +263,18 @@ class Accumulator:
             if wind >= thr and st[key] is None:
                 st[key] = rel
 
+    def note_coverage(self, basin, iso):
+        yr, mo = int(iso[0:4]), int(iso[5:7])
+        season = yr + 1 if (basin in SH_BASINS and mo >= 7) else yr
+        self.seen.setdefault(basin, set()).add(season)
+
     def ingest(self, path, seasons_keep=None):
         for row, col in iter_rows(path):
+            raw_basin = row[col["BASIN"]].strip().upper()
+            if raw_basin in BY_BASIN or raw_basin == "SA":
+                iso = row[col["ISO_TIME"]]
+                self.note_coverage(raw_basin, iso)
+                self.seen.setdefault("GL", set()).add(int(iso[0:4]))
             track = row[col["TRACK_TYPE"]].strip().lower()
             if "spur" in track:          # secondary duplicate track segments
                 continue
@@ -305,7 +321,7 @@ def cumulative(daily):
 
 
 def build_basin_payload(acc, spec, current_season, provisional_seasons,
-                        existing=None):
+                        existing=None, fill_quiet=False):
     basin = spec["basin"]
     labels = DAY_INDEX[spec["season_start"]][1]
     years = dict(existing.get("years", {})) if existing else {}
@@ -331,12 +347,31 @@ def build_basin_payload(acc, spec, current_season, provisional_seasons,
                           round(st["peak"]), st["name"]])
         years[str(season)] = {"cum": cumulative(daily), "s": slist}
 
+    # A season with no system reaching 34 kt produces no rows above, but it
+    # is a real zero and belongs in the record and in the normals. A season
+    # the archive simply does not cover is a different thing and is left out
+    # of both. Only a full-archive build can tell them apart, so only a full
+    # build fills.
+    gaps = list(existing.get("gaps", [])) if existing else []
+    if fill_quiet:
+        covered = acc.seen.get(basin, set())
+        gaps = []
+        for season in range(spec["start_year"], current_season + 1):
+            if str(season) in years:
+                continue
+            if season in covered:
+                years[str(season)] = {"cum": [0.0] * 366, "s": []}
+            else:
+                gaps.append(season)
+
     # The current season must always exist, even before its first storm —
     # in September the Southern Hemisphere seasons are only weeks old and
     # legitimately empty, and the tool should render a flat zero line rather
     # than fall over on a missing key.
     if str(current_season) not in years:
         years[str(current_season)] = {"cum": [0.0] * 366, "s": []}
+        if current_season in gaps:
+            gaps.remove(current_season)
 
     seasons = sorted(int(y) for y in years)
     payload = {
@@ -350,6 +385,7 @@ def build_basin_payload(acc, spec, current_season, provisional_seasons,
         "baseline": list(BASELINE),
         "labels": labels,
         "provisional": sorted(provisional_seasons),
+        "gaps": sorted(gaps),
         "years": years,
     }
     return payload
@@ -379,10 +415,17 @@ def sanity_check(payload):
             if d96 is not None and d64 is None:
                 raise RuntimeError("%s %s: major without hurricane" % (key, season))
     lo, hi = payload["baseline"]
+    span = hi - lo + 1
     have = sum(1 for yr in range(lo, hi + 1) if str(yr) in years)
-    if have < (hi - lo + 1) - 1:
-        raise RuntimeError("%s: baseline %d-%d has only %d seasons"
-                           % (key, lo, hi, have))
+    gaps_in_base = [g for g in payload.get("gaps", []) if lo <= g <= hi]
+    if have + len(gaps_in_base) < span:
+        raise RuntimeError("%s: baseline %d-%d has %d seasons and %d known "
+                           "coverage gaps, which does not account for all %d"
+                           % (key, lo, hi, have, len(gaps_in_base), span))
+    if have < 20:
+        raise RuntimeError("%s: only %d of %d baseline seasons have coverage — "
+                           "too thin to compute a normal from"
+                           % (key, have, span))
 
 
 # ---------------------------------------------------------------------- main
@@ -467,8 +510,14 @@ def run(mode, outdir, workdir, today):
             # PROVISIONAL, but rather than trust a per-row flag we treat the
             # current season and the one before it as not-yet-reanalysed.
             prov = {cur[spec["basin"]], cur[spec["basin"]] - 1}
-        payload = build_basin_payload(acc, spec, cur[spec["basin"]],
-                                      prov, existing=prior)
+        # A full rebuild replaces the record outright. Merging onto the
+        # committed file would keep a season alive after reanalysis moved it
+        # to another basin or dropped it, and that stale value would never
+        # surface again. Recent mode does merge — it only ever sees a
+        # trailing window and must not delete the rest of the archive.
+        payload = build_basin_payload(acc, spec, cur[spec["basin"]], prov,
+                                      existing=(prior if mode == "recent" else None),
+                                      fill_quiet=(mode == "full"))
         sanity_check(payload)
         payloads[spec["key"]] = payload
 
@@ -498,9 +547,11 @@ def run(mode, outdir, workdir, today):
     write_json(os.path.join(outdir, "ace-meta.json"), meta)
     for key, payload in payloads.items():
         p = os.path.join(outdir, "ace-%s.json" % key)
-        print("  wrote %-14s %6.0f kB  %d seasons"
+        gaps = payload.get("gaps", [])
+        print("  wrote %-14s %6.0f kB  %d seasons%s"
               % (os.path.basename(p), os.path.getsize(p) / 1024,
-                 len(payload["years"])))
+                 len(payload["years"]),
+                 ("  gaps: " + ",".join(map(str, gaps))) if gaps else ""))
     print("version %s" % version)
 
 
@@ -591,6 +642,26 @@ def selftest():
 
     _global_slot_fix(acc)
     print("  %-52s PASS" % "global slot/season routing")
+
+    # Quiet season vs. coverage gap — the distinction the normals depend on.
+    gap_csv = SELFTEST_CSV.split("\n")[0] + "\n" + SELFTEST_CSV.split("\n")[1] + "\n" + """\
+1991001N10080,1991,01,NI,BB,WEAK,1991-05-10 06:00:00,TS,15.0,88.0,25,30,main
+1993001N10080,1993,01,NI,BB,REAL,1993-05-10 06:00:00,TS,15.0,88.0,60,65,main
+"""
+    gpath = os.path.join(tmpdir, "gap.csv")
+    with open(gpath, "w") as f:
+        f.write(gap_csv)
+    gacc = Accumulator()
+    gacc.ingest(gpath)
+    spec = {"key": "ni", "basin": "NI", "name": "North Indian",
+            "season_start": 1, "start_year": 1991}
+    pay = build_basin_payload(gacc, spec, 1993, set(), fill_quiet=True)
+    check("a covered but stormless season is kept as a real zero",
+          str(1991) in pay["years"] and sum(pay["years"]["1991"]["cum"]) == 0, True)
+    check("a season the archive does not cover is a gap, not a zero",
+          pay["gaps"], [1992])
+    check("the gap season is absent from years", "1992" in pay["years"], False)
+    check("the active season is still present", "1993" in pay["years"], True)
 
     shutil.rmtree(tmpdir)
     print("\nself-test: %s" % ("PASS" if ok else "FAIL"))
