@@ -11,6 +11,7 @@ import CloudCoverExplorer          from './pages/CloudCoverExplorer'
 import PrecipSnow                  from './pages/PrecipSnow'
 import NortheastClimate            from './pages/NortheastClimate'
 import Hurricanes                  from './pages/Hurricanes'
+import TropicalACE                 from './pages/TropicalACE'
 import Solar                       from './pages/Solar'
 import SolarCalendar               from './pages/SolarCalendar'
 import SunriseSunsetCalendar        from './pages/SunriseSunsetCalendar'
@@ -153,6 +154,7 @@ export default function App() {
           <Route path="/annual"                             element={<Climate />}                 />
           <Route path="/enso"                                element={<ENSO />}                    />
           <Route path="/hurricanes"                          element={<Hurricanes />}              />
+          <Route path="/tropical-ace"                        element={<TropicalACE />}             />
           <Route path="/solar"                               element={<Solar />}                   />
           <Route path="/solar-calendar"                      element={<SolarCalendar />}           />
           <Route path="/sunrise-sunset-calendar"             element={<SunriseSunsetCalendar />}   />
