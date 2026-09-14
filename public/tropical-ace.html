@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tropical ACE Tracker</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root { --tool-accent: var(--accent-climate); }
+
+  /* Shared component classes set `display`, and author rules beat the UA
+     `[hidden]` rule, so the attribute silently does nothing without this. */
+  [hidden] { display: none !important; }
+
+  body { padding: 28px 20px 48px; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  header.page { margin-bottom: 18px; }
+  .cc-title { margin: 6px 0 8px; }
+  .cc-subtitle { max-width: 78ch; margin: 0; }
+
+  .basin-row { margin: 18px 0 16px; justify-content: flex-start; }
+
+  .narrative {
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--color-text-secondary);
+    max-width: 92ch;
+    margin: 0 0 18px;
+  }
+  .narrative strong { color: var(--color-text-primary); font-weight: 600; }
+
+  .cc-stat-row { margin-bottom: 20px; }
+  .cc-stat-chip { flex: 1 1 200px; gap: 4px; }
+  .cc-stat-value { font-size: 34px; line-height: 1.05; }
+  .chip-sub {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text-muted);
+    line-height: 1.45;
+  }
+  .chip-pill { margin-top: 6px; align-self: flex-start; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .panel-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 20px;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .panel-unit {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+
+  #chartHolder { position: relative; height: 470px; }
+  #stripHolder { position: relative; height: 210px; }
+  canvas { display: block; }
+
+  .cc-legend-row { justify-content: flex-start; margin-top: 12px; }
+  .cc-legend-chip { font-size: 13px; }
+  .legend-swatch { width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; flex-shrink: 0; }
+
+  .side { display: flex; flex-direction: column; gap: 16px; }
+
+  .analog-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .analog-n { display: flex; align-items: center; gap: 8px; }
+  .analog-n label {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--color-text-muted);
+  }
+  .analog-n input { width: 104px; accent-color: var(--tool-accent); }
+  .analog-n output { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-primary); min-width: 2ch; }
+
+  table.analogs { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  table.analogs th {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--color-text-muted);
+    font-weight: 500; text-align: right; padding: 0 0 8px; border-bottom: 1px solid var(--color-border);
+  }
+  table.analogs th:first-child { text-align: left; }
+  table.analogs td {
+    font-family: var(--font-mono); font-size: 15px; color: var(--color-text-secondary);
+    text-align: right; padding: 9px 0; border-bottom: 1px solid var(--color-border);
+  }
+  table.analogs td:first-child { text-align: left; color: var(--color-text-primary); font-weight: 700; }
+  table.analogs td.finish { color: var(--color-text-primary); font-weight: 700; }
+  table.analogs tr:last-child td { border-bottom: none; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+
+  .method, .note {
+    font-family: var(--font-body); font-size: 14px; line-height: 1.55;
+    color: var(--color-text-muted); margin: 12px 0 0;
+  }
+
+  .actions { margin: 22px 0 18px; }
+
+  footer.page {
+    border-top: 1px solid var(--color-border);
+    padding-top: 16px;
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    max-width: 104ch;
+  }
+  footer.page b { color: var(--color-text-secondary); font-weight: 600; }
+  footer.page a { color: var(--color-text-secondary); }
+
+  #status {
+    font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted);
+    margin: 0 0 14px;
+  }
+  #status.err { color: var(--accent-seasons); }
+
+  .tip {
+    position: absolute; pointer-events: none; z-index: 20;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border-hover);
+    border-radius: var(--radius-md);
+    padding: 6px 10px;
+    font-family: var(--font-mono); font-size: 13px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    transform: translate(-50%, -140%);
+  }
+
+  @media (max-width: 1000px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    #chartHolder { height: 400px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <div class="cc-eyebrow">Accumulated Cyclone Energy</div>
+    <h1 class="cc-title">Tropical ACE Tracker</h1>
+    <p class="cc-subtitle">Cumulative seasonal ACE for every tropical basin, each season
+      plotted against the whole satellite-era record and against the closest analog years.</p>
+  </header>
+
+  <div class="cc-btn-row basin-row" id="basinRow"></div>
+
+  <p id="status">Loading…</p>
+
+  <p class="narrative" id="narrative"></p>
+
+  <div class="cc-stat-row" id="statRow"></div>
+
+  <div class="grid">
+    <section class="cc-panel">
+      <div class="panel-head">
+        <h2 class="panel-title" id="chartTitle">Cumulative ACE</h2>
+        <span class="panel-unit">ACE (×10⁴ kt²)</span>
+      </div>
+      <div id="chartHolder"><canvas id="aceChart"></canvas></div>
+      <div class="cc-legend-row" id="chartLegend"></div>
+    </section>
+
+    <div class="side">
+      <section class="cc-panel">
+        <div class="panel-head">
+          <h2 class="panel-title" id="stripTitle">ACE through today, each season</h2>
+        </div>
+        <div id="stripHolder"><canvas id="stripCanvas"></canvas></div>
+        <div class="cc-legend-row" id="stripLegend"></div>
+      </section>
+
+      <section class="cc-panel">
+        <div class="analog-head">
+          <h2 class="panel-title">Closest analog seasons</h2>
+          <div class="analog-n">
+            <label for="analogN">Show</label>
+            <input type="range" id="analogN" min="3" max="10" step="1" value="3">
+            <output id="analogNOut">3</output>
+          </div>
+        </div>
+        <table class="analogs" id="analogTable">
+          <thead><tr><th>Season</th><th>To date</th><th>Final</th><th>→ finish</th></tr></thead>
+          <tbody id="analogBody"></tbody>
+        </table>
+        <p class="method" id="analogMethod"></p>
+      </section>
+    </div>
+  </div>
+
+  <div class="cc-btn-row actions">
+    <button class="cc-btn primary" id="pngBtn">↓ Download PNG</button>
+  </div>
+
+  <footer class="page" id="footer"></footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var EXPORT_SCALE = 3;
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  /* Content colours: these identify *which season* a line is, the same role
+     the sea-ice tool's --current/--previous serve, so they live here rather
+     than in the shared token set. Validated against --color-surface #262B27. */
+  var ANALOG_COLORS = ["#3987e5","#199e70","#d55181","#9085e9","#4fb3a5",
+                       "#e66767","#8cb33f","#d98cc8","#5ec8e5","#b0704f"];
+  var CURRENT_COLOR = "#D08425";
+  var CLIMO_COLOR   = "#A6A499";
+  var OTHER_COLOR   = "rgba(232,228,217,0.13)";
+  var SURFACE       = "#262B27";
+  var BG            = "#1E2320";
+  var TEXT          = "#E8E4D9";
+  var TEXT_2        = "#A6A499";
+  var TEXT_3        = "#948F82";
+  var BORDER        = "rgba(232,228,217,0.14)";
+
+  var META = null;
+  var CACHE = {};
+  var activeKey = "na";
+  var analogN = 3;
+  var chart = null;
+  var view = null;          // everything the current render needs
+  var stripHit = [];        // beeswarm hit-testing
+  var stripDpr = window.devicePixelRatio || 1;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  // ------------------------------------------------------------- utilities
+
+  function fmt(v, dp) {
+    if (v === null || v === undefined || !isFinite(v)) return "—";
+    return v.toFixed(dp === undefined ? 1 : dp);
+  }
+
+  function seasonLabel(d, season) {
+    if (d.season_start === 7) {
+      return (season - 1) + "–" + String(season).slice(2);
+    }
+    return String(season);
+  }
+
+  /** Rank with 1 = highest. Ties share the better rank. */
+  function rankOf(v, arr) {
+    var higher = 0;
+    for (var i = 0; i < arr.length; i++) if (arr[i] > v) higher++;
+    return higher + 1;
+  }
+
+  function mean(arr) {
+    if (!arr.length) return 0;
+    var s = 0;
+    for (var i = 0; i < arr.length; i++) s += arr[i];
+    return s / arr.length;
+  }
+
+  /** Index into the 366-slot season calendar for an ISO date string. */
+  function slotForDate(d, iso) {
+    var m = parseInt(iso.slice(5, 7), 10), day = parseInt(iso.slice(8, 10), 10);
+    var want = MONTHS[m - 1] + " " + day;
+    var i = d.labels.indexOf(want);
+    return i < 0 ? 0 : i;
+  }
+
+  function countsThrough(storms, idx) {
+    var ns = 0, hu = 0, mh = 0;
+    for (var i = 0; i < storms.length; i++) {
+      var s = storms[i];
+      if (s[0] !== null && s[0] <= idx) ns++;
+      if (s[1] !== null && s[1] <= idx) hu++;
+      if (s[2] !== null && s[2] <= idx) mh++;
+    }
+    return { ns: ns, hu: hu, mh: mh };
+  }
+
+  // ------------------------------------------------------------ view model
+
+  function buildView(d) {
+    var idx = slotForDate(d, META.as_of);
+    var current = d.current_season;
+
+    var historical = [];
+    Object.keys(d.years).forEach(function (k) {
+      var y = parseInt(k, 10);
+      if (y >= d.start_year && y !== current) historical.push(y);
+    });
+    historical.sort(function (a, b) { return a - b; });
+
+    var baseYears = historical.filter(function (y) {
+      return y >= d.baseline[0] && y <= d.baseline[1];
+    });
+
+    // 1991–2020 mean cumulative curve, slot by slot.
+    var climo = new Array(366);
+    for (var i = 0; i < 366; i++) {
+      var acc = 0;
+      for (var j = 0; j < baseYears.length; j++) acc += d.years[baseYears[j]].cum[i];
+      climo[i] = baseYears.length ? acc / baseYears.length : 0;
+    }
+
+    var cur = d.years[current];
+    var curToDate = cur.cum[idx];
+    var climoToDate = climo[idx];
+    var climoFinal = climo[365];
+
+    var toDate = historical.map(function (y) { return d.years[y].cum[idx]; });
+    var finals = historical.map(function (y) { return d.years[y].cum[365]; });
+
+    // Analog matching: RMSE against the developing season's cumulative curve
+    // through today. Suppressed while the season is too young for the curves
+    // to differ — in September the Southern Hemisphere basins are all still
+    // sitting on zero, and "closest" would be decided by rounding noise.
+    var seasonYoung = climoToDate < 1.0 || climoToDate < 0.02 * climoFinal;
+    var analogs = [];
+    if (!seasonYoung) {
+      analogs = historical.map(function (y) {
+        var se = 0;
+        for (var i2 = 0; i2 <= idx; i2++) {
+          var diff = d.years[y].cum[i2] - cur.cum[i2];
+          se += diff * diff;
+        }
+        return { year: y, rmse: Math.sqrt(se / (idx + 1)),
+                 toDate: d.years[y].cum[idx], final: d.years[y].cum[365] };
+      });
+      analogs.sort(function (a, b) {
+        if (a.rmse !== b.rmse) return a.rmse - b.rmse;
+        return Math.abs(a.final - climoFinal) - Math.abs(b.final - climoFinal);
+      });
+      analogs = analogs.slice(0, analogN);
+      analogs.forEach(function (a, i3) {
+        a.color = ANALOG_COLORS[i3 % ANALOG_COLORS.length];
+        a.finish = curToDate + (a.final - a.toDate);
+      });
+    }
+
+    // How many seasons sit at or below the developing one today, and the
+    // point in the season where the record first spreads out — both are what
+    // make a young season legible when a rank cannot.
+    var tiedWith = 0;
+    for (var t = 0; t < toDate.length; t++) if (toDate[t] <= curToDate + 0.05) tiedWith++;
+    var separatesAt = null;
+    for (var q = 0; q < 366; q++) {
+      if (climoFinal > 0 && climo[q] >= 0.05 * climoFinal) { separatesAt = q; break; }
+    }
+
+    var curCounts = countsThrough(cur.s, idx);
+    var projected = curToDate + (climoFinal - climoToDate);
+
+    return {
+      d: d, idx: idx, current: current, historical: historical,
+      baseYears: baseYears, climo: climo,
+      curCum: cur.cum, curToDate: curToDate,
+      climoToDate: climoToDate, climoFinal: climoFinal,
+      toDate: toDate, finals: finals,
+      analogs: analogs, seasonYoung: seasonYoung,
+      tiedWith: tiedWith, separatesAt: separatesAt,
+      counts: curCounts, projected: projected,
+      provisional: (d.provisional || []).indexOf(current) >= 0
+    };
+  }
+
+  // ------------------------------------------------------------ stat chips
+
+  function statChip(label, value, subParts, pill) {
+    var el = document.createElement("div");
+    el.className = "cc-stat-chip";
+    var l = document.createElement("div");
+    l.className = "cc-stat-label"; l.textContent = label;
+    var v = document.createElement("div");
+    v.className = "cc-stat-value"; v.textContent = value;
+    var s = document.createElement("div");
+    s.className = "chip-sub"; s.textContent = subParts;
+    el.appendChild(l); el.appendChild(v); el.appendChild(s);
+    if (pill) {
+      var p = document.createElement("span");
+      p.className = "cc-tag chip-pill"; p.textContent = pill;
+      el.appendChild(p);
+    }
+    return el;
+  }
+
+  function extremePill(v, arr, startYear) {
+    if (!arr.length) return null;
+    var min = Math.min.apply(null, arr), max = Math.max.apply(null, arr);
+    if (v <= min) return "lowest since " + startYear;
+    if (v >= max) return "highest since " + startYear;
+    var ties = 0;
+    for (var i = 0; i < arr.length; i++) if (Math.abs(arr[i] - v) < 0.05) ties++;
+    // A bare rank hides a pile-up: "#8 of 47" reads as eighth-highest even
+    // when forty seasons share the value.
+    return (ties ? "tied #" : "#") + rankOf(v, arr) + " of " + (arr.length + 1);
+  }
+
+  function renderStats(v) {
+    var row = $("statRow");
+    row.innerHTML = "";
+    var d = v.d, n = v.historical.length;
+
+    // ACE
+    var maxToDate = -1, maxYear = null;
+    for (var i = 0; i < v.historical.length; i++) {
+      if (v.toDate[i] > maxToDate) { maxToDate = v.toDate[i]; maxYear = v.historical[i]; }
+    }
+    row.appendChild(statChip("ACE to date", fmt(v.curToDate),
+      "avg to date " + fmt(v.climoToDate) + " · max " + fmt(maxToDate) +
+      " (" + seasonLabel(d, maxYear) + ")",
+      extremePill(v.curToDate, v.toDate, d.start_year)));
+
+    // Counts
+    var kinds = [
+      ["Named storms", "ns", 0],
+      ["Hurricanes", "hu", 1],
+      ["Major (Cat 3+)", "mh", 2]
+    ];
+    kinds.forEach(function (k) {
+      var hist = v.historical.map(function (y) {
+        return countsThrough(d.years[y].s, v.idx)[k[1]];
+      });
+      var base = v.baseYears.map(function (y) {
+        return countsThrough(d.years[y].s, v.idx)[k[1]];
+      });
+      var mx = -1, myr = null;
+      for (var j = 0; j < hist.length; j++) {
+        if (hist[j] > mx) { mx = hist[j]; myr = v.historical[j]; }
+      }
+      var label = k[0];
+      if (d.basin === "WP" && k[1] === "hu") label = "Typhoons";
+      if (d.basin === "WP" && k[1] === "mh") label = "Major (Cat 3+)";
+      if ((d.basin === "SI" || d.basin === "SP" || d.basin === "NI") && k[1] === "hu") {
+        label = "Cyclones (64 kt+)";
+      }
+      row.appendChild(statChip(label, String(v.counts[k[1]]),
+        "avg to date " + fmt(mean(base), 0) + " · max " + mx +
+        " (" + seasonLabel(d, myr) + ")",
+        extremePill(v.counts[k[1]], hist, d.start_year)));
+    });
+    void n;
+  }
+
+  // ------------------------------------------------------------- narrative
+
+  function renderNarrative(v) {
+    var d = v.d;
+    var asOf = new Date(META.as_of + "T12:00:00Z");
+    var dateStr = MONTHS[asOf.getUTCMonth()] + " " + asOf.getUTCDate();
+    var n = v.historical.length + 1;
+    var bits = [];
+
+    bits.push("Through <strong>" + dateStr + "</strong>, the " + d.name +
+              " has <strong>" + fmt(v.curToDate) + " ACE</strong>");
+
+    if (v.seasonYoung) {
+      // Percent-of-normal and a rank are both meaningless here: the normal is
+      // still near zero and most seasons on record are tied with this one.
+      bits.push(". The season is <strong>" + (v.idx + 1) + " days old</strong>, and " +
+                v.tiedWith + " of the " + n + " seasons since " + d.start_year +
+                " are also at or below this much ACE on this date");
+      if (v.separatesAt !== null) {
+        bits.push(" — the record does not begin to separate until around <strong>" +
+                  d.labels[v.separatesAt] + "</strong>.");
+      } else {
+        bits.push(".");
+      }
+      $("narrative").innerHTML = bits.join("");
+      return;
+    }
+
+    var pct = Math.round(100 * v.curToDate / v.climoToDate);
+    bits.push(" — <strong>" + pct + "%</strong> of the 1991–2020 normal to date");
+    bits.push(", ranked <strong>#" + rankOf(v.curToDate, v.toDate) + "</strong> of " +
+              n + " seasons since " + d.start_year + " on this date.");
+
+    {
+      bits.push(" If the rest of the season runs average it finishes near <strong>" +
+                fmt(v.projected, 0) + " ACE</strong> (#" +
+                rankOf(v.projected, v.finals) + " of " + n + ")");
+      if (v.analogs.length) {
+        var lo = Math.min.apply(null, v.analogs.map(function (a) { return a.finish; }));
+        var hi = Math.max.apply(null, v.analogs.map(function (a) { return a.finish; }));
+        bits.push("; the " + v.analogs.length + " closest analog seasons point to <strong>" +
+                  fmt(lo, 0) + "–" + fmt(hi, 0) + "</strong>.");
+      } else {
+        bits.push(".");
+      }
+    }
+    $("narrative").innerHTML = bits.join("");
+  }
+
+  // ----------------------------------------------------------- line charts
+
+  var endLabelPlugin = {
+    id: "endLabels",
+    afterDatasetsDraw: function (c) {
+      var ctx = c.ctx, placed = [];
+      c.data.datasets.forEach(function (ds, di) {
+        if (!ds.endLabel) return;
+        var meta = c.getDatasetMeta(di);
+        var pt = meta.data[ds.labelIdx];
+        if (!pt) return;
+        var y = Math.min(pt.y, c.chartArea.bottom - 9);
+        y = Math.max(y, c.chartArea.top + 9);
+        // Nudge apart so end labels never stack on top of each other.
+        for (var guard = 0; guard < 60; guard++) {
+          var clash = placed.some(function (p) { return Math.abs(p - y) < 15; });
+          if (!clash) break;
+          y -= 15;
+        }
+        placed.push(y);
+        ctx.save();
+        ctx.font = "600 13px 'Courier Prime', monospace";
+        ctx.fillStyle = ds.borderColor;
+        ctx.textBaseline = "middle";
+        ctx.textAlign = "left";
+        ctx.fillText(ds.endLabel, Math.min(pt.x + 6, c.chartArea.right + 4), y);
+        ctx.restore();
+      });
+    }
+  };
+
+  var todayLinePlugin = {
+    id: "todayLine",
+    beforeDatasetsDraw: function (c) {
+      var idx = c.options.plugins.todayLine && c.options.plugins.todayLine.index;
+      if (idx === undefined || idx === null) return;
+      var x = c.scales.x.getPixelForValue(idx);
+      var ctx = c.ctx;
+      ctx.save();
+      ctx.strokeStyle = "rgba(232,228,217,0.30)";
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, c.chartArea.top);
+      ctx.lineTo(x, c.chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  function monthTicks(labels) {
+    var out = {};
+    for (var i = 0; i < labels.length; i++) {
+      if (/\s1$/.test(labels[i])) out[i] = labels[i].split(" ")[0];
+    }
+    return out;
+  }
+
+  function buildDatasets(v) {
+    var d = v.d, sets = [];
+    var analogYears = {};
+    v.analogs.forEach(function (a) { analogYears[a.year] = a; });
+
+    v.historical.forEach(function (y) {
+      if (analogYears[y]) return;
+      sets.push({
+        label: seasonLabel(d, y), data: d.years[y].cum,
+        borderColor: OTHER_COLOR, borderWidth: 1, pointRadius: 0,
+        tension: 0, fill: false, order: 30, _kind: "other", _year: y
+      });
+    });
+
+    sets.push({
+      label: "1991–2020 average", data: v.climo,
+      borderColor: CLIMO_COLOR, borderWidth: 2, borderDash: [7, 5],
+      pointRadius: 0, tension: 0, fill: false, order: 20, _kind: "climo"
+    });
+
+    v.analogs.forEach(function (a) {
+      sets.push({
+        label: seasonLabel(d, a.year), data: d.years[a.year].cum,
+        borderColor: a.color, borderWidth: 2.5, pointRadius: 0,
+        tension: 0, fill: false, order: 10, _kind: "analog", _year: a.year,
+        endLabel: seasonLabel(d, a.year), labelIdx: 365
+      });
+    });
+
+    sets.push({
+      label: seasonLabel(d, v.current),
+      data: v.curCum.slice(0, v.idx + 1),
+      borderColor: CURRENT_COLOR, borderWidth: 4, pointRadius: 0,
+      tension: 0, fill: false, order: 1, _kind: "current", _year: v.current,
+      endLabel: seasonLabel(d, v.current), labelIdx: v.idx
+    });
+
+    return sets;
+  }
+
+  function renderChart(v) {
+    var d = v.d;
+    var ticks = monthTicks(d.labels);
+    var sets = buildDatasets(v);
+
+    var maxY = 0;
+    v.historical.forEach(function (y) {
+      if (d.years[y].cum[365] > maxY) maxY = d.years[y].cum[365];
+    });
+    maxY = Math.max(maxY, v.climoFinal, v.curToDate) * 1.04;
+    // Round up to a tick boundary, or Chart.js draws the raw maximum as its
+    // own label right next to the last round one (208.0 sitting on 200).
+    var yStep = niceStep(maxY / 5);
+    maxY = Math.ceil(maxY / yStep) * yStep;
+
+    if (chart) { chart.destroy(); chart = null; }
+    var ctx = $("aceChart").getContext("2d");
+    chart = new Chart(ctx, {
+      type: "line",
+      data: { labels: d.labels, datasets: sets },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        normalized: true, spanGaps: false,
+        layout: { padding: { right: 46, top: 6 } },
+        interaction: { mode: "nearest", intersect: false, axis: "xy" },
+        plugins: {
+          legend: { display: false },
+          todayLine: { index: v.idx },
+          tooltip: {
+            backgroundColor: "#2C322D",
+            borderColor: "rgba(232,228,217,0.26)", borderWidth: 1,
+            titleColor: TEXT, bodyColor: TEXT,
+            titleFont: { family: "'Courier Prime', monospace", size: 13 },
+            bodyFont: { family: "'Courier Prime', monospace", size: 14 },
+            displayColors: true, padding: 10,
+            callbacks: {
+              title: function (items) {
+                return items.length ? d.labels[items[0].dataIndex] : "";
+              },
+              label: function (item) {
+                return item.dataset.label + "   " + fmt(item.parsed.y) + " ACE";
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: "rgba(232,228,217,0.06)", drawTicks: false },
+            border: { color: BORDER },
+            ticks: {
+              color: TEXT_3, font: { family: "'Public Sans', sans-serif", size: 13 },
+              autoSkip: false, maxRotation: 0,
+              callback: function (val, i) { return ticks[i] || ""; }
+            }
+          },
+          y: {
+            min: 0, max: maxY,
+            grid: { color: "rgba(232,228,217,0.08)", drawTicks: false },
+            border: { color: BORDER },
+            ticks: {
+              color: TEXT_3, font: { family: "'Courier Prime', monospace", size: 13 },
+              maxTicksLimit: 6
+            }
+          }
+        },
+        onHover: onChartHover
+      },
+      plugins: [todayLinePlugin, endLabelPlugin]
+    });
+
+    renderChartLegend(v);
+  }
+
+  // Isolate-on-hover: restyle datasets in place rather than rebuilding the
+  // array, which is what keeps this cheap across 60+ lines.
+  var hoverRaf = null, hoverIdx = -1;
+  function onChartHover(evt, actives, c) {
+    if (hoverRaf) return;
+    hoverRaf = requestAnimationFrame(function () {
+      hoverRaf = null;
+      var di = actives && actives.length ? actives[0].datasetIndex : -1;
+      if (di === hoverIdx) return;
+      hoverIdx = di;
+      c.data.datasets.forEach(function (ds, i) {
+        if (ds._kind !== "other") return;
+        ds.borderColor = (i === di) ? "rgba(232,228,217,0.75)" : OTHER_COLOR;
+        ds.borderWidth = (i === di) ? 2 : 1;
+      });
+      c.update("none");
+    });
+  }
+
+  function legendChip(color, text, dashed) {
+    var el = document.createElement("span");
+    el.className = "cc-legend-chip";
+    var sw = document.createElement("span");
+    sw.className = "legend-swatch";
+    sw.style.borderTopColor = color;
+    if (dashed) sw.style.borderTopStyle = "dashed";
+    el.appendChild(sw);
+    el.appendChild(document.createTextNode(text));
+    return el;
+  }
+
+  function renderChartLegend(v) {
+    var box = $("chartLegend");
+    box.innerHTML = "";
+    box.appendChild(legendChip(CURRENT_COLOR, seasonLabel(v.d, v.current)));
+    box.appendChild(legendChip(CLIMO_COLOR, "1991–2020 average", true));
+    v.analogs.forEach(function (a) {
+      box.appendChild(legendChip(a.color, seasonLabel(v.d, a.year) + " analog"));
+    });
+    box.appendChild(legendChip("rgba(232,228,217,0.35)", "other seasons"));
+  }
+
+  // -------------------------------------------------------------- beeswarm
+
+  function stripLayout(v, W, H) {
+    var d = v.d;
+    var pts = v.historical.map(function (y, i) {
+      return { year: y, v: v.toDate[i], kind:
+        (y >= d.baseline[0] && y <= d.baseline[1]) ? "base" : "other" };
+    });
+    pts.push({ year: v.current, v: v.curToDate, kind: "current" });
+
+    var analogOf = {};
+    v.analogs.forEach(function (a) { analogOf[a.year] = a.color; });
+
+    var maxV = Math.max.apply(null, pts.map(function (p) { return p.v; }));
+    maxV = maxV > 0 ? maxV : 1;
+    var padL = 16, padR = 24, padT = 26, padB = 34;
+    var r = 4.5, step = 2 * r + 1.4;
+    var cy = padT + (H - padT - padB) / 2;
+    var avail = (H - padT - padB) / 2 - r - 2;
+    var levels = Math.max(1, Math.floor(avail / step));
+    var capacity = 2 * levels + 1;
+    var x = function (val) { return padL + (W - padL - padR) * (val / maxV); };
+
+    // Bucket by column first. Early in a season most of the record is tied at
+    // zero, and a column of forty overlapping dots reads as a grey bar rather
+    // than as forty seasons — those collapse to one counted marker instead.
+    var buckets = {};
+    pts.forEach(function (p) {
+      var key = Math.round(x(p.v) / step);
+      (buckets[key] = buckets[key] || []).push(p);
+    });
+
+    var placed = [];
+    Object.keys(buckets).forEach(function (key) {
+      var group = buckets[key];
+      var px = x(group.reduce(function (a, b) { return a + b.v; }, 0) / group.length);
+      if (group.length > capacity) {
+        var lo = Math.min.apply(null, group.map(function (p) { return p.v; }));
+        var hi = Math.max.apply(null, group.map(function (p) { return p.v; }));
+        placed.push({ collapsed: true, count: group.length, lo: lo, hi: hi,
+                      px: px, py: cy, v: lo, kind: "other", ring: null,
+                      year: null });
+        var cur = group.filter(function (p) { return p.kind === "current"; })[0];
+        if (cur) {
+          placed.push({ year: cur.year, v: cur.v, kind: "current",
+                        px: px, py: cy - (r + 13), ring: null });
+        }
+        return;
+      }
+      group.sort(function (a, b) { return a.v - b.v; }).forEach(function (p, i) {
+        var sign = (i % 2 === 0) ? 1 : -1;
+        var lvl = Math.ceil(i / 2);
+        placed.push({ year: p.year, v: p.v, kind: p.kind, px: px,
+                      py: cy + sign * lvl * step, ring: analogOf[p.year] || null });
+      });
+    });
+
+    return { pts: placed, maxV: maxV, x: x, cy: cy, r: r,
+             padL: padL, padR: padR, padB: padB, W: W, H: H };
+  }
+
+  function drawStrip(ctx, lay, v, scale) {
+    var W = lay.W, H = lay.H;
+    ctx.clearRect(0, 0, W, H);
+
+    // axis
+    var axisY = H - lay.padB + 12;
+    ctx.strokeStyle = BORDER;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(lay.padL, axisY); ctx.lineTo(W - lay.padR, axisY); ctx.stroke();
+
+    var stepV = niceStep(lay.maxV / 4);
+    ctx.fillStyle = TEXT_3;
+    ctx.font = "13px 'Courier Prime', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (var t = 0; t <= lay.maxV + 1e-6; t += stepV) {
+      var px = lay.x(t);
+      ctx.beginPath(); ctx.moveTo(px, axisY); ctx.lineTo(px, axisY + 4); ctx.stroke();
+      ctx.fillText(String(Math.round(t)), px, axisY + 7);
+    }
+
+    lay.pts.forEach(function (p) {
+      if (p.collapsed) {
+        var rad = lay.r + 2 + Math.min(6, p.count / 8);
+        ctx.beginPath();
+        ctx.arc(p.px, p.py, rad, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(232,228,217,0.38)";
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(232,228,217,0.55)";
+        ctx.stroke();
+        ctx.fillStyle = TEXT_3;
+        ctx.font = "12px 'Courier Prime', monospace";
+        ctx.textBaseline = "top";
+        ctx.textAlign = "left";
+        var lbl = p.count + " seasons";
+        var lw = ctx.measureText(lbl).width;
+        // A collapsed pile usually sits hard against the left axis, so the
+        // count has to be clamped inside the canvas or it renders cut in half.
+        var lx = Math.min(Math.max(2, p.px - lw / 2), W - lw - 2);
+        ctx.fillText(lbl, lx, p.py + rad + 6);
+        return;
+      }
+      var fill = p.kind === "current" ? CURRENT_COLOR
+               : p.kind === "base" ? "rgba(232,228,217,0.50)"
+               : "rgba(232,228,217,0.24)";
+      ctx.beginPath();
+      ctx.arc(p.px, p.py, p.kind === "current" ? lay.r + 1.5 : lay.r, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (p.ring) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = p.ring;
+        ctx.stroke();
+      }
+    });
+
+    // label the current season and the record high
+    var cur = lay.pts.filter(function (p) { return p.kind === "current"; })[0];
+    var real = lay.pts.filter(function (p) { return !p.collapsed && p.year !== null; });
+    var hi = real.reduce(function (a, b) { return b.v > a.v ? b : a; }, real[0]);
+    ctx.font = "600 13px 'Courier Prime', monospace";
+    ctx.textBaseline = "bottom";
+    if (cur) {
+      ctx.fillStyle = CURRENT_COLOR;
+      ctx.textAlign = "left";
+      ctx.fillText(seasonLabel(v.d, cur.year), Math.max(2, cur.px - 4), 18);
+    }
+    if (hi && hi.kind !== "current") {
+      ctx.fillStyle = TEXT_3;
+      ctx.textAlign = "right";
+      ctx.fillText(seasonLabel(v.d, hi.year), Math.min(W - 2, hi.px + 8), 18);
+    }
+    void scale;
+  }
+
+  function niceStep(raw) {
+    var pow = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1e-6))));
+    var n = raw / pow;
+    var m = n >= 5 ? 5 : n >= 2 ? 2 : 1;
+    return m * pow;
+  }
+
+  function sizeStrip() {
+    var holder = $("stripHolder");
+    var c = $("stripCanvas");
+    var W = holder.clientWidth || 420, H = holder.clientHeight || 210;
+    c.style.width = W + "px";
+    c.style.height = H + "px";
+    c.width = Math.round(W * stripDpr);
+    c.height = Math.round(H * stripDpr);
+    var ctx = c.getContext("2d");
+    ctx.setTransform(stripDpr, 0, 0, stripDpr, 0, 0);
+    return { ctx: ctx, W: W, H: H };
+  }
+
+  function renderStrip(v) {
+    var s = sizeStrip();
+    var lay = stripLayout(v, s.W, s.H);
+    drawStrip(s.ctx, lay, v, stripDpr);
+    stripHit = lay.pts;
+
+    var box = $("stripLegend");
+    box.innerHTML = "";
+    [[CURRENT_COLOR, seasonLabel(v.d, v.current)],
+     ["rgba(232,228,217,0.50)", "1991–2020 baseline"],
+     ["rgba(232,228,217,0.24)", "other seasons"]].forEach(function (p) {
+      var el = document.createElement("span");
+      el.className = "cc-legend-chip";
+      var dot = document.createElement("span");
+      dot.className = "cc-legend-dot";
+      dot.style.background = p[0];
+      el.appendChild(dot);
+      el.appendChild(document.createTextNode(p[1]));
+      box.appendChild(el);
+    });
+  }
+
+  var stripTip = null;
+  function stripMove(e) {
+    if (!view) return;
+    var rect = $("stripCanvas").getBoundingClientRect();
+    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    var hit = null;
+    for (var i = 0; i < stripHit.length; i++) {
+      var p = stripHit[i];
+      if ((mx - p.px) * (mx - p.px) + (my - p.py) * (my - p.py) <= 42) { hit = p; break; }
+    }
+    if (!hit) { if (stripTip) { stripTip.remove(); stripTip = null; } return; }
+    if (!stripTip) {
+      stripTip = document.createElement("div");
+      stripTip.className = "tip";
+      $("stripHolder").appendChild(stripTip);
+    }
+    stripTip.textContent = hit.collapsed
+      ? hit.count + " seasons between " + fmt(hit.lo) + " and " + fmt(hit.hi) + " ACE"
+      : seasonLabel(view.d, hit.year) + " · " + fmt(hit.v) + " ACE";
+    stripTip.style.left = hit.px + "px";
+    stripTip.style.top = hit.py + "px";
+  }
+
+  // ---------------------------------------------------------- analog table
+
+  function renderAnalogs(v) {
+    var body = $("analogBody");
+    var table = $("analogTable");
+    var method = $("analogMethod");
+    body.innerHTML = "";
+
+    if (v.seasonYoung) {
+      table.hidden = true;
+      method.textContent = "The " + v.d.name + " season is too young for analog " +
+        "matching — every season on record is still near zero through this date, " +
+        "so the closest match would be decided by rounding noise rather than by " +
+        "how the season is actually running.";
+      return;
+    }
+    table.hidden = false;
+
+    v.analogs.forEach(function (a) {
+      var tr = document.createElement("tr");
+      var td0 = document.createElement("td");
+      var dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.background = a.color;
+      td0.appendChild(dot);
+      td0.appendChild(document.createTextNode(seasonLabel(v.d, a.year)));
+      tr.appendChild(td0);
+      [fmt(a.toDate), fmt(a.final)].forEach(function (t) {
+        var td = document.createElement("td");
+        td.textContent = t;
+        tr.appendChild(td);
+      });
+      var tdf = document.createElement("td");
+      tdf.className = "finish";
+      tdf.textContent = fmt(a.finish, 0);
+      tr.appendChild(tdf);
+      body.appendChild(tr);
+    });
+
+    method.textContent = "Analogs are the seasons whose cumulative-ACE curve through " +
+      "this date sits closest to the developing season's, by root-mean-square error. " +
+      "“→ finish” adds each analog's remaining-season ACE to this season's total so far.";
+  }
+
+  // ------------------------------------------------------------- PNG export
+
+  function wrapText(ctx, text, maxW) {
+    var words = text.split(" "), lines = [], line = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = words[i]; }
+      else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function downloadPNG() {
+    if (!view) return;
+    var v = view, d = v.d;
+    var W = 1500, H = 950;
+
+    // Capture both canvases at a fixed multiplier, never at the viewing
+    // screen's devicePixelRatio, or a 1x display exports an upscaled blur.
+    var origChartDpr = chart.options.devicePixelRatio;
+    chart.options.devicePixelRatio = EXPORT_SCALE;
+    chart.resize();
+    chart.update("none");
+
+    var origStripDpr = stripDpr;
+    stripDpr = EXPORT_SCALE;
+    renderStrip(v);
+
+    var off = document.createElement("canvas");
+    off.width = W * EXPORT_SCALE;
+    off.height = H * EXPORT_SCALE;
+    var oc = off.getContext("2d");
+    oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+    oc.fillStyle = BG;
+    oc.fillRect(0, 0, W, H);
+
+    var M = 46, y = 56;
+
+    oc.fillStyle = TEXT_3;
+    oc.font = "500 15px 'Courier Prime', monospace";
+    oc.textAlign = "left"; oc.textBaseline = "alphabetic";
+    oc.fillText("ACCUMULATED CYCLONE ENERGY", M, y);
+
+    y += 40;
+    oc.fillStyle = TEXT;
+    oc.font = "700 38px 'Zilla Slab', serif";
+    oc.fillText(d.name + " — cumulative ACE", M, y);
+
+    y += 30;
+    oc.fillStyle = TEXT_2;
+    oc.font = "16px 'Public Sans', sans-serif";
+    var asOf = new Date(META.as_of + "T12:00:00Z");
+    var sub = "Every season since " + d.start_year + ", through " +
+      MONTHS[asOf.getUTCMonth()] + " " + asOf.getUTCDate() + " · " +
+      seasonLabel(d, v.current) + " at " + fmt(v.curToDate) + " ACE";
+    if (!v.seasonYoung) {
+      sub += " · average-finish projection " + fmt(v.projected, 0);
+    }
+    oc.fillText(sub, M, y);
+
+    // stat row
+    y += 40;
+    var chips = [
+      ["ACE TO DATE", fmt(v.curToDate)],
+      ["NAMED STORMS", String(v.counts.ns)],
+      ["HURRICANES", String(v.counts.hu)],
+      ["MAJOR (CAT 3+)", String(v.counts.mh)],
+      ["1991–2020 AVG", fmt(v.climoToDate)]
+    ];
+    var cw = (W - 2 * M) / chips.length;
+    chips.forEach(function (c, i) {
+      var cx = M + i * cw;
+      oc.fillStyle = SURFACE;
+      oc.fillRect(cx, y, cw - 12, 76);
+      oc.strokeStyle = BORDER; oc.lineWidth = 1;
+      oc.strokeRect(cx + 0.5, y + 0.5, cw - 13, 75);
+      oc.fillStyle = TEXT_3;
+      oc.font = "500 13px 'Courier Prime', monospace";
+      oc.fillText(c[0], cx + 14, y + 26);
+      oc.fillStyle = i === 0 ? CURRENT_COLOR : TEXT;
+      oc.font = "700 30px 'Zilla Slab', serif";
+      oc.fillText(c[1], cx + 14, y + 60);
+    });
+
+    // chart
+    y += 100;
+    var chartH = 545, chartW = W - 2 * M - 430;
+    oc.drawImage(chart.canvas, M, y, chartW, chartH);
+
+    // line legend — the export has no DOM legend to inherit, and without it
+    // the dashed climatology curve and the grey record are unlabelled.
+    var ly = y + chartH + 26, lx = M;
+    var legend = [[CURRENT_COLOR, seasonLabel(d, v.current), false],
+                  [CLIMO_COLOR, "1991–2020 average", true]];
+    v.analogs.forEach(function (a) {
+      legend.push([a.color, seasonLabel(d, a.year) + " analog", false]);
+    });
+    legend.push(["rgba(232,228,217,0.35)", "other seasons", false]);
+    oc.font = "14px 'Public Sans', sans-serif";
+    oc.textBaseline = "middle";
+    legend.forEach(function (item) {
+      oc.strokeStyle = item[0];
+      oc.lineWidth = 3;
+      oc.setLineDash(item[2] ? [6, 4] : []);
+      oc.beginPath();
+      oc.moveTo(lx, ly);
+      oc.lineTo(lx + 22, ly);
+      oc.stroke();
+      oc.setLineDash([]);
+      oc.fillStyle = TEXT_2;
+      oc.fillText(item[1], lx + 30, ly + 1);
+      lx += 30 + oc.measureText(item[1]).width + 24;
+    });
+    oc.textBaseline = "alphabetic";
+
+    // beeswarm + analog table on the right
+    var rx = M + chartW + 30, rw = W - M - rx;
+    oc.fillStyle = TEXT;
+    oc.font = "700 19px 'Zilla Slab', serif";
+    oc.fillText("ACE through " + MONTHS[asOf.getUTCMonth()] + " " +
+                asOf.getUTCDate() + ", each season", rx, y + 18);
+    oc.drawImage($("stripCanvas"), rx, y + 32, rw, 190);
+
+    var ty = y + 262;
+    oc.fillStyle = TEXT;
+    oc.font = "700 19px 'Zilla Slab', serif";
+    oc.fillText("Closest analog seasons", rx, ty);
+    ty += 24;
+
+    if (v.seasonYoung) {
+      oc.fillStyle = TEXT_3;
+      oc.font = "15px 'Public Sans', sans-serif";
+      wrapText(oc, "Too early in this season for analog matching.", rw).forEach(function (ln) {
+        oc.fillText(ln, rx, ty); ty += 20;
+      });
+    } else {
+      oc.font = "500 13px 'Courier Prime', monospace";
+      oc.fillStyle = TEXT_3;
+      oc.fillText("SEASON", rx, ty);
+      oc.textAlign = "right";
+      oc.fillText("TO DATE", rx + rw * 0.55, ty);
+      oc.fillText("FINAL", rx + rw * 0.78, ty);
+      oc.fillText("→ FINISH", rx + rw, ty);
+      oc.textAlign = "left";
+      ty += 8;
+      oc.strokeStyle = BORDER;
+      oc.beginPath(); oc.moveTo(rx, ty); oc.lineTo(rx + rw, ty); oc.stroke();
+      ty += 22;
+      v.analogs.forEach(function (a) {
+        oc.beginPath();
+        oc.arc(rx + 5, ty - 5, 4.5, 0, Math.PI * 2);
+        oc.fillStyle = a.color; oc.fill();
+        oc.fillStyle = TEXT;
+        oc.font = "700 15px 'Courier Prime', monospace";
+        oc.fillText(seasonLabel(d, a.year), rx + 18, ty);
+        oc.fillStyle = TEXT_2;
+        oc.font = "15px 'Courier Prime', monospace";
+        oc.textAlign = "right";
+        oc.fillText(fmt(a.toDate), rx + rw * 0.55, ty);
+        oc.fillText(fmt(a.final), rx + rw * 0.78, ty);
+        oc.fillStyle = TEXT;
+        oc.font = "700 15px 'Courier Prime', monospace";
+        oc.fillText(fmt(a.finish, 0), rx + rw, ty);
+        oc.textAlign = "left";
+        ty += 27;
+      });
+    }
+
+    // footer
+    var fy = H - 76;
+    oc.strokeStyle = BORDER;
+    oc.beginPath(); oc.moveTo(M, fy); oc.lineTo(W - M, fy); oc.stroke();
+    oc.fillStyle = TEXT_3;
+    oc.font = "14px 'Public Sans', sans-serif";
+    var foot = "Data: IBTrACS v04r01 (NOAA NCEI), 1-minute sustained winds. " +
+      "ACE = 10⁻⁴ × Σv² at 00/06/12/18Z for tropical and subtropical systems ≥ 34 kt. " +
+      "Normals are 1991–2020. " + (v.provisional
+        ? "The current season is operational best-track data and will be revised in post-season reanalysis. "
+        : "") + "contextclimate.io";
+    wrapText(oc, foot, W - 2 * M).forEach(function (ln, i) {
+      oc.fillText(ln, M, fy + 24 + i * 20);
+    });
+
+    // restore both canvases to screen resolution
+    chart.options.devicePixelRatio = origChartDpr;
+    chart.resize();
+    chart.update("none");
+    stripDpr = origStripDpr;
+    renderStrip(v);
+
+    off.toBlob(function (blob) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "tropical-ace-" + d.key + "-" +
+        seasonLabel(d, v.current).replace("–", "-") + ".png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }, "image/png");
+  }
+
+  // ----------------------------------------------------------------- render
+
+  function renderFooter(v) {
+    var d = v.d;
+    var lines = [];
+    lines.push("<b>Data:</b> IBTrACS v04r01 (NOAA NCEI), rebuilt from the full archive " +
+      "monthly and refreshed daily in season. Last updated " + META.as_of + ".");
+    lines.push("<b>ACE</b> is 10⁻⁴ × Σv² over the four synoptic hours (00/06/12/18Z), " +
+      "for tropical and subtropical systems at or above 34 kt, in units of 10⁴ kt². " +
+      "Winds are 1-minute sustained (NHC and JTWC) in every basin, so basins are " +
+      "comparable to each other and to how ACE is normally reported; the 10-minute " +
+      "winds used by most non-US agencies would run roughly 10–15% lower.");
+    lines.push("<b>Seasons:</b> Northern Hemisphere basins run on calendar years. " +
+      "South Indian and South Pacific seasons run 1 July – 30 June and are labelled " +
+      "by both years. Each 6-hourly observation is credited to the basin it occurred in.");
+    if (d.basin === "GL") {
+      lines.push("<b>Global</b> is a calendar-year sum across every basin, including the " +
+        "South Atlantic. Because the Southern Hemisphere season straddles 1 January, " +
+        "each of those seasons is split across two global years — the standard " +
+        "convention for a global ACE figure, but worth knowing when reading the curve.");
+    }
+    lines.push("<b>Record start:</b> " + d.start_year + " for the " + d.name + ". " +
+      "Basins begin at different years because intensity estimates only become " +
+      "comparable once satellite coverage does: 1966 in the Atlantic and West Pacific, " +
+      "1971 in the East Pacific, 1981 for the North Indian and both Southern " +
+      "Hemisphere basins.");
+    if (v.provisional) {
+      lines.push("<b>The " + seasonLabel(d, v.current) + " season</b> is operational " +
+        "best-track data and will shift slightly when it is reanalysed after the season closes.");
+    }
+    lines.push("Normals are the 1991–2020 mean, which covers 30 of the " +
+      (v.historical.length + 1) + " seasons shown.");
+    $("footer").innerHTML = lines.map(function (l) { return "<p style='margin:0 0 8px'>" + l + "</p>"; }).join("");
+  }
+
+  function renderAll() {
+    var d = CACHE[activeKey];
+    view = buildView(d);
+    $("chartTitle").textContent = "Cumulative ACE: every season since " + d.start_year;
+    var asOf = new Date(META.as_of + "T12:00:00Z");
+    $("stripTitle").textContent = "ACE through " + MONTHS[asOf.getUTCMonth()] + " " +
+      asOf.getUTCDate() + ", each season";
+    renderNarrative(view);
+    renderStats(view);
+    renderChart(view);
+    renderStrip(view);
+    renderAnalogs(view);
+    renderFooter(view);
+  }
+
+  // ------------------------------------------------------------------- load
+
+  function setStatus(msg, isErr) {
+    var el = $("status");
+    if (!msg) { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = msg;
+    el.className = isErr ? "err" : "";
+  }
+
+  function loadBasin(key) {
+    if (CACHE[key]) return Promise.resolve(CACHE[key]);
+    return fetch("ace-" + key + ".json?v=" + META.version)
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (j) { CACHE[key] = j; return j; });
+  }
+
+  function selectBasin(key) {
+    activeKey = key;
+    Array.prototype.forEach.call($("basinRow").children, function (b) {
+      b.classList.toggle("is-active", b.dataset.key === key);
+    });
+    setStatus("Loading " + key.toUpperCase() + "…");
+    loadBasin(key).then(function () {
+      setStatus(null);
+      renderAll();
+    }).catch(function (e) {
+      setStatus("Could not load the " + key.toUpperCase() + " data file (" + e.message + ").", true);
+    });
+  }
+
+  function buildBasinButtons() {
+    var row = $("basinRow");
+    row.innerHTML = "";
+    META.basins.forEach(function (b) {
+      var btn = document.createElement("button");
+      btn.className = "cc-btn";
+      btn.textContent = b.name;
+      btn.dataset.key = b.key;
+      btn.addEventListener("click", function () { selectBasin(b.key); });
+      row.appendChild(btn);
+    });
+  }
+
+  function init() {
+    $("analogN").addEventListener("input", function (e) {
+      analogN = parseInt(e.target.value, 10);
+      $("analogNOut").textContent = analogN;
+      if (view) renderAll();
+    });
+    $("pngBtn").addEventListener("click", downloadPNG);
+    $("stripCanvas").addEventListener("mousemove", stripMove);
+    $("stripCanvas").addEventListener("mouseleave", function () {
+      if (stripTip) { stripTip.remove(); stripTip = null; }
+    });
+
+    var rt = null;
+    window.addEventListener("resize", function () {
+      clearTimeout(rt);
+      rt = setTimeout(function () { if (view) renderStrip(view); }, 150);
+    });
+
+    if (typeof Chart === "undefined") {
+      setStatus("Chart.js did not load, so the curves cannot be drawn. " +
+                "Everything else on the page still reflects the real data.", true);
+    }
+
+    fetch("ace-meta.json", { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (m) {
+        META = m;
+        buildBasinButtons();
+        selectBasin("na");
+      })
+      .catch(function (e) {
+        setStatus("Could not load ace-meta.json (" + e.message + "). " +
+                  "The data pipeline may not have run yet.", true);
+      });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
