@@ -5,706 +5,795 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Global Temperature in Context</title>
 <link rel="stylesheet" href="core-sample-tools.css">
-<script src="https://cdn.plot.ly/plotly-2.34.0.min.js"></script>
 <style>
   :root { --tool-accent: var(--accent-climate); }
+  [hidden] { display: none !important; }
 
-  .gtc-wrap { max-width: 1400px; margin: 0 auto; }
+  .gtc { max-width: 1320px; margin: 0 auto; }
 
-  .gtc-header { text-align: center; margin-bottom: 26px; }
-  .gtc-header .cc-title { margin: 8px 0 10px; }
-  .gtc-header .cc-subtitle { max-width: 640px; margin: 0 auto; }
+  .gtc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; flex-wrap: wrap; margin-bottom: 22px; }
+  .gtc-head .cc-title { margin: 6px 0 0; font-size: 36px; }
+  .gtc-head .cc-eyebrow { color: var(--tool-accent); }
 
-  .gtc-stat-row {
-    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
-    margin-bottom: 22px;
-  }
-  .gtc-stat-row .cc-stat-chip { min-width: 168px; align-items: center; text-align: center; }
-  .gtc-stat-row .cc-stat-value { font-size: 30px; }
+  .gtc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+  .gtc-stats .cc-stat-chip { padding: 12px 16px; }
+  .gtc-stats .cc-stat-value { font-size: 34px; line-height: 1.15; }
+  .gtc-stats .cc-stat-note { font-size: 14px; }
+  @media (max-width: 760px) { .gtc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-  .gtc-controls {
-    display: flex; gap: 22px; justify-content: center; align-items: center;
-    flex-wrap: wrap; margin-bottom: 18px;
-  }
-  .gtc-control-group { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .gtc-bar { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+  .gtc-group { display: flex; flex-direction: column; gap: 5px; }
+  .gtc-bar .gtc-spacer { flex: 1; }
 
-  .gtc-chart-card {
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: 18px 14px 10px;
-    margin-bottom: 10px;
-  }
-  .gtc-chart-card.loading, .gtc-chart-card.errored { padding: 60px 20px; text-align: center; }
-  #gtcChart { width: 100%; height: 680px; }
-  @media (max-width: 640px) { #gtcChart { height: 480px; } }
+  .gtc-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 14px 10px 10px; }
+  .gtc-card.is-msg { padding: 80px 20px; text-align: center; }
+  .gtc-stage { position: relative; width: 100%; }
+  .gtc-stage canvas { position: absolute; left: 0; top: 0; display: block; }
+  #gtcOver { touch-action: pan-y; }
 
-  .gtc-band-note {
-    max-width: 620px; margin: 0 auto 22px; text-align: center;
-    font-size: 13px; color: var(--color-text-muted); line-height: 1.55;
-  }
-
-  .gtc-legend-wrap { display: flex; justify-content: center; margin-bottom: 24px; }
-  .cc-legend-chip { cursor: pointer; user-select: none; transition: opacity 0.15s ease, border-color 0.15s ease; }
-  .cc-legend-chip.gtc-off { opacity: 0.4; }
-  .cc-legend-chip:hover { border-color: var(--color-border-hover); }
-  .cc-legend-chip.gtc-decade-chip { display: none; }
-  #gtcLegend.mode-decade .cc-legend-chip.gtc-decade-chip { display: flex; }
-  #gtcLegend.mode-decade .cc-legend-chip.gtc-enso-chip { display: none; }
-
-  .gtc-footer-row {
-    display: flex; justify-content: space-between; align-items: center;
-    flex-wrap: wrap; gap: 10px; margin-top: 6px; margin-bottom: 40px;
-  }
-  .gtc-footer-note { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
-
-  .gtc-showall-row { text-align: center; margin: -8px 0 22px; }
-
-  #gtcExportCanvas { display: none; }
+  .gtc-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .gtc-foot-note { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
 </style>
 </head>
 <body>
-<div class="gtc-wrap">
+<div class="gtc">
 
-  <div class="gtc-header">
-    <div class="cc-eyebrow">CLIMATE &middot; UPDATED DAILY</div>
-    <h1 class="cc-title">Global Temperature in Context</h1>
-    <p class="cc-subtitle">Every day of the ERA5 record, 1940 to present, layered on one calendar so today's reading shows exactly how unusual or ordinary it is.</p>
-  </div>
-
-  <div class="gtc-stat-row" id="gtcStatRow">
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label">Latest Data</div>
-      <div class="cc-stat-value" id="gtcStatDate">&ndash;</div>
-      <div class="cc-stat-note" id="gtcStatDateNote">&nbsp;</div>
-    </div>
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label" id="gtcStatAnomLabel">Vs. Baseline</div>
-      <div class="cc-stat-value" id="gtcStatAnom">&ndash;</div>
-      <div class="cc-stat-note" id="gtcStatAnomNote">&nbsp;</div>
-    </div>
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label">Rank, This Day</div>
-      <div class="cc-stat-value" id="gtcStatRank">&ndash;</div>
-      <div class="cc-stat-note" id="gtcStatRankNote">&nbsp;</div>
+  <div class="gtc-head">
+    <div>
+      <div class="cc-eyebrow" id="gtcEyebrow">Climate &middot; ERA5 daily</div>
+      <h1 class="cc-title">Global Temperature in Context</h1>
     </div>
   </div>
 
-  <div class="gtc-controls">
-    <div class="gtc-control-group">
+  <div class="gtc-stats">
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label" id="gtcS1Label">&ndash;</div>
+      <div class="cc-stat-value" id="gtcS1">&ndash;</div>
+      <div class="cc-stat-note" id="gtcS1Note">&nbsp;</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label" id="gtcS2Label">Rank</div>
+      <div class="cc-stat-value" id="gtcS2">&ndash;</div>
+      <div class="cc-stat-note" id="gtcS2Note">&nbsp;</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label" id="gtcS3Label">Record days</div>
+      <div class="cc-stat-value" id="gtcS3">&ndash;</div>
+      <div class="cc-stat-note" id="gtcS3Note">&nbsp;</div>
+    </div>
+    <div class="cc-stat-chip">
+      <div class="cc-stat-label">Year to date</div>
+      <div class="cc-stat-value" id="gtcS4">&ndash;</div>
+      <div class="cc-stat-note" id="gtcS4Note">&nbsp;</div>
+    </div>
+  </div>
+
+  <div class="gtc-bar">
+    <div class="gtc-group">
       <div class="cc-btn-row-label">Reference</div>
-      <div class="cc-segmented" id="gtcBaselineToggle">
-        <button class="cc-segmented-btn is-active" data-baseline="1850">1850&ndash;1900</button>
-        <button class="cc-segmented-btn" data-baseline="1991">1991&ndash;2020</button>
-        <button class="cc-segmented-btn" data-baseline="absolute">Absolute</button>
+      <div class="cc-segmented" id="gtcBaseline">
+        <button class="cc-segmented-btn is-active" data-v="1850">1850&ndash;1900</button>
+        <button class="cc-segmented-btn" data-v="1991">1991&ndash;2020</button>
+        <button class="cc-segmented-btn" data-v="absolute">Absolute</button>
       </div>
     </div>
-    <div class="gtc-control-group">
+    <div class="gtc-group">
       <div class="cc-btn-row-label">Smoothing</div>
-      <div class="cc-segmented" id="gtcSmoothToggle">
-        <button class="cc-segmented-btn is-active" data-smooth="1">Raw</button>
-        <button class="cc-segmented-btn" data-smooth="5">5-Day</button>
-        <button class="cc-segmented-btn" data-smooth="31">31-Day</button>
+      <div class="cc-segmented" id="gtcSmooth">
+        <button class="cc-segmented-btn is-active" data-v="1">Raw</button>
+        <button class="cc-segmented-btn" data-v="5">5-Day</button>
+        <button class="cc-segmented-btn" data-v="31">31-Day</button>
       </div>
     </div>
-    <div class="gtc-control-group">
+    <div class="gtc-group">
       <div class="cc-btn-row-label">Units</div>
-      <div class="cc-segmented" id="gtcUnitToggle">
-        <button class="cc-segmented-btn is-active" data-unit="C">&deg;C</button>
-        <button class="cc-segmented-btn" data-unit="F">&deg;F</button>
+      <div class="cc-segmented" id="gtcUnit">
+        <button class="cc-segmented-btn is-active" data-v="C">&deg;C</button>
+        <button class="cc-segmented-btn" data-v="F">&deg;F</button>
       </div>
     </div>
-    <div class="gtc-control-group">
-      <div class="cc-btn-row-label">Color By</div>
-      <div class="cc-segmented" id="gtcColorModeToggle">
-        <button class="cc-segmented-btn is-active" data-colormode="enso">ENSO Phase</button>
-        <button class="cc-segmented-btn" data-colormode="decade">Decade</button>
-      </div>
-    </div>
-    <div class="gtc-control-group">
-      <div class="cc-btn-row-label">Export</div>
-      <button class="cc-btn primary" id="gtcExportBtn">Save PNG</button>
-    </div>
+    <div class="gtc-spacer"></div>
+    <button class="cc-btn primary" id="gtcExport">Save PNG</button>
   </div>
 
-  <div class="gtc-chart-card loading" id="gtcChartCard">
-    <div class="cc-subtitle">Loading ERA5 daily record&hellip;</div>
-  </div>
-
-  <p class="gtc-band-note">The shaded band covers the 10th to 90th percentile of every year since 1940. Hover the dotted median line for the exact range that day.</p>
-
-  <div class="gtc-showall-row">
-    <button class="cc-btn cc-btn-sm" id="gtcShowAllBtn">Show all 86 individual years</button>
-  </div>
-
-  <div class="gtc-legend-wrap">
-    <div class="cc-legend-row mode-enso" id="gtcLegend">
-      <div class="cc-legend-chip" data-key="current"><span class="cc-legend-dot" style="background:#E8E4D9"></span><span id="gtcLegendCurrentLabel">2026</span></div>
-      <div class="cc-legend-chip gtc-enso-chip" data-key="el_nino"><span class="cc-legend-dot" style="background:#D67E60"></span>El Ni&ntilde;o years</div>
-      <div class="cc-legend-chip gtc-enso-chip" data-key="la_nina"><span class="cc-legend-dot" style="background:#6D96D8"></span>La Ni&ntilde;a years</div>
-      <div class="cc-legend-chip gtc-enso-chip" data-key="neutral"><span class="cc-legend-dot" style="background:#A69630"></span>Neutral years</div>
-      <div class="cc-legend-chip" data-key="band"><span class="cc-legend-dot" style="background:#A6A499"></span>1940&ndash;present range</div>
+  <div class="gtc-card is-msg" id="gtcCard">
+    <div class="cc-subtitle" id="gtcMsg">Loading ERA5 daily record&hellip;</div>
+    <div class="gtc-stage" id="gtcStage" hidden>
+      <canvas id="gtcBase"></canvas>
+      <canvas id="gtcOver"></canvas>
     </div>
   </div>
 
-  <div class="gtc-footer-row">
-    <span class="cc-tag" id="gtcCitation">Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, U. Maine</span>
-    <span class="gtc-footer-note" id="gtcUpdatedNote">&nbsp;</span>
+  <div class="gtc-foot">
+    <span class="cc-tag">Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, University of Maine</span>
+    <span class="gtc-foot-note" id="gtcUpdated">&nbsp;</span>
   </div>
 
 </div>
-
-<canvas id="gtcExportCanvas" width="1700" height="1200"></canvas>
 
 <script>
 (function () {
   "use strict";
 
-  var ENSO_COLORS = {
-    el_nino: "#D67E60",
-    la_nina: "#6D96D8",
-    neutral: "#A69630",
-    unclassified: "#6B6F68"
-  };
-  var CURRENT_COLOR = "#E8E4D9";
-  var BAND_FILL = "rgba(166,164,153,0.13)";
-  var MEDIAN_COLOR = "#948F82";
-  var SURFACE_HEX = "#262B27";
-  var TEXT_PRIMARY = "#E8E4D9";
-  var TEXT_SECONDARY = "#A6A499";
-  var TEXT_MUTED = "#948F82";
+  // ── Palette (content colors) ───────────────────────────────────────
+  var SURFACE = "#262B27";
+  var PAGE_BG = "#1E2320";
+  var INK = "#E8E4D9";
+  var INK_2 = "#A6A499";
+  var INK_3 = "#948F82";
+  var ACCENT = "#D08425";
+  var GRID_LINE = "rgba(232,228,217,0.07)";
+  var ZERO_LINE = "rgba(232,228,217,0.22)";
 
-  // Decade gradient, ported from the ENSO tool's "Decade Colors" mode: a
-  // fixed-chroma hue sweep (HSL, S=85%, L=58%) running from blue through
-  // purple and magenta to red and orange. Deliberately skips green/yellow
-  // so decade colors never collide with the site's other accent tokens.
-  // The ENSO tool sweeps 225deg -> 385deg across its 17 decades on file;
-  // this reuses the exact same start/end and formula, just resampled to
-  // however many decades are actually present in this dataset.
-  var DECADE_HUE_START = 225;
-  var DECADE_HUE_END = 385;
-  var DECADE_SAT = 85;
-  var DECADE_LIGHT = 58;
+  var MONO = "'Courier Prime', monospace";
+  var BODY = "'Public Sans', sans-serif";
+  var DISPLAY = "'Zilla Slab', serif";
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var MONTH_START = [0,31,60,91,121,152,182,213,244,274,305,335]; // 366-slot template
+  var EXPORT_W = 1400;
+  var EXPORT_SCALE = 3;
+  var MAX_PINS = 6;
 
-  var EXPORT_W = 1700;
-  var EXPORT_H = 860;
+  function oklch(L, C, h) {
+    var hr = h * Math.PI / 180, a = C * Math.cos(hr), b = C * Math.sin(hr);
+    var l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+    var m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+    var s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+    var l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+    var rgb = [
+      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    ];
+    return rgb.map(function (x) {
+      x = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055;
+      return Math.max(0, Math.min(255, Math.round(x * 255)));
+    });
+  }
+  function haloText(ctx, txt, x, y, color) {
+    ctx.lineWidth = 4; ctx.lineJoin = "round"; ctx.strokeStyle = SURFACE; ctx.strokeText(txt, x, y);
+    ctx.fillStyle = color; ctx.fillText(txt, x, y);
+  }
+  function rgbStr(c) { return "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")"; }
 
-  var state = {
-    data: null,
-    baseline: "1850",   // "1850" | "1991" | "absolute"
-    smooth: 1,           // 1 | 5 | 31
-    unit: "C",            // "C" | "F"
-    colorMode: "enso",    // "enso" | "decade"
-    showAll: false,
-    hidden: {},            // legend key -> true if hidden
-    decadeRange: null      // {min, max} set once data loads
-  };
+  // Year ramp: one hue (amber), dim → bright with time.
+  function yearRGB(t) { return oklch(0.34 + 0.44 * Math.pow(t, 2.2), 0.015 + 0.135 * Math.pow(t, 1.4), 62); }
 
-  var chartCard = document.getElementById("gtcChartCard");
-  var chartDivId = "gtcChart";
+  // Diverging ramp: blue ← neutral → red, 256-entry LUT over u ∈ [-1, 1].
+  var DIV_LUT = (function () {
+    var lut = [];
+    for (var k = 0; k < 256; k++) {
+      var u = k / 255 * 2 - 1, au = Math.abs(u);
+      lut.push(u < 0
+        ? oklch(0.31 + (0.77 - 0.31) * au, 0.12 * au, 245)
+        : oklch(0.31 + (0.71 - 0.31) * au, 0.17 * au, 32));
+    }
+    return lut;
+  })();
+  function divRGB(u) {
+    var k = Math.round((Math.max(-1, Math.min(1, u)) + 1) / 2 * 255);
+    return DIV_LUT[k];
+  }
+
+  // ── State ──────────────────────────────────────────────────────────
+  var state = { baseline: "1850", smooth: 1, unit: "C" };
+  var D = null;          // raw json
+  var YEARS = [];        // ["1940", …]
+  var CY = null;         // current year string
+  var LATEST = null;     // last filled slot of current year
+  var S = null;          // derived display data
+  var LO = null;         // on-screen layout
+  var hover = { day: null, year: null, zone: null, px: 0, py: 0 };
+  var pins = [];
+  var gridCanvas = document.createElement("canvas");
+
+  var card = document.getElementById("gtcCard");
+  var stage = document.getElementById("gtcStage");
+  var baseC = document.getElementById("gtcBase");
+  var overC = document.getElementById("gtcOver");
 
   fetch("./data/global-temp-daily.json", { cache: "no-cache" })
-    .then(function (r) {
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      return r.json();
-    })
-    .then(function (json) {
-      state.data = json;
-      state.decadeRange = computeDecadeRange();
-      chartCard.classList.remove("loading");
-      chartCard.innerHTML = '<div id="' + chartDivId + '"></div>';
-      document.getElementById("gtcLegendCurrentLabel").textContent = json.current_year;
-      document.getElementById("gtcShowAllBtn").textContent =
-        "Show all " + Object.keys(json.years).length + " individual years";
-      buildDecadeLegend();
-      wireControls();
-      render();
-    })
+    .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(init)
     .catch(function (err) {
-      chartCard.classList.remove("loading");
-      chartCard.classList.add("errored");
-      chartCard.innerHTML =
-        '<div class="cc-subtitle">Could not load the temperature data (' + err.message + ').<br>' +
-        'If you are previewing this file locally, serve the folder over HTTP ' +
-        '(e.g. <code>python -m http.server</code>) rather than opening it directly. ' +
-        'Browsers block local JSON fetches from a bare <code>file://</code> page.</div>';
+      document.getElementById("gtcMsg").textContent = "Could not load the temperature data (" + err.message + ").";
     });
 
-  function cToF(c) { return c * 9 / 5 + 32; }
-  function convertDelta(c) { return state.unit === "F" ? c * 9 / 5 : c; }
-  function convertAbs(c) { return state.unit === "F" ? cToF(c) : c; }
-  function unitSuffix() { return state.unit === "F" ? "°F" : "°C"; }
+  function init(json) {
+    D = json;
+    YEARS = Object.keys(D.years).sort();
+    CY = String(D.current_year);
+    var t = D.years[CY].t;
+    for (var i = 0; i < t.length; i++) if (t[i] !== null && t[i] !== undefined) LATEST = i;
 
-  // Circular moving average over the 366-slot day-of-year template so
-  // smoothing wraps cleanly across the Dec-Jan boundary.
-  function smoothCircular(arr, window) {
-    if (window <= 1) return arr.slice();
-    var n = arr.length, half = Math.floor(window / 2), out = new Array(n);
-    for (var i = 0; i < n; i++) {
-      var sum = 0, count = 0;
-      for (var k = -half; k <= half; k++) {
-        var idx = ((i + k) % n + n) % n;
-        var v = arr[idx];
-        if (v !== null && v !== undefined && !isNaN(v)) { sum += v; count++; }
-      }
-      out[i] = count > 0 ? sum / count : null;
+    document.getElementById("gtcEyebrow").textContent = "Climate · ERA5 daily · " + YEARS[0] + "–" + CY;
+    if (D.generated_utc) {
+      var g = new Date(D.generated_utc);
+      document.getElementById("gtcUpdated").textContent =
+        "Updated " + MONTHS[g.getUTCMonth()] + " " + g.getUTCDate() + ", " + g.getUTCFullYear();
     }
-    return out;
+
+    card.classList.remove("is-msg");
+    document.getElementById("gtcMsg").hidden = true;
+    stage.hidden = false;
+
+    wireControls();
+    recompute();
+    new ResizeObserver(resize).observe(stage);
+    resize();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
   }
 
-  function baselineArray() {
-    var d = state.data;
-    if (state.baseline === "1850") return d.baseline_1850_1900;
-    if (state.baseline === "1991") return d.baseline_1991_2020;
-    return null; // absolute: no baseline subtraction
+  // ── Helpers ────────────────────────────────────────────────────────
+  function isLeap(y) { y = +y; return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0; }
+  function slotCount(y) { return y === CY ? LATEST + 1 : (isLeap(y) ? 366 : 365); }
+  function slotDate(year, i) {
+    // Climate Reanalyzer arrays are day-of-year indexed: slot i = Jan 1 + i.
+    var d = new Date(Date.UTC(+year, 0, 1 + i));
+    return MONTHS[d.getUTCMonth()] + " " + d.getUTCDate();
   }
-
-  // Transform a raw 366-slot temp array into the currently selected view
-  // (absolute or anomaly), THEN smooth, so smoothing always acts on the
-  // quantity actually being plotted.
-  function transformSeries(rawTemps) {
-    var baseline = baselineArray();
-    var metric = rawTemps.map(function (v, i) {
-      if (v === null || v === undefined) return null;
-      if (baseline === null) return v;
-      var b = baseline[i];
-      if (b === null || b === undefined) return null;
-      return v - b;
-    });
-    var smoothed = smoothCircular(metric, state.smooth);
-    return smoothed.map(function (v) {
-      if (v === null) return null;
-      return baseline === null ? convertAbs(v) : convertDelta(v);
-    });
+  function railDate(i) { return i < 365 ? slotDate(CY, i) : "Dec 31"; }
+  function baselineArr() {
+    return state.baseline === "1850" ? D.baseline_1850_1900 :
+      state.baseline === "1991" ? D.baseline_1991_2020 : null;
   }
-
-  function yAxisTitle() {
-    if (state.baseline === "absolute") return "2m air temperature (" + unitSuffix() + ")";
-    var ref = state.baseline === "1850" ? "1850–1900" : "1991–2020";
-    return "Anomaly vs. " + ref + " (" + unitSuffix() + ")";
+  function unitSym() { return state.unit === "F" ? "°F" : "°C"; }
+  function toUnit(v) {
+    if (state.unit === "C") return v;
+    return state.baseline === "absolute" ? v * 1.8 + 32 : v * 1.8;
   }
-
-  function fmtVal(v, decimals) {
+  function fmt(v, dec) {
     if (v === null || v === undefined || isNaN(v)) return "–";
-    var s = v.toFixed(decimals === undefined ? 1 : decimals);
-    if (state.baseline !== "absolute" && v > 0) s = "+" + s;
-    return s + unitSuffix();
+    var s = Math.abs(v).toFixed(dec);
+    if (state.baseline !== "absolute") s = (v >= 0.005 ? "+" : v <= -0.005 ? "−" : "") + s;
+    else if (v < 0) s = "−" + s;
+    return s + unitSym();
   }
-
-  // ── Decade color helpers ────────────────────────────────────────────
-  function hslToHex(h, s, l) {
-    h = ((h % 360) + 360) % 360;
-    s /= 100; l /= 100;
-    var c = (1 - Math.abs(2 * l - 1)) * s;
-    var x = c * (1 - Math.abs((h / 60) % 2 - 1));
-    var m = l - c / 2;
-    var r, g, b;
-    if (h < 60)       { r = c; g = x; b = 0; }
-    else if (h < 120) { r = x; g = c; b = 0; }
-    else if (h < 180) { r = 0; g = c; b = x; }
-    else if (h < 240) { r = 0; g = x; b = c; }
-    else if (h < 300) { r = x; g = 0; b = c; }
-    else              { r = c; g = 0; b = x; }
-    function toHex(v) {
-      var n = Math.round((v + m) * 255);
-      var s2 = n.toString(16);
-      return s2.length === 1 ? "0" + s2 : s2;
-    }
-    return "#" + toHex(r) + toHex(g) + toHex(b);
-  }
-
-  function decadeOf(year) { return Math.floor(parseInt(year, 10) / 10) * 10; }
-
-  function computeDecadeRange() {
-    var decades = Object.keys(state.data.years).map(decadeOf);
-    return { min: Math.min.apply(null, decades), max: Math.max.apply(null, decades) };
-  }
-
-  function decadeColor(year) {
-    var d = decadeOf(year);
-    var r = state.decadeRange;
-    var t = r.max === r.min ? 0 : (d - r.min) / (r.max - r.min);
-    var hue = DECADE_HUE_START + t * (DECADE_HUE_END - DECADE_HUE_START);
-    return hslToHex(hue, DECADE_SAT, DECADE_LIGHT);
-  }
-
-  function buildDecadeLegend() {
-    var container = document.getElementById("gtcLegend");
-    var bandChip = container.querySelector('.cc-legend-chip[data-key="band"]');
-    for (var d = state.decadeRange.min; d <= state.decadeRange.max; d += 10) {
-      (function (decade) {
-        var chip = document.createElement("div");
-        chip.className = "cc-legend-chip gtc-decade-chip";
-        chip.setAttribute("data-key", String(decade));
-        var dot = document.createElement("span");
-        dot.className = "cc-legend-dot";
-        var t = state.decadeRange.max === state.decadeRange.min ? 0 :
-          (decade - state.decadeRange.min) / (state.decadeRange.max - state.decadeRange.min);
-        dot.style.background = hslToHex(DECADE_HUE_START + t * (DECADE_HUE_END - DECADE_HUE_START), DECADE_SAT, DECADE_LIGHT);
-        chip.appendChild(dot);
-        chip.appendChild(document.createTextNode(decade + "s"));
-        // Click handling is wired generically for every .cc-legend-chip
-        // (including this one) inside wireControls(), which runs right
-        // after this function, so no listener is attached here.
-        container.insertBefore(chip, bandChip);
-      })(d);
-    }
-  }
-
-  function colorKeyFor(year) {
-    return state.colorMode === "decade" ? String(decadeOf(year)) : state.data.years[year].enso;
-  }
-  function yearColor(year) {
-    if (state.colorMode === "decade") return decadeColor(year);
-    var enso = state.data.years[year].enso;
-    return ENSO_COLORS[enso] || ENSO_COLORS.unclassified;
-  }
-  function yearColorLabel(year) {
-    if (state.colorMode === "decade") return decadeOf(year) + "s";
-    return state.data.years[year].enso.replace("_", " ");
-  }
-
-  function buildTraces() {
-    var d = state.data;
-    var traces = [];
-    var x = d.x_dates;
-
-    // Historical range band (10th–90th percentile). NOTE: this is a pure
-    // visual fill, deliberately non-interactive (hoverinfo:"skip") — see
-    // the median trace below for why.
-    if (!state.hidden.band) {
-      var p10 = transformSeries(d.percentile_10);
-      var p90 = transformSeries(d.percentile_90);
-      var median = transformSeries(d.median);
-      traces.push({
-        x: x, y: p90, name: "90th percentile", mode: "lines",
-        line: { width: 0 }, hoverinfo: "skip", showlegend: false
-      });
-      traces.push({
-        x: x, y: p10, name: "Historical range", mode: "lines",
-        line: { width: 0 }, fill: "tonexty", fillcolor: BAND_FILL,
-        hoverinfo: "skip", showlegend: false
-      });
-      // Tried making the whole fill hoverable (hoveron:"fills") first.
-      // Plotly explicitly skips hovertemplate for fills-hover, and even
-      // the hoverinfo:"text" fallback didn't reliably surface custom
-      // content either. Ordinary point hover is solid everywhere else on
-      // this page, so the range is attached to the median line's tooltip
-      // instead via customdata, rather than fighting fills-hover further.
-      var bandRange = p10.map(function (v, i) { return [v, p90[i]]; });
-      traces.push({
-        x: x, y: median, name: "Median (all years)", mode: "lines",
-        line: { color: MEDIAN_COLOR, width: 1.5, dash: "dot" },
-        customdata: bandRange,
-        hovertemplate: "Median: %{y:.1f}<br>Typical range: %{customdata[0]:.1f} to %{customdata[1]:.1f}<extra></extra>"
-      });
-    }
-
-    if (state.showAll) {
-      Object.keys(d.years).forEach(function (y) {
-        if (y === d.current_year) return;
-        if (state.hidden[colorKeyFor(y)]) return;
-        traces.push({
-          x: x, y: transformSeries(d.years[y].t), name: y, mode: "lines",
-          line: { color: yearColor(y), width: 0.6 },
-          opacity: 0.28, hovertemplate: y + " (" + yearColorLabel(y) + "): %{y:.1f}<extra></extra>", showlegend: false
-        });
-      });
-    } else {
-      d.notable_years.forEach(function (y) {
-        if (y === d.current_year) return;
-        if (state.hidden[colorKeyFor(y)]) return;
-        traces.push({
-          x: x, y: transformSeries(d.years[y].t), name: y, mode: "lines",
-          line: { color: yearColor(y), width: 1.8 },
-          hovertemplate: y + " (" + yearColorLabel(y) + "): %{y:.1f}<extra></extra>"
-        });
-      });
-    }
-
-    // Current year on top
-    if (!state.hidden.current) {
-      var cy = d.current_year;
-      traces.push({
-        x: x, y: transformSeries(d.years[cy].t), name: cy, mode: "lines",
-        line: { color: CURRENT_COLOR, width: 3.2 },
-        hovertemplate: cy + " (current): %{y:.1f}<extra></extra>"
-      });
-    }
-
-    return traces;
-  }
-
-  function buildShapes() {
-    if (state.baseline !== "1850") return { shapes: [], annotations: [] };
-    var shapes = [], annotations = [];
-    [
-      { c: 1.5, label: "+1.5°C · Paris limit", color: "rgba(214,126,96,0.55)" },
-      { c: 2.0, label: "+2.0°C", color: "rgba(191,86,86,0.6)" }
-    ].forEach(function (t) {
-      var y = convertDelta(t.c);
-      shapes.push({
-        type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: y, y1: y,
-        line: { color: t.color, width: 1.3, dash: "dash" }
-      });
-      annotations.push({
-        xref: "paper", x: 1, xanchor: "left", yref: "y", y: y, yanchor: "bottom",
-        text: t.label, showarrow: false,
-        font: { family: "Courier Prime, monospace", size: 11, color: t.color }
-      });
-    });
-    return { shapes: shapes, annotations: annotations };
-  }
-
-  function render() {
-    var traces = buildTraces();
-    var sa = buildShapes();
-
-    var layout = {
-      paper_bgcolor: SURFACE_HEX,
-      plot_bgcolor: SURFACE_HEX,
-      margin: { l: 60, r: 90, t: 16, b: 40 },
-      font: { family: "Public Sans, sans-serif", size: 13, color: TEXT_SECONDARY },
-      xaxis: {
-        type: "date", tickformat: "%b", dtick: "M1",
-        gridcolor: "rgba(232,228,217,0.06)", zeroline: false,
-        tickfont: { size: 12, color: TEXT_SECONDARY },
-        hoverformat: "%b %d"
-      },
-      yaxis: {
-        title: { text: yAxisTitle(), font: { size: 12, color: TEXT_SECONDARY } },
-        gridcolor: "rgba(232,228,217,0.08)",
-        zeroline: state.baseline !== "absolute",
-        zerolinecolor: "rgba(232,228,217,0.25)",
-        tickfont: { size: 12, color: TEXT_SECONDARY }
-      },
-      shapes: sa.shapes,
-      annotations: sa.annotations,
-      hovermode: "closest",
-      showlegend: false
-    };
-
-    Plotly.react(chartDivId, traces, layout, {
-      responsive: true, displaylogo: false,
-      modeBarButtonsToRemove: ["lasso2d", "select2d"]
-    });
-
-    renderStats();
-    updateLegendUI();
-  }
-
-  function dateLabel(dateStr) {
-    // dateStr like "2026-07-25" -> "Jul 25"
-    var parts = dateStr.split("-");
-    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    return months[parseInt(parts[1], 10) - 1] + " " + parseInt(parts[2], 10);
-  }
-
-  function dayOfYearIndex(dateStr) {
-    var parts = dateStr.split("-");
-    var template = "2024-" + parts[1] + "-" + parts[2];
-    return state.data.x_dates.indexOf(template);
-  }
-
-  function renderStats() {
-    var d = state.data;
-    var cy = d.current_year;
-    var idx = null;
-    if (d.data_through) idx = dayOfYearIndex(d.data_through);
-
-    document.getElementById("gtcStatDate").textContent = d.data_through ? dateLabel(d.data_through) : "–";
-    document.getElementById("gtcStatDateNote").textContent =
-      d.data_through ? ("Day " + (idx + 1) + " of " + cy + (d.lag_days != null ? " · " + d.lag_days + "d lag" : "")) : "–";
-
-    var anomLabel = state.baseline === "absolute" ? "Today’s Reading" :
-      (state.baseline === "1850" ? "Vs. Preindustrial" : "Vs. 1991–2020");
-    document.getElementById("gtcStatAnomLabel").textContent = anomLabel;
-
-    if (idx === null) {
-      document.getElementById("gtcStatAnom").textContent = "–";
-      document.getElementById("gtcStatAnomNote").textContent = " ";
-    } else {
-      var rawT = d.years[cy].t[idx];
-      var baseline = baselineArray();
-      var val = baseline === null ? convertAbs(rawT) : convertDelta(rawT - baseline[idx]);
-      document.getElementById("gtcStatAnom").textContent = fmtVal(val, 2);
-      document.getElementById("gtcStatAnomNote").textContent =
-        state.baseline === "absolute" ? "Raw ERA5 daily mean" : "1.5°C Paris limit reference";
-    }
-
-    // Rank among all years for this exact day-of-year, using RAW unsmoothed
-    // values regardless of the smoothing toggle, so the rank claim always
-    // reflects actually-observed daily means.
-    if (idx === null) {
-      document.getElementById("gtcStatRank").textContent = "–";
-      document.getElementById("gtcStatRankNote").textContent = " ";
-    } else {
-      var todayRaw = d.years[cy].t[idx];
-      var comparableYears = 0, warmerCount = 0;
-      Object.keys(d.years).forEach(function (y) {
-        var v = d.years[y].t[idx];
-        if (v === null || v === undefined) return;
-        comparableYears++;
-        if (y !== cy && v > todayRaw) warmerCount++;
-      });
-      var rank = warmerCount + 1;
-      document.getElementById("gtcStatRank").textContent = ordinal(rank);
-      document.getElementById("gtcStatRankNote").textContent =
-        "warmest " + dateLabel(d.data_through) + " of " + comparableYears + " years";
-    }
-
-    document.getElementById("gtcUpdatedNote").textContent =
-      "Generated " + (d.generated_utc || "").replace("T", " ").replace("Z", " UTC");
-  }
-
   function ordinal(n) {
     var s = ["th", "st", "nd", "rd"], v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
-
-  function updateLegendUI() {
-    document.querySelectorAll("#gtcLegend .cc-legend-chip").forEach(function (chip) {
-      var key = chip.getAttribute("data-key");
-      chip.classList.toggle("gtc-off", !!state.hidden[key]);
-    });
+  function yearT(y) {
+    var last = YEARS.length - 2; // ramp spans first → last complete year
+    var k = YEARS.indexOf(y);
+    return last <= 0 ? 1 : Math.min(1, k / last);
   }
 
-  function wireControls() {
-    document.querySelectorAll("#gtcBaselineToggle .cc-segmented-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        setActive("#gtcBaselineToggle", btn);
-        state.baseline = btn.getAttribute("data-baseline");
-        render();
-      });
+  // ── Derived data ───────────────────────────────────────────────────
+  function recompute() {
+    var base = baselineArr();
+    // Build one continuous day series across all years so smoothing never
+    // wraps December into January of the same year.
+    var flat = [], owner = [];
+    YEARS.forEach(function (y) {
+      var t = D.years[y].t, n = slotCount(y);
+      for (var i = 0; i < n; i++) {
+        var v = t[i];
+        if (v === null || v === undefined) v = null;
+        else if (base) v = v - base[i];
+        flat.push(v); owner.push([y, i]);
+      }
     });
-    document.querySelectorAll("#gtcSmoothToggle .cc-segmented-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        setActive("#gtcSmoothToggle", btn);
-        state.smooth = parseInt(btn.getAttribute("data-smooth"), 10);
-        render();
-      });
-    });
-    document.querySelectorAll("#gtcUnitToggle .cc-segmented-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        setActive("#gtcUnitToggle", btn);
-        state.unit = btn.getAttribute("data-unit");
-        render();
-      });
-    });
-    document.querySelectorAll("#gtcColorModeToggle .cc-segmented-btn").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        setActive("#gtcColorModeToggle", btn);
-        state.colorMode = btn.getAttribute("data-colormode");
-        var legend = document.getElementById("gtcLegend");
-        legend.classList.toggle("mode-decade", state.colorMode === "decade");
-        legend.classList.toggle("mode-enso", state.colorMode === "enso");
-        render();
-      });
-    });
-    document.getElementById("gtcShowAllBtn").addEventListener("click", function () {
-      state.showAll = !state.showAll;
-      this.classList.toggle("is-active", state.showAll);
-      this.textContent = (state.showAll ? "Hide" : "Show all") +
-        " " + Object.keys(state.data.years).length + " individual years";
-      render();
-    });
-    document.querySelectorAll("#gtcLegend .cc-legend-chip").forEach(function (chip) {
-      chip.addEventListener("click", function () {
-        var key = chip.getAttribute("data-key");
-        state.hidden[key] = !state.hidden[key];
-        render();
-      });
-    });
-    document.getElementById("gtcExportBtn").addEventListener("click", exportPNG);
-  }
-
-  function setActive(groupSel, activeBtn) {
-    document.querySelectorAll(groupSel + " .cc-segmented-btn").forEach(function (b) {
-      b.classList.toggle("is-active", b === activeBtn);
-    });
-  }
-
-  function exportPNG() {
-    var gd = document.getElementById(chartDivId);
-    Plotly.toImage(gd, { format: "png", width: EXPORT_W, height: EXPORT_H, scale: 2 }).then(function (dataUrl) {
-      var img = new Image();
-      img.onload = function () { composeExport(img); };
-      img.src = dataUrl;
-    });
-  }
-
-  function composeExport(chartImg) {
-    var canvas = document.getElementById("gtcExportCanvas");
-    var scale = 2;
-    var W = EXPORT_W * scale, H = (EXPORT_H + 340) * scale;
-    canvas.width = W; canvas.height = H;
-    var ctx = canvas.getContext("2d");
-
-    ctx.fillStyle = "#1E2320";
-    ctx.fillRect(0, 0, W, H);
-
-    var pad = 40 * scale;
-
-    ctx.fillStyle = TEXT_MUTED;
-    ctx.font = (12 * scale) + "px 'Courier Prime', monospace";
-    ctx.textBaseline = "top";
-    ctx.fillText("CONTEXTCLIMATE  ·  CLIMATE", pad, pad);
-
-    ctx.fillStyle = TEXT_PRIMARY;
-    ctx.font = "700 " + (34 * scale) + "px 'Zilla Slab', serif";
-    ctx.fillText("Global Temperature in Context", pad, pad + 26 * scale);
-
-    var d = state.data;
-    var idx = d.data_through ? dayOfYearIndex(d.data_through) : null;
-    var contextLine = d.data_through ?
-      (dateLabel(d.data_through) + ", " + d.current_year + "  ·  " + yAxisTitle().replace(/\(.*?\)/, "").trim()) :
-      "";
-    ctx.fillStyle = TEXT_SECONDARY;
-    ctx.font = (16 * scale) + "px 'Public Sans', sans-serif";
-    ctx.fillText(contextLine, pad, pad + 70 * scale);
-
-    var chartY = pad + 100 * scale;
-    var drawW = W - pad * 2;
-    var drawH = drawW * (EXPORT_H / EXPORT_W);
-    ctx.drawImage(chartImg, pad, chartY, drawW, drawH);
-
-    var statY = chartY + drawH + 30 * scale;
-    if (idx !== null) {
-      var rawT = d.years[d.current_year].t[idx];
-      var baseline = baselineArray();
-      var val = baseline === null ? convertAbs(rawT) : convertDelta(rawT - baseline[idx]);
-      var stats = [
-        ["LATEST DATA", dateLabel(d.data_through)],
-        [document.getElementById("gtcStatAnomLabel").textContent.toUpperCase(), fmtVal(val, 2)],
-        ["RANK, THIS DAY", document.getElementById("gtcStatRank").textContent]
-      ];
-      var chipW = drawW / 3;
-      stats.forEach(function (s, i) {
-        var x = pad + i * chipW;
-        ctx.fillStyle = TEXT_MUTED;
-        ctx.font = (12 * scale) + "px 'Courier Prime', monospace";
-        ctx.fillText(s[0], x, statY);
-        ctx.fillStyle = TEXT_PRIMARY;
-        ctx.font = "700 " + (26 * scale) + "px 'Zilla Slab', serif";
-        ctx.fillText(s[1], x, statY + 20 * scale);
-      });
+    var sm = smooth(flat, state.smooth);
+    var disp = {};
+    YEARS.forEach(function (y) { disp[y] = new Array(366).fill(null); });
+    var lo = Infinity, hi = -Infinity, sum = 0, cnt = 0;
+    for (var k = 0; k < sm.length; k++) {
+      if (sm[k] === null) continue;
+      var v = toUnit(sm[k]);
+      disp[owner[k][0]][owner[k][1]] = v;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+      sum += v; cnt++;
     }
 
-    ctx.fillStyle = TEXT_MUTED;
-    ctx.font = (11 * scale) + "px 'Courier Prime', monospace";
-    ctx.fillText(
-      "Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, U. Maine  ·  contextclimate.io",
-      pad, H - pad + 4 * scale
-    );
+    var absMode = state.baseline === "absolute";
+    var center = absMode ? sum / cnt : 0;
+    var devs = [];
+    YEARS.forEach(function (y) { disp[y].forEach(function (v) { if (v !== null) devs.push(Math.abs(v - center)); }); });
+    devs.sort(function (a, b) { return a - b; });
+    var q = devs[Math.floor(devs.length * 0.995)];
+    var step = (absMode ? 1 : 0.5) * (state.unit === "F" ? 2 : 1);
+    var half = Math.max(step, Math.ceil(q / step) * step);
+    if (absMode) center = Math.round(center);
 
-    var link = document.createElement("a");
-    link.download = "global-temperature-context-" + (state.data.data_through || "export") + ".png";
-    link.href = canvas.toDataURL("image/png");
-    link.click();
+    var pad = (hi - lo) * 0.06;
+    S = { disp: disp, yMin: lo - pad, yMax: hi + pad, center: center, half: half };
+    buildGridImage();
   }
 
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.catch(function () {});
+  function smooth(arr, w) {
+    if (w <= 1) return arr.slice();
+    var h = Math.floor(w / 2), out = new Array(arr.length);
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] === null) { out[i] = null; continue; }
+      var s = 0, c = 0;
+      for (var k = Math.max(0, i - h); k <= Math.min(arr.length - 1, i + h); k++) {
+        if (arr[k] !== null) { s += arr[k]; c++; }
+      }
+      out[i] = s / c;
+    }
+    return out;
+  }
+
+  function buildGridImage() {
+    var n = YEARS.length;
+    gridCanvas.width = 366; gridCanvas.height = n;
+    var g = gridCanvas.getContext("2d");
+    var img = g.createImageData(366, n);
+    for (var r = 0; r < n; r++) {
+      var y = YEARS[n - 1 - r], row = S.disp[y];
+      for (var i = 0; i < 366; i++) {
+        var p = (r * 366 + i) * 4, v = row[i];
+        if (v === null) { img.data[p + 3] = 0; continue; }
+        var c = divRGB((v - S.center) / S.half);
+        img.data[p] = c[0]; img.data[p + 1] = c[1]; img.data[p + 2] = c[2]; img.data[p + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  // ── Layout ─────────────────────────────────────────────────────────
+  function layout(W) {
+    var narrow = W < 700;
+    var L = {};
+    L.W = W;
+    L.px0 = narrow ? 44 : 54;
+    L.railW = Math.round(Math.max(110, Math.min(210, W * 0.15)));
+    L.rx1 = W - 14;
+    L.rx0 = L.rx1 - L.railW;
+    L.px1 = L.rx0 - (narrow ? 22 : 34);
+    L.narrow = narrow;
+    L.l0 = narrow ? 46 : 30;
+    L.l1 = L.l0 + Math.round(Math.max(240, Math.min(430, W * 0.34)));
+    L.g0 = L.l1 + 40;
+    L.rowH = narrow ? 3 : 4;
+    L.g1 = L.g0 + YEARS.length * L.rowH;
+    L.H = L.g1 + 8;
+    return L;
+  }
+  function fx(L, i) { return L.px0 + (i + 0.5) / 366 * (L.px1 - L.px0); }
+  function fy(L, v) { return L.l1 - (v - S.yMin) / (S.yMax - S.yMin) * (L.l1 - L.l0); }
+  function railX(L, y) {
+    var k = YEARS.indexOf(y), n = YEARS.length - 1;
+    return L.rx0 + 6 + k / n * (L.railW - 12);
+  }
+  function niceTicks(lo, hi, target) {
+    var raw = (hi - lo) / target, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; }).find(function (s) { return s >= raw; });
+    var out = [];
+    for (var v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+    return { ticks: out, step: step };
+  }
+
+  function resize() {
+    var W = Math.max(320, Math.floor(stage.clientWidth));
+    LO = layout(W);
+    stage.style.height = LO.H + "px";
+    var dpr = window.devicePixelRatio || 1;
+    [baseC, overC].forEach(function (c) {
+      c.width = Math.round(W * dpr); c.height = Math.round(LO.H * dpr);
+      c.style.width = W + "px"; c.style.height = LO.H + "px";
+    });
+    drawAll();
+  }
+
+  function drawAll() {
+    if (!S || !LO) return;
+    var dpr = baseC.width / LO.W;
+    var b = baseC.getContext("2d");
+    b.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawBase(b, LO);
+    var o = overC.getContext("2d");
+    o.setTransform(dpr, 0, 0, dpr, 0, 0);
+    o.clearRect(0, 0, LO.W, LO.H);
+    drawOverlay(o, LO, hover);
+    renderStats();
+  }
+
+  // ── Base layer ─────────────────────────────────────────────────────
+  function tracePath(ctx, L, row) {
+    ctx.beginPath();
+    var pen = false;
+    for (var i = 0; i < 366; i++) {
+      var v = row[i];
+      if (v === null) { pen = false; continue; }
+      var x = fx(L, i), y = fy(L, v);
+      if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
+    }
+  }
+
+  function drawBase(ctx, L) {
+    ctx.fillStyle = SURFACE;
+    ctx.fillRect(0, 0, L.W, L.H);
+    var absMode = state.baseline === "absolute";
+
+    // y grid, shared by lines and rail
+    var t = niceTicks(S.yMin, S.yMax, 6);
+    ctx.font = "12px " + MONO;
+    ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    t.ticks.forEach(function (v) {
+      var y = Math.round(fy(L, v)) + 0.5;
+      var isZero = !absMode && Math.abs(v) < 1e-9;
+      ctx.strokeStyle = isZero ? ZERO_LINE : GRID_LINE;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(L.px0, y); ctx.lineTo(L.px1, y);
+      ctx.moveTo(L.rx0, y); ctx.lineTo(L.rx1, y); ctx.stroke();
+      ctx.fillStyle = INK_3;
+      var dec = t.step < 1 ? (t.step < 0.5 ? 2 : 1) : 0;
+      if (t.step === 2.5) dec = 1;
+      ctx.fillText(fmt(v, dec).replace(unitSym(), "°"), L.px0 - 8, y);
+    });
+
+    // month separators + labels
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    MONTH_START.forEach(function (s, m) {
+      var x = Math.round(L.px0 + s / 366 * (L.px1 - L.px0)) + 0.5;
+      ctx.strokeStyle = GRID_LINE;
+      ctx.beginPath(); ctx.moveTo(x, L.l0); ctx.lineTo(x, L.l1); ctx.stroke();
+      var e = m < 11 ? MONTH_START[m + 1] : 366;
+      ctx.fillStyle = INK_3;
+      ctx.fillText(L.narrow ? MONTHS[m][0] : MONTHS[m], L.px0 + (s + e) / 2 / 366 * (L.px1 - L.px0), L.l1 + 18);
+    });
+
+    // +1.5 / +2.0 reference lines (preindustrial baseline only)
+    var thresholds = state.baseline === "1850" ? [1.5, 2.0].filter(function (c) { return toUnit(c) <= S.yMax; }) : [];
+    ctx.setLineDash([5, 5]); ctx.lineWidth = 1;
+    thresholds.forEach(function (c) {
+      var y = Math.round(fy(L, toUnit(c))) + 0.5;
+      ctx.strokeStyle = "rgba(232,228,217,0.30)";
+      ctx.beginPath(); ctx.moveTo(L.px0, y); ctx.lineTo(L.px1, y); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+
+    // every past year, oldest first
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.lineWidth = 1;
+    YEARS.forEach(function (y) {
+      if (y === CY) return;
+      ctx.strokeStyle = rgbStr(yearRGB(yearT(y)));
+      tracePath(ctx, L, S.disp[y]);
+      ctx.stroke();
+    });
+
+    // current year
+    var cur = S.disp[CY];
+    ctx.strokeStyle = SURFACE; ctx.lineWidth = 5.5;
+    tracePath(ctx, L, cur); ctx.stroke();
+    ctx.strokeStyle = INK; ctx.lineWidth = 2.25;
+    tracePath(ctx, L, cur); ctx.stroke();
+    var li = lastIndex(cur);
+    if (li !== null) {
+      var ex = fx(L, li), ey = fy(L, cur[li]);
+      ctx.fillStyle = SURFACE; ctx.beginPath(); ctx.arc(ex, ey, 5.5, 0, 7); ctx.fill();
+      ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(ex, ey, 3.5, 0, 7); ctx.fill();
+      ctx.font = "700 13px " + MONO; ctx.textBaseline = "middle";
+      var right = ex + 44 < L.px1;
+      ctx.textAlign = right ? "left" : "right";
+      haloText(ctx, CY, ex + (right ? 9 : -9), ey - 13, INK);
+    }
+    ctx.font = "12px " + MONO; ctx.textAlign = "right"; ctx.textBaseline = "bottom";
+    thresholds.forEach(function (c) {
+      haloText(ctx, "+" + c.toFixed(1) + "°C", L.px1 - 4, Math.round(fy(L, toUnit(c))) - 3, INK_2);
+    });
+
+    // rail axis: year ramp doubles as the line legend
+    var n = YEARS.length;
+    for (var k = 0; k < n - 1; k++) {
+      var x0 = railX(L, YEARS[k]), x1 = railX(L, YEARS[k + 1]);
+      ctx.fillStyle = rgbStr(yearRGB(yearT(YEARS[k])));
+      ctx.fillRect(x0, L.l1 + 6, x1 - x0 + 0.5, 5);
+    }
+    ctx.fillStyle = INK;
+    ctx.fillRect(railX(L, CY) - 1.5, L.l1 + 4, 3, 9);
+    ctx.font = "12px " + MONO; ctx.fillStyle = INK_3; ctx.textBaseline = "alphabetic";
+    ctx.textAlign = "left"; ctx.fillText(YEARS[0], L.rx0, L.l1 + 27);
+    ctx.textAlign = "right"; ctx.fillText(CY, L.rx1, L.l1 + 27);
+
+    // daily stripes
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(gridCanvas, L.px0, L.g0, L.px1 - L.px0, YEARS.length * L.rowH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.font = "12px " + MONO; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    YEARS.forEach(function (y, k) {
+      if (+y % 10 !== 0 && y !== CY) return;
+      if (y !== CY && +CY - +y < 4) return;
+      var r = n - 1 - k;
+      ctx.fillStyle = y === CY ? INK : INK_3;
+      ctx.fillText(y, L.px0 - 8, L.g0 + (r + 0.5) * L.rowH);
+    });
+
+    // colorbar beside the stripes
+    var cbx = L.rx0 + 4, cbw = 10, gh = L.g1 - L.g0;
+    for (var p = 0; p < gh; p++) {
+      ctx.fillStyle = rgbStr(divRGB(1 - 2 * (p + 0.5) / gh));
+      ctx.fillRect(cbx, L.g0 + p, cbw, 1.2);
+    }
+    ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = INK_3;
+    [1, 0.5, 0, -0.5, -1].forEach(function (u) {
+      var yy = L.g0 + (1 - u) / 2 * gh;
+      yy = Math.max(L.g0 + 6, Math.min(L.g1 - 6, yy));
+      var v = S.center + u * S.half;
+      var dec = (S.half * 0.5) % 1 === 0 ? 0 : (S.half * 0.5 * 2) % 1 === 0 ? 1 : 2;
+      ctx.fillText(fmt(v, dec), cbx + cbw + 8, yy);
+    });
+  }
+
+  function lastIndex(row) {
+    for (var i = row.length - 1; i >= 0; i--) if (row[i] !== null) return i;
+    return null;
+  }
+
+  // ── Overlay layer ──────────────────────────────────────────────────
+  function drawYearHighlight(ctx, L, y, withLabel) {
+    var row = S.disp[y], col = y === CY ? INK : rgbStr(yearRGB(Math.max(0.55, yearT(y))));
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = SURFACE; ctx.lineWidth = 5.5; tracePath(ctx, L, row); ctx.stroke();
+    ctx.strokeStyle = col; ctx.lineWidth = 2.25; tracePath(ctx, L, row); ctx.stroke();
+
+    var n = YEARS.length, r = n - 1 - YEARS.indexOf(y);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1;
+    ctx.strokeRect(L.px0 - 0.5, L.g0 + r * L.rowH - 0.5, L.px1 - L.px0 + 1, L.rowH + 1);
+
+    if (withLabel && y !== CY) {
+      var li = lastIndex(row);
+      var ex = fx(L, li), ey = fy(L, row[li]);
+      ctx.font = "700 12px " + MONO; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      haloText(ctx, y, L.px1 - 2, ey - 10, INK);
+    }
+  }
+
+  function drawOverlay(ctx, L, h) {
+    var day = h.day === null ? LATEST : h.day;
+    var x = Math.round(fx(L, day)) + 0.5;
+
+    // crosshair
+    ctx.strokeStyle = "rgba(232,228,217,0.28)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, L.l0); ctx.lineTo(x, L.l1);
+    ctx.moveTo(x, L.g0); ctx.lineTo(x, L.g1); ctx.stroke();
+
+    pins.forEach(function (y) { if (y !== h.year) drawYearHighlight(ctx, L, y, true); });
+    if (h.year) drawYearHighlight(ctx, L, h.year, false);
+
+    // rail: this date across every year, on the lines' y-scale
+    var focus = h.year || CY;
+    var vals = [];
+    YEARS.forEach(function (y) { var v = S.disp[y][day]; if (v !== null) vals.push([y, v]); });
+    vals.forEach(function (p) {
+      if (p[0] === CY || p[0] === h.year || pins.indexOf(p[0]) >= 0) return;
+      ctx.fillStyle = rgbStr(yearRGB(yearT(p[0])));
+      ctx.beginPath(); ctx.arc(railX(L, p[0]), fy(L, p[1]), 2.4, 0, 7); ctx.fill();
+    });
+    vals.forEach(function (p) {
+      var y = p[0];
+      if (!(y === CY || y === h.year || pins.indexOf(y) >= 0)) return;
+      var cx = railX(L, y), cy = fy(L, p[1]);
+      ctx.fillStyle = SURFACE; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill();
+      ctx.fillStyle = y === CY ? INK : rgbStr(yearRGB(Math.max(0.55, yearT(y))));
+      ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 7); ctx.fill();
+    });
+
+    ctx.font = "700 12px " + MONO; ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = INK_2; ctx.textAlign = "left";
+    ctx.fillText(railDate(day).toUpperCase(), L.rx0, L.l0 - (L.narrow ? 28 : 12));
+    var fv = S.disp[focus][day];
+    if (fv !== null) {
+      var rank = 1 + vals.filter(function (p) { return p[0] !== focus && p[1] > fv; }).length;
+      ctx.fillStyle = INK; ctx.textAlign = L.narrow ? "left" : "right";
+      ctx.fillText(focus + " · " + ordinal(rank) + "/" + vals.length, L.narrow ? L.rx0 : L.rx1, L.l0 - 12);
+    }
+
+    // tooltip
+    if (h.year && (h.zone === "lines" || h.zone === "grid" || h.zone === "rail")) {
+      var v = S.disp[h.year][day];
+      if (v !== null) {
+        var text = h.year + "  " + slotDate(h.year, day) + "  " + fmt(v, 2);
+        ctx.font = "700 13px " + MONO;
+        var tw = ctx.measureText(text).width + 18, th = 26;
+        var tx = h.px + 14, ty = h.py - th - 12;
+        if (tx + tw > L.W - 4) tx = h.px - tw - 14;
+        if (ty < 2) ty = h.py + 16;
+        ctx.fillStyle = "rgba(30,35,32,0.94)";
+        ctx.strokeStyle = "rgba(232,228,217,0.26)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.rect(Math.round(tx) + 0.5, Math.round(ty) + 0.5, Math.round(tw), th); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = INK; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        ctx.fillText(text, tx + 9, ty + th / 2 + 1);
+      }
+    }
+  }
+
+  // ── Interaction ────────────────────────────────────────────────────
+  var raf = 0;
+  function redrawOverlay() {
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      raf = 0;
+      var dpr = overC.width / LO.W;
+      var o = overC.getContext("2d");
+      o.setTransform(dpr, 0, 0, dpr, 0, 0);
+      o.clearRect(0, 0, LO.W, LO.H);
+      drawOverlay(o, LO, hover);
+    });
+  }
+
+  function hitTest(px, py) {
+    var L = LO, h = { day: null, year: null, zone: null, px: px, py: py };
+    var inX = px >= L.px0 && px <= L.px1;
+    var day = Math.max(0, Math.min(365, Math.floor((px - L.px0) / (L.px1 - L.px0) * 366)));
+    if (inX && py >= L.l0 - 6 && py <= L.l1 + 6) {
+      h.zone = "lines"; h.day = day;
+      var best = null, bd = 22;
+      YEARS.forEach(function (y) {
+        var v = S.disp[y][day];
+        if (v === null) return;
+        var d = Math.abs(fy(L, v) - py);
+        if (d < bd || (d === bd && y > best)) { bd = d; best = y; }
+      });
+      h.year = best;
+    } else if (inX && py >= L.g0 && py < L.g1) {
+      h.zone = "grid"; h.day = day;
+      var r = Math.floor((py - L.g0) / L.rowH);
+      h.year = YEARS[YEARS.length - 1 - r];
+    } else if (px >= L.rx0 - 8 && px <= L.rx1 + 8 && py >= L.l0 - 6 && py <= L.l1 + 6) {
+      h.zone = "rail"; h.day = hover.zone ? hover.day : null;
+      var dd = h.day === null ? LATEST : h.day, bst = null, bdist = 12;
+      YEARS.forEach(function (y) {
+        var v = S.disp[y][dd];
+        if (v === null) return;
+        var dist = Math.hypot(railX(L, y) - px, fy(L, v) - py);
+        if (dist < bdist) { bdist = dist; bst = y; }
+      });
+      h.year = bst;
+    }
+    return h;
+  }
+
+  function pointerPos(e) {
+    var r = overC.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  }
+  overC.addEventListener("pointermove", function (e) {
+    var p = pointerPos(e);
+    var h = hitTest(p[0], p[1]);
+    if (h.zone === "rail" && h.day === null && hover.day !== null) h.day = hover.day;
+    hover = h;
+    overC.style.cursor = h.year ? "pointer" : (h.zone ? "crosshair" : "default");
+    redrawOverlay();
+  });
+  overC.addEventListener("pointerleave", function () {
+    hover = { day: null, year: null, zone: null, px: 0, py: 0 };
+    redrawOverlay();
+  });
+  overC.addEventListener("click", function () {
+    var y = hover.year;
+    if (!y || y === CY) return;
+    var k = pins.indexOf(y);
+    if (k >= 0) pins.splice(k, 1);
+    else { pins.push(y); if (pins.length > MAX_PINS) pins.shift(); }
+    redrawOverlay();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && pins.length) { pins = []; redrawOverlay(); }
+  });
+
+  function wireControls() {
+    [["gtcBaseline", "baseline", String], ["gtcSmooth", "smooth", Number], ["gtcUnit", "unit", String]]
+      .forEach(function (c) {
+        var group = document.getElementById(c[0]);
+        group.querySelectorAll(".cc-segmented-btn").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            group.querySelectorAll(".cc-segmented-btn").forEach(function (b) { b.classList.toggle("is-active", b === btn); });
+            state[c[1]] = c[2](btn.getAttribute("data-v"));
+            recompute();
+            drawAll();
+          });
+        });
+      });
+    document.getElementById("gtcExport").addEventListener("click", exportPNG);
+  }
+
+  // ── Stats (always raw daily means, independent of smoothing) ───────
+  function computeStats() {
+    var cur = D.years[CY].t, i = LATEST, base = baselineArr();
+    var raw = cur[i];
+    var value = base ? raw - base[i] : raw;
+    var others = 0, warmer = 0;
+    YEARS.forEach(function (y) {
+      var v = D.years[y].t[i];
+      if (v === null || v === undefined) return;
+      others++;
+      if (y !== CY && v > raw) warmer++;
+    });
+    var records = 0;
+    for (var k = 0; k <= i; k++) {
+      var mx = -Infinity;
+      YEARS.forEach(function (y) {
+        if (y === CY) return;
+        var v = D.years[y].t[k];
+        if (v !== null && v !== undefined && v > mx) mx = v;
+      });
+      if (cur[k] > mx) records++;
+    }
+    var ytd = [];
+    YEARS.forEach(function (y) {
+      var t = D.years[y].t, s = 0;
+      for (var k = 0; k <= i; k++) { if (t[k] === null || t[k] === undefined) return; s += t[k]; }
+      ytd.push([y, s / (i + 1)]);
+    });
+    ytd.sort(function (a, b) { return b[1] - a[1]; });
+    var ytdRank = ytd.findIndex(function (p) { return p[0] === CY; }) + 1;
+    return {
+      date: slotDate(CY, i), value: toUnit(value), raw: raw,
+      rank: warmer + 1, of: others, records: records, days: i + 1,
+      ytdRank: ytdRank, ytdOf: ytd.length, ytdLeader: ytd[0][0]
+    };
+  }
+
+  function refLabel() {
+    return state.baseline === "1850" ? "vs 1850–1900" : state.baseline === "1991" ? "vs 1991–2020" : "global mean";
+  }
+
+  function renderStats() {
+    var st = computeStats();
+    var set = function (id, txt) { document.getElementById(id).textContent = txt; };
+    set("gtcS1Label", st.date + ", " + CY);
+    set("gtcS1", fmt(st.value, 2));
+    set("gtcS1Note", refLabel());
+    set("gtcS2Label", "Rank · " + st.date);
+    set("gtcS2", ordinal(st.rank));
+    set("gtcS2Note", "warmest of " + st.of + " years");
+    set("gtcS3Label", "Record days · " + CY);
+    set("gtcS3", String(st.records));
+    set("gtcS3Note", "of " + st.days + " so far");
+    set("gtcS4", ordinal(st.ytdRank));
+    set("gtcS4Note", "warmest Jan 1–" + st.date + (st.ytdRank > 1 ? " · " + st.ytdLeader + " 1st" : ""));
+    return st;
+  }
+
+  // ── PNG export (fixed resolution, independent of screen DPR) ───────
+  function exportPNG() {
+    var L = layout(EXPORT_W - 48);
+    var st = computeStats();
+    var headH = 150, footH = 56, padX = 24;
+    var W = EXPORT_W, H = headH + L.H + 24 + footH;
+    var c = document.createElement("canvas");
+    c.width = W * EXPORT_SCALE; c.height = H * EXPORT_SCALE;
+    var ctx = c.getContext("2d");
+    ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+    ctx.fillStyle = PAGE_BG; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = ACCENT; ctx.fillRect(padX, 30, 10, 10);
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    ctx.font = "700 12px " + MONO; ctx.fillStyle = ACCENT;
+    ctx.fillText("CONTEXTCLIMATE · CLIMATE", padX + 18, 40);
+    ctx.font = "700 36px " + DISPLAY; ctx.fillStyle = INK;
+    ctx.fillText("Global Temperature in Context", padX, 84);
+    ctx.font = "16px " + BODY; ctx.fillStyle = INK_2;
+    var smoothTxt = state.smooth > 1 ? " · lines " + state.smooth + "-day smoothed" : "";
+    ctx.fillText(
+      st.date + ", " + CY + ":  " + fmt(st.value, 2) + " " + refLabel() +
+      "  ·  " + (st.rank === 1 ? "" : ordinal(st.rank) + " ") + "warmest " + st.date + " of " + st.of + " years" +
+      "  ·  " + st.records + " record days  ·  " + ordinal(st.ytdRank) + " warmest year to date" + smoothTxt,
+      padX, 116);
+
+    ctx.save();
+    ctx.translate(padX, headH);
+    ctx.fillStyle = SURFACE; ctx.fillRect(-10, -12, L.W + 20, L.H + 22);
+    drawBase(ctx, L);
+    drawOverlay(ctx, L, { day: null, year: null, zone: null, px: 0, py: 0 });
+    ctx.restore();
+
+    ctx.font = "12px " + MONO; ctx.fillStyle = INK_3; ctx.textAlign = "left";
+    ctx.fillText("Data: ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, University of Maine", padX, H - 24);
+    ctx.textAlign = "right";
+    ctx.fillText("contextclimate.io", W - padX, H - 24);
+
+    c.toBlob(function (blob) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "global-temperature-context-" + CY + "-" + st.date.replace(" ", "") + ".png";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    }, "image/png");
   }
 })();
 </script>
