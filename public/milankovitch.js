@@ -357,13 +357,17 @@ function meltSeason(lat, ageBP, opts) {
     steps:        (opts && opts.steps        != null) ? opts.steps        : MELT_DEFAULTS.steps
   };
   var nu0 = -o.longPeri * D2R;         // solar longitude 0 = March equinox
+  /* Each step is a slice of the year, not a day. Using 86400 s per step
+     made the answer scale with `steps`: 180 steps returned half the melt
+     of 365. The default of 365 was right by coincidence. */
+  var stepSeconds = 365.2422 * 86400 / cfg.steps;
   var energy = 0, days = 0, peakQ = 0, curve = [], i;
   for (i = 0; i < cfg.steps; i++) {
     var nu  = trueAnomalyAtTimeFraction(o.e, (i + 0.5) / cfg.steps, nu0);
     var lam = ((nu / D2R + o.longPeri) % 360 + 360) % 360;
     var q   = dailyMean(lat, lam, o);
     var net = (1 - cfg.albedo) * q - cfg.qcrit;
-    if (net > 0) { energy += net * 86400; days++; }
+    if (net > 0) { energy += net * stepSeconds; days++; }
     if (q > peakQ) peakQ = q;
     curve.push({ day: i, lam: lam, q: q, net: net });
   }

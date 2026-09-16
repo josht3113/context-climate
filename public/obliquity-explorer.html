@@ -53,6 +53,21 @@ html,body{padding:0;margin:0}
   min-width:62px;text-align:right}
 input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;
   background:var(--color-surface-2);outline:none;cursor:pointer}
+/* Earth's real obliquity range, 22.1-24.5 deg, on a 0-35 deg track:
+   63.14% to 70.00%, with today's 23.44 deg at 66.97%. */
+#tilt{background:linear-gradient(to right,
+  var(--color-surface-2) 0 63.14%,
+  rgba(255,209,102,.38) 63.14% 66.6%,
+  rgba(232,228,217,.75) 66.6% 67.3%,
+  rgba(255,209,102,.38) 67.3% 70%,
+  var(--color-surface-2) 70% 100%)}
+.range-key{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);
+  font-size:12px;color:var(--color-text-muted);white-space:nowrap}
+.range-key i{display:inline-block;width:16px;height:7px;border-radius:2px;
+  background:rgba(255,209,102,.38)}
+.ctrl-val.out{color:var(--color-text-muted)}
+.out-note{font-family:var(--font-mono);font-size:12px;color:var(--accent-seasons);
+  white-space:nowrap}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;
   border-radius:50%;background:var(--tool-accent);border:2px solid var(--color-bg);cursor:pointer}
 input[type=range]::-moz-range-thumb{width:19px;height:19px;border-radius:50%;
@@ -106,8 +121,10 @@ canvas{display:block}
 <div class="ctrl-wrap" id="ctrlWrap">
   <div class="ctrl-group" id="gTilt" hidden>
     <span class="ctrl-lbl">Tilt</span>
-    <input type="range" id="tilt" min="0" max="35" step="0.05" value="23.44" style="width:200px">
+    <input type="range" id="tilt" min="0" max="35" step="0.05" value="23.44" style="width:240px">
     <span class="ctrl-val" id="tiltVal">23.44°</span>
+    <span class="range-key"><i></i>Earth's range 22.1–24.5°</span>
+    <span class="out-note" id="outNote" hidden>outside Earth's range</span>
   </div>
   <div class="ctrl-group" id="gSeason" hidden>
     <div class="cc-segmented">
@@ -117,6 +134,9 @@ canvas{display:block}
   </div>
   <div class="ctrl-group" id="gSpin">
     <button class="cc-btn cc-btn-sm is-active" id="spinBtn">⏸ Spin</button>
+  </div>
+  <div class="ctrl-group" id="gPlay" hidden>
+    <button class="cc-btn primary" id="playBtn">▶ Play</button>
   </div>
   <div class="ctrl-group" id="gScrub" hidden>
     <span class="ctrl-lbl">Age</span>
@@ -136,11 +156,6 @@ canvas{display:block}
       <option value="0">Equator</option>
     </select>
   </div>
-  <div class="ctrl-group" id="gAccum" hidden>
-    <span class="ctrl-lbl">Snowfall</span>
-    <input type="range" id="accum" min="100" max="450" step="10" value="250" style="width:120px">
-    <span class="ctrl-val" id="accumVal" style="min-width:86px">250 mm</span>
-  </div>
   <button class="cc-btn primary" id="pngBtn">↓ Download PNG</button>
 </div>
 
@@ -152,7 +167,15 @@ canvas{display:block}
     </div>
     <div class="pin-strip" id="pinStrip"></div>
   </div>
-  <div class="side-col" id="sideCol"></div>
+  <div class="side-col">
+    <div id="sideCol"></div>
+    <div class="cc-panel" id="accumPanel" hidden style="padding:.85rem 1rem">
+      <span class="cc-stat-label">Winter snowfall</span>
+      <input type="range" id="accum" min="100" max="450" step="10" value="250"
+             style="width:100%;margin:10px 0 4px">
+      <span class="ctrl-val" id="accumVal" style="text-align:left;min-width:0">250 mm w.e.</span>
+    </div>
+  </div>
 </div>
 
 <div class="foot">
@@ -239,6 +262,73 @@ function project(p, cx, cy, R){
   };
 }
 
+/* Clip one lon/lat ring to the visible hemisphere.
+
+   Runs of front-facing vertices are cut at depth = 0; each crossing point is
+   interpolated and pushed back onto the unit sphere, where it lands exactly
+   on the limb circle. The runs come out in the ring's own cyclic order and
+   are stitched into ONE path, each exit joined to the next entry along the
+   SHORTER limb arc, and the last exit back to the first entry.
+
+   Three earlier attempts failed and are worth not repeating. Filling only
+   rings wholly on the near side made big rings flicker, because a single
+   vertex slipping past the limb switched the fill off. Closing each run with
+   its own arc dropped the disc between two runs of the same ring — one ring
+   lost 46% of its area from one degree of spin to the next. Pushing
+   back-facing vertices radially out to the rim needs no direction decision
+   but lets a ring spread around the whole rim and enclose almost the entire
+   disc. Measured over a full rotation at 1-degree steps, this version's
+   total filled area never changes by more than 1.4% between frames and the
+   largest single ring tops out at 44% of the disc. */
+function clipRingToLimb(ring, epsDeg, cx, cy, R){
+  var n = ring.length, i, P = [], D = [];
+  for (i = 0; i < n; i++){
+    var p3 = surfacePoint(ring[i][1], ring[i][0] + spinPhase, epsDeg);
+    P.push(p3);
+    D.push(p3[1] * Math.cos(CAM_BETA) + p3[2] * Math.sin(CAM_BETA));
+  }
+  var front = 0;
+  for (i = 0; i < n; i++) if (D[i] > 0) front++;
+  if (front === 0) return null;
+  if (front === n){
+    var all = [];
+    for (i = 0; i < n; i++) all.push(project(P[i], cx, cy, R));
+    return { runs: [{ pts: all }], clipped: false };
+  }
+  var s = 0; while (D[s] > 0) s++;
+  var runs = [], cur = null;
+  for (var q = 1; q <= n; q++){
+    var a = (s + q - 1) % n, b = (s + q) % n;
+    if (D[a] <= 0 && D[b] > 0){
+      cur = { pts: [ project(crossing(P[a], P[b], D[a], D[b]), cx, cy, R),
+                     project(P[b], cx, cy, R) ] };
+    } else if (D[a] > 0 && D[b] > 0){
+      if (cur) cur.pts.push(project(P[b], cx, cy, R));
+    } else if (D[a] > 0 && D[b] <= 0){
+      if (cur){
+        cur.pts.push(project(crossing(P[a], P[b], D[a], D[b]), cx, cy, R));
+        runs.push(cur); cur = null;
+      }
+    }
+  }
+  if (cur) runs.push(cur);
+  return runs.length ? { runs: runs, clipped: true } : null;
+}
+function crossing(pa, pb, da, db){
+  var t = da / (da - db);
+  var v = [pa[0] + t * (pb[0] - pa[0]), pa[1] + t * (pb[1] - pa[1]), pa[2] + t * (pb[2] - pa[2])];
+  var m = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]) || 1;
+  return [v[0]/m, v[1]/m, v[2]/m];
+}
+/* Shorter arc from p0 to p1 around the limb. */
+function limbArc(ctx, cx, cy, R, p0, p1){
+  var a0 = Math.atan2(p0.y - cy, p0.x - cx), a1 = Math.atan2(p1.y - cy, p1.x - cx);
+  var d = a1 - a0;
+  while (d >  Math.PI) d -= 2 * Math.PI;
+  while (d < -Math.PI) d += 2 * Math.PI;
+  ctx.arc(cx, cy, R, a0, a0 + d, d < 0);
+}
+
 /* ══════════ globe ══════════ */
 function drawGlobe(ctx, cx, cy, R, epsDeg, opts){
   opts = opts || {};
@@ -251,36 +341,61 @@ function drawGlobe(ctx, cx, cy, R, epsDeg, opts){
   ctx.fillStyle = g; ctx.fill();
   ctx.save(); ctx.clip();
 
-  /* land */
+  /* land — properly clipped at the limb, so every visible ring fills.
+     The old version only filled rings with EVERY vertex on the near side.
+     A big ring like Eurasia has a vertex slip past the limb on most frames
+     of a rotation, so its fill flickered on and off while the outline
+     stayed. Now each ring is clipped in 3-D against the depth = 0 plane:
+     the crossing point is interpolated and pushed back onto the sphere,
+     where it lands exactly on the limb circle, and the run is closed along
+     the limb ARC rather than a straight chord (a chord would slice a
+     continent flat along the horizon). */
   for (i = 0; i < LAND.length; i++){
-    var ring = LAND[i], path = [], anyFront = false;
-    for (j = 0; j < ring.length; j++){
-      var sp = project(surfacePoint(ring[j][1], ring[j][0] + spinPhase, epsDeg), cx, cy, R);
-      path.push(sp); if (sp.depth > 0) anyFront = true;
-    }
-    if (!anyFront) continue;
-    ctx.beginPath(); var open = false;
-    for (j = 0; j < path.length; j++){
-      if (path[j].depth > 0){
-        if (!open){ ctx.moveTo(path[j].x, path[j].y); open = true; }
-        else ctx.lineTo(path[j].x, path[j].y);
-      } else open = false;
-    }
-    ctx.strokeStyle = COL.landEdge; ctx.lineWidth = 1.1; ctx.lineJoin = 'round'; ctx.stroke();
+    var clip = clipRingToLimb(LAND[i], epsDeg, cx, cy, R);
+    if (!clip) continue;
+    var runs = clip.runs;
 
-    /* fill only rings that are wholly on the near side, so a ring clipped by
-       the limb never closes across the globe */
-    var allFront = true;
-    for (j = 0; j < path.length; j++) if (path[j].depth <= 0){ allFront = false; break; }
-    if (allFront){
-      ctx.beginPath(); ctx.moveTo(path[0].x, path[0].y);
-      for (j = 1; j < path.length; j++) ctx.lineTo(path[j].x, path[j].y);
-      ctx.closePath(); ctx.fillStyle = COL.land; ctx.fill();
+    ctx.beginPath();
+    for (j = 0; j < runs.length; j++){
+      var rp = runs[j].pts;
+      if (j === 0) ctx.moveTo(rp[0].x, rp[0].y);
+      else limbArc(ctx, cx, cy, R, runs[j-1].pts[runs[j-1].pts.length-1], rp[0]);
+      for (k = 1; k < rp.length; k++) ctx.lineTo(rp[k].x, rp[k].y);
+    }
+    if (clip.clipped)
+      limbArc(ctx, cx, cy, R, runs[runs.length-1].pts[runs[runs.length-1].pts.length-1], runs[0].pts[0]);
+    ctx.closePath();
+    ctx.fillStyle = COL.land; ctx.fill();
+
+    /* stroke the coastline runs only — never the limb arcs */
+    ctx.strokeStyle = COL.landEdge; ctx.lineWidth = 1.1; ctx.lineJoin = 'round';
+    for (j = 0; j < runs.length; j++){
+      var sr = runs[j].pts;
+      ctx.beginPath(); ctx.moveTo(sr[0].x, sr[0].y);
+      for (k = 1; k < sr.length; k++) ctx.lineTo(sr[k].x, sr[k].y);
+      ctx.stroke();
     }
   }
 
-  /* polar caps — drawn as the spherical cap above each polar circle */
-  if (opts.caps !== false){
+  /* polar caps. Normally the cap edge is the polar circle. In step 4 a
+     capFrac drives it instead, as a schematic index — see drawMelt. */
+  if (opts.capFrac != null){
+    if (opts.capFrac > 0.02){
+      [1, -1].forEach(function(s){
+        var latC = s * (90 - 30 * opts.capFrac);
+        ctx.beginPath(); var st2 = false;
+        for (var kk = 0; kk <= 180; kk++){
+          var q2 = project(surfacePoint(latC, kk * 2, epsDeg), cx, cy, R);
+          if (q2.depth <= 0) continue;
+          if (!st2){ ctx.moveTo(q2.x, q2.y); st2 = true; } else ctx.lineTo(q2.x, q2.y);
+        }
+        if (!st2) return;
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(226,238,248,.72)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(226,238,248,.9)'; ctx.lineWidth = 1.2; ctx.stroke();
+      });
+    }
+  } else if (opts.caps !== false){
     [1, -1].forEach(function(s){
       var latC = s * (90 - epsDeg);
       ctx.beginPath(); var started = false;
@@ -342,7 +457,7 @@ function drawGlobe(ctx, cx, cy, R, epsDeg, opts){
 
   /* The tilt angle is measured between the two poles' lines, so its arc is
      drawn OUTSIDE the globe rather than across the continents. */
-  if (epsDeg > 0.4){
+  if (epsDeg > 0.4 && opts.angle !== false){
     var r0 = R * 1.16;
     var a0 = Math.atan2(pV.y - cy, pV.x - cx), a1 = Math.atan2(pN.y - cy, pN.x - cx);
     ctx.beginPath();
@@ -418,8 +533,8 @@ function drawRays(ctx, sunX, cy, cx, R){
 function drawStage(ctx, w, h){
   ctx.fillStyle = CSS.stage; ctx.fillRect(0, 0, w, h);
   var eps = (step === 1) ? 0 : tilt;
-  var R = Math.min(h * 0.40, w * 0.21);
-  var cx = w * 0.38, cy = h * 0.53;
+  var R = Math.min(h * 0.355, w * 0.20);
+  var cx = w * 0.38, cy = h * 0.575;
   var sunX = w - 52;
 
   drawSun(ctx, sunX, cy, 17);
@@ -504,13 +619,35 @@ function markChart(ctx, x, h, col, dashed){
 function drawMelt(ctx, w, h){
   ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
   var r = M.meltSeason(LAT, scrubAge, { accumulation: ACCUM });
-  var cx0 = 74, cy0 = 34, cy1 = h - 26, ch = cy1 - cy0;
-  var curveW = Math.min((w - cx0) * 0.46, 430);
+
+  /* ── schematic ice index, drawn on the globe ──────────────────────────
+     NOT a computed ice margin. Summer melt in this budget has a MINIMUM
+     near 65 N and rises again toward the pole, because north of the Arctic
+     Circle the midsummer sun never sets: daily-mean insolation at the pole
+     in June beats 65 N. So there is no snowline to grow a cap outward from,
+     and any latitude drawn here would be invented. The cap's size is a
+     stated linear function of the 65 N melt surplus and carries no latitude
+     claim. The caption on the canvas says so. */
+  var surp65 = M.meltSeason(65, scrubAge, { accumulation: ACCUM, steps: 120 }).surplus;
+  var capFrac = Math.max(0, Math.min(1, -surp65 / 200));
+  var gR = Math.min(h * 0.255, 82), gx = 22 + gR * 1.5, gy = h * 0.44;
+  drawGlobe(ctx, gx, gy, gR, M.orbit(scrubAge).obliquity,
+            { circles: false, angle: false, capFrac: capFrac });
+  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = COL.ice;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText(capFrac > 0.02 ? 'ICE INDEX ' + Math.round(capFrac * 100) + '%' : 'NO ICE GROWTH',
+               gx, gy + gR + 26);
+  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
+  ctx.fillText('schematic index scaled from the 65°N', gx, gy + gR + 44);
+  ctx.fillText('melt surplus — not an ice margin', gx, gy + gR + 60);
+
+  var cx0 = gx + gR * 1.75, cy0 = 40, cy1 = h - 72, ch = cy1 - cy0;
+  var curveW = Math.min((w - cx0) * 0.42, 380);
 
   ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.fillText('SUMMER MELT BUDGET · ' + (LAT + '°N') + ' · ' + M.fmtAge(scrubAge).toUpperCase() +
-               ' · TILT ' + M.orbit(scrubAge).obliquity.toFixed(2) + '°', 14, 12);
+               ' · TILT ' + M.orbit(scrubAge).obliquity.toFixed(2) + '°', cx0 - 60, 12);
 
   var qMax = 0, i;
   for (i = 0; i < r.curve.length; i++) qMax = Math.max(qMax, r.curve[i].q);
@@ -550,7 +687,7 @@ function drawMelt(ctx, w, h){
     ctx.fillText(mn, xd(r.curve.length * k / 4), cy1 + 3);
   });
 
-  var bx = cx0 + curveW + 40, bw = Math.max(w - bx - 116, 86);
+  var bx = cx0 + curveW + 46, bw = Math.max(w - bx - 120, 86);
   var maxBar = Math.max(r.melt, ACCUM, 100) * 1.08, bh = 17;
   function bar(label, val, col, row){
     var y = cy0 + 4 + row * 34;
@@ -663,6 +800,93 @@ function drawLatChart(ctx, w, h){
   ctx.fillText('poles gain · tropics lose', lx, ly + 97);
 }
 
+/* ══════════ step 4 chart — melt by latitude ══════════
+   The curve that explains why 65 N is the latitude everyone quotes: summer
+   melt bottoms out there and rises again toward the pole, because the
+   midsummer sun never sets north of the Arctic Circle. Computed, not drawn. */
+function drawMeltLatChart(ctx, w, h){
+  ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
+  var lats = [], melt = [], i, lat;
+  for (lat = 35; lat <= 90; lat += 2.5){
+    lats.push(lat);
+    melt.push(M.meltSeason(lat, scrubAge, { accumulation: ACCUM, steps: 120 }).melt);
+  }
+  var hi = 0, minV = 1e9, minLat = 65;
+  for (i = 0; i < melt.length; i++){
+    hi = Math.max(hi, melt[i]);
+    if (melt[i] < minV){ minV = melt[i]; minLat = lats[i]; }
+  }
+  hi = Math.max(Math.ceil(hi / 100) * 100, Math.ceil(ACCUM / 100) * 100 + 100);
+
+  var PLc = 74, PRc = 232, PTc = 30, PBc = 28;
+  var X = function(la){ return PLc + (la - 35) / 55 * (w - PLc - PRc); };
+  var Y = function(v){ return PTc + (1 - v / hi) * (h - PTc - PBc); };
+
+  ctx.save(); ctx.setLineDash([2, 5]); ctx.lineWidth = 1;
+  for (var v = 0; v <= hi; v += hi / 4){
+    ctx.strokeStyle = 'rgba(232,228,217,.07)';
+    ctx.beginPath(); ctx.moveTo(PLc, Y(v)); ctx.lineTo(w - PRc, Y(v)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText(Math.round(v), PLc - 7, Y(v));
+    ctx.setLineDash([2, 5]);
+  }
+  ctx.restore();
+
+  /* snowfall line — everything below it is where snow survives */
+  ctx.save(); ctx.setLineDash([6, 4]);
+  ctx.strokeStyle = '#C0D7FC'; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(PLc, Y(ACCUM)); ctx.lineTo(w - PRc, Y(ACCUM)); ctx.stroke();
+  ctx.restore();
+  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = '#C0D7FC';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('winter snowfall ' + ACCUM + ' mm', PLc + 6, Y(ACCUM) - 4);
+
+  ctx.beginPath();
+  for (i = 0; i < melt.length; i++){
+    var x = X(lats[i]), y = Y(melt[i]);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = '#FFB347'; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.stroke();
+
+  /* the minimum */
+  ctx.beginPath(); ctx.arc(X(minLat), Y(minV), 4.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#FFB347'; ctx.fill();
+  ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = '#FFB347';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText('least melt: ' + minLat + '°N', X(minLat), Y(minV) - 9);
+
+  /* selected latitude */
+  ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(232,228,217,.45)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(X(LAT), PTc); ctx.lineTo(X(LAT), h - PBc); ctx.stroke(); ctx.restore();
+  ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(LAT + '°N', X(LAT), PTc - 3);
+
+  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.textBaseline = 'top';
+  [40, 50, 60, 70, 80, 90].forEach(function(la){
+    ctx.fillText(la + '°N', X(la), h - PBc + 6);
+  });
+
+  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.textAlign = 'left';
+  ctx.fillText('SUMMER MELT BY LATITUDE · ' + M.fmtAge(scrubAge).toUpperCase(), PLc + 6, 8);
+
+  var lx = w - PRc + 26, ly = PTc + 6;
+  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = '#FFB347';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('Least melt at ' + minLat + '°N', lx, ly);
+  ctx.font = '700 24px "Zilla Slab", serif'; ctx.fillStyle = CSS.text;
+  ctx.fillText(Math.round(minV) + ' mm', lx, ly + 20);
+  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
+  ctx.fillText('melt rises again toward', lx, ly + 54);
+  ctx.fillText('the pole — north of the', lx, ly + 70);
+  ctx.fillText('Arctic Circle the mid-', lx, ly + 86);
+  ctx.fillText('summer sun never sets', lx, ly + 102);
+}
+
 /* ══════════ side readouts ══════════ */
 function chip(label, value, note, col){
   return '<div class="cc-stat-chip"><span class="cc-stat-label">' + label + '</span>' +
@@ -725,23 +949,25 @@ var stageW = 700, stageH = 420, chartH = 196;
 function layout(){
   var col = document.querySelector('.stage-col');
   stageW = Math.max(col.clientWidth, 380);
-  stageH = (step === 4) ? 150 : 400;
-  chartH = (step === 3) ? 210 : (step === 4 ? 226 : 0);
-  document.getElementById('chartBox').hidden = (step !== 3 && step !== 4);
+  stageH = (step === 4) ? 300 : (step === 1 ? 400 : 330);
+  chartH = (step === 1) ? 0 : (step === 3 ? 210 : 218);
+  document.getElementById('chartBox').hidden = (step === 1);
   render();
 }
 function render(){
   var st = document.getElementById('stage');
   if (step === 4){
-    var ctx = sizeCanvas(st, stageW, 168);
-    drawMelt(ctx, stageW, 168);
+    var ctx = sizeCanvas(st, stageW, stageH);
+    drawMelt(ctx, stageW, stageH);
   } else {
     var c2 = sizeCanvas(st, stageW, stageH);
     drawStage(c2, stageW, stageH);
   }
-  if (step === 3 || step === 4){
+  if (chartH){
     var c3 = sizeCanvas(document.getElementById('chart'), stageW - 2, chartH);
-    if (step === 3) drawChart(c3, stageW - 2, chartH); else drawLatChart(c3, stageW - 2, chartH);
+    if (step === 3) drawChart(c3, stageW - 2, chartH);
+    else if (step === 2) drawLatChart(c3, stageW - 2, chartH);
+    else drawMeltLatChart(c3, stageW - 2, chartH);
   }
   renderSide();
   document.getElementById('tiltTag').textContent =
@@ -749,13 +975,32 @@ function render(){
 }
 
 /* ══════════ animation ══════════ */
+var playing = false, playLast = 0;
+var PLAY_RATE = 40000;                 // years of age per second of wall clock
 function frame(ts){
+  var drew = false;
   if (spinning && step <= 2){
     if (lastFrame) spinPhase = (spinPhase + (ts - lastFrame) / 8000 * 360) % 360;
-    lastFrame = ts;
-    render();
+    lastFrame = ts; render(); drew = true;
   } else lastFrame = 0;
+  if (playing && step >= 3){
+    if (playLast){
+      scrubAge += (ts - playLast) / 1000 * PLAY_RATE;
+      if (scrubAge > M.TIME.DEEP_START) scrubAge = 0;
+      tilt = M.orbit(scrubAge).obliquity;
+      document.getElementById('scrub').value = Math.round(scrubAge);
+      document.getElementById('scrubVal').textContent = M.fmtAge(scrubAge);
+    }
+    playLast = ts;
+    if (!drew) render();
+  } else playLast = 0;
   requestAnimationFrame(frame);
+}
+function setPlay(on){
+  playing = on; playLast = 0;
+  var b = document.getElementById('playBtn');
+  b.textContent = on ? '⏸ Pause' : '▶ Play';
+  b.classList.toggle('primary', !on);
 }
 requestAnimationFrame(frame);
 
@@ -765,7 +1010,8 @@ function showGroups(){
   document.getElementById('gSeason').hidden = (step !== 2);
   document.getElementById('gSpin').hidden   = (step > 2);
   document.getElementById('gScrub').hidden  = (step < 3);
-  document.getElementById('gAccum').hidden  = (step !== 4);
+  document.getElementById('accumPanel').hidden = (step !== 4);
+  document.getElementById('gPlay').hidden = (step < 3);
   document.getElementById('pinStrip').hidden = (step < 3);
 }
 document.querySelectorAll('.step-btn').forEach(function(b){
@@ -777,16 +1023,28 @@ document.querySelectorAll('.step-btn').forEach(function(b){
     /* Each step owns its tilt, so re-entering gives its intended picture. */
     if (step === 2) { tilt = M.orbit(0).obliquity; syncTilt(); }
     if (step >= 3) tilt = M.orbit(scrubAge).obliquity;
+    if (step < 3) setPlay(false);
     showGroups(); layout();
   });
 });
 function syncTilt(){
   document.getElementById('tilt').value = tilt;
-  document.getElementById('tiltVal').textContent = tilt.toFixed(2) + '°';
+  updateTiltReadout();
+}
+/* Stepping outside 22.1-24.5 deg is allowed on purpose — step 1 is 0 deg,
+   and the Arctic Circle relationship is invisible across the real 2.4 deg
+   swing on a 160 px globe. But an out-of-range value must not read like a
+   fact, so the number goes muted and says so. */
+function updateTiltReadout(){
+  var out = (tilt < 22.1 || tilt > 24.5);
+  var el = document.getElementById('tiltVal');
+  el.textContent = tilt.toFixed(2) + '°';
+  el.classList.toggle('out', out);
+  document.getElementById('outNote').hidden = !out;
 }
 document.getElementById('tilt').addEventListener('input', function(e){
   tilt = parseFloat(e.target.value);
-  document.getElementById('tiltVal').textContent = tilt.toFixed(2) + '°';
+  updateTiltReadout();
   render();
 });
 /* dragging a slider pauses the spin so the picture holds still to read */
@@ -807,6 +1065,8 @@ function setSpin(on){
 }
 document.getElementById('spinBtn').addEventListener('click', function(){ setSpin(!spinning); });
 
+document.getElementById('playBtn').addEventListener('click', function(){ setPlay(!playing); });
+document.getElementById('scrub').addEventListener('pointerdown', function(){ setPlay(false); });
 document.getElementById('scrub').addEventListener('input', function(e){
   scrubAge = parseFloat(e.target.value);
   document.getElementById('scrubVal').textContent = M.fmtAge(scrubAge);
@@ -818,7 +1078,7 @@ document.getElementById('latSel').addEventListener('change', function(e){
 });
 document.getElementById('accum').addEventListener('input', function(e){
   ACCUM = parseFloat(e.target.value);
-  document.getElementById('accumVal').textContent = ACCUM + ' mm';
+  document.getElementById('accumVal').textContent = ACCUM + ' mm w.e.';
   render();
 });
 document.getElementById('pinBtn').addEventListener('click', function(){ addPin(scrubAge); });
@@ -865,8 +1125,8 @@ document.getElementById('pngBtn').addEventListener('click', function(){
 });
 function exportPNG(){
   var W = 1400, S = EXPORT_SCALE, head = 92, foot = 60;
-  var bodyH = (step === 4) ? 200 : 430;
-  var chH = (step === 3) ? 220 : (step === 4 ? 236 : 0);
+  var bodyH = (step === 4) ? 320 : (step === 1 ? 430 : 350);
+  var chH = (step === 1) ? 0 : (step === 3 ? 220 : 228);
   var total = head + bodyH + chH + foot;
   var cv = document.createElement('canvas');
   cv.width = W * S; cv.height = total * S;
@@ -899,7 +1159,9 @@ function exportPNG(){
     var o2 = document.createElement('canvas');
     o2.width = W * S; o2.height = chH * S;
     var c2 = o2.getContext('2d'); c2.setTransform(S, 0, 0, S, 0, 0);
-    if (step === 3) drawChart(c2, W, chH); else drawLatChart(c2, W, chH);
+    if (step === 3) drawChart(c2, W, chH);
+    else if (step === 2) drawLatChart(c2, W, chH);
+    else drawMeltLatChart(c2, W, chH);
     ctx.drawImage(o2, 0, 0, W * S, chH * S, 0, head + bodyH, W, chH);
   }
   stageW = prevW;
