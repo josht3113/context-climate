@@ -81,6 +81,10 @@
   .cf-switch .cf-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
   .cf-switch-inline { width: auto; }
 
+  .cf-export-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+  .cf-export-row .cc-btn { font-size: 15px !important; padding: 9px 6px !important; white-space: nowrap; }
+  .cf-export-row .cc-btn.is-busy { border-color: var(--tool-accent); background: #3a423b; }
+
   /* ---------- Mode 1 ---------- */
   #diskCanvas { height: 380px; cursor: ew-resize; }
   #stCanvas   { height: 230px; cursor: crosshair; }
@@ -259,7 +263,7 @@
           </div>
         </div>
         <button class="cc-btn primary cf-wide-btn cf-build" id="buildBtn" type="button">Build a planet here →</button>
-        <button class="cc-btn cf-wide-btn" id="png1Btn" type="button">Download PNG</button>
+        <div class="cf-export-row"><button class="cc-btn" id="png1Btn" type="button">↓ PNG</button><button class="cc-btn" id="gif1Btn" type="button">↓ GIF</button><button class="cc-btn" id="vid1Btn" type="button">↓ Video</button></div>
       </div>
     </div>
   </section>
@@ -305,7 +309,7 @@
             <div class="cc-stat-chip"><span class="cc-stat-label">Gas left</span><span class="cc-stat-value" id="accGas">—</span><span class="cc-stat-note" id="accSwarm">—</span></div>
           </div>
           <button class="cc-btn primary cf-wide-btn" id="accLookBtn" type="button">Look inside →</button>
-          <button class="cc-btn cf-wide-btn" id="png2Btn" type="button">Download PNG</button>
+          <div class="cf-export-row"><button class="cc-btn" id="png2Btn" type="button">↓ PNG</button><button class="cc-btn" id="gif2Btn" type="button">↓ GIF</button><button class="cc-btn" id="vid2Btn" type="button">↓ Video</button></div>
         </div>
       </aside>
     </div>
@@ -390,7 +394,7 @@
             </div>
           </div>
           <div class="cf-layer-list" id="layerList"></div>
-          <button class="cc-btn cf-wide-btn" id="png3Btn" type="button">Download PNG</button>
+          <div class="cf-export-row"><button class="cc-btn" id="png3Btn" type="button">↓ PNG</button><button class="cc-btn" id="gif3Btn" type="button">↓ GIF</button><button class="cc-btn" id="vid3Btn" type="button">↓ Video</button></div>
         </div>
       </div>
     </div>
@@ -1542,6 +1546,9 @@
     ctx.save(); ctx.translate(16, (top + bottom) / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center'; ctx.fillText('Mass (Earth = 1)', 0, 0); ctx.restore();
     ctx.font = '700 14px ' + FONT_MONO; ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.fillText('Growth', padL, 20);
 
+    var endLabels = ['jupiter', 'saturn', 'earth', 'mars'].map(function (k) { return { k: k, y: yM(ACC_BY_KEY[k].mass) + 5 }; });
+    for (var li = 1; li < endLabels.length; li++) if (endLabels[li].y - endLabels[li - 1].y < 15) endLabels[li].y = endLabels[li - 1].y + 15;
+    var endY = {}; endLabels.forEach(function (l) { endY[l.k] = l.y; });
     ['jupiter', 'saturn', 'earth', 'mars'].forEach(function (k) {
       var b = ACC_BY_KEY[k];
       ctx.strokeStyle = b.color; ctx.lineWidth = 2.6; ctx.beginPath();
@@ -1551,7 +1558,7 @@
       }
       ctx.stroke();
       ctx.fillStyle = b.color; ctx.font = '700 14px ' + FONT_MONO; ctx.textAlign = 'left';
-      ctx.fillText(b.name, W - padR + 8, yM(b.mass) + 5);
+      ctx.fillText(b.name, W - padR + 8, endY[k]);
     });
     // published anchors
     function anchor(tt, lo, hi, m, color) {
@@ -2170,19 +2177,22 @@
   /* ---------- animation ---------- */
   function stopHeat() { if (m2.raf) cancelAnimationFrame(m2.raf); m2.raf = null; }
 
+  function advanceHeat(dt, p, rand) {
+    var out = m2.out, share = Math.max(1, out.dT_al + out.dT_imp + out.dT_core);
+    stepParticles(dt, p);
+    var impRate = m2.src.imp ? 14 * Math.sqrt(out.dT_imp / share) * (1 - smooth(0.55, 0.8, p)) : 0;
+    if (rand() < impRate * dt) m2.impacts.push({ a: rand() * Math.PI * 2, age: 0, size: 0.6 + rand() * 0.9 });
+    var spRate = m2.src.al ? 90 * Math.sqrt(out.dT_al / share) * (1 - smooth(0.5, 0.85, p)) : 0;
+    var nSp = spRate * dt; while (nSp > 0) { if (rand() < nSp) m2.sparks.push({ a: rand() * 6.283, r: Math.sqrt(rand()) * 0.95, age: 0 }); nSp -= 1; }
+    m2.impacts.forEach(function (im) { im.age += dt; }); m2.impacts = m2.impacts.filter(function (im) { return im.age < 0.9; });
+    m2.sparks.forEach(function (s) { s.age += dt; }); m2.sparks = m2.sparks.filter(function (s) { return s.age < 0.45; });
+  }
+
   function heatTick(now) {
     if (m2.phase !== 'heating') return;
     var last = m2.last || now, dt = Math.min(0.05, (now - last) / 1000); m2.last = now;
     m2.p = clamp((now - m2.start) / DURATION, 0, 1);
-    var out = m2.out, h = heatRamp(m2.p), share = Math.max(1, out.dT_al + out.dT_imp + out.dT_core);
-    stepParticles(dt, m2.p);
-    // impacts and radiogenic sparks
-    var impRate = m2.src.imp ? 14 * Math.sqrt(out.dT_imp / share) * (1 - smooth(0.55, 0.8, m2.p)) : 0;
-    if (Math.random() < impRate * dt) m2.impacts.push({ a: Math.random() * Math.PI * 2, age: 0, size: 0.6 + Math.random() * 0.9 });
-    var spRate = m2.src.al ? 90 * Math.sqrt(out.dT_al / share) * (1 - smooth(0.5, 0.85, m2.p)) : 0;
-    var nSp = spRate * dt; while (nSp > 0) { if (Math.random() < nSp) m2.sparks.push({ a: Math.random() * 6.283, r: Math.sqrt(Math.random()) * 0.95, age: 0 }); nSp -= 1; }
-    m2.impacts.forEach(function (im) { im.age += dt; }); m2.impacts = m2.impacts.filter(function (im) { return im.age < 0.9; });
-    m2.sparks.forEach(function (s) { s.age += dt; }); m2.sparks = m2.sparks.filter(function (s) { return s.age < 0.45; });
+    advanceHeat(dt, m2.p, Math.random);
     if (m2.p >= 1) { finishHeat(); return; }
     renderMode2();
     if (Math.floor(now / 120) !== Math.floor(last / 120)) updateMode2Panels();
@@ -2230,6 +2240,380 @@
   });
 
   var onLocationChanged = function () { if (m2.visible) recompute(); else m2.dirty = true; };
+
+  /* ======================================================================
+     ANIMATED EXPORT — GIF (built-in encoder) and video (MediaRecorder)
+     ====================================================================== */
+  var GIF_W = 960, GIF_DELAY_CS = 7, HOLD_MS = 2000, VIDEO_SCALE = 4 / 3, VIDEO_FPS = 30;
+  var exportBusy = false;
+
+  function frameHeader(ctx, W, context) {
+    ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, 60);
+    ctx.fillStyle = C.accent; ctx.fillRect(20, 16, 10, 10);
+    ctx.font = '700 12px ' + FONT_MONO; ctx.fillStyle = C.text2; ctx.textAlign = 'left';
+    ctx.fillText('CONTEXTCLIMATE · ASTRONOMY', 38, 25);
+    ctx.font = '700 22px ' + FONT_DISPLAY; ctx.fillStyle = C.text; ctx.fillText('Chemical Fractionation', 20, 50);
+    ctx.font = '600 15px ' + FONT_BODY; ctx.fillStyle = C.text2; ctx.textAlign = 'right'; ctx.fillText(context, W - 20, 48);
+  }
+  function frameFooter(ctx, W, H, text) {
+    ctx.fillStyle = '#1E2320'; ctx.fillRect(0, H - 26, W, 26);
+    ctx.font = '12px ' + FONT_MONO;
+    var room = W - 40 - ctx.measureText('contextclimate.io').width - 24, fs = 12;
+    while (fs > 9 && ctx.measureText(text).width > room) { fs -= 0.5; ctx.font = fs + 'px ' + FONT_MONO; }
+    ctx.fillStyle = C.muted; ctx.textAlign = 'left'; ctx.fillText(text, 20, H - 9);
+    ctx.font = '12px ' + FONT_MONO;
+    ctx.textAlign = 'right'; ctx.fillText('contextclimate.io', W - 20, H - 9);
+  }
+  function framePanel(ctx, x, y, w, h, draw) { ctx.save(); ctx.translate(x, y); ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip(); draw(ctx, w, h); ctx.restore(); }
+
+  // Each animation: { name, W, H, frames, reset(), draw(ctx, k) } — frames must be drawn in increasing k after reset().
+  function animCondensation() {
+    var r = state.rAU, N = 90, W = GIF_W, H = 60 + 280 + 170 + 190 + 26;
+    function tAt(k) { return T_MIN * Math.pow(T_MAX / T_MIN, k / (N - 1)); }
+    return {
+      name: 'chemical-fractionation-disk-' + fmtAU(r) + 'AU', W: W, H: H, frames: N, reset: function () {},
+      draw: function (ctx, k) {
+        var t = tAt(k);
+        ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+        frameHeader(ctx, W, 'Disk age ' + fmtMyr(t) + ' · probe ' + fmtAU(r) + ' AU · ' + fmtT(tMid(r, t)));
+        framePanel(ctx, 0, 60, W, 280, function (c, w, h) { drawDisk(c, w, h, t, r); });
+        framePanel(ctx, 0, 340, W, 170, function (c, w, h) { drawSpaceTime(c, w, h, t, r); });
+        framePanel(ctx, 0, 510, W, 190, function (c, w, h) { drawDensity(c, w, h, t, r); });
+        frameFooter(ctx, W, H, 'ESSRT 2026 · NASA NSSDCA · Wood et al. 2019 · Nakamoto & Nakagawa 1994 · Hayashi 1981 · Hartmann et al. 1998');
+      }
+    };
+  }
+
+  function animAccretion() {
+    var N = 150, W = GIF_W, H = 60 + 500 + 210 + 26, tilt = acc.tilt, keep = { orbits: acc.orbits, labels: acc.labels, sel: acc.sel };
+    function tAt(k) { return ACC.T0 * Math.pow(ACC.T1 / ACC.T0, k / (N - 1)); }
+    return {
+      name: 'chemical-fractionation-accretion', W: W, H: H, frames: N, reset: function () {},
+      draw: function (ctx, k) {
+        var t = tAt(k), saved = { orbits: acc.orbits, labels: acc.labels, sel: acc.sel };
+        acc.orbits = keep.orbits; acc.labels = keep.labels; acc.sel = keep.sel;
+        ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+        frameHeader(ctx, W, 'Nebular gas ' + Math.round(accGasFraction(t) * 100) + '%');
+        framePanel(ctx, 0, 60, W, 500, function (c, w, h) { drawAcc(c, w, h, t, k / 15, tilt, true); });
+        framePanel(ctx, 0, 560, W, 210, function (c, w, h) { drawMassChart(c, w, h, t); });
+        frameFooter(ctx, W, H, 'ESSRT 2026 · NASA NSSDCA · Kruijer et al. 2017 · Dauphas & Pourmand 2011 · Wang et al. 2017 · choreographed, not N-body');
+        acc.orbits = saved.orbits; acc.labels = saved.labels; acc.sel = saved.sel;
+      }
+    };
+  }
+
+  function animDifferentiation() {
+    if (!m2.out) return null;
+    var N = 90, W = GIF_W, S = 520, H = 60 + S + 130 + 26, SIM_DT = DURATION / 1000 / N;
+    var sim = { out: m2.out, R: m2.R, recipe: m2.recipe, src: { al: m2.src.al, imp: m2.src.imp, core: m2.src.core }, parts: null, phase: 'heating', p: 0, impacts: [], sparks: [] };
+    var rand = null, kDone = -1;
+    var loc = { r: state.rAU, t: state.tMyr };
+    function swapIn() {
+      var saved = { out: m2.out, R: m2.R, recipe: m2.recipe, src: m2.src, parts: m2.parts, phase: m2.phase, p: m2.p, impacts: m2.impacts, sparks: m2.sparks };
+      m2.out = sim.out; m2.R = sim.R; m2.recipe = sim.recipe; m2.src = sim.src; m2.parts = sim.parts; m2.phase = sim.phase; m2.p = sim.p; m2.impacts = sim.impacts; m2.sparks = sim.sparks;
+      return saved;
+    }
+    function swapOut(saved) {
+      sim.parts = m2.parts; sim.phase = m2.phase; sim.p = m2.p; sim.impacts = m2.impacts; sim.sparks = m2.sparks;
+      for (var key in saved) m2[key] = saved[key];
+    }
+    function reset() {
+      var saved = swapIn(); buildParticles(); swapOut(saved);
+      sim.phase = 'heating'; sim.p = 0; sim.impacts = []; sim.sparks = []; rand = mulberry32(777); kDone = -1;
+    }
+    function advanceTo(k) {
+      var saved = swapIn();
+      while (kDone < k) {
+        kDone++;
+        m2.p = kDone / (N - 1);
+        if (kDone === N - 1) { m2.phase = 'done'; m2.impacts = []; m2.sparks = []; m2.parts.forEach(function (q) { q.r = q.target; }); }
+        else advanceHeat(SIM_DT, m2.p, rand);
+      }
+      swapOut(saved);
+    }
+    return {
+      name: 'chemical-fractionation-planet-' + Math.round(sim.R) + 'km', W: W, H: H, frames: N, reset: reset, skip: advanceTo,
+      draw: function (ctx, k) {
+        advanceTo(k);
+        var saved = swapIn();
+        ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+        var peak = k === N - 1 ? sim.out.T_peak : currentTemps(m2.p).peak;
+        frameHeader(ctx, W, 'R = ' + fmtInt(sim.R) + ' km · ' + fmtAU(loc.r) + ' AU, ' + fmtMyr(loc.t) + ' · peak ' + fmtInt(peak) + ' K');
+        framePanel(ctx, 0, 60, S, S, function (c, w) { drawBody(c, w, m2.p); });
+        framePanel(ctx, S, 60, W - S, S, function (c, w, h) { drawProfile(c, w, h, m2.p); });
+        framePanel(ctx, 0, 60 + S, W, 130, function (c, w, h) { drawBudget(c, w, h, m2.p); });
+        frameFooter(ctx, W, H, 'ESSRT 2026 p. 11 · Moskovitz & Gaidos 2011 · Castillo-Rogez et al. 2009 · peak-temperature teaching model');
+        swapOut(saved);
+      }
+    };
+  }
+
+  /* ---------- GIF encoding ---------- */
+  function medianCutPalette(hist, nColors) {   // hist: Uint32Array over 18-bit (6-6-6) colour keys
+    var bins = [];
+    for (var key = 0; key < hist.length; key++) if (hist[key]) bins.push([(key >> 12) & 63, (key >> 6) & 63, key & 63, hist[key]]);
+    if (!bins.length) bins.push([0, 0, 0, 1]);
+    var boxes = [bins];
+    while (boxes.length < nColors) {
+      var bi = -1, bestRange = -1, bestCh = 0;
+      boxes.forEach(function (b, i) {
+        if (b.length < 2) return;
+        for (var ch = 0; ch < 3; ch++) {
+          var lo = 64, hi = -1;
+          for (var j = 0; j < b.length; j++) { var v = b[j][ch]; if (v < lo) lo = v; if (v > hi) hi = v; }
+          var score = (hi - lo) * Math.log(1 + b.length);
+          if (score > bestRange) { bestRange = score; bi = i; bestCh = ch; }
+        }
+      });
+      if (bi < 0 || bestRange <= 0) break;
+      var box = boxes[bi];
+      box.sort(function (a, b) { return a[bestCh] - b[bestCh]; });
+      var total = 0; box.forEach(function (e) { total += e[3]; });
+      var acc2 = 0, cut = 1;
+      for (var j2 = 0; j2 < box.length - 1; j2++) { acc2 += box[j2][3]; if (acc2 >= total / 2) { cut = j2 + 1; break; } cut = j2 + 1; }
+      boxes.splice(bi, 1, box.slice(0, cut), box.slice(cut));
+    }
+    return boxes.map(function (b) {
+      var r = 0, g = 0, bl = 0, n = 0;
+      b.forEach(function (e) { r += e[0] * e[3]; g += e[1] * e[3]; bl += e[2] * e[3]; n += e[3]; });
+      return [Math.round(r / n * 255 / 63), Math.round(g / n * 255 / 63), Math.round(bl / n * 255 / 63)];
+    });
+  }
+
+  function makeMapper(palette) {
+    var cache = new Int16Array(1 << 18).fill(-1);
+    return function (r, g, b) {
+      var key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2), v = cache[key];
+      if (v >= 0) return v;
+      var best = 0, bd = 1e9;
+      for (var i = 0; i < palette.length; i++) {
+        var dr = palette[i][0] - r, dg = palette[i][1] - g, db = palette[i][2] - b, d = dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11;
+        if (d < bd) { bd = d; best = i; }
+      }
+      cache[key] = best;
+      return best;
+    };
+  }
+
+  function ByteSink() { this.chunks = []; this.buf = new Uint8Array(1 << 16); this.len = 0; }
+  ByteSink.prototype.byte = function (b) { if (this.len === this.buf.length) this.flush(); this.buf[this.len++] = b; };
+  ByteSink.prototype.u16 = function (v) { this.byte(v & 255); this.byte((v >> 8) & 255); };
+  ByteSink.prototype.str = function (s) { for (var i = 0; i < s.length; i++) this.byte(s.charCodeAt(i)); };
+  ByteSink.prototype.flush = function () { if (this.len) { this.chunks.push(this.buf.slice(0, this.len)); this.len = 0; } };
+  ByteSink.prototype.blob = function (type) { this.flush(); return new Blob(this.chunks, { type: type }); };
+
+  function lzwEncode(sink, px, minCode) {
+    var clear = 1 << minCode, eoi = clear + 1, initBits = minCode + 1;
+    var nBits = initBits, maxcode = (1 << nBits) - 1, freeEnt = clear + 2, clearFlg = false;
+    var dict = new Map(), acc3 = 0, accBits = 0, block = new Uint8Array(255), blen = 0;
+    function putByte(b) { block[blen++] = b; if (blen === 255) { sink.byte(255); for (var i = 0; i < 255; i++) sink.byte(block[i]); blen = 0; } }
+    function output(code) {
+      acc3 |= code << accBits; accBits += nBits;
+      while (accBits >= 8) { putByte(acc3 & 255); acc3 >>>= 8; accBits -= 8; }
+      if (freeEnt > maxcode || clearFlg) {
+        if (clearFlg) { nBits = initBits; maxcode = (1 << nBits) - 1; clearFlg = false; }
+        else { nBits++; maxcode = nBits === 12 ? 4096 : (1 << nBits) - 1; }
+      }
+    }
+    sink.byte(minCode);
+    output(clear);
+    var ent = px[0];
+    for (var i = 1; i < px.length; i++) {
+      var c = px[i], key = ent * 256 + c, v = dict.get(key);
+      if (v !== undefined) { ent = v; continue; }
+      output(ent); ent = c;
+      if (freeEnt < 4096) dict.set(key, freeEnt++);
+      else { dict.clear(); freeEnt = clear + 2; clearFlg = true; output(clear); }
+    }
+    output(ent); output(eoi);
+    if (accBits > 0) putByte(acc3 & 255);
+    if (blen) { sink.byte(blen); for (var j = 0; j < blen; j++) sink.byte(block[j]); }
+    sink.byte(0);
+  }
+
+  function tick() { return new Promise(function (res) { setTimeout(res, 0); }); }
+
+  function setBusy(btn, text) {
+    document.querySelectorAll('.cf-export-row .cc-btn').forEach(function (b) { b.disabled = (!!text && b !== btn) || (/^vid/.test(b.id) && !videoMime()); });
+    if (text) { if (!btn.dataset.label) btn.dataset.label = btn.textContent; btn.textContent = text; btn.classList.add('is-busy'); }
+    else { btn.textContent = btn.dataset.label || btn.textContent; btn.classList.remove('is-busy'); }
+  }
+
+  function encodeGif(anim, onProgress) {
+    var W = anim.W, H = anim.H, N = anim.frames, TRANSP = 255;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d', { willReadFrequently: true });
+    var hist = new Uint32Array(1 << 18);
+    return (async function () {
+      // pass 1: palette from sampled frames
+      anim.reset();
+      var sampleEvery = Math.max(1, Math.round(N / 14));
+      for (var k = 0; k < N; k++) {
+        if (k % sampleEvery !== 0 && k !== N - 1) { if (anim.skip) anim.skip(k); continue; }
+        anim.draw(ctx, k);
+        var d = ctx.getImageData(0, 0, W, H).data;
+        for (var i = 0; i < d.length; i += 4 * 3) hist[((d[i] >> 2) << 12) | ((d[i + 1] >> 2) << 6) | (d[i + 2] >> 2)]++;
+        onProgress(0.15 * k / N); await tick();
+      }
+      var palette = medianCutPalette(hist, 255), map = makeMapper(palette);
+      while (palette.length < 256) palette.push([0, 0, 0]);
+      // pass 2: encode
+      var sink = new ByteSink();
+      sink.str('GIF89a'); sink.u16(W); sink.u16(H); sink.byte(0xF7); sink.byte(0); sink.byte(0);
+      for (var p = 0; p < 256; p++) { sink.byte(palette[p][0]); sink.byte(palette[p][1]); sink.byte(palette[p][2]); }
+      sink.byte(0x21); sink.byte(0xFF); sink.byte(11); sink.str('NETSCAPE2.0'); sink.byte(3); sink.byte(1); sink.u16(0); sink.byte(0);
+      anim.reset();
+      var prev = null;
+      for (var f = 0; f < N; f++) {
+        anim.draw(ctx, f);
+        var data = ctx.getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
+        for (var q = 0, o = 0; q < idx.length; q++, o += 4) idx[q] = map(data[o], data[o + 1], data[o + 2]);
+        var x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+        if (prev) {
+          x0 = W; y0 = H; x1 = -1; y1 = -1;
+          for (var yy = 0; yy < H; yy++) {
+            var row = yy * W;
+            for (var xx = 0; xx < W; xx++) {
+              if (idx[row + xx] !== prev[row + xx]) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; y1 = yy; }
+            }
+          }
+          if (x1 < 0) { x0 = 0; y0 = 0; x1 = 0; y1 = 0; }
+        }
+        var w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
+        for (var sy = 0; sy < h; sy++) {
+          var srow = (y0 + sy) * W;
+          for (var sx = 0; sx < w; sx++) {
+            var v = idx[srow + x0 + sx];
+            sub[sy * w + sx] = prev && prev[srow + x0 + sx] === v ? TRANSP : v;
+          }
+        }
+        var delay = f === N - 1 ? GIF_DELAY_CS + Math.round(HOLD_MS / 10) : GIF_DELAY_CS;
+        sink.byte(0x21); sink.byte(0xF9); sink.byte(4); sink.byte(prev ? 0x05 : 0x04); sink.u16(delay); sink.byte(TRANSP); sink.byte(0);
+        sink.byte(0x2C); sink.u16(x0); sink.u16(y0); sink.u16(w); sink.u16(h); sink.byte(0);
+        lzwEncode(sink, sub, 8);
+        prev = idx;
+        onProgress(0.15 + 0.85 * (f + 1) / N);
+        await tick();
+      }
+      sink.byte(0x3B);
+      return sink.blob('image/gif');
+    })();
+  }
+
+  /* ---------- video ---------- */
+  function videoMime() {
+    if (typeof MediaRecorder === 'undefined') return null;
+    var opts = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+    for (var i = 0; i < opts.length; i++) if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(opts[i])) return opts[i];
+    return null;
+  }
+
+  function recordVideo(anim, onProgress) {
+    var mime = videoMime();
+    if (!mime) return Promise.reject(new Error('Video recording is not supported in this browser'));
+    var W = Math.round(anim.W * VIDEO_SCALE / 2) * 2, H = Math.round(anim.H * VIDEO_SCALE / 2) * 2;
+    var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var ctx = cv.getContext('2d');
+    var stream = cv.captureStream(0), track = stream.getVideoTracks()[0];
+    var rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8e6 }), chunks = [];
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    var frameMs = GIF_DELAY_CS * 10, total = anim.frames * frameMs + HOLD_MS;
+    return new Promise(function (resolve, reject) {
+      rec.onstop = function () {
+        var blob = new Blob(chunks, { type: mime.split(';')[0] }), isMp4 = mime.indexOf('mp4') >= 0;
+        if (isMp4) { resolve({ blob: blob, ext: 'mp4' }); return; }
+        fixWebmDuration(blob, rec.durationMs || total).then(function (b) { resolve({ blob: b, ext: 'webm' }); });
+      };
+      rec.onerror = function (e) { reject(e.error || e); };
+      anim.reset();
+      rec.start(250);
+      var k = 0, t0 = performance.now(), total = anim.frames * frameMs + HOLD_MS;
+      function paint(idx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.scale(W / anim.W, H / anim.H);
+        anim.draw(ctx, idx);
+        if (track.requestFrame) track.requestFrame();
+      }
+      function step() {
+        var el = performance.now() - t0;
+        if (k < anim.frames) {
+          var due = Math.min(anim.frames - 1, Math.floor(el / frameMs));
+          while (k <= due) { if (k < due && anim.skip) anim.skip(k); else paint(k); k++; }
+          onProgress(Math.min(1, el / total));
+          setTimeout(step, Math.max(0, t0 + k * frameMs - performance.now()));
+          return;
+        }
+        if (el < total) { paint(anim.frames - 1); onProgress(Math.min(1, el / total)); setTimeout(step, 1000 / VIDEO_FPS); return; }
+        rec.durationMs = el;
+        rec.stop();
+      }
+      step();
+    });
+  }
+
+
+  // MediaRecorder WebM files carry no Duration; insert one into Segment > Info so players can seek.
+  function fixWebmDuration(blob, durationMs) {
+    return blob.slice(0, Math.min(blob.size, 65536)).arrayBuffer().then(function (buf) {
+      var b = new Uint8Array(buf);
+      function vint(pos, keepMarker) {
+        var first = b[pos], len = 1, mask = 0x80;
+        while (len <= 8 && !(first & mask)) { len++; mask >>= 1; }
+        if (len > 8) throw new Error('bad vint');
+        var val = keepMarker ? first : first & (mask - 1);
+        for (var i = 1; i < len; i++) val = val * 256 + b[pos + i];
+        return { len: len, val: val };
+      }
+      var pos = 0, id = vint(pos, true);
+      if (id.val !== 0x1A45DFA3) throw new Error('not EBML');
+      var sz = vint(pos + id.len, false); pos += id.len + sz.len + sz.val;
+      id = vint(pos, true); if (id.val !== 0x18538067) throw new Error('no Segment');
+      sz = vint(pos + id.len, false); pos += id.len + sz.len;
+      for (var guard = 0; guard < 16 && pos < b.length - 8; guard++) {
+        id = vint(pos, true); sz = vint(pos + id.len, false);
+        var dataStart = pos + id.len + sz.len;
+        if (id.val === 0x1549A966) {
+          var q = dataStart, end = dataStart + sz.val;
+          while (q < end) { var cid = vint(q, true), csz = vint(q + cid.len, false); if (cid.val === 0x4489) return blob; q += cid.len + csz.len + csz.val; }
+          var dur = new Uint8Array(11); dur[0] = 0x44; dur[1] = 0x89; dur[2] = 0x88;
+          new DataView(dur.buffer).setFloat64(3, durationMs);   // default TimecodeScale 1 ms
+          var newSize = sz.val + 11, sizeBytes = new Uint8Array(8); sizeBytes[0] = 0x01;
+          for (var i = 7, v = newSize; i >= 1; i--) { sizeBytes[i] = v & 255; v = Math.floor(v / 256); }
+          var head = new Uint8Array(buf, 0, pos + id.len), body = new Uint8Array(buf, dataStart, sz.val);
+          return new Blob([head, sizeBytes, body, dur, blob.slice(end)], { type: blob.type });
+        }
+        pos = dataStart + sz.val;
+      }
+      return blob;
+    }).catch(function () { return blob; });
+  }
+
+  function runAnimExport(btn, makeAnim, kind) {
+    if (exportBusy) return;
+    var anim = makeAnim();
+    if (!anim) return;
+    exportBusy = true;
+    var label = kind === 'gif' ? 'GIF ' : 'Rec ';
+    setBusy(btn, label + '0%');
+    var job = kind === 'gif'
+      ? encodeGif(anim, function (f) { btn.textContent = label + Math.round(f * 100) + '%'; }).then(function (blob) { return { blob: blob, ext: 'gif' }; })
+      : recordVideo(anim, function (f) { btn.textContent = label + Math.round(f * 100) + '%'; });
+    job.then(function (res) {
+      var a = document.createElement('a'); a.download = anim.name + '.' + res.ext; a.href = URL.createObjectURL(res.blob);
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+    }).catch(function (err) {
+      btn.dataset.error = String(err && err.message || err);
+      if (window.console) console.warn('Export failed:', err);
+    }).then(function () { exportBusy = false; setBusy(btn, null); });
+  }
+
+  $('gif1Btn').addEventListener('click', function () { runAnimExport(this, animCondensation, 'gif'); });
+  $('vid1Btn').addEventListener('click', function () { runAnimExport(this, animCondensation, 'video'); });
+  $('gif2Btn').addEventListener('click', function () { runAnimExport(this, animAccretion, 'gif'); });
+  $('vid2Btn').addEventListener('click', function () { runAnimExport(this, animAccretion, 'video'); });
+  $('gif3Btn').addEventListener('click', function () { runAnimExport(this, animDifferentiation, 'gif'); });
+  $('vid3Btn').addEventListener('click', function () { runAnimExport(this, animDifferentiation, 'video'); });
+  if (!videoMime()) ['vid1Btn', 'vid2Btn', 'vid3Btn'].forEach(function (id) { $(id).disabled = true; $(id).title = 'Video recording is not supported in this browser'; });
 
   /* ======================================================================
      PNG EXPORT — composed off-screen at a fixed scale, independent of the
