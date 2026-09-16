@@ -301,6 +301,85 @@ function q65JuneWith(ageBP, hold) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────
+   MELT SEASON — a deliberately simple surface energy budget.
+
+   THIS IS A TOY MODEL, not a mass-balance model, and every tool that
+   shows it must say so. It exists to make one mechanism visible: ice
+   sheets grow when SUMMER is too cool to remove the winter's snow, not
+   when winter is cold. Winter is always cold enough.
+
+   What it does: walk one year in equal TIME steps (Kepler's equation,
+   so the longer half of the orbit really does get more days), take the
+   daily-mean top-of-atmosphere insolation for each step, and count the
+   energy above a melting threshold:
+
+       melt energy = SUM over days of max(0, (1-albedo)*Q - qcrit)
+       melt (mm water equivalent) = energy / 334000 J/kg
+
+   What it does NOT do: atmosphere, cloud, longwave, elevation, ice
+   dynamics, or any feedback. qcrit stands in for everything that has to
+   be overcome before a snow surface reaches melting point, and it is a
+   tuned constant, not a measured one. Defaults put the present day just
+   above the crossover at 65N, which is where the real Arctic sits.
+   Both constants are exposed so a tool can put them on screen.
+   ────────────────────────────────────────────────────────────────────── */
+var MELT_DEFAULTS = {
+  albedo: 0.75,      // snow
+  qcrit: 100,        // W/m2 absorbed flux needed before melt begins
+  accumulation: 250, // mm water equivalent of snow laid down each winter
+  steps: 365
+};
+
+/* True anomaly at equal time steps through one orbit, via Kepler. */
+function trueAnomalyAtTimeFraction(e, frac, nu0) {
+  var E0 = 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nu0 / 2),
+                          Math.sqrt(1 + e) * Math.cos(nu0 / 2));
+  var M = E0 - e * Math.sin(E0) + TAU * frac;
+  var E = M, i;
+  for (i = 0; i < 12; i++) {           // Newton; converges in a handful
+    var f = E - e * Math.sin(E) - M;
+    E -= f / (1 - e * Math.cos(E));
+  }
+  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(E / 2),
+                        Math.sqrt(1 - e) * Math.cos(E / 2));
+}
+
+/* meltSeason(lat, ageBP, opts) -> {
+     melt, accumulation, surplus, days, peakQ, curve:[{day, q, net}] }
+   surplus > 0 means more melt than snowfall: the snow is gone by autumn.
+   surplus < 0 means snow survives the summer — where ice sheets start. */
+function meltSeason(lat, ageBP, opts) {
+  var o = orbit(ageBP);
+  var cfg = {
+    albedo:       (opts && opts.albedo       != null) ? opts.albedo       : MELT_DEFAULTS.albedo,
+    qcrit:        (opts && opts.qcrit        != null) ? opts.qcrit        : MELT_DEFAULTS.qcrit,
+    accumulation: (opts && opts.accumulation != null) ? opts.accumulation : MELT_DEFAULTS.accumulation,
+    steps:        (opts && opts.steps        != null) ? opts.steps        : MELT_DEFAULTS.steps
+  };
+  var nu0 = -o.longPeri * D2R;         // solar longitude 0 = March equinox
+  var energy = 0, days = 0, peakQ = 0, curve = [], i;
+  for (i = 0; i < cfg.steps; i++) {
+    var nu  = trueAnomalyAtTimeFraction(o.e, (i + 0.5) / cfg.steps, nu0);
+    var lam = ((nu / D2R + o.longPeri) % 360 + 360) % 360;
+    var q   = dailyMean(lat, lam, o);
+    var net = (1 - cfg.albedo) * q - cfg.qcrit;
+    if (net > 0) { energy += net * 86400; days++; }
+    if (q > peakQ) peakQ = q;
+    curve.push({ day: i, lam: lam, q: q, net: net });
+  }
+  var melt = energy / 334000;
+  return {
+    melt: melt,
+    accumulation: cfg.accumulation,
+    surplus: melt - cfg.accumulation,
+    days: days,
+    peakQ: peakQ,
+    curve: curve,
+    config: cfg
+  };
+}
+
+/* ──────────────────────────────────────────────────────────────────────
    SHARED CHROME — one palette, one time axis, one set of anchors, so the
    four tools cannot drift apart. These are CONTENT colours (they identify
    a parameter, not decoration) and so live here rather than in
@@ -383,6 +462,8 @@ global.MILANKOVITCH = {
   q65June: q65June,
   q65JuneWith: q65JuneWith,
   summerHalfYearDays: summerHalfYearDays,
+  meltSeason: meltSeason,
+  MELT_DEFAULTS: MELT_DEFAULTS,
   MEAN_800K: MEAN_800K,
   PALETTE: PALETTE,
   TIME: TIME,
