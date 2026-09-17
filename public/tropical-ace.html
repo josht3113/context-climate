@@ -32,6 +32,17 @@
   }
   .narrative strong { color: var(--color-text-primary); font-weight: 600; }
 
+  .notice {
+    border-color: var(--accent-seasons);
+    background: rgba(214, 126, 96, 0.10);
+    margin: 0 0 18px;
+    font-family: var(--font-body);
+    font-size: 15.5px;
+    line-height: 1.55;
+    color: var(--color-text-secondary);
+  }
+  .notice b { color: var(--color-text-primary); font-weight: 600; }
+
   .cc-stat-row { margin-bottom: 20px; }
   .cc-stat-chip { flex: 1 1 200px; gap: 4px; }
   .cc-stat-value { font-size: 34px; line-height: 1.05; }
@@ -164,6 +175,8 @@
   <p id="status">Loading…</p>
 
   <p class="narrative" id="narrative"></p>
+
+  <div class="cc-panel notice" id="dataNotice" hidden></div>
 
   <div class="cc-stat-row" id="statRow"></div>
 
@@ -329,8 +342,14 @@
     // to differ — in September the Southern Hemisphere basins are all still
     // sitting on zero, and "closest" would be decided by rounding noise.
     var seasonYoung = climoToDate < 1.0 || climoToDate < 0.02 * climoFinal;
+    // A current season the upstream feed has not filled looks exactly like a
+    // record-quiet one. Ranking it, projecting from it or matching analogs to
+    // it would all be dressing up missing data as a result.
+    var check = d.current_check || {};
+    var suspect = !!check.suspect;
+    var blockAnalogs = seasonYoung || suspect;
     var analogs = [];
-    if (!seasonYoung) {
+    if (!blockAnalogs) {
       analogs = historical.map(function (y) {
         var se = 0;
         for (var i2 = 0; i2 <= idx; i2++) {
@@ -371,6 +390,7 @@
       climoToDate: climoToDate, climoFinal: climoFinal,
       toDate: toDate, finals: finals,
       analogs: analogs, seasonYoung: seasonYoung,
+      suspect: suspect, blockAnalogs: blockAnalogs, check: check,
       tiedWith: tiedWith, separatesAt: separatesAt,
       counts: curCounts, projected: projected,
       provisional: (d.provisional || []).indexOf(current) >= 0
@@ -422,7 +442,7 @@
     row.appendChild(statChip("ACE to date", fmt(v.curToDate),
       "avg to date " + fmt(v.climoToDate) + " · max " + fmt(maxToDate) +
       " (" + seasonLabel(d, maxYear) + ")",
-      extremePill(v.curToDate, v.toDate, d.start_year)));
+      v.suspect ? null : extremePill(v.curToDate, v.toDate, d.start_year)));
 
     // Counts
     var kinds = [
@@ -450,7 +470,7 @@
       row.appendChild(statChip(label, String(v.counts[k[1]]),
         "avg to date " + fmt(mean(base), 0) + " · max " + mx +
         " (" + seasonLabel(d, myr) + ")",
-        extremePill(v.counts[k[1]], hist, d.start_year)));
+        v.suspect ? null : extremePill(v.counts[k[1]], hist, d.start_year)));
     });
     void n;
   }
@@ -466,6 +486,15 @@
 
     bits.push("Through <strong>" + dateStr + "</strong>, the " + d.name +
               " has <strong>" + fmt(v.curToDate) + " ACE</strong>");
+
+    if (v.suspect) {
+      bits.push(" from <strong>" + v.counts.ns + " named storm" +
+                (v.counts.ns === 1 ? "" : "s") + "</strong> recorded so far, " +
+                "against a 1991–2020 median of <strong>" +
+                v.check.normal_median + "</strong> by this date.");
+      $("narrative").innerHTML = bits.join("");
+      return;
+    }
 
     if (v.seasonYoung) {
       // Percent-of-normal and a rank are both meaningless here: the normal is
@@ -927,6 +956,12 @@
     var method = $("analogMethod");
     body.innerHTML = "";
 
+    if (v.suspect) {
+      table.hidden = true;
+      method.textContent = "Analog matching is held back while the current " +
+        "season's data is incomplete.";
+      return;
+    }
     if (v.seasonYoung) {
       table.hidden = true;
       method.textContent = "The " + v.d.name + " season is too young for analog " +
@@ -1020,10 +1055,20 @@
     var sub = "Every season since " + d.start_year + ", through " +
       MONTHS[asOf.getUTCMonth()] + " " + asOf.getUTCDate() + " · " +
       seasonLabel(d, v.current) + " at " + fmt(v.curToDate) + " ACE";
-    if (!v.seasonYoung) {
+    if (!v.blockAnalogs) {
       sub += " · average-finish projection " + fmt(v.projected, 0);
     }
     oc.fillText(sub, M, y);
+    if (v.suspect) {
+      y += 24;
+      oc.fillStyle = "#D67E60";
+      oc.font = "600 15px 'Public Sans', sans-serif";
+      oc.fillText("Incomplete current-season data: " + v.check.storms +
+                  " named storms recorded against a 1991–2020 median of " +
+                  v.check.normal_median + ". Rankings and analogs withheld.",
+                  M, y);
+      oc.fillStyle = TEXT_2;
+    }
 
     // stat row
     y += 40;
@@ -1094,10 +1139,11 @@
     oc.fillText("Closest analog seasons", rx, ty);
     ty += 24;
 
-    if (v.seasonYoung) {
+    if (v.blockAnalogs) {
       oc.fillStyle = TEXT_3;
       oc.font = "15px 'Public Sans', sans-serif";
-      wrapText(oc, "Too early in this season for analog matching.", rw).forEach(function (ln) {
+      wrapText(oc, v.suspect ? "Withheld while current-season data is incomplete."
+                             : "Too early in this season for analog matching.", rw).forEach(function (ln) {
         oc.fillText(ln, rx, ty); ty += 20;
       });
     } else {
@@ -1170,6 +1216,19 @@
 
   // ----------------------------------------------------------------- render
 
+  function renderNotice(v) {
+    var el = $("dataNotice");
+    if (!v.suspect) { el.hidden = true; return; }
+    el.hidden = false;
+    el.innerHTML = "<b>Incomplete current-season data for the " + v.d.name +
+      ".</b> IBTrACS carries " + v.check.storms + " named storm" +
+      (v.check.storms === 1 ? "" : "s") + " for " + seasonLabel(v.d, v.current) +
+      " through this date, against a 1991–2020 median of " +
+      v.check.normal_median + ". Rankings, the average-finish projection and " +
+      "analog matching are withheld for this basin until the feed fills in. " +
+      "The historical seasons below are unaffected.";
+  }
+
   function renderFooter(v) {
     var d = v.d;
     var lines = [];
@@ -1220,6 +1279,7 @@
     var asOf = new Date(META.as_of + "T12:00:00Z");
     $("stripTitle").textContent = "ACE through " + MONTHS[asOf.getUTCMonth()] + " " +
       asOf.getUTCDate() + ", each season";
+    renderNotice(view);
     renderNarrative(view);
     renderStats(view);
     renderChart(view);
