@@ -97,6 +97,16 @@ BY_BASIN = {b["basin"]: b for b in BASINS}
 
 SH_BASINS = {"SI", "SP", "SA"}
 TROPICAL_NATURES = {"TS", "SS"}
+# IBTrACS' in-season feed does not always classify a system. Rows sourced
+# from JTWC arrive as US-PROVISIONAL with NATURE set; rows from the other
+# agencies arrive as PROVISIONAL with NATURE "NR" — not reported. NR is an
+# absence of classification, not a statement that the system is untropical,
+# and dropping it discards most of a live West Pacific season. It is
+# accepted ONLY on a provisional track, so the finalized archive the whole
+# historical record is built from keeps its strict TS/SS basis; once a
+# season is reanalysed, the monthly full rebuild replaces these points with
+# properly classified ones.
+UNCLASSIFIED = "NR"
 SYNOPTIC_HOURS = {0, 6, 12, 18}
 
 MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -230,6 +240,11 @@ class Accumulator:
         # two must not be treated alike, because one belongs in a normal as a
         # zero and the other has to be left out of it.
         self.seen = {}
+        # Per basin: [points admitted on a reported nature, points admitted
+        # as unclassified-provisional, wind values that are whole 5 kt steps,
+        # total wind values]. Reported so a wind column that is not agency
+        # knots shows up in the log instead of silently skewing a season.
+        self.admit = {}
 
     def _ace_slot(self, basin, season):
         b = self.ace.setdefault(basin, {})
@@ -279,8 +294,10 @@ class Accumulator:
             if "spur" in track:          # secondary duplicate track segments
                 continue
             nature = row[col["NATURE"]].strip().upper()
+            provisional = "provisional" in track
             if nature not in TROPICAL_NATURES:
-                continue
+                if not (nature == UNCLASSIFIED and provisional):
+                    continue
             wind = parse_wind(row[col["USA_WIND"]])
             if wind is None or wind < 34:
                 continue
@@ -295,6 +312,10 @@ class Accumulator:
             if name in ("Not_Named", "Unnamed", "", "Not Named"):
                 name = "Unnamed"
             self.n_points += 1
+            a = self.admit.setdefault(basin, [0, 0, 0, 0])
+            a[0 if nature in TROPICAL_NATURES else 1] += 1
+            a[2] += 1 if (wind % 5 == 0) else 0
+            a[3] += 1
             if basin in BY_BASIN:
                 self.add_point(basin, sid, name, when, wind)
             # Global: every basin including South Atlantic, calendar year.
@@ -501,6 +522,13 @@ def run(mode, outdir, workdir, today):
                            % (name, stale, MAX_STALE_DAYS[name]))
     print("  %d qualifying points, newest %s (%d days old)"
           % (acc.n_points, acc.latest.isoformat(sep=" "), stale))
+    for spec in BASINS:
+        a = acc.admit.get(spec["basin"])
+        if not a or not a[3]:
+            continue
+        print("    %-3s classified %6d | unclassified-provisional %6d | "
+              "%3d%% of winds on whole 5 kt steps"
+              % (spec["basin"], a[0], a[1], round(100 * a[2] / a[3])))
 
     # In recent mode the file only covers a trailing window, so a season is
     # only safe to rewrite if the window starts before the season does.
@@ -700,6 +728,27 @@ def selftest():
           pay["gaps"], [1992])
     check("the gap season is absent from years", "1992" in pay["years"], False)
     check("the active season is still present", "1993" in pay["years"], True)
+
+    # NATURE handling — the live West Pacific failure, as a regression test.
+    nat_csv = SELFTEST_CSV.split("\n")[0] + "\n" + SELFTEST_CSV.split("\n")[1] + "\n" + """\
+2026050W10130,2026,05,WP,WP,PROVA,2026-09-01 06:00:00,NR,15.0,130.0,60,65,PROVISIONAL
+2026051W10130,2026,05,WP,WP,JTWCA,2026-09-01 06:00:00,TS,15.0,130.0,60,65,US-PROVISIONAL
+2026052W10130,2026,05,WP,WP,FINALNR,2026-09-01 06:00:00,NR,15.0,130.0,60,65,main
+2026053W10130,2026,05,WP,WP,EXTRA,2026-09-01 06:00:00,ET,15.0,130.0,60,65,PROVISIONAL
+2026054W10130,2026,05,WP,WP,DISTURB,2026-09-01 06:00:00,DS,15.0,130.0,60,65,PROVISIONAL
+"""
+    npath = os.path.join(tmpdir, "nat.csv")
+    with open(npath, "w") as f:
+        f.write(nat_csv)
+    nacc = Accumulator()
+    nacc.ingest(npath)
+    got = sorted(st["name"] for st in nacc.storms.get("WP", {}).values())
+    check("unclassified provisional row is counted", "Prova" in got, True)
+    check("classified provisional row is counted", "Jtwca" in got, True)
+    check("unclassified row on a FINAL track is still rejected",
+          "Finalnr" in got, False)
+    check("extratropical row is still rejected", "Extra" in got, False)
+    check("disturbance row is still rejected", "Disturb" in got, False)
 
     shutil.rmtree(tmpdir)
     print("\nself-test: %s" % ("PASS" if ok else "FAIL"))
