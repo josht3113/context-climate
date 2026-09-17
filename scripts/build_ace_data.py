@@ -391,6 +391,38 @@ def build_basin_payload(acc, spec, current_season, provisional_seasons,
     return payload
 
 
+def current_coverage_check(payload, today):
+    """Flag a current season that is implausibly empty for the date.
+
+    A basin whose in-season feed dries up produces a season of near-zero ACE,
+    which is indistinguishable in the output from a genuine record-quiet
+    season — and the tool will happily label it "lowest since 1966". This
+    compares the developing season's named-storm count against the baseline
+    median for the same day of the season and marks it when the gap is too
+    large to be weather.
+    """
+    d = payload
+    start = d["season_start"]
+    idx = DAY_INDEX[start][0].get((today.month, today.day), 0)
+    cur = str(d["current_season"])
+    lo, hi = d["baseline"]
+
+    def storms_to(season):
+        y = d["years"].get(str(season))
+        if not y:
+            return None
+        return sum(1 for st in y["s"] if st[0] is not None and st[0] <= idx)
+
+    have = storms_to(cur) or 0
+    base = sorted(v for v in (storms_to(y) for y in range(lo, hi + 1))
+                  if v is not None)
+    median = base[len(base) // 2] if base else 0
+    suspect = median >= 3 and have <= 0.3 * median
+    d["current_check"] = {"storms": have, "normal_median": median,
+                          "suspect": bool(suspect), "slot": idx}
+    return suspect
+
+
 def sanity_check(payload):
     """Cheap structural checks; raises rather than writing something broken."""
     key = payload["key"]
@@ -519,6 +551,12 @@ def run(mode, outdir, workdir, today):
                                       existing=(prior if mode == "recent" else None),
                                       fill_quiet=(mode == "full"))
         sanity_check(payload)
+        if current_coverage_check(payload, today):
+            c = payload["current_check"]
+            print("::warning::%s current season looks incomplete: %d named "
+                  "storms to date against a 1991-2020 median of %d. The tool "
+                  "will show a data-coverage notice instead of a ranking."
+                  % (spec["name"], c["storms"], c["normal_median"]))
         payloads[spec["key"]] = payload
 
     stamp = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
@@ -668,12 +706,71 @@ def selftest():
     return 0 if ok else 1
 
 
+def diagnose(path, today):
+    """Report, per basin, what the current season actually contains upstream.
+
+    Answers the question a build cannot: when a basin's current season comes
+    out near-empty, is IBTrACS missing the storms entirely, or carrying them
+    under a wind column this builder does not read?
+    """
+    cur = current_seasons(today)
+    wind_cols, stats = [], {}
+    first = True
+    for row, col in iter_rows(path):
+        if first:
+            wind_cols = [c for c in col if c.endswith("_WIND")]
+            first = False
+        basin = row[col["BASIN"]].strip().upper()
+        if basin not in BY_BASIN and basin != "SA":
+            continue
+        iso = row[col["ISO_TIME"]]
+        yr, mo = int(iso[0:4]), int(iso[5:7])
+        season = yr + 1 if (basin in SH_BASINS and mo >= 7) else yr
+        if season != cur.get(basin, cur["NA"]):
+            continue
+        st = stats.setdefault(basin, {"rows": 0, "tropical": 0, "sids": set(),
+                                      "sids_usa": set(), "natures": {},
+                                      "tracks": {}, "winds": {}})
+        st["rows"] += 1
+        st["sids"].add(row[col["SID"]])
+        nat = row[col["NATURE"]].strip().upper()
+        st["natures"][nat] = st["natures"].get(nat, 0) + 1
+        tt = row[col["TRACK_TYPE"]].strip()
+        st["tracks"][tt] = st["tracks"].get(tt, 0) + 1
+        if nat in TROPICAL_NATURES:
+            st["tropical"] += 1
+        for c in wind_cols:
+            v = row[col[c]].strip()
+            if v and v not in ("", " "):
+                st["winds"][c] = st["winds"].get(c, 0) + 1
+        if parse_wind(row[col["USA_WIND"]]) is not None:
+            st["sids_usa"].add(row[col["SID"]])
+
+    print("\nCurrent-season contents by basin (%s)\n" % today.isoformat())
+    for basin in [b["basin"] for b in BASINS if b["basin"] != "GL"] + ["SA"]:
+        st = stats.get(basin)
+        print("-- %s  season %s" % (basin, cur.get(basin, "?")))
+        if not st:
+            print("     no rows at all\n")
+            continue
+        print("     rows %d | systems %d | systems with USA_WIND %d"
+              % (st["rows"], len(st["sids"]), len(st["sids_usa"])))
+        print("     nature   %s" % dict(sorted(st["natures"].items())))
+        print("     track    %s" % dict(sorted(st["tracks"].items())))
+        pop = sorted(st["winds"].items(), key=lambda kv: -kv[1])
+        print("     winds    %s" % ", ".join("%s=%d" % (k, n) for k, n in pop))
+        print()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", choices=["auto", "full", "recent"],
                     default="auto")
     ap.add_argument("--out", default="public")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--diagnose", action="store_true",
+                    help="report what IBTrACS carries for each basin's "
+                         "current season, then exit without writing")
     ap.add_argument("--local", help="use a local IBTrACS CSV instead of "
                                     "downloading (testing only)")
     args = ap.parse_args()
@@ -681,14 +778,26 @@ def main():
     if args.selftest:
         return selftest()
 
+    global download, validate_file
+    if args.local:
+        src = args.local
+        download = lambda name, dest, **kw: shutil.copyfile(src, dest)  # noqa: E731
+        validate_file = lambda name, path: os.path.getsize(path)        # noqa: E731
+
     today = dt.datetime.now(dt.timezone.utc).date()
     workdir = tempfile.mkdtemp(prefix="ace-")
+    if args.diagnose:
+        try:
+            path = args.local
+            if not path:
+                path = os.path.join(workdir, RECENT_FILE)
+                download(RECENT_FILE, path)
+                validate_file(RECENT_FILE, path)
+            diagnose(path, today)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
+        return 0
     try:
-        if args.local:
-            global download, validate_file
-            src = args.local
-            download = lambda name, dest, **kw: shutil.copyfile(src, dest)  # noqa: E731
-            validate_file = lambda name, path: os.path.getsize(path)        # noqa: E731
         run(args.mode, args.out, workdir, today)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
