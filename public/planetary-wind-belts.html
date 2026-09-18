@@ -154,6 +154,24 @@ header .cc-subtitle { max-width: 620px; margin: 0 auto 10px; }
            aria-label="Latitude marker, degrees">
   </div>
 
+  <div class="slider-row">
+    <div class="slider-head">
+      <label class="slider-label" for="mapSpeed">Globe wind speed</label>
+      <span class="slider-val" id="mapSpeedVal">0.60×</span>
+    </div>
+    <input type="range" id="mapSpeed" min="0.05" max="2" step="0.05" value="0.6"
+           aria-label="Globe surface wind animation speed">
+  </div>
+
+  <div class="slider-row">
+    <div class="slider-head">
+      <label class="slider-label" for="cellSpeed">Cell speed</label>
+      <span class="slider-val" id="cellSpeedVal">0.25×</span>
+    </div>
+    <input type="range" id="cellSpeed" min="0.05" max="2" step="0.05" value="0.25"
+           aria-label="Cross-section cell circulation speed">
+  </div>
+
   <hr class="divider">
 
   <div class="btn-row">
@@ -165,10 +183,13 @@ header .cc-subtitle { max-width: 620px; margin: 0 auto 10px; }
   <hr class="divider">
 
   <p class="sidebar-eyebrow">Goes deeper</p>
+  <!-- React hash routes, not files in public/, and target="_top" breaks out of
+       the iframe this tool is embedded in. A bare relative href resolved
+       against public/ and 404'd; without _top it would load the whole site
+       inside the iframe. -->
   <div class="link-col">
-    <a class="tool-link" href="coriolis-globe.html" id="lnkCoriolis"><b>Why it deflects</b>Coriolis Globe</a>
-    <a class="tool-link" href="jet-stream.html?season=winter" id="lnkJet"><b>The polar front jet in motion</b>The Jet Stream</a>
-    <a class="tool-link" href="fronts-cross-section.html" id="lnkFronts"><b>The polar front up close</b>Anatomy of a Front</a>
+    <a class="tool-link" href="/#/earthandspace/coriolis-effect" target="_top" id="lnkCoriolis"><b>Why it deflects</b>Coriolis Effect</a>
+    <a class="tool-link" href="/#/earthandspace/jet-stream" target="_top" id="lnkJet"><b>The polar front jet in motion</b>The Jet Stream</a>
   </div>
 </aside>
 
@@ -185,11 +206,11 @@ header .cc-subtitle { max-width: 620px; margin: 0 auto 10px; }
   <div class="panels">
     <div class="panel globe">
       <span class="panel-tag">Plan view · drag to spin</span>
-      <canvas id="globe" width="560" height="560"></canvas>
+      <canvas id="globe" width="520" height="560"></canvas>
     </div>
     <div class="panel xsec">
       <span class="panel-tag">Cross section · click to release a parcel</span>
-      <canvas id="xsec" width="720" height="560"></canvas>
+      <canvas id="xsec" width="680" height="560"></canvas>
     </div>
   </div>
   <div class="readout" id="readout"></div>
@@ -397,6 +418,8 @@ const S = {
   camLon: -55,
   running: true,
   parcels: [],
+  mapSpeed: 0.6,     // globe surface-wind tracers
+  cellSpeed: 0.25,   // cross-section circulation
 };
 const CAM_LAT = 14;   // fixed tilt: the band-shading layer is cached against it
 // Every drawing call reads the tropopause for the CURRENT stage.
@@ -414,7 +437,12 @@ function elapsed(ts) {
 }
 
 // ══ Canvases ══════════════════════════════════════════════════════════════
-const RS = 2;
+// Standing rule for on-screen canvas: FLOOR at 2.5 device pixels per logical
+// pixel, capped at 3. A ceiling of min(2, dpr) hands a 1x display a backing
+// store the same size as the canvas, so type is drawn at 1:1 and resampled to
+// whatever width the column happens to be — fine on a retina laptop, mush on an
+// external monitor. This tool shipped with RS hardcoded to 2: the same bug.
+const RS = Math.min(Math.max(window.devicePixelRatio || 1, 2.5), 3);
 function setup(id) {
   const cv = document.getElementById(id), ctx = cv.getContext('2d');
   const W = cv.width, H = cv.height;
@@ -423,6 +451,14 @@ function setup(id) {
 }
 const G = setup('globe'), X = setup('xsec');
 const GR = Math.min(G.W, G.H) * 0.435, GCX = G.W / 2, GCY = G.H / 2;
+
+// One knob over every font string drawn to canvas. The canvas is displayed at
+// about 0.9x its logical width, so the multiplier has to cover that shrink too:
+// 11 x 1.55 = 17 logical, which lands at ~15.5 px on screen. Smallest base is
+// 11 everywhere, so nothing drops below that floor.
+const FS = 1.55;
+const mono = (px, w) => `${w || 600} ${(px * FS).toFixed(1)}px "Courier Prime", monospace`;
+const slab = (px, w) => `${w || 700} ${(px * FS).toFixed(1)}px "Zilla Slab", serif`;
 
 // ══ Globe projection ══════════════════════════════════════════════════════
 function sphere(lon, lat) {
@@ -475,26 +511,42 @@ function buildBands() {
 }
 
 // ══ Globe surface-wind tracers ════════════════════════════════════════════
-const NT = 760, TRAIL_N = 18;
+// A surface trajectory at a constant 45 deg to the meridian is a loxodrome: it
+// IS curved, but over 6-7 degrees of latitude the curve is too shallow to see,
+// which is why short trails read as straight lines. Curvature is a function of
+// arc traversed, not of speed, so the fix is span rather than velocity —
+// sampling every other frame doubles the ground a fixed-length trail covers.
+// Surface flow stagnates at every belt boundary (that is what convergence at
+// 60 and divergence at 30 MEAN), so a tracer that drifts into one stops moving
+// and its trail collapses to a dot. Recycling the stalled ones keeps the
+// population in the fast parts of each belt, where the curvature is.
+const NT = 460, TRAIL_N = 104, SAMPLE_EVERY = 3, T_LIFE = 900, STALL = 0.055;
 const trc = [];
 function resetT(t, init) {
   t.lat = Math.asin(Math.random()*2 - 1)/DEG;   // uniform on the sphere
   t.lon = Math.random()*360 - 180;
-  t.age = init ? Math.random()*260 : 0;
+  t.age = init ? Math.random()*T_LIFE : 0;
   t.hist = [];
+  t.samp = 0;
 }
 for (let i = 0; i < NT; i++) { const t = {}; resetT(t, true); trc.push(t); }
 function stepTracers(fu) {
-  const sp = 0.55;
+  const sp = 0.55 * S.mapSpeed;
   for (const t of trc) {
     const u = uSurf(t.lat, S.stage), v = vSurf(t.lat, S.stage);
     t.lat += v * sp * fu;
     t.lon += u * sp * fu / Math.max(0.22, Math.cos(t.lat*DEG));
     if (t.lon > 180) t.lon -= 360; if (t.lon < -180) t.lon += 360;
     t.age += fu;
-    if (t.lat > 88 || t.lat < -88 || t.age > 260) { resetT(t, false); continue; }
-    t.hist.push([t.lon, t.lat]);
-    if (t.hist.length > TRAIL_N) t.hist.shift();
+    const moving = Math.abs(vSurf(t.lat, S.stage));
+    if (t.lat > 88 || t.lat < -88 || t.age > T_LIFE ||
+        (t.age > 90 && moving < STALL)) { resetT(t, false); continue; }
+    t.samp += fu;
+    if (t.samp >= SAMPLE_EVERY) {
+      t.samp -= SAMPLE_EVERY;
+      t.hist.push([t.lon, t.lat]);
+      if (t.hist.length > TRAIL_N) t.hist.shift();
+    }
   }
 }
 
@@ -550,7 +602,7 @@ function drawGlobe() {
   // tracers
   for (const t of trc) {
     if (t.hist.length < 2) continue;
-    const fade = Math.min(1, t.age/26) * Math.max(0, 1 - Math.max(0, t.age-220)/40);
+    const fade = Math.min(1, t.age/60) * Math.max(0, 1 - Math.max(0, t.age-(T_LIFE-120))/120);
     if (fade < 0.02) continue;
     ctx.beginPath(); let pen = false, lx = 0, ly = 0, px2 = 0, py2 = 0;
     for (let i = 0; i < t.hist.length; i++) {
@@ -608,7 +660,7 @@ const GLOBE_LABELS = [
 ];
 function labelBelts(ctx) {
   ctx.save();
-  ctx.font = '600 11px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   const list = S.stage === 'three' ? GLOBE_LABELS : GLOBE_LABELS.filter(l => l.lat === 0);
   for (const L of list) {
@@ -616,10 +668,14 @@ function labelBelts(ctx) {
     // the text started at the disc edge and ran off the panel.
     const [sx, sy, z] = gpt(S.camLon + 52, L.lat);
     if (z <= 0.02) continue;
-    ctx.lineWidth = 3; ctx.strokeStyle = HALO; ctx.strokeText(L.txt, sx + 6, sy);
+    // Clamp so a long label near the limb cannot spill past the panel edge,
+    // which it does at the larger type size.
+    const w = ctx.measureText(L.txt).width;
+    const x = Math.min(sx + 6, G.W - 5 - w);
+    ctx.lineWidth = 3.5; ctx.strokeStyle = HALO; ctx.strokeText(L.txt, x, sy);
     ctx.fillStyle = Math.abs(L.lat) % 30 === 0 && L.lat !== 0 ? INK2 : INK3;
     if (L.lat === 0) ctx.fillStyle = RISE;
-    ctx.fillText(L.txt, sx + 6, sy);
+    ctx.fillText(L.txt, x, sy);
   }
   ctx.restore();
 }
@@ -635,7 +691,7 @@ function arrowHead(ctx, x0, y0, x1, y1, size, fill) {
 }
 
 // ══ Cross section geometry ════════════════════════════════════════════════
-const XPAD = { l: 54, r: 58, t: 34, b: 48 };
+const XPAD = { l: 64, r: 70, t: 38, b: 62 };
 const ZTOP = 20;   // km
 // A little past the equator (and past the pole) so the ITCZ tower and the
 // polar H are not sliced in half by the panel edge.
@@ -673,7 +729,7 @@ for (let i = 0; i < NX; i++) { const t = {}; resetX(t, true); xtr.push(t); }
 // Two substeps put it under 1e-4 for a few thousand extra sin/cos per frame.
 const SUBSTEPS = 2, DT = 0.011;
 function advectN(lat, z, stage, fu) {
-  const dt = DT * fu / SUBSTEPS;
+  const dt = DT * S.cellSpeed * fu / SUBSTEPS;
   for (let i = 0; i < SUBSTEPS; i++) { const r = advect(lat, z, stage, dt); lat = r[0]; z = r[1]; }
   return [lat, z];
 }
@@ -717,22 +773,35 @@ function drawXsec() {
   // branch hid the very flow it is labelling.
   drawTower(ctx);
 
-  // cell tracers
-  ctx.lineWidth = 1.1;
+  // Cell tracers. Each is drawn as a FIXED-LENGTH streak along the local flow
+  // direction rather than as the distance it happened to travel this frame —
+  // otherwise turning the speed slider down shrinks every arrow to a dot and
+  // the cells stop reading. Direction and colour come from the model; only the
+  // rate of travel is under the slider.
+  const ARROW_PX = 11;
+  ctx.lineWidth = 1.25;
   for (const t of xtr) {
     if (t.plat === undefined) continue;
     if (S.hemi === 'n' && t.lat < -0.5) continue;
     const fade = Math.min(1, t.age/30) * Math.max(0, 1 - Math.max(0, t.age-260)/40);
     if (fade < 0.02) continue;
-    const H = TROP(t.lat), Hp = TROP(t.plat);
-    const ax = xOf(t.plat), ay = yOf(t.pz*Hp), bx = xOf(t.lat), by = yOf(t.z*H);
-    const w = cellW(t.lat, t.z, S.stage);
+    const H = TROP(t.lat);
+    const bx = xOf(t.lat), by = yOf(t.z*H);
+    const w = cellW(t.lat, t.z, S.stage), v = cellV(t.lat, t.z, S.stage);
+    // Local flow direction in SCREEN space: one small probe step along the
+    // streamline, normalised. Using the model's own advection keeps the arrows
+    // tangent to the streamlines the parcels actually follow.
+    const [pl, pz] = advect(t.lat, t.z, S.stage, 0.004);
+    let dx = xOf(pl) - bx, dy = yOf(pz*TROP(pl)) - by;
+    const L = Math.hypot(dx, dy);
+    if (L < 1e-6) continue;
+    dx = dx / L * ARROW_PX; dy = dy / L * ARROW_PX;
+    const ax = bx - dx, ay = by - dy;
     const col = w > 0 ? [78,201,160] : [224,138,60];
-    const mag = Math.min(1, Math.abs(w)/3 + Math.abs(cellV(t.lat,t.z,S.stage))/3);
-    ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${(0.18+0.5*mag)*fade})`;
+    const mag = Math.min(1, Math.abs(w)/3 + Math.abs(v)/3);
+    ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${(0.2+0.55*mag)*fade})`;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    if (Math.hypot(bx-ax, by-ay) > 0.3)
-      arrowHead(ctx, ax, ay, bx, by, 2.6, `rgba(${col[0]},${col[1]},${col[2]},${(0.3+0.6*mag)*fade})`);
+    arrowHead(ctx, ax, ay, bx, by, 3.1, `rgba(${col[0]},${col[1]},${col[2]},${(0.35+0.6*mag)*fade})`);
   }
 
   // parcels
@@ -775,8 +844,6 @@ function drawXsec() {
   if (S.stage === 'three') {
     const list = S.hemi === 'n' ? JETS : JETS.concat(JETS.map(j => ({...j, lat: -j.lat})));
     for (const j of list) drawJet(ctx, j);
-    // polar front surface
-    for (const sgn of (S.hemi === 'n' ? [1] : [1,-1])) drawPolarFront(ctx, sgn);
   }
 
   // cell names
@@ -797,7 +864,7 @@ function drawXsec() {
 
 function drawHL(ctx, lats) {
   ctx.save();
-  ctx.font = '700 16px "Zilla Slab", serif';
+  ctx.font = slab(16, 700);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const l of lats) {
     if (S.hemi === 'n' && l < 0) continue;
@@ -819,26 +886,12 @@ function drawJet(ctx, j) {
   ctx.strokeStyle = JETC; ctx.lineWidth = 1.8; ctx.stroke();
   // westerly = out of the page
   ctx.beginPath(); ctx.arc(px, py, 3.1, 0, 7); ctx.fillStyle = JETC; ctx.fill();
-  ctx.font = '600 10px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   ctx.lineWidth = 3; ctx.strokeStyle = HALO;
   const lbl = `${j.speed} m/s`;
   ctx.textBaseline = 'top';
   ctx.strokeText(lbl, px, py + 14); ctx.fillStyle = JETC; ctx.fillText(lbl, px, py + 14);
-  ctx.restore();
-}
-
-function drawPolarFront(ctx, sgn) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(xOf(60*sgn), yOf(0));
-  ctx.quadraticCurveTo(xOf(66*sgn), yOf(3.4), xOf(74*sgn), yOf(6.6));
-  ctx.strokeStyle = 'rgba(232,228,217,0.62)'; ctx.lineWidth = 1.6; ctx.stroke();
-  ctx.font = '600 10px "Courier Prime", monospace';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.lineWidth = 3; ctx.strokeStyle = HALO;
-  ctx.strokeText('Polar front', xOf(77*sgn), yOf(7.6));
-  ctx.fillStyle = INK2; ctx.fillText('Polar front', xOf(77*sgn), yOf(7.6));
   ctx.restore();
 }
 
@@ -862,7 +915,7 @@ function drawTower(ctx) {
   ctx.closePath();
   ctx.fillStyle = 'rgba(232,228,217,0.07)'; ctx.fill();
   ctx.strokeStyle = 'rgba(232,228,217,0.22)'; ctx.lineWidth = 1; ctx.stroke();
-  ctx.font = '600 10px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   ctx.lineWidth = 3; ctx.strokeStyle = HALO;
   const t2 = S.hemi === 'n' ? 'ITCZ' : 'ITCZ';
@@ -872,14 +925,14 @@ function drawTower(ctx) {
 
 function drawCellNames(ctx) {
   ctx.save();
-  ctx.font = '600 11px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const cells = S.stage === 'three'
     ? [{ lat: 15, n: 'HADLEY CELL' }, { lat: 45, n: 'FERREL CELL' }, { lat: 75, n: 'POLAR CELL' }]
     : [{ lat: 45, n: 'ONE CELL PER HEMISPHERE' }];
   const list = S.hemi === 'n' ? cells : cells.concat(cells.map(c => ({ ...c, lat: -c.lat })));
   for (const c of list) {
-    const px = xOf(c.lat), py = yOf(TROP(c.lat) * 0.5);
+    const px = xOf(c.lat), py = yOf(TROP(c.lat) * 0.64);
     ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(7,10,8,0.92)';
     ctx.strokeText(c.n, px, py); ctx.fillStyle = 'rgba(232,228,217,0.5)';
     ctx.fillText(c.n, px, py);
@@ -890,7 +943,7 @@ function drawCellNames(ctx) {
 function drawXAxes(ctx) {
   const yg = yOf(0);
   ctx.save();
-  ctx.font = '600 10px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.strokeStyle = GRID; ctx.lineWidth = 1;
   // altitude, km left
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
@@ -922,7 +975,7 @@ function drawXAxes(ctx) {
     ctx.strokeStyle = 'rgba(232,228,217,0.35)'; ctx.stroke();
     ctx.fillStyle = INK3;
     const lbl = l === 0 ? 'EQ' : Math.abs(l) + (l > 0 ? '°N' : '°S');
-    ctx.fillText(lbl, px, yg + 24);
+    ctx.fillText(lbl, px, yg + 28);
   }
   // Left-aligned at the plot edge rather than centred: centred, it landed on
   // top of the EQ tick every time the equator sat in the middle of the panel.
@@ -931,9 +984,9 @@ function drawXAxes(ctx) {
   // layer labels
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(232,228,217,0.42)';
-  ctx.font = '600 10px "Courier Prime", monospace';
+  ctx.font = mono(11, 600);
   ctx.fillText('STRATOSPHERE', XPAD.l + 10, yOf(18.4));
-  ctx.fillText('TROPOSPHERE', XPAD.l + 10, yOf(5.2));
+  ctx.fillText('TROPOSPHERE', XPAD.l + 10, yOf(2.6));
   ctx.restore();
 }
 
@@ -1022,6 +1075,15 @@ document.querySelectorAll('[data-hemi]').forEach(b => b.addEventListener('click'
   if (S.hemi === 'n' && S.markerLat < 0) setLat(-S.markerLat);
   nudge();
 }));
+function wireSpeed(id, valId, key) {
+  const el = document.getElementById(id), out = document.getElementById(valId);
+  const show = () => { out.textContent = S[key].toFixed(2) + '×'; };
+  el.addEventListener('input', () => { S[key] = +el.value; show(); nudge(); });
+  show();
+}
+wireSpeed('mapSpeed', 'mapSpeedVal', 'mapSpeed');
+wireSpeed('cellSpeed', 'cellSpeedVal', 'cellSpeed');
+
 document.getElementById('playBtn').addEventListener('click', () => setRunning(!S.running));
 document.getElementById('parcelBtn').addEventListener('click', () => {
   releaseParcel(S.markerLat === 0 ? 12 : S.markerLat, 0.12);
@@ -1073,8 +1135,10 @@ document.getElementById('pngBtn').addEventListener('click', () => {
   const ih = Math.max(gh, xh);
   const ow = PAD*2 + gw + GAP + xw, oh = HDR + ih + FTR;
   const off = document.createElement('canvas');
-  off.width = ow*2; off.height = oh*2;
-  const oc = off.getContext('2d'); oc.scale(2,2);
+  // Fixed export scale, never derived from devicePixelRatio.
+  const EXPORT_SCALE = 3;
+  off.width = ow*EXPORT_SCALE; off.height = oh*EXPORT_SCALE;
+  const oc = off.getContext('2d'); oc.scale(EXPORT_SCALE, EXPORT_SCALE);
   oc.fillStyle = '#1E2320'; oc.fillRect(0,0,ow,oh);
   oc.fillStyle = '#3CA3AE'; oc.fillRect(0,0,ow,3);
   oc.fillStyle = '#E8E4D9'; oc.font = 'bold 21px "Zilla Slab", serif';
@@ -1109,7 +1173,7 @@ window.WINDBELTS = {
   else setLat(S.markerLat);
 
   buildBands();
-  for (let i = 0; i < 90; i++) { stepTracers(1); stepX(1); }
+  for (let i = 0; i < TRAIL_N * SAMPLE_EVERY + 20; i++) { stepTracers(1); stepX(1); }
   updateReadout();
 
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
