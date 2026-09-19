@@ -415,10 +415,10 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Global Circulation', 'Wind Belts', 'Interactive'],
+        tags:        ['Global Circulation', 'Interactive'],
         title:       'Planetary Wind Belts',
-        description: 'Link the belts as they wrap the globe to the cells turning in a slice through the atmosphere. Drag a latitude marker across either view, release a parcel and watch it close its loop around a Hadley, Ferrel or polar cell, and switch rotation off to see the three cells collapse into one.',
-        footerTags:  ['Three-Cell Model', 'Trade Winds & Westerlies', 'Jet Streams'],
+        description: 'An interactive tool to complement page 19 of the ESSRT. Drag a latitude marker across either view, release a parcel and watch it close its loop around a Hadley, Ferrel or polar cell.',
+        footerTags:  ['Trade Winds & Westerlies', 'Jet Streams'],
         to:          '/earthandspace/planetary-wind-belts',
         thumb:       '/planetary-wind-belts_thumbnail.png',
         status:      'live',
