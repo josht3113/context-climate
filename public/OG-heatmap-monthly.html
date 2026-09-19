@@ -112,6 +112,20 @@
     line-height: 1; white-space: nowrap;
   }
   .year-label-abs.hovered { color: #fff; }
+  /* A year whose data could not be fetched — its strip is blank, and the
+     label says so rather than leaving an unexplained gap. */
+  .year-label-abs.missing { color: #7a6a4a; text-decoration: line-through; }
+
+  /* Shown when some compare years could not be fetched. Deliberately a
+     line in the controls rather than an overlay on the canvas: the years
+     that DID load are worth looking at while the rest are retried. */
+  .compare-notice {
+    display: none; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-family: var(--font-label); font-size: 13px; color: #ffb38a;
+    border: 1px solid rgba(255,136,85,0.45); border-radius: var(--radius-md);
+    background: rgba(255,136,85,0.08); padding: 5px 10px; margin-bottom: 8px;
+  }
+  .compare-notice.on { display: flex; }
 
   .compare-empty {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
@@ -379,6 +393,11 @@
     <button class="cc-btn cc-btn-sm active" id="cmp-values-btn"    onclick="toggleCompareValues()">Values</button>
   </div>
 
+  <div class="compare-notice" id="compare-notice">
+    <span id="compare-notice-text"></span>
+    <button class="cc-btn cc-btn-sm" onclick="retryCompareYears()">Retry</button>
+  </div>
+
   <!-- Stat chips -->
   <div class="cc-stat-row">
     <div class="cc-stat-chip"><div class="cc-stat-label" id="sl-avg">Period Avg</div><div class="cc-stat-value" id="sv-avg" style="font-size:26px">—</div></div>
@@ -534,9 +553,12 @@ const TREND_POOL_DAYS = 3;
 // |t| below this is treated as indistinguishable from zero and the cell is
 // rendered desaturated. 2.0 is ~95% for these sample sizes.
 const TREND_T_THRESHOLD = 2.0;
-// How far a non-significant cell is blended back toward the page
-// background. 0 = invisible, 1 = untouched.
-const TREND_MASK_ALPHA = 0.28;
+// Significance is still computed and still reported in the tooltip, but it
+// is NOT used to fade the grid: on real station data at a 30-year range
+// most cells fall short of the threshold, and dimming them buried the
+// pattern the colours exist to show. The map draws every cell at full
+// saturation; hover says whether a cell's slope is distinguishable from
+// zero.
 // A cell needs at least this many years contributing before a slope is
 // computed at all.
 const TREND_MIN_YEARS = 10;
@@ -988,15 +1010,61 @@ function buildURL(stId, tz, y1, y2) {
     `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
 }
 
-async function fetchIEM(stId, tz, y1, y2) {
+// IEM's ASOS service sheds load with 503 when it is busy, and a multi-year
+// request takes tens of seconds, so a single bad roll of the dice used to
+// fail the whole view. 5xx / 429 / network drops are transient by
+// definition; retry them with exponential backoff before giving up. A 4xx
+// other than 429 is a real client error and is not retried.
+const FETCH_RETRIES     = 3;      // attempts after the first
+const FETCH_BACKOFF_MS  = 1200;   // doubled each attempt
+// Requests within one batch are sequential; this gap keeps the tool from
+// hammering a service that just told us it was busy.
+const FETCH_GAP_MS      = 400;
+
+function isTransientStatus(code) {
+  return code === 408 || code === 425 || code === 429 || (code >= 500 && code <= 599);
+}
+// A thrown fetch() (DNS, connection reset, CORS-shaped failure) has no
+// status; treat it as transient too, since those are usually momentary.
+function isTransientError(e) {
+  return !!(e && (e.transient || e.name === 'TypeError'));
+}
+
+async function fetchWithRetry(label, doFetch) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(FETCH_BACKOFF_MS * Math.pow(2, attempt - 1));
+    try {
+      return await doFetch();
+    } catch (e) {
+      lastErr = e;
+      if (!isTransientError(e)) throw e;
+      console.warn(`${label}: attempt ${attempt + 1} failed (${e.message}); retrying`);
+    }
+  }
+  throw lastErr;
+}
+
+async function fetchIEMOnce(stId, tz, y1, y2) {
   const resp = await fetch(buildURL(stId, tz, y1, y2));
-  if (!resp.ok) throw new Error(`IEM HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const err = new Error(`IEM HTTP ${resp.status}`);
+    err.transient = isTransientStatus(resp.status);
+    err.status = resp.status;
+    throw err;
+  }
   return resp.text();
+}
+async function fetchIEM(stId, tz, y1, y2) {
+  return fetchWithRetry(`IEM ${y1}-${y2}`, () => fetchIEMOnce(stId, tz, y1, y2));
 }
 
 // ── ACIS daily max/min — POST to data.rcc-acis.org/StnData ──
 // Uses FAA ID (drop leading K for US stations). Silently fails if station not found.
 async function fetchACISDaily(stId, y1, y2) {
+  return fetchWithRetry(`ACIS ${y1}-${y2}`, () => fetchACISDailyOnce(stId, y1, y2));
+}
+async function fetchACISDailyOnce(stId, y1, y2) {
   const acisId = stId.startsWith('K') ? stId.slice(1) : stId;
   const resp = await fetch('https://data.rcc-acis.org/StnData', {
     method:  'POST',
@@ -1008,7 +1076,12 @@ async function fetchACISDaily(stId, y1, y2) {
       elems: ['maxt', 'mint']
     })
   });
-  if (!resp.ok) throw new Error(`ACIS HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const err = new Error(`ACIS HTTP ${resp.status}`);
+    err.transient = isTransientStatus(resp.status);
+    err.status = resp.status;
+    throw err;
+  }
   return resp.json();
 }
 
@@ -1295,13 +1368,11 @@ function getTrendT(doy, h) {
   const v = climoData.trendT[activeField]?.[doy*24 + h];
   return (v == null || isNaN(v)) ? null : v;
 }
-// A trend cell whose slope is not distinguishable from zero is blended
-// back toward the page background, so the eye lands on the hours that are
-// actually changing rather than on noise.
-function isTrendMasked(doy, h) {
-  if (!TREND_FIELDS.includes(activeField)) return false;
+// Whether this cell's slope clears the significance threshold. Reported on
+// hover only -- see the note on TREND_T_THRESHOLD above.
+function isTrendSignificant(doy, h) {
   const t = getTrendT(doy, h);
-  return t === null || Math.abs(t) < TREND_T_THRESHOLD;
+  return t !== null && Math.abs(t) >= TREND_T_THRESHOLD;
 }
 
 // ── Official daily high/low — sourced from IEM max_tmpf / min_tmpf ──
@@ -1621,19 +1692,13 @@ function renderHeatmap() {
   }
 
   // Main grid (cols 0-30, rows 0-23)
-  const trendField = TREND_FIELDS.includes(activeField);
   for (let d = 0; d < 31; d++) {
     const x0 = Math.round(d * cw * dpr), x1 = Math.round((d+1) * cw * dpr);
     const doy = MONTH_START_DOY[activeMonth] + d;
     for (let h = 0; h < 24; h++) {
       const y0 = Math.round(h * ch * dpr), y1 = Math.round((h+1) * ch * dpr);
       const v  = (d < mDays) ? getGridValue(doy, h) : null;
-      let [r,g,b] = getColorRGB(v, scale);
-      if (trendField && v != null && isTrendMasked(doy, h)) {
-        r = Math.round(BG[0] + (r - BG[0]) * TREND_MASK_ALPHA);
-        g = Math.round(BG[1] + (g - BG[1]) * TREND_MASK_ALPHA);
-        b = Math.round(BG[2] + (b - BG[2]) * TREND_MASK_ALPHA);
-      }
+      const [r,g,b] = getColorRGB(v, scale);
       fillRect(x0, y0, x1, y1, r, g, b);
     }
   }
@@ -2043,7 +2108,18 @@ const COMPARE_FETCH_MAX_GAP = 5;
 // several smaller ones. A long run just gets split into sequential chunks
 // instead of one giant call. (Same fix applied to the Annual Heatmap tool
 // after "Last 30 Years" there was reported failing with "Failed to fetch".)
-const COMPARE_FETCH_MAX_SPAN = 15;
+// Lowered from 15 after Josh hit an IEM 503 on All Years. Measured against
+// the live service: a 1-year request returns promptly, a 5-year one takes
+// well over 30s, and a 15-year one is slower still -- long requests are
+// exactly what an overloaded IEM sheds with a 503. 8 roughly halves the
+// per-request cost without tripling the request count, and
+// fetchCompareGroup() splits further on its own if the service still
+// refuses, so this number is a starting point rather than a limit.
+const COMPARE_FETCH_MAX_SPAN = 8;
+// How many times a failing group may be halved before giving up on it.
+// 8 -> 4 -> 2 -> 1 is enough to reach single years from any group this
+// tool builds.
+const COMPARE_SPLIT_MAX_DEPTH = 4;
 
 function groupYearsForFetch(years) {
   const sorted = [...years].sort((a,b) => a-b);
@@ -2066,39 +2142,127 @@ function groupYearsForFetch(years) {
 // for a non-leap selected year is done at render/stat time via
 // getMonthDaysForYear()'s day-count cutoff, not by touching the fetched
 // grid itself.
-async function ensureCompareYearsData(years, onProgress) {
-  const missing = years.filter(y => !compareData.has(compareDataKey(y)));
-  if (!missing.length) return;
-  const groups = groupYearsForFetch(missing);
-  const st = STATIONS[activeStationId];
-  for (let i = 0; i < groups.length; i++) {
-    const g = groups[i];
-    const label = g.start === g.end ? `${g.start}` : `${g.start}–${g.end}`;
-    if (onProgress) onProgress(i, groups.length, label);
+// Fetches one contiguous year group. On a transient failure (a 503, a
+// timeout, a dropped connection) a multi-year group is HALVED and each
+// half retried, rather than retrying the same oversized request -- if the
+// service is refusing because the request is too big, asking again
+// unchanged just wastes time. A single year has nothing left to split, so
+// that is where the backoff retries live instead.
+// Returns { failed, errors } rather than throwing, so that a failure in
+// one half of a split does not abandon the other half. An earlier version
+// awaited the two halves in sequence and let the first one's exception
+// propagate, which silently discarded every year in the second half --
+// caught by the partial-failure test, where a whole 8-year group was
+// reported unavailable although half of it was obtainable.
+async function fetchCompareGroup(g, depth, onNote) {
+  const st   = STATIONS[activeStationId];
+  const span = g.end - g.start + 1;
+  const allYears = () => {
+    const out = [];
+    for (let y = g.start; y <= g.end; y++) out.push(y);
+    return out;
+  };
+  try {
     // ACIS is fetched in parallel and treated as non-fatal, exactly as
     // loadSingleYear does -- a station missing from ACIS still gets its
     // hourly grid, it just has no Diurnal Range.
     const [iemRes, acisRes] = await Promise.allSettled([
-      fetchIEM(activeStationId, st.tz, g.start, g.end),
+      span === 1 ? fetchIEM(activeStationId, st.tz, g.start, g.end)
+                 : fetchIEMOnce(activeStationId, st.tz, g.start, g.end),
       fetchACISDaily(activeStationId, g.start, g.end),
     ]);
     if (iemRes.status !== 'fulfilled') throw iemRes.reason;
-    const text = iemRes.value;
     if (acisRes.status === 'fulfilled') {
       const perYearEx = new Map();
       parseACISDaily(acisRes.value, null, null, perYearEx);
       for (const [year, ex] of perYearEx) compareExtremes.set(compareDataKey(year), ex);
     }
     const perYear = new Map();
-    parseCSVInto(text, g.start, g.end, null, null, perYear);
+    parseCSVInto(iemRes.value, g.start, g.end, null, null, perYear);
     for (const [year, grid] of perYear) {
       compareData.set(compareDataKey(year), grid);
       // Any derived daily array computed for this year before its grid
       // landed is stale -- drop it so the next read recomputes from data.
       for (const f of ALL_FIELDS) compareDailyCache.delete(`${activeStationId}_${year}_${f}`);
     }
+    // A year the service simply has no record for comes back absent rather
+    // than as an error; report it so it isn't silently blank.
+    const absent = allYears().filter(y => !compareData.has(compareDataKey(y)));
+    return { failed: absent, errors: absent.length ? ['no data returned'] : [] };
+  } catch (e) {
+    if (isTransientError(e) && span > 1 && depth < COMPARE_SPLIT_MAX_DEPTH) {
+      const mid = g.start + Math.floor((span - 1) / 2);
+      if (onNote) onNote(`${g.start}–${g.end} refused; splitting`);
+      const lo = await fetchCompareGroup({ start: g.start, end: mid }, depth + 1, onNote);
+      await sleep(FETCH_GAP_MS);
+      const hi = await fetchCompareGroup({ start: mid + 1, end: g.end }, depth + 1, onNote);
+      return { failed: [...lo.failed, ...hi.failed], errors: [...lo.errors, ...hi.errors] };
+    }
+    return { failed: allYears().filter(y => !compareData.has(compareDataKey(y))),
+             errors: [e.message || String(e)] };
   }
 }
+
+// Fetches every missing year, and reports rather than throws when some of
+// them could not be had. Returning the failures instead of aborting is what
+// lets the view render the years that DID load: previously one bad group
+// discarded the whole refresh, leaving the chips describing a selection the
+// canvas wasn't showing.
+async function ensureCompareYearsData(years, onProgress) {
+  const missing = years.filter(y => !compareData.has(compareDataKey(y)));
+  if (!missing.length) return { failed: [], errors: [] };
+  const groups = groupYearsForFetch(missing);
+  const failed = [], errors = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const label = g.start === g.end ? `${g.start}` : `${g.start}–${g.end}`;
+    if (onProgress) onProgress(i, groups.length, label);
+    if (i > 0) await sleep(FETCH_GAP_MS);
+    const res = await fetchCompareGroup(g, 0, note => {
+      if (onProgress) onProgress(i, groups.length, note);
+    });
+    if (res.failed.length) {
+      console.error(`Compare fetch incomplete for ${label}:`, res.errors);
+      failed.push(...res.failed);
+      errors.push(...res.errors);
+    }
+  }
+  return { failed, errors };
+}
+
+// Condenses a year list to runs, so 24 failures read as "1973–1996"
+// rather than a wall of numbers.
+function summarizeYears(years) {
+  if (!years.length) return '';
+  const sorted = [...years].sort((a, b) => a - b);
+  const runs = [];
+  let start = sorted[0], prev = sorted[0];
+  for (let i = 1; i <= sorted.length; i++) {
+    const y = sorted[i];
+    if (y === prev + 1) { prev = y; continue; }
+    runs.push(start === prev ? `${start}` : `${start}–${prev}`);
+    start = prev = y;
+  }
+  return runs.join(', ');
+}
+
+function showCompareNotice(failed, errors) {
+  const el = document.getElementById('compare-notice');
+  const tx = document.getElementById('compare-notice-text');
+  if (!el || !tx) return;
+  if (!failed.length) { el.classList.remove('on'); return; }
+  const why = errors.length ? ` (${[...new Set(errors)].join('; ')})` : '';
+  tx.textContent =
+    `${failed.length} year${failed.length > 1 ? 's' : ''} unavailable: ${summarizeYears(failed)}${why}`;
+  el.classList.add('on');
+}
+function hideCompareNotice() {
+  const el = document.getElementById('compare-notice');
+  if (el) el.classList.remove('on');
+}
+// Years that failed simply aren't in compareData, so a plain refresh
+// re-attempts exactly those and leaves the loaded ones alone.
+function retryCompareYears() { refreshCompareView(); }
 
 function renderCompareChips() {
   const wrap = document.getElementById('compare-year-chips');
@@ -2131,6 +2295,7 @@ async function refreshCompareView() {
 
   if (compareYears.length === 0) {
     document.getElementById('compare-empty').style.display = 'flex';
+    hideCompareNotice();
     recomputeCompareStripH();
     setupCanvas();
     renderHourLabels();
@@ -2144,22 +2309,31 @@ async function refreshCompareView() {
   document.getElementById('compare-empty').style.display = 'none';
 
   const missing = compareYears.filter(y => !compareData.has(compareDataKey(y)));
+  let failed = [], errors = [];
   if (missing.length) {
+    hideCompareNotice();
     showLoading(`Loading ${missing.length} year${missing.length>1?'s':''} from IEM…`);
     startFakeProgress();
     try {
-      await ensureCompareYearsData(missing, (i, total, label) => {
+      ({ failed, errors } = await ensureCompareYearsData(missing, (i, total, label) => {
         setProgress(Math.round((i/total)*90), `Fetching ${label}… (${i+1}/${total})`);
-      });
-      stopFakeProgress();
-      hideLoading();
+      }));
     } catch (e) {
-      stopFakeProgress();
-      showError(e.message);
+      // ensureCompareYearsData reports per-group failures rather than
+      // throwing, so reaching here means something unexpected broke.
       console.error(e);
-      return;
+      failed = missing.slice();
+      errors = [e.message || String(e)];
     }
+    stopFakeProgress();
+    hideLoading();
   }
+
+  // Render whatever arrived, even if some years didn't. Failing years stay
+  // selected and show as empty rows; the notice names them and offers a
+  // retry. Bailing out here is what previously left the chips claiming a
+  // selection the canvas wasn't drawing.
+  showCompareNotice(failed, errors);
 
   // Chips are already rendered above, so the header has its final height
   // and the fit measures against the layout the user will actually see.
@@ -2306,6 +2480,7 @@ function renderHourLabels() {
       el.style.top = ((ri + 0.5) * compareStripH) + 'px';
       el.style.fontSize = fontPx + 'px';
       el.textContent = compareLabelKeep(ri) ? String(year) : '';
+      if (!compareData.has(compareDataKey(year))) el.classList.add('missing');
       stack.appendChild(el);
     });
     cont.appendChild(stack);
@@ -2884,6 +3059,7 @@ function setMode(m) {
   document.getElementById('single-controls').style.display  = m === 'single' ? 'flex' : 'none';
   document.getElementById('climo-controls').style.display   = m === 'climatology' ? 'flex' : 'none';
   document.getElementById('compare-controls').style.display = m === 'compare' ? 'flex' : 'none';
+  if (m !== 'compare') hideCompareNotice();
 
   updateFieldButtons();
   // Sidebar layout depends on mode -- Compare mode stacks a label+24-hour
@@ -3141,9 +3317,8 @@ canvas.addEventListener('mousemove', e => {
     else if (f==='temp_z'||f==='td_z') { valStr=v.toFixed(2)+'σ'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
     else if (f==='temp_trend'||f==='td_trend') {
       valStr = (v>0?'+':'') + v.toFixed(2) + ' °F/dec';
-      const t = getTrendT(doy, h);
-      const sig = (t !== null && Math.abs(t) >= TREND_T_THRESHOLD);
-      detail = `${fromYear}–${toYear}  ·  ` + (sig ? 'significant' : 'not significant');
+      detail = `${fromYear}–${toYear}  ·  ` +
+               (isTrendSignificant(doy, h) ? 'significant' : 'not significant');
     }
   }
   const modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
@@ -3178,7 +3353,7 @@ function downloadPNG() {
   } else if (mode === 'climatology') {
     if (TREND_FIELDS.includes(activeField)) {
       period = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Trend`;
-      sub = `°F per decade  ·  ±${TREND_POOL_DAYS}-day pooled least squares  ·  faded cells |t| < ${TREND_T_THRESHOLD.toFixed(1)}`;
+      sub = `°F per decade  ·  ±${TREND_POOL_DAYS}-day pooled least squares`;
     } else {
       period = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Avg`;
       sub = `Hourly observations  ·  ${st.tzLabel} local time`;
