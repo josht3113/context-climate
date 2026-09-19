@@ -29,6 +29,7 @@ import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import ESSRT_15                    from './pages/ESSRT_15'
+import ESSRT_2                     from './pages/ESSRT_2'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
 import CloudFormationLab           from './pages/CloudFormationLab'
 import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
@@ -172,6 +173,7 @@ export default function App() {
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
           <Route path="/ESSRT_15"                            element={<ESSRT_15 />}                />
+          <Route path="/ESSRT_2"                             element={<ESSRT_2 />}                 />
           <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />}        />
           <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />}       />
           <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />}     />
