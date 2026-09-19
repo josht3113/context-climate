@@ -527,13 +527,18 @@ function buildBands() {
 // slowing into a belt boundary keeps building its trail instead of collapsing
 // to a dot, and the recycle threshold can drop far enough to let it get deep
 // into the bend first.
-const NT = 380, TRAIL_N = 90, STEP_DEG = 0.55, T_LIFE = 1400, STALL = 0.018;
+// Trail ARC LENGTH and tracer COUNT trade off against each other, and pushing
+// arc length to ~50 deg to chase curvature made it worse, not better: the field
+// thinned out and each trail got long enough to read as a straight line, since
+// most of its span sits inside one belt where the bearing is constant. Density
+// at a moderate arc reads as wind; a few long streaks read as scratches.
+const NT = 600, TRAIL_N = 44, STEP_DEG = 0.42, T_LIFE = 1400, STALL = 0.018;
 const trc = [];
 function resetT(t, init) {
-  // Uniform in LATITUDE, not uniform on the sphere. Uniform-on-sphere scatters
-  // points evenly over a globe but concentrates them near the equator, and the
-  // curvature worth seeing is at high latitude.
-  t.lat = Math.random()*168 - 84;
+  // Back to uniform on the sphere. Weighting toward the poles to chase
+  // curvature emptied out the trade-wind belts, which is where half the labels
+  // are — the curvature comes from trail length, not from where they start.
+  t.lat = Math.asin(Math.random()*2 - 1)/DEG;
   t.lon = Math.random()*360 - 180;
   t.age = init ? Math.random()*T_LIFE : 0;
   t.hist = [];
@@ -613,18 +618,31 @@ function drawGlobe() {
     if (t.hist.length < 2) continue;
     const fade = Math.min(1, t.age/70) * Math.max(0, 1 - Math.max(0, t.age-(T_LIFE-160))/160);
     if (fade < 0.02) continue;
-    ctx.beginPath(); let pen = false, lx = 0, ly = 0, px2 = 0, py2 = 0;
-    for (let i = 0; i < t.hist.length; i++) {
-      const [sx, sy, z] = gpt(t.hist[i][0], t.hist[i][1]);
-      if (z > 0.02) { pen ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); pen = true;
-        px2 = lx; py2 = ly; lx = sx; ly = sy; } else pen = false;
+    // Drawn in three alpha bands from tail to head rather than one flat stroke,
+    // so each trail reads as a streak going somewhere instead of a line lying
+    // across the globe. Three paths per tracer, not one per segment.
+    // Deliberately one neutral colour: tinting by pAnom put a colour
+    // discontinuity through the middle of the westerlies, where pAnom passes
+    // through zero. The belts are named by the boundary lines and the labels,
+    // and the faint band wash already carries high versus low.
+    const N = t.hist.length;
+    const BANDS = [[0.00, 0.40, 0.10], [0.36, 0.74, 0.26], [0.70, 1.00, 0.52]];
+    let lx = 0, ly = 0, px2 = 0, py2 = 0, tail = false;
+    ctx.lineWidth = 1.15;
+    for (const [f0, f1, alpha] of BANDS) {
+      const i0 = Math.floor(f0 * (N - 1)), i1 = Math.ceil(f1 * (N - 1));
+      ctx.beginPath(); let pen = false;
+      for (let i = i0; i <= i1; i++) {
+        const [sx, sy, z] = gpt(t.hist[i][0], t.hist[i][1]);
+        if (z > 0.02) {
+          pen ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); pen = true;
+          px2 = lx; py2 = ly; lx = sx; ly = sy; tail = true;
+        } else pen = false;
+      }
+      ctx.strokeStyle = `rgba(226,226,216,${alpha*fade})`;
+      ctx.stroke();
     }
-    // Deliberately one neutral colour. Tinting these by pAnom put a colour
-    // discontinuity right through the middle of the westerlies, where pAnom
-    // passes through zero — the belts are named by the boundary lines and the
-    // labels, and the faint band wash already carries high versus low.
-    ctx.strokeStyle = `rgba(226,226,216,${0.42*fade})`;
-    ctx.lineWidth = 1.05; ctx.stroke();
+    const pen = tail;
     if (pen && (lx !== px2 || ly !== py2)) arrowHead(ctx, px2, py2, lx, ly, 3.2,
       `rgba(236,236,226,${0.8*fade})`);
   }
