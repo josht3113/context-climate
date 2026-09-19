@@ -22,6 +22,15 @@ const SECTIONS = [
     accent: ACCENT.essrt,
     cards: [
       {
+        tags:        ['ESSRT', 'Page 2', 'Interactive'],
+        title:       'Solar System Objects Data Table',
+        description: 'Explore ESSRT page 2 interactively — show or hide the Sun, terrestrial and Jovian planets, the Moon, dwarf planets and Pallas, sort any column, switch to Earth = 1 units, and open any object to see its axial tilt and true orbit shape drawn from its own row of data.',
+        footerTags:  ['Planets', 'Orbital Eccentricity', 'Axial Tilt'],
+        to:          '/ESSRT_2',
+        thumb:       '/ESSRT_2_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Pages 6 & 7', 'Interactive'],
         title:       'Geologic History of New York State',
         description: 'Explore ESSRT pages 6–7 interactively with zoom and overlay functions, as well as information about key index fossils.',
