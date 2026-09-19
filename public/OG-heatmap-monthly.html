@@ -73,6 +73,7 @@
      even while disabled, waiting on a Multi-Year Avg to load. */
   .field-btn.anom-field:not(.active) { border-color: rgba(255,215,0,0.35); color: #D9CE8F; }
   .field-btn.anom-field:not(.active):hover:not(.disabled) { border-color: rgba(255,215,0,0.6); color: var(--gold); }
+  .field-btn.trend-field:not(.active):hover:not(.disabled) { border-color: rgba(255,215,0,0.6); color: var(--gold); }
   .field-btn.anom-field.disabled:not(.active) { opacity: 0.55; }
   @media (max-width: 760px) {
     .field-toggle { flex-wrap: wrap; }
@@ -86,6 +87,7 @@
   #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
 
   /* ── Compare Years — year chips + empty state ── */
+  .cc-btn.disabled { opacity: 0.4; pointer-events: none; }
   .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .compare-chip {
     display: inline-flex; align-items: center; gap: 4px;
@@ -99,6 +101,18 @@
     font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 50%;
   }
   .compare-chip button:hover { background: rgba(255,215,0,0.18); }
+  /* Daily-strip sidebar: year labels are absolutely positioned inside a
+     relative stack rather than laid out as flex rows, so a label can
+     overflow its own row's height without pushing the others around. That
+     is what lets the strips compress below label height. */
+  .year-label-stack { position: relative; width: 100%; }
+  .year-label-abs {
+    position: absolute; right: 9px; transform: translateY(-50%);
+    font-family: var(--font-label); font-weight: 700; color: var(--gold);
+    line-height: 1; white-space: nowrap;
+  }
+  .year-label-abs.hovered { color: #fff; }
+
   .compare-empty {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
     font-family: var(--font-label); font-size: 14px; color: var(--color-text-muted);
@@ -176,6 +190,9 @@
     <span id="title-period">2026</span>
     <span class="live-dot" id="live-dot" style="display:none" title="Live — refreshes every 10 min">●</span>
     <button class="cc-btn cc-btn-sm" onclick="downloadPNG()">↓ PNG</button>
+    <button class="cc-btn cc-btn-sm" onclick="downloadCSV('wide')">↓ CSV</button>
+    <button class="cc-btn cc-btn-sm" onclick="downloadCSV('long')">↓ CSV rows</button>
+    <button class="cc-btn cc-btn-sm" id="range-row-btn" onclick="toggleRangeRow()">Range Row</button>
     <a class="brand-pill" href="https://contextclimate.io" target="_blank">[ ] ContextClimate</a>
   </div>
 
@@ -385,6 +402,12 @@
       <button class="field-btn anom-field" id="fld-temp_z"    onclick="setField('temp_z')">Temp Std Dev</button>
       <button class="field-btn anom-field" id="fld-td_z"      onclick="setField('td_z')">Dew Std Dev</button>
     </div>
+    <div class="field-toggle-sep"></div>
+    <div class="field-group">
+      <button class="field-btn trend-field" id="fld-temp_trend" onclick="setField('temp_trend')">Temp Trend</button>
+      <button class="field-btn trend-field" id="fld-td_trend"   onclick="setField('td_trend')">Dew Trend</button>
+      <button class="field-btn trend-field" id="fld-dtr"        onclick="setField('dtr')">Diurnal Range</button>
+    </div>
   </div>
   <div class="anon-note" id="anon-note">Anomaly fields require the Multi-Year Avg to be loaded for this station first.</div>
 
@@ -437,11 +460,16 @@
 const CANVAS_HEIGHT = 504;    // 21 px × 24 rows
 const CELL_H        = 21;
 const CELL_W        = 29;   // fixed monthly cell width (px) — matches ISP monthly tool
-const FOOTER_ROWS   = 3;    // Avg, High, Low
-const FOOTER_H      = FOOTER_ROWS * CELL_H;   // 63 px
+// Avg / High / Low always; Range (High - Low) is opt-in, so the footer's
+// height is no longer a constant. Off by default -- the primary chart
+// looks exactly as it always has until the row is asked for.
+const FOOTER_ROWS_BASE = 3;
+let showRangeRow = false;
+function footerRows() { return showRangeRow ? FOOTER_ROWS_BASE + 1 : FOOTER_ROWS_BASE; }
+function footerH()    { return footerRows() * CELL_H; }
 const FOOTER_GAP    = 6;    // px of dark space between main grid and footer rows
 const AVG_GAP       = 5;    // px of dark space between main grid and avg column
-const TOTAL_H       = CANVAS_HEIGHT + FOOTER_GAP + FOOTER_H;   // 573 px
+function totalH()     { return CANVAS_HEIGHT + FOOTER_GAP + footerH(); }   // 573 px with 3 rows
 const TOTAL_W       = 31 * CELL_W + AVG_GAP + CELL_W;          // 933 px
 // Compare Years mode stacks one full hour-by-day-of-month grid (+ Avg
 // column, no High/Low footer -- that's ACIS daily data per selected year,
@@ -455,7 +483,19 @@ const COMPARE_BLOCK_GAP = 14; // px of dark space between one year's block and t
 // collapses to a single row of daily means, 31 columns + Avg, matching the
 // Annual tool's Compare Years shape. Year labels live in the left sidebar
 // rather than above each block, so rows stack flush with no gap.
-const COMPARE_STRIP_H  = 30;  // px per year row in the daily-mean strip view
+// The daily strip view fits itself to the viewport: row height is
+// available-height / year-count, clamped. MAX keeps a handful of years
+// looking like they always did; MIN is where a row stops reading as a
+// strip at all.
+const COMPARE_STRIP_H_MAX = 28;
+const COMPARE_STRIP_H_MIN = 4;
+// Below this row height a printed value no longer fits, so values are
+// suppressed regardless of the Values toggle.
+const COMPARE_VALUE_MIN_H = 16;
+// Year count past which the individual chips are replaced by one summary
+// chip -- at 30+ years the chips wrap to several rows and cost more
+// vertical space than the chart they describe.
+const COMPARE_CHIP_LIMIT = 12;
 const DEFAULT_CLIMO_FROM = 1991;
 const DEFAULT_CLIMO_TO   = 2020;
 const FIRST_YEAR    = 1973;
@@ -474,7 +514,32 @@ const MONTH_START_DOY = (() => {
 
 const BASE_FIELDS  = ['temp','td','clouds','wind'];
 const ANOM_FIELDS  = ['temp_anom','td_anom','temp_z','td_z'];
-const ALL_FIELDS   = [...BASE_FIELDS, ...ANOM_FIELDS];
+// Per-cell least-squares trend across the loaded Multi-Year Avg range, in
+// °F/decade. Offered for temperature and dewpoint only: ASOS automation
+// (roughly 1992-1996 at most sites) changed how cloud cover and wind are
+// measured, so a multi-decade "trend" in those two would largely be an
+// instrumentation artifact rather than weather.
+const TREND_FIELDS = ['temp_trend','td_trend'];
+// Daily high minus daily low, from the ACIS daily series. One value per
+// DAY, so it cannot fill the hour-resolved grid -- it is offered only
+// where a row already means "one value per day": Compare Years' daily
+// strips, and the optional Range footer row.
+const DAILY_ONLY_FIELDS = ['dtr'];
+const TREND_BASE   = { temp_trend:'temp', td_trend:'td' };
+const ALL_FIELDS   = [...BASE_FIELDS, ...ANOM_FIELDS, ...TREND_FIELDS, ...DAILY_ONLY_FIELDS];
+// Each cell's fit pools this many days either side of it at the same hour,
+// so a fit uses ~7x the observations a single cell would give. Without it
+// a slope from ~30-54 points per cell is dominated by noise.
+const TREND_POOL_DAYS = 3;
+// |t| below this is treated as indistinguishable from zero and the cell is
+// rendered desaturated. 2.0 is ~95% for these sample sizes.
+const TREND_T_THRESHOLD = 2.0;
+// How far a non-significant cell is blended back toward the page
+// background. 0 = invisible, 1 = untouched.
+const TREND_MASK_ALPHA = 0.28;
+// A cell needs at least this many years contributing before a slope is
+// computed at all.
+const TREND_MIN_YEARS = 10;
 // Which anomaly fields Compare Years can honestly show depends on its
 // detail setting:
 //   HOURLY -- every anomaly/std-dev field diffs against climoData at the
@@ -490,6 +555,9 @@ const ALL_FIELDS   = [...BASE_FIELDS, ...ANOM_FIELDS];
 const COMPARE_DAILY_ANOM_FIELDS = ['temp_anom', 'td_anom'];
 // True if `f` can be shown given the current mode + compare detail setting.
 function compareFieldAllowed(f) {
+  // Diurnal Range is one value per day, so it only exists where a row
+  // already means a day: Compare Years' daily strips.
+  if (DAILY_ONLY_FIELDS.includes(f)) return mode === 'compare' && compareDetail === 'daily';
   if (!ANOM_FIELDS.includes(f)) return true;
   if (mode === 'compare' && compareDetail === 'daily') return COMPARE_DAILY_ANOM_FIELDS.includes(f);
   return true;
@@ -502,6 +570,12 @@ function compareFieldFallback(f) {
   if (f === 'temp_z') return 'temp_anom';
   if (f === 'td_z')   return 'td_anom';
   return 'temp';
+}
+
+// Leaving Compare Years' daily view with Diurnal Range active has nowhere
+// to put it, so it falls back.
+function dailyOnlyFallback(f) {
+  return (DAILY_ONLY_FIELDS.includes(f) && !compareFieldAllowed(f)) ? 'temp' : f;
 }
 
 const GRID_SIZE = 366 * 24;
@@ -641,11 +715,19 @@ const SCALES = {
   td_anom:  { vals:[-30,-15,-5,0,5,15,30],                        cols:['#C8920A','#8C6208','#3D2A02','#2B2200','#2A3800','#4A6A00','#7DC840'] },
   temp_z:   { vals:[-5,-3,-2,-1.2,-0.5,0,0.5,1.2,2,3,5],         cols:['#FFB3C6','#6AAACF','#3E7AAA','#1E4A72','#0D2238','#0D1218','#38120A','#962010','#D03A18','#F05030','#FFE000'] },
   td_z:     { vals:[-5,-3,-2,-1.2,-0.5,0,0.5,1.2,2,3,5],         cols:['#FFB3C6','#68A8CC','#3C78A8','#1C4870','#0C2036','#0D1218','#38120A','#942010','#CC3816','#EE4E2E','#FFE000'] },
+  // °F/decade. Range is ±3 so a station with a strong local signal doesn't
+  // clip, while the ±0.3-1.0 values typical of a US record still read.
+  // Diurnal range, °F. Sequential: a compressed day (overcast, humid,
+  // windy) reads dark, a wide clear-sky swing reads bright.
+  dtr:      { vals:[0,6,12,18,24,32,45],                          cols:['#10181E','#1E3A52','#2E6E78','#4FA05A','#C8C83C','#E8862A','#FFE8C0'] },
+  temp_trend:{vals:[-3,-1.5,-0.8,-0.3,0,0.3,0.8,1.5,3],           cols:['#6AAACF','#3E7AAA','#1E4A72','#0D2238','#0D1218','#38120A','#962010','#D03A18','#FFE000'] },
+  td_trend:  {vals:[-3,-1.5,-0.8,-0.3,0,0.3,0.8,1.5,3],           cols:['#6AAACF','#3E7AAA','#1E4A72','#0D2238','#0D1218','#38120A','#962010','#D03A18','#FFE000'] },
 };
 
 const SCALE_LABELS = {
   temp:'°F', td:'°F', clouds:'', wind:'mph',
   temp_anom:'°F anomaly', td_anom:'°F anomaly', temp_z:'σ', td_z:'σ',
+  temp_trend:'°F/decade', td_trend:'°F/decade', dtr:'°F range',
 };
 
 const SKY_NUM = { CLR:1, SKC:1, FEW:2, SCT:3, BKN:4, OVC:5, VV:5 };
@@ -670,9 +752,21 @@ const climoCache = new Map(); // key: "stationId_from_to"
 // ACIS footer is intentionally not part of compare mode's per-year blocks).
 let compareYears = [];         // selected years, kept sorted ascending
 const compareData = new Map(); // key "stationId_year" -> hourly grid
+// Daily high/low per compare year, from ACIS. Fetched alongside the hourly
+// IEM data (one extra request per batch group) purely so Compare Years can
+// offer Diurnal Range against the same daily extremes the footer rows use,
+// rather than a differently-defined max-minus-min of hourly obs.
+const compareExtremes = new Map(); // key "stationId_year" -> { dayHigh, dayLow }
 // 'daily'  -> one daily-mean strip per year (default, matches Annual tool)
 // 'hourly' -> the full day x hour block per year
 let compareDetail = 'daily';
+// Current auto-fitted daily strip row height, recomputed by
+// recomputeCompareStripH() whenever the year count, mode, detail or
+// viewport changes. Never written directly anywhere else.
+let compareStripH = COMPARE_STRIP_H_MAX;
+// Row index under the cursor in the daily view, or -1. Drives which year
+// label is forced visible when labels have been thinned out.
+let compareHoverRow = -1;
 // Whether the daily strips / hourly blocks print their numeric value in
 // each cell. On by default; the monthly grid is only <=31 columns wide so
 // there is room for it, unlike the Annual tool's 366.
@@ -773,6 +867,27 @@ function makeClimoAccum() {
   for (const f of BASE_FIELDS) {
     a[f] = { sum: new Float64Array(GRID_SIZE), sum2: new Float64Array(GRID_SIZE), cnt: new Int32Array(GRID_SIZE) };
   }
+  // Year-regression sums, carried only for the fields that offer a trend.
+  // These ride along on the climatology pass -- the loaded Multi-Year Avg
+  // range IS the trend's fitting window, so no separate fetch exists.
+  //
+  // One observation per YEAR, not per reading: each year contributes the
+  // mean of its ±TREND_POOL_DAYS window at that hour (see flushYearBuf).
+  // Regressing the raw readings instead would inflate n roughly sevenfold
+  // with observations that are not independent of each other -- adjacent
+  // days at the same hour are strongly correlated -- which leaves the
+  // slope about right but makes its standard error far too small, so
+  // noise would pass the significance test. Collapsing to one value per
+  // year first keeps the residual degrees of freedom honest.
+  for (const tf of TREND_FIELDS) {
+    const bf = TREND_BASE[tf];
+    a[bf].tn  = new Int32Array(GRID_SIZE);     // years contributing
+    a[bf].sx  = new Float64Array(GRID_SIZE);   // Σ year
+    a[bf].sxx = new Float64Array(GRID_SIZE);   // Σ year²
+    a[bf].sy  = new Float64Array(GRID_SIZE);   // Σ window-mean
+    a[bf].syy = new Float64Array(GRID_SIZE);   // Σ window-mean²
+    a[bf].sxy = new Float64Array(GRID_SIZE);   // Σ year · window-mean
+  }
   a.dayHigh = { sum: new Float64Array(366), cnt: new Int32Array(366) };
   a.dayLow  = { sum: new Float64Array(366), cnt: new Int32Array(366) };
   return a;
@@ -798,6 +913,40 @@ function accumToStats(accum) {
     stats.mean[f] = mean;
     stats.sd[f]   = sd;
   }
+  // ── Per-cell trend, in °F/decade, with its t statistic ──
+  // Plain OLS of window-mean on year. `Sxx`/`Sxy`/`Syy` are the centred
+  // sums; the residual sum of squares follows as Syy - b*Sxy, and the
+  // slope's standard error from that over n-2 degrees of freedom. A cell
+  // with fewer than TREND_MIN_YEARS years, or with every year identical
+  // (Sxx = 0), yields NaN rather than a fabricated slope.
+  stats.trend  = {};
+  stats.trendT = {};
+  for (const tf of TREND_FIELDS) {
+    const bf = TREND_BASE[tf];
+    const a  = accum[bf];
+    const slope = new Float32Array(GRID_SIZE).fill(NaN);
+    const tstat = new Float32Array(GRID_SIZE).fill(NaN);
+    if (a && a.tn) {
+      for (let i = 0; i < GRID_SIZE; i++) {
+        const n = a.tn[i];
+        if (n < TREND_MIN_YEARS) continue;
+        const Sxx = a.sxx[i] - a.sx[i]*a.sx[i]/n;
+        if (!(Sxx > 0)) continue;
+        const Sxy = a.sxy[i] - a.sx[i]*a.sy[i]/n;
+        const Syy = a.syy[i] - a.sy[i]*a.sy[i]/n;
+        const b   = Sxy / Sxx;                 // °F per year
+        slope[i]  = b * 10;                    // °F per decade
+        const sse = Math.max(0, Syy - b*Sxy);
+        if (n > 2) {
+          const se = Math.sqrt((sse / (n - 2)) / Sxx);
+          tstat[i] = se > 0 ? (b / se) : NaN;
+        }
+      }
+    }
+    stats.trend[tf]  = slope;
+    stats.trendT[tf] = tstat;
+  }
+
   // Daily high/low climatological means (per DOY, size 366)
   stats.mean.dayHigh = new Float32Array(366);
   stats.mean.dayLow  = new Float32Array(366);
@@ -863,7 +1012,10 @@ async function fetchACISDaily(stId, y1, y2) {
   return resp.json();
 }
 
-function parseACISDaily(json, single, accum) {
+function parseACISDaily(json, single, accum, compareOut) {
+  // compareOut: Map of year -> { dayHigh, dayLow } Float32Array(366), or
+  // null. Compare Years needs real daily extremes for the Diurnal Range
+  // field, and ACIS returns a multi-year daily series in one request.
   if (!json || !Array.isArray(json.data)) return;
   for (const row of json.data) {
     if (!Array.isArray(row) || row.length < 3) continue;
@@ -884,6 +1036,15 @@ function parseACISDaily(json, single, accum) {
     if (accum) {
       if (!isNaN(hiV)) { accum.dayHigh.sum[doy] += hiV; accum.dayHigh.cnt[doy]++; }
       if (!isNaN(loV)) { accum.dayLow.sum[doy]  += loV; accum.dayLow.cnt[doy]++;  }
+    }
+    if (compareOut) {
+      let e = compareOut.get(yr);
+      if (!e) {
+        e = { dayHigh: new Float32Array(366).fill(NaN), dayLow: new Float32Array(366).fill(NaN) };
+        compareOut.set(yr, e);
+      }
+      if (!isNaN(hiV)) e.dayHigh[doy] = hiV;
+      if (!isNaN(loV)) e.dayLow[doy]  = loV;
     }
   }
 }
@@ -940,6 +1101,33 @@ function makeYearGrid() {
   return g;
 }
 
+// Adds one observation per cell for `yr`: the mean of that cell's
+// ±TREND_POOL_DAYS window at the SAME hour, taken from this year's own
+// despiked grid. The window is clamped at the ends of the year rather than
+// wrapped, so Jan 1 pools forward only and Dec 31 pools back only.
+function accumulateTrendYear(a, arr, yr) {
+  for (let h = 0; h < 24; h++) {
+    for (let doy = 0; doy < 366; doy++) {
+      const d0 = Math.max(0, doy - TREND_POOL_DAYS);
+      const d1 = Math.min(365, doy + TREND_POOL_DAYS);
+      let sum = 0, cnt = 0;
+      for (let d = d0; d <= d1; d++) {
+        const v = arr[d*24 + h];
+        if (!isNaN(v)) { sum += v; cnt++; }
+      }
+      if (!cnt) continue;
+      const wm = sum / cnt;
+      const i  = doy*24 + h;
+      a.tn[i]++;
+      a.sx[i]  += yr;
+      a.sxx[i] += yr*yr;
+      a.sy[i]  += wm;
+      a.syy[i] += wm*wm;
+      a.sxy[i] += yr*wm;
+    }
+  }
+}
+
 function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   // single:     makeSingleData() or null (climo/compare mode)
   // accum:      makeClimoAccum() or null (single/compare mode)
@@ -963,16 +1151,20 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     if (!yearBuf) return;
     despikeGrid(yearBuf);
     if (accum) {
+      const yr = yearBufYr;
       for (const f of BASE_FIELDS) {
         const arr = yearBuf[f];
+        const a   = accum[f];
+        const hasTrend = a.sx !== undefined;
         for (let i = 0; i < GRID_SIZE; i++) {
           const v = arr[i];
           if (!isNaN(v)) {
-            accum[f].sum[i]  += v;
-            accum[f].sum2[i] += v*v;
-            accum[f].cnt[i]++;
+            a.sum[i]  += v;
+            a.sum2[i] += v*v;
+            a.cnt[i]++;
           }
         }
+        if (hasTrend) accumulateTrendYear(a, arr, yr);
       }
     }
     if (compareOut) compareOut.set(yearBufYr, yearBuf);
@@ -1062,6 +1254,15 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
 function getGridValue(doy, h) {
   const idx = doy * 24 + h;
 
+  // Trend is a property of the loaded reference range, not of any single
+  // year, so it reads straight off climoData in whatever mode asks for it
+  // (only Multi-Year Avg offers the field -- see updateFieldButtons).
+  if (TREND_FIELDS.includes(activeField)) {
+    if (!climoData || !climoData.trend) return null;
+    const v = climoData.trend[activeField]?.[idx];
+    return (v == null || isNaN(v)) ? null : v;
+  }
+
   if (mode === 'climatology') {
     if (!climoData) return null;
     const v = climoData.mean[activeField]?.[idx];
@@ -1085,6 +1286,22 @@ function getGridValue(doy, h) {
   if (!singleData) return null;
   const v = singleData[activeField][idx];
   return isNaN(v) ? null : v;
+}
+
+// The t statistic behind the active trend cell, or null. Used only to
+// decide whether a cell is drawn at full saturation.
+function getTrendT(doy, h) {
+  if (!climoData || !climoData.trendT) return null;
+  const v = climoData.trendT[activeField]?.[doy*24 + h];
+  return (v == null || isNaN(v)) ? null : v;
+}
+// A trend cell whose slope is not distinguishable from zero is blended
+// back toward the page background, so the eye lands on the hours that are
+// actually changing rather than on noise.
+function isTrendMasked(doy, h) {
+  if (!TREND_FIELDS.includes(activeField)) return false;
+  const t = getTrendT(doy, h);
+  return t === null || Math.abs(t) < TREND_T_THRESHOLD;
 }
 
 // ── Official daily high/low — sourced from IEM max_tmpf / min_tmpf ──
@@ -1175,6 +1392,17 @@ function getCompareDailyArray(year, field) {
   if (cached) return cached;
 
   let arr;
+  if (field === 'dtr') {
+    const ex = compareExtremes.get(`${activeStationId}_${year}`);
+    arr = new Float32Array(366).fill(NaN);
+    if (!ex) return arr;   // ACIS missing for this year -- do not cache
+    for (let doy = 0; doy < 366; doy++) {
+      const hi = ex.dayHigh[doy], lo = ex.dayLow[doy];
+      arr[doy] = (isNaN(hi) || isNaN(lo)) ? NaN : hi - lo;
+    }
+    compareDailyCache.set(key, arr);
+    return arr;
+  }
   if (field === 'temp_anom' || field === 'td_anom') {
     const bf     = field === 'temp_anom' ? 'temp' : 'td';
     const actual = getCompareDailyArray(year, bf);
@@ -1233,12 +1461,83 @@ function compareBlockH() { return COMPARE_LABEL_H + CANVAS_HEIGHT; }
 // itself separately no-ops on an empty selection).
 function compareCanvasHeight() {
   const n = Math.max(compareYears.length, 1);
-  if (compareDetail === 'daily') return n * COMPARE_STRIP_H;
+  if (compareDetail === 'daily') return n * compareStripH;
   return n * compareBlockH() + (n - 1) * COMPARE_BLOCK_GAP;
 }
 
+// Whether the daily strips currently have room to print a value per cell.
+function compareValuesVisible() {
+  return compareShowValues && compareStripH >= COMPARE_VALUE_MIN_H;
+}
+
+// Fits the daily strip stack into whatever vertical room is left below the
+// controls. Measures the live layout rather than assuming a fixed header
+// height, because the controls themselves grow and shrink (the year chips
+// wrap, the anomaly note appears and disappears). Must run AFTER the chips
+// are rendered and BEFORE setupCanvas(), or it fits against a stale header.
+function recomputeCompareStripH() {
+  if (mode !== 'compare' || compareDetail !== 'daily') return;
+  const n = compareYears.length;
+  if (!n) { compareStripH = COMPARE_STRIP_H_MAX; return; }
+  const box = document.querySelector('.canvas-container');
+  const foot = document.querySelector('.footer');
+  if (!box || !foot) return;
+  const top = box.getBoundingClientRect().top + window.scrollY;
+  // Reserve for what sits below the canvas. This has to be measured from
+  // real elements, NOT from documentElement.scrollHeight: when the page is
+  // shorter than the window scrollHeight clamps to the window height, so a
+  // scrollHeight-based reserve silently absorbs all the free space and the
+  // fit can then only ever shrink -- a ratchet that pins every year count
+  // to the minimum row height.
+  const canvasBottom = top + canvas.offsetHeight;
+  const footBottom   = foot.getBoundingClientRect().bottom + window.scrollY;
+  const bodyPadBottom = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+  const below = Math.max(0, footBottom - canvasBottom) + bodyPadBottom + 4;
+  const avail = window.innerHeight - top - below;
+  compareStripH = Math.max(COMPARE_STRIP_H_MIN,
+                  Math.min(COMPARE_STRIP_H_MAX, Math.floor(avail / n)));
+
+  // Correction pass. The calculation above is a couple of pixels
+  // optimistic in practice -- the canvas is an inline element, so its
+  // container carries a line box below it, and sub-pixel rounding moves
+  // the rest. Rather than pad with a guessed fudge factor, apply the
+  // candidate height, measure the real overflow, and shrink until it is
+  // gone. Only ever shrinks, so it cannot fight the estimate above.
+  const prevH = canvas.style.height;
+  for (let i = 0; i < 4; i++) {
+    canvas.style.height = (n * compareStripH) + 'px';
+    const over = document.documentElement.scrollHeight - window.innerHeight;
+    if (over <= 0 || compareStripH <= COMPARE_STRIP_H_MIN) break;
+    compareStripH = Math.max(COMPARE_STRIP_H_MIN,
+                             compareStripH - Math.max(1, Math.ceil(over / n)));
+  }
+  canvas.style.height = prevH;
+}
+
+// Year-label spacing for the daily sidebar: the smallest round step whose
+// spacing clears label height, so labels thin to every 2nd / 5th / 10th
+// year as the strips compress instead of overlapping into a smear.
+function compareLabelStep() {
+  for (const step of [1, 2, 5, 10]) {
+    if (compareStripH * step >= 11) return step;
+  }
+  return 10;
+}
+
+// Which rows get a label. Every `step`th row, plus the last one so the span
+// is readable -- but only if the last row is far enough from the previous
+// kept one to not collide with it.
+function compareLabelKeep(ri) {
+  const step = compareLabelStep();
+  if (ri % step === 0) return true;
+  const last = compareYears.length - 1;
+  if (ri !== last) return false;
+  const prevKept = last - (last % step);
+  return (last - prevKept) * compareStripH >= 11;
+}
+
 function setupCanvas() {
-  const H = mode === 'compare' ? compareCanvasHeight() : TOTAL_H;
+  const H = mode === 'compare' ? compareCanvasHeight() : totalH();
   canvas.style.width  = TOTAL_W + 'px';
   canvas.style.height = H + 'px';
   canvas.width  = Math.round(TOTAL_W * dpr);
@@ -1291,10 +1590,19 @@ function renderHeatmap() {
   }
 
   // Corner cells (avg col × each footer row)
-  let avgOfAvg=null, avgOfHigh=null, avgOfLow=null;
+  // Range row: high - low per day, from the same ACIS series the two rows
+  // above it use, so it is exactly the difference of what is displayed.
+  const rangeRowVals = new Array(31).fill(null);
+  for (let d = 0; d < mDays; d++) {
+    const hi = highRowVals[d], lo = lowRowVals[d];
+    rangeRowVals[d] = (hi != null && lo != null && !isNaN(hi) && !isNaN(lo)) ? hi - lo : null;
+  }
+
+  let avgOfAvg=null, avgOfHigh=null, avgOfLow=null, avgOfRange=null;
   { let s=0,c=0; for(let d=0;d<mDays;d++){const v=avgRowVals[d]; if(v!=null&&!isNaN(v)){s+=v;c++;}} avgOfAvg=c?s/c:null; }
   { let s=0,c=0; for(let d=0;d<mDays;d++){const v=highRowVals[d];if(v!=null&&!isNaN(v)){s+=v;c++;}} avgOfHigh=c?s/c:null; }
   { let s=0,c=0; for(let d=0;d<mDays;d++){const v=lowRowVals[d]; if(v!=null&&!isNaN(v)){s+=v;c++;}} avgOfLow=c?s/c:null; }
+  { let s=0,c=0; for(let d=0;d<mDays;d++){const v=rangeRowVals[d];if(v!=null&&!isNaN(v)){s+=v;c++;}} avgOfRange=c?s/c:null; }
 
   // ── Fill canvas: start with page background ──
   const img  = ctx.createImageData(pw, ph);
@@ -1313,13 +1621,19 @@ function renderHeatmap() {
   }
 
   // Main grid (cols 0-30, rows 0-23)
+  const trendField = TREND_FIELDS.includes(activeField);
   for (let d = 0; d < 31; d++) {
     const x0 = Math.round(d * cw * dpr), x1 = Math.round((d+1) * cw * dpr);
     const doy = MONTH_START_DOY[activeMonth] + d;
     for (let h = 0; h < 24; h++) {
       const y0 = Math.round(h * ch * dpr), y1 = Math.round((h+1) * ch * dpr);
       const v  = (d < mDays) ? getGridValue(doy, h) : null;
-      const [r,g,b] = getColorRGB(v, scale);
+      let [r,g,b] = getColorRGB(v, scale);
+      if (trendField && v != null && isTrendMasked(doy, h)) {
+        r = Math.round(BG[0] + (r - BG[0]) * TREND_MASK_ALPHA);
+        g = Math.round(BG[1] + (g - BG[1]) * TREND_MASK_ALPHA);
+        b = Math.round(BG[2] + (b - BG[2]) * TREND_MASK_ALPHA);
+      }
       fillRect(x0, y0, x1, y1, r, g, b);
     }
   }
@@ -1336,11 +1650,12 @@ function renderHeatmap() {
 
   // Footer rows — separated by FOOTER_GAP
   const footerData = [
-    { vals: avgRowVals,  corner: avgOfAvg,  sc: scale  },
-    { vals: highRowVals, corner: avgOfHigh, sc: tempSc },
-    { vals: lowRowVals,  corner: avgOfLow,  sc: tempSc },
+    { vals: avgRowVals,   corner: avgOfAvg,   sc: scale  },
+    { vals: highRowVals,  corner: avgOfHigh,  sc: tempSc },
+    { vals: lowRowVals,   corner: avgOfLow,   sc: tempSc },
+    { vals: rangeRowVals, corner: avgOfRange, sc: SCALES.dtr },
   ];
-  for (let fi = 0; fi < FOOTER_ROWS; fi++) {
+  for (let fi = 0; fi < footerRows(); fi++) {
     const { vals, corner, sc } = footerData[fi];
     const fy0 = CANVAS_HEIGHT + FOOTER_GAP + fi * ch;
     const y0  = Math.round(fy0 * dpr), y1 = Math.round((fy0 + ch) * dpr);
@@ -1381,7 +1696,7 @@ function renderHeatmap() {
     ctx.lineTo(AVG_X + cw, y + 0.5);
   }
   // Footer row internal column dividers
-  for (let fi = 0; fi < FOOTER_ROWS; fi++) {
+  for (let fi = 0; fi < footerRows(); fi++) {
     const fy = Math.round(CANVAS_HEIGHT + FOOTER_GAP + fi * ch);
     for (let d = 1; d < 31; d++) {
       const x = Math.round(d * cw);
@@ -1395,7 +1710,7 @@ function renderHeatmap() {
   ctx.strokeStyle = 'rgba(0,0,0,0.22)';
   ctx.lineWidth = 0.5;
   ctx.beginPath();
-  for (let fi = 1; fi < FOOTER_ROWS; fi++) {
+  for (let fi = 1; fi < footerRows(); fi++) {
     const fy = Math.round(CANVAS_HEIGHT + FOOTER_GAP + fi * ch);
     ctx.moveTo(0, fy + 0.5);
     ctx.lineTo(TOTAL_W, fy + 0.5);
@@ -1407,7 +1722,7 @@ function renderHeatmap() {
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(GRID_W + 0.5, 0);
-  ctx.lineTo(GRID_W + 0.5, TOTAL_H);
+  ctx.lineTo(GRID_W + 0.5, totalH());
   ctx.stroke();
 
   // Bright separator: main grid ↔ footer rows
@@ -1432,11 +1747,11 @@ function renderHeatmap() {
   const footerY0 = CANVAS_HEIGHT + FOOTER_GAP;
   ctx.strokeStyle = 'rgba(255,255,255,0.85)';
   ctx.lineWidth = 1.5;
-  ctx.strokeRect(0.75, footerY0 + 0.75, TOTAL_W - 1.5, FOOTER_H - 1.5);
+  ctx.strokeRect(0.75, footerY0 + 0.75, TOTAL_W - 1.5, footerH() - 1.5);
 
   // ── Cell values ──
   renderCellValues(cw, ch, mDays, avgColVals, avgRowVals, highRowVals, lowRowVals,
-                   avgOfAvg, avgOfHigh, avgOfLow, AVG_X);
+                   avgOfAvg, avgOfHigh, avgOfLow, rangeRowVals, avgOfRange, AVG_X);
 }
 
 // Compare mode's renderer: one full grid+Avg-column block per selected
@@ -1601,12 +1916,12 @@ function renderCompareHeatmap() {
 // Compare Years' DAILY renderer: one 31-column strip of daily means per
 // selected year, plus that year's month-mean Avg cell, stacked flush.
 // Year labels live in the sidebar (renderHourLabels) rather than being
-// drawn above each row, so N years cost exactly N * COMPARE_STRIP_H px.
+// drawn above each row, so N years cost exactly N * compareStripH px.
 function renderCompareStrips() {
   const pw = canvas.width, ph = canvas.height;
   if (!compareYears.length) { ctx.clearRect(0, 0, pw, ph); return; }
 
-  const cw     = CELL_W, sh = COMPARE_STRIP_H;
+  const cw     = CELL_W, sh = compareStripH;
   const GRID_W = 31 * cw;
   const AVG_X  = GRID_W + AVG_GAP;
   const scale  = SCALES[activeField];
@@ -1680,7 +1995,7 @@ function renderCompareStrips() {
   ctx.strokeRect(0.75, 0.75, GRID_W - 1.5, stackH - 1.5);
   ctx.strokeRect(AVG_X + 0.75, 0.75, cw - 1.5, stackH - 1.5);
 
-  if (!compareShowValues) return;
+  if (!compareValuesVisible()) return;
 
   // ── Cell value text ──
   ctx.save();
@@ -1760,7 +2075,20 @@ async function ensureCompareYearsData(years, onProgress) {
     const g = groups[i];
     const label = g.start === g.end ? `${g.start}` : `${g.start}–${g.end}`;
     if (onProgress) onProgress(i, groups.length, label);
-    const text = await fetchIEM(activeStationId, st.tz, g.start, g.end);
+    // ACIS is fetched in parallel and treated as non-fatal, exactly as
+    // loadSingleYear does -- a station missing from ACIS still gets its
+    // hourly grid, it just has no Diurnal Range.
+    const [iemRes, acisRes] = await Promise.allSettled([
+      fetchIEM(activeStationId, st.tz, g.start, g.end),
+      fetchACISDaily(activeStationId, g.start, g.end),
+    ]);
+    if (iemRes.status !== 'fulfilled') throw iemRes.reason;
+    const text = iemRes.value;
+    if (acisRes.status === 'fulfilled') {
+      const perYearEx = new Map();
+      parseACISDaily(acisRes.value, null, null, perYearEx);
+      for (const [year, ex] of perYearEx) compareExtremes.set(compareDataKey(year), ex);
+    }
     const perYear = new Map();
     parseCSVInto(text, g.start, g.end, null, null, perYear);
     for (const [year, grid] of perYear) {
@@ -1775,6 +2103,21 @@ async function ensureCompareYearsData(years, onProgress) {
 function renderCompareChips() {
   const wrap = document.getElementById('compare-year-chips');
   wrap.innerHTML = '';
+
+  // Past COMPARE_CHIP_LIMIT the individual chips wrap to several rows and
+  // eat more vertical space than the chart itself, so they collapse to one
+  // summary chip. Individual removal goes away at that count; Clear and the
+  // presets are the way back.
+  if (compareYears.length > COMPARE_CHIP_LIMIT) {
+    const lo = compareYears[0], hi = compareYears[compareYears.length - 1];
+    const chip = document.createElement('span');
+    chip.className = 'compare-chip';
+    chip.innerHTML = `${lo}–${hi} · ${compareYears.length} yrs ` +
+      `<button type="button" aria-label="Clear all years" onclick="clearCompareYears()">×</button>`;
+    wrap.appendChild(chip);
+    return;
+  }
+
   for (const year of compareYears) {
     const chip = document.createElement('span');
     chip.className = 'compare-chip';
@@ -1788,6 +2131,7 @@ async function refreshCompareView() {
 
   if (compareYears.length === 0) {
     document.getElementById('compare-empty').style.display = 'flex';
+    recomputeCompareStripH();
     setupCanvas();
     renderHourLabels();
     renderDayLabels();
@@ -1817,6 +2161,9 @@ async function refreshCompareView() {
     }
   }
 
+  // Chips are already rendered above, so the header has its final height
+  // and the fit measures against the layout the user will actually see.
+  recomputeCompareStripH();
   setupCanvas();
   renderHourLabels();
   renderDayLabels();
@@ -1825,6 +2172,7 @@ async function refreshCompareView() {
   updateTitle();
   updateFieldButtons();
   updateStats();
+  updateCompareValuesBtn();
 }
 
 function onAddCompareYear() {
@@ -1876,6 +2224,7 @@ function setCompareDetail(d) {
   updateFieldButtons();
 
   if (mode !== 'compare') return;
+  recomputeCompareStripH();
   setupCanvas();
   renderHourLabels();
   renderDayLabels();
@@ -1883,13 +2232,40 @@ function setCompareDetail(d) {
   if (fieldChanged) renderLegend();
   updateTitle();
   updateStats();
+  updateCompareValuesBtn();
+}
+
+// Opt-in fourth footer row: daily high minus daily low. Changes the
+// canvas height, so the canvas has to be resized, not just redrawn.
+function toggleRangeRow() {
+  showRangeRow = !showRangeRow;
+  const btn = document.getElementById('range-row-btn');
+  if (btn) btn.classList.toggle('active', showRangeRow);
+  setupCanvas();
+  renderHourLabels();
+  renderActiveHeatmap();
+  syncURL();
 }
 
 // Numbers-in-cells toggle for Compare Years (both detail views).
 function toggleCompareValues() {
   compareShowValues = !compareShowValues;
-  document.getElementById('cmp-values-btn').classList.toggle('active', compareShowValues);
+  updateCompareValuesBtn();
+  syncURL();
   if (mode === 'compare' && compareYears.length) renderCompareHeatmap();
+}
+
+// The daily strips stop having room for a printed value once they compress
+// past COMPARE_VALUE_MIN_H, so the button goes inert and says why rather
+// than silently doing nothing.
+function updateCompareValuesBtn() {
+  const btn = document.getElementById('cmp-values-btn');
+  if (!btn) return;
+  const noRoom = mode === 'compare' && compareDetail === 'daily' &&
+                 compareYears.length > 0 && compareStripH < COMPARE_VALUE_MIN_H;
+  btn.classList.toggle('active', compareShowValues && !noRoom);
+  btn.classList.toggle('disabled', noRoom);
+  btn.title = noRoom ? 'Rows are too short to fit values at this many years' : '';
 }
 
 function renderLegend() {
@@ -1913,19 +2289,27 @@ function renderHourLabels() {
   cont.innerHTML = '<div class="hour-labels-spacer"></div>';
 
   if (mode === 'compare' && compareDetail === 'daily') {
-    // Daily view: one gold year label per strip, flush-stacked. The rows
-    // carry no internal hour structure, so the sidebar is just N labels at
-    // COMPARE_STRIP_H each -- must match compareCanvasHeight() exactly or
-    // the labels drift out of line with the canvas rows.
-    for (const year of compareYears) {
+    // Daily view: year labels absolutely positioned at each row's centre
+    // inside a stack the exact height of the canvas, so a label can be
+    // taller than its own row. Once the strips compress past label height
+    // the labels thin to every 2nd/5th/10th year (compareLabelStep); the
+    // hovered row's label is always drawn on top of that.
+    const stack = document.createElement('div');
+    stack.className = 'year-label-stack';
+    stack.id = 'year-label-stack';
+    stack.style.height = (compareYears.length * compareStripH) + 'px';
+    const fontPx = Math.max(9, Math.min(13, compareStripH));
+    compareYears.forEach((year, ri) => {
       const el = document.createElement('div');
-      el.className = 'hour-label';
-      el.style.height     = COMPARE_STRIP_H + 'px';
-      el.style.color      = '#FFD700';
-      el.style.fontWeight = '700';
-      el.textContent      = String(year);
-      cont.appendChild(el);
-    }
+      el.className = 'year-label-abs';
+      el.dataset.row = String(ri);
+      el.style.top = ((ri + 0.5) * compareStripH) + 'px';
+      el.style.fontSize = fontPx + 'px';
+      el.textContent = compareLabelKeep(ri) ? String(year) : '';
+      stack.appendChild(el);
+    });
+    cont.appendChild(stack);
+    applyCompareHoverLabel();
     return;
   }
 
@@ -1968,10 +2352,11 @@ function renderHourLabels() {
   cont.appendChild(gap);
   // Footer row labels
   const footerLabels = [
-    { text: 'Avg',  color: '#FFD700' },
-    { text: 'High', color: '#ff8855' },
-    { text: 'Low',  color: '#88ccff' },
-  ];
+    { text: 'Avg',   color: '#FFD700' },
+    { text: 'High',  color: '#ff8855' },
+    { text: 'Low',   color: '#88ccff' },
+    { text: 'Range', color: '#b6e08a' },
+  ].slice(0, footerRows());
   for (const { text, color } of footerLabels) {
     const el = document.createElement('div');
     el.className = 'hour-label';
@@ -1981,6 +2366,26 @@ function renderHourLabels() {
     el.textContent  = text;
     cont.appendChild(el);
   }
+}
+
+// Forces the hovered row's year label visible even when labels have been
+// thinned, and un-forces the previous one. Touches only textContent and a
+// class, so it is cheap enough to run on every mousemove.
+function applyCompareHoverLabel() {
+  const stack = document.getElementById('year-label-stack');
+  if (!stack) return;
+  for (const el of stack.children) {
+    const ri = parseInt(el.dataset.row, 10);
+    const hovered = ri === compareHoverRow;
+    el.textContent = (compareLabelKeep(ri) || hovered) ? String(compareYears[ri]) : '';
+    el.classList.toggle('hovered', hovered);
+  }
+}
+
+function setCompareHoverRow(ri) {
+  if (ri === compareHoverRow) return;
+  compareHoverRow = ri;
+  applyCompareHoverLabel();
 }
 
 function renderDayLabels() {
@@ -2026,11 +2431,13 @@ function formatCellValue(v) {
   if (f === 'wind')                          return Math.round(v);
   if (f === 'temp_anom' || f === 'td_anom') { const r = Math.round(v); return (r >= 0 ? '+' : '') + r; }
   if (f === 'temp_z'    || f === 'td_z')    return v.toFixed(1);
+  if (f === 'temp_trend'|| f === 'td_trend'){ const r = v.toFixed(1); return (v >= 0 ? '+' : '') + r; }
+  if (f === 'dtr')                          return String(Math.round(v));
   return '';
 }
 
 function renderCellValues(cw, ch, mDays, avgColVals, avgRowVals, highRowVals, lowRowVals,
-                           avgOfAvg, avgOfHigh, avgOfLow, AVG_X) {
+                           avgOfAvg, avgOfHigh, avgOfLow, rangeRowVals, avgOfRange, AVG_X) {
   ctx.save();
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'middle';
@@ -2073,13 +2480,16 @@ function renderCellValues(cw, ch, mDays, avgColVals, avgRowVals, highRowVals, lo
   }
 
   // ── Footer rows ──
-  const footerRows = [
-    { vals: avgRowVals,  corner: avgOfAvg,  useTemp: false },
-    { vals: highRowVals, corner: avgOfHigh, useTemp: true  },
-    { vals: lowRowVals,  corner: avgOfLow,  useTemp: true  },
+  // Named footerRowDefs, not footerRows: footerRows() is the function that
+  // says how many rows are showing, and a local of the same name shadowed it.
+  const footerRowDefs = [
+    { vals: avgRowVals,   corner: avgOfAvg,   useTemp: false },
+    { vals: highRowVals,  corner: avgOfHigh,  useTemp: true  },
+    { vals: lowRowVals,   corner: avgOfLow,   useTemp: true  },
+    { vals: rangeRowVals, corner: avgOfRange, useTemp: true  },
   ];
-  for (let fi = 0; fi < FOOTER_ROWS; fi++) {
-    const { vals, corner, useTemp } = footerRows[fi];
+  for (let fi = 0; fi < footerRows(); fi++) {
+    const { vals, corner, useTemp } = footerRowDefs[fi];
     const cy   = CANVAS_HEIGHT + FOOTER_GAP + (fi + 0.5) * CELL_H;
     const fmt  = v => (v == null || isNaN(v)) ? null
                     : useTemp ? String(Math.round(v))
@@ -2107,6 +2517,8 @@ function formatStat(v) {
   if (f==='wind')                    return Math.round(v) + ' mph';
   if (f==='temp_anom'||f==='td_anom'){ const r=Math.round(v); return (r>0?'+':'')+r+'°'; }
   if (f==='temp_z'||f==='td_z')      return v.toFixed(2) + 'σ';
+  if (f==='temp_trend'||f==='td_trend') return (v>0?'+':'') + v.toFixed(2);
+  if (f==='dtr')                        return Math.round(v) + '°';
   return String(Math.round(v));
 }
 
@@ -2391,13 +2803,20 @@ async function loadClimatology(fy, ty) {
 // UI UPDATE HELPERS
 // ═══════════════════════════════════════════════════════════
 function updateTitle() {
+  // Every state change already refreshes the header, so this is the single
+  // hook that keeps the address bar in step without threading a syncURL()
+  // call through a dozen handlers. The two pure-view toggles (Values, Range
+  // Row) don't touch the title and call syncURL() themselves.
+  syncURL();
   const st = STATIONS[activeStationId];
   document.getElementById('title-station').textContent = st.label;
   document.getElementById('footer-tz').textContent = st.tzLabel + ' Local Time';
   if (mode === 'single') {
     document.getElementById('title-period').textContent = `${MONTHS_FULL[activeMonth]} ${currentYear}`;
   } else if (mode === 'climatology') {
-    document.getElementById('title-period').textContent = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Avg`;
+    document.getElementById('title-period').textContent = TREND_FIELDS.includes(activeField)
+      ? `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Trend`
+      : `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Avg`;
   } else {
     document.getElementById('title-period').textContent = compareYears.length
       ? `${MONTHS_FULL[activeMonth]} · Comparing ${compareYears.length} Year${compareYears.length>1?'s':''}`
@@ -2413,7 +2832,18 @@ function updateFieldButtons() {
   for (const f of ALL_FIELDS) {
     const btn = document.getElementById('fld-' + f);
     if (!btn) continue;
-    const isAnom = ANOM_FIELDS.includes(f);
+    const isAnom  = ANOM_FIELDS.includes(f);
+    const isTrend = TREND_FIELDS.includes(f);
+
+    // A trend describes the loaded reference range as a whole, so it is
+    // only meaningful in Multi-Year Avg -- there is no "this year's trend".
+    if (isTrend) {
+      btn.style.display = inClimo ? '' : 'none';
+      btn.classList.toggle('disabled', !climoData);
+      btn.classList.toggle('active', f === activeField);
+      btn.title = climoData ? '' : 'Load a Multi-Year Avg range first';
+      continue;
+    }
 
     // Hide anomaly buttons in climatology mode. Compare mode's HOURLY
     // detail supports all 4 (its blocks keep full hourly detail, so
@@ -2441,6 +2871,9 @@ function setMode(m) {
   mode = m;
   // Anomaly fields only in single/compare modes; switch away if needed
   if (m === 'climatology' && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
+  // Trend fields only in climatology mode; switch away if leaving it
+  if (m !== 'climatology' && TREND_FIELDS.includes(activeField)) activeField = 'temp';
+  if (m !== 'compare') activeField = dailyOnlyFallback(activeField);
   // Entering Compare's daily view with a std-dev field active: degrade it
   // to the matching anomaly field rather than showing a dishonest z-score.
   if (m === 'compare') activeField = compareFieldFallback(activeField);
@@ -2462,7 +2895,7 @@ function setMode(m) {
   // branch -- redundant there, but harmless.)
   //
   // The canvas ELEMENT has to be resized here for the same reason: its
-  // height is mode-dependent (compareCanvasHeight() vs the fixed TOTAL_H),
+  // height is mode-dependent (compareCanvasHeight() vs totalH()),
   // and setMode() was never calling setupCanvas(), so leaving Compare Years
   // left the canvas at the compare stack's height -- Single Year and
   // Multi-Year Avg then drew into a canvas far taller or shorter than their
@@ -2484,8 +2917,11 @@ function setMode(m) {
 }
 
 function setField(f) {
-  const isAnom = ANOM_FIELDS.includes(f);
+  const isAnom  = ANOM_FIELDS.includes(f);
+  const isTrend = TREND_FIELDS.includes(f);
   if (isAnom && mode === 'climatology') return;
+  if (isTrend && mode !== 'climatology') return;
+  if (isTrend && !climoData) return;
   if (!compareFieldAllowed(f)) return;
 
   activeField = f;
@@ -2497,6 +2933,10 @@ function setField(f) {
     loadClimatology(fromYear, toYear);
     return;
   }
+
+  // The header distinguishes "1991-2020 Avg" from "1991-2020 Trend", so it
+  // has to follow the field, not just the mode.
+  updateTitle();
 
   if (mode === 'compare') {
     if (compareYears.length) { renderCompareHeatmap(); renderLegend(); updateStats(); }
@@ -2590,12 +3030,13 @@ canvas.addEventListener('mousemove', e => {
   if (mode === 'compare' && compareDetail === 'daily') {
     if (!compareYears.length) { tooltip.style.display='none'; return; }
     const totalH = compareCanvasHeight();
-    if (mx < 0 || mx > TOTAL_W || my < 0 || my > totalH) { tooltip.style.display='none'; return; }
+    if (mx < 0 || mx > TOTAL_W || my < 0 || my > totalH) { setCompareHoverRow(-1); tooltip.style.display='none'; return; }
     // Suppress tooltip in avg column — values are labelled directly
-    if (mx > 31 * CELL_W) { tooltip.style.display='none'; return; }
+    if (mx > 31 * CELL_W) { setCompareHoverRow(-1); tooltip.style.display='none'; return; }
 
-    const ri = Math.floor(my / COMPARE_STRIP_H);
-    if (ri < 0 || ri >= compareYears.length) { tooltip.style.display='none'; return; }
+    const ri = Math.floor(my / compareStripH);
+    if (ri < 0 || ri >= compareYears.length) { setCompareHoverRow(-1); tooltip.style.display='none'; return; }
+    setCompareHoverRow(ri);
     const year = compareYears[ri];
     const col  = Math.min(30, Math.floor(mx / CELL_W));
     // Past this year's own February length -- that cell is dark, not data
@@ -2612,6 +3053,7 @@ canvas.addEventListener('mousemove', e => {
       else if (f==='clouds')             { valStr = v.toFixed(1)+' / 5'; }
       else if (f==='wind')               { valStr = Math.round(v)+' mph'; }
       else if (f==='temp_anom'||f==='td_anom') { const r=Math.round(v); valStr=(r>0?'+':'')+r+'°F'; detail='daily mean vs. '+fromYear+'–'+toYear+' avg'; }
+      else if (f==='dtr')                { valStr = Math.round(v)+'°F'; detail='daily high − low'; }
     }
     document.getElementById('tt-value').textContent  = valStr;
     document.getElementById('tt-detail').textContent = detail;
@@ -2675,7 +3117,7 @@ canvas.addEventListener('mousemove', e => {
   }
 
   // Full canvas bounds check
-  if (mx < 0 || mx > TOTAL_W || my < 0 || my > TOTAL_H) { tooltip.style.display='none'; return; }
+  if (mx < 0 || mx > TOTAL_W || my < 0 || my > totalH()) { tooltip.style.display='none'; return; }
   // Suppress tooltip in avg column and footer rows — values are labelled directly
   if (mx > 31 * CELL_W || my > CANVAS_HEIGHT) { tooltip.style.display='none'; return; }
 
@@ -2697,6 +3139,12 @@ canvas.addEventListener('mousemove', e => {
     else if (f==='wind')               { valStr = Math.round(v)+' mph'; }
     else if (f==='temp_anom'||f==='td_anom') { const r=Math.round(v); valStr=(r>0?'+':'')+r+'°F'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
     else if (f==='temp_z'||f==='td_z') { valStr=v.toFixed(2)+'σ'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
+    else if (f==='temp_trend'||f==='td_trend') {
+      valStr = (v>0?'+':'') + v.toFixed(2) + ' °F/dec';
+      const t = getTrendT(doy, h);
+      const sig = (t !== null && Math.abs(t) >= TREND_T_THRESHOLD);
+      detail = `${fromYear}–${toYear}  ·  ` + (sig ? 'significant' : 'not significant');
+    }
   }
   const modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
   document.getElementById('tt-value').textContent  = valStr;
@@ -2710,7 +3158,7 @@ canvas.addEventListener('mousemove', e => {
   tooltip.style.left = tx + 'px';
   tooltip.style.top  = ty + 'px';
 });
-canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; });
+canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; setCompareHoverRow(-1); });
 
 // ═══════════════════════════════════════════════════════════
 // DOWNLOAD PNG
@@ -2720,15 +3168,21 @@ function downloadPNG() {
   if (mode === 'compare' && !compareYears.length) { alert('Add at least one year to export.'); return; }
 
   const fLabel = { temp:'Temperature', td:'Dewpoint', clouds:'Cloud Cover', wind:'Wind Speed',
-                   temp_anom:'Temp Anomaly', td_anom:'Dew Anomaly', temp_z:'Temp Std Dev', td_z:'Dew Std Dev' }[activeField];
+                   temp_anom:'Temp Anomaly', td_anom:'Dew Anomaly', temp_z:'Temp Std Dev', td_z:'Dew Std Dev',
+                   temp_trend:'Temp Trend', td_trend:'Dew Trend' }[activeField];
 
   let period, sub;
   if (mode === 'single') {
     period = `${MONTHS_FULL[activeMonth]} ${currentYear}`;
     sub = ANOM_FIELDS.includes(activeField) ? `Anomaly vs. ${fromYear}–${toYear} reference` : `Hourly observations  ·  ${st.tzLabel} local time`;
   } else if (mode === 'climatology') {
-    period = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Avg`;
-    sub = `Hourly observations  ·  ${st.tzLabel} local time`;
+    if (TREND_FIELDS.includes(activeField)) {
+      period = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Trend`;
+      sub = `°F per decade  ·  ±${TREND_POOL_DAYS}-day pooled least squares  ·  faded cells |t| < ${TREND_T_THRESHOLD.toFixed(1)}`;
+    } else {
+      period = `${MONTHS_FULL[activeMonth]} ${fromYear}–${toYear} Avg`;
+      sub = `Hourly observations  ·  ${st.tzLabel} local time`;
+    }
   } else {
     period = `${MONTHS_FULL[activeMonth]} · Compare ${compareYears[0]}–${compareYears[compareYears.length-1]}`;
     const grain = compareDetail === 'daily' ? 'Daily means' : 'Hourly observations';
@@ -2802,10 +3256,13 @@ function downloadPNG() {
     // ── Year labels, one per strip, in the left label column ──
     oc.textAlign    = 'right';
     oc.textBaseline = 'middle';
-    oc.font         = 'bold 12px "Barlow Condensed", sans-serif';
+    oc.font         = `bold ${Math.max(9, Math.min(12, compareStripH))}px "Barlow Condensed", sans-serif`;
     oc.fillStyle    = '#FFD700';
     compareYears.forEach((year, ri) => {
-      oc.fillText(String(year), canvasX - 6, HDR + DBAR + (ri + 0.5) * COMPARE_STRIP_H);
+      // Same thinning as the on-screen sidebar -- at full compression the
+      // labels would otherwise overprint each other in the export too.
+      if (!compareLabelKeep(ri)) return;
+      oc.fillText(String(year), canvasX - 6, HDR + DBAR + (ri + 0.5) * compareStripH);
     });
     oc.textAlign = 'left';
 
@@ -2866,9 +3323,9 @@ function downloadPNG() {
       oc.fillText(HOURS[h], hLabelX, HDR + DBAR + (h + 0.5) * CELL_H);
     }
     // Footer row labels
-    const footerLabelColors = ['#FFD700', '#ff8855', '#88ccff'];
-    const footerLabelTexts  = ['Avg', 'High', 'Low'];
-    for (let fi = 0; fi < FOOTER_ROWS; fi++) {
+    const footerLabelColors = ['#FFD700', '#ff8855', '#88ccff', '#b6e08a'];
+    const footerLabelTexts  = ['Avg', 'High', 'Low', 'Range'];
+    for (let fi = 0; fi < footerRows(); fi++) {
       oc.fillStyle = footerLabelColors[fi];
       oc.fillText(footerLabelTexts[fi], hLabelX,
                   HDR + DBAR + CANVAS_HEIGHT + FOOTER_GAP + (fi + 0.5) * CELL_H);
@@ -2925,6 +3382,244 @@ function downloadPNG() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// URL STATE
+// ═══════════════════════════════════════════════════════════
+// Every view is addressable, so a particular station/month/field/selection
+// can be linked to directly. Written with replaceState so panning around
+// the tool doesn't fill the browser's back stack.
+let urlSyncReady = false;   // suppressed until init has applied any incoming state
+
+function syncURL() {
+  if (!urlSyncReady) return;
+  const p = new URLSearchParams();
+  p.set('st', activeStationId);
+  p.set('m',  mode);
+  p.set('mo', String(activeMonth));
+  p.set('f',  activeField);
+  if (mode === 'single')      p.set('y', String(currentYear));
+  if (mode !== 'compare')     { p.set('cf', String(fromYear)); p.set('ct', String(toYear)); }
+  if (mode === 'climatology') { p.set('cf', String(fromYear)); p.set('ct', String(toYear)); }
+  if (mode === 'compare') {
+    if (compareYears.length) p.set('cy', compareYears.join(','));
+    p.set('cd', compareDetail);
+    p.set('cv', compareShowValues ? '1' : '0');
+  }
+  if (showRangeRow) p.set('rr', '1');
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
+}
+
+// Applies any state carried in the query string. Returns true if it set a
+// mode other than the default, so init() knows which loader to call.
+function applyURL() {
+  const p = new URLSearchParams(location.search);
+  if (![...p.keys()].length) return false;
+
+  const st = p.get('st');
+  if (st && STATIONS[st]) activeStationId = st;
+
+  const mo = parseInt(p.get('mo'), 10);
+  if (!isNaN(mo) && mo >= 0 && mo <= 11) activeMonth = mo;
+
+  const y = parseInt(p.get('y'), 10);
+  if (!isNaN(y) && y >= FIRST_YEAR && y <= CURRENT_YEAR) currentYear = y;
+
+  const cf = parseInt(p.get('cf'), 10), ct = parseInt(p.get('ct'), 10);
+  if (!isNaN(cf) && !isNaN(ct) && cf <= ct && cf >= FIRST_YEAR && ct <= CURRENT_YEAR) {
+    fromYear = cf; toYear = ct;
+  }
+
+  const cy = p.get('cy');
+  if (cy) {
+    const years = cy.split(',').map(v => parseInt(v, 10))
+      .filter(v => !isNaN(v) && v >= FIRST_YEAR && v <= CURRENT_YEAR);
+    compareYears = [...new Set(years)].sort((a, b) => a - b);
+  }
+
+  const cd = p.get('cd');
+  if (cd === 'daily' || cd === 'hourly') compareDetail = cd;
+  if (p.get('cv') === '0') compareShowValues = false;
+  if (p.get('rr') === '1') showRangeRow = true;
+
+  const m = p.get('m');
+  if (m === 'single' || m === 'climatology' || m === 'compare') mode = m;
+
+  // Field last: whether it is legal depends on the mode and detail above.
+  const f = p.get('f');
+  if (f && ALL_FIELDS.includes(f)) activeField = f;
+
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CSV EXPORT
+// ═══════════════════════════════════════════════════════════
+function csvEscape(v) {
+  if (v == null) return '';
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function csvNum(v) {
+  if (v == null || isNaN(v)) return '';
+  return Math.round(v * 100) / 100;
+}
+function csvDate(year, d) {
+  return `${year}-${String(activeMonth + 1).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
+}
+
+// Wide: the grid as displayed — rows are hours, columns are days. Long: one
+// row per observation, for pivoting.
+function buildCSVWide() {
+  const rows = [];
+  const mDaysAll = mode === 'compare'
+    ? (compareYears.length ? Math.max(...compareYears.map(getMonthDaysForYear)) : 0)
+    : getMonthDays();
+  const dayCols = [];
+  for (let d = 0; d < mDaysAll; d++) dayCols.push(d + 1);
+
+  if (mode === 'compare' && compareDetail === 'daily') {
+    rows.push(['year', ...dayCols, 'Avg']);
+    for (const year of compareYears) {
+      const nDays = getMonthDaysForYear(year);
+      const cells = [];
+      let sum = 0, cnt = 0;
+      for (let d = 0; d < mDaysAll; d++) {
+        const v = d < nDays ? getCompareDailyValue(year, MONTH_START_DOY[activeMonth] + d) : null;
+        cells.push(csvNum(v));
+        if (v != null) { sum += v; cnt++; }
+      }
+      rows.push([year, ...cells, cnt ? csvNum(sum / cnt) : '']);
+    }
+    return rows;
+  }
+
+  if (mode === 'compare') {
+    // Hourly detail: one block of 24 rows per year, year in the first column
+    rows.push(['year', 'hour', ...dayCols, 'Avg']);
+    for (const year of compareYears) {
+      const nDays = getMonthDaysForYear(year);
+      for (let h = 0; h < 24; h++) {
+        const cells = [];
+        let sum = 0, cnt = 0;
+        for (let d = 0; d < mDaysAll; d++) {
+          const v = d < nDays ? getCompareValue(year, MONTH_START_DOY[activeMonth] + d, h) : null;
+          cells.push(csvNum(v));
+          if (v != null) { sum += v; cnt++; }
+        }
+        rows.push([year, h, ...cells, cnt ? csvNum(sum / cnt) : '']);
+      }
+    }
+    return rows;
+  }
+
+  const mDays = getMonthDays();
+  rows.push(['hour', ...dayCols, 'Avg']);
+  for (let h = 0; h < 24; h++) {
+    const cells = [];
+    let sum = 0, cnt = 0;
+    for (let d = 0; d < mDays; d++) {
+      const v = getGridValue(MONTH_START_DOY[activeMonth] + d, h);
+      cells.push(csvNum(v));
+      if (v != null) { sum += v; cnt++; }
+    }
+    rows.push([h, ...cells, cnt ? csvNum(sum / cnt) : '']);
+  }
+
+  // Footer rows, exactly the ones on screen
+  const footerNames = ['Avg', 'High', 'Low', 'Range'].slice(0, footerRows());
+  for (let fi = 0; fi < footerNames.length; fi++) {
+    const cells = [];
+    let sum = 0, cnt = 0;
+    for (let d = 0; d < mDays; d++) {
+      const doy = MONTH_START_DOY[activeMonth] + d;
+      let v = null;
+      if (fi === 0) {
+        let s = 0, c = 0;
+        for (let h = 0; h < 24; h++) { const g = getGridValue(doy, h); if (g != null) { s += g; c++; } }
+        v = c ? s / c : null;
+      } else if (fi === 1) v = getDailyHigh(doy);
+      else if (fi === 2) v = getDailyLow(doy);
+      else {
+        const hi = getDailyHigh(doy), lo = getDailyLow(doy);
+        v = (hi != null && lo != null) ? hi - lo : null;
+      }
+      cells.push(csvNum(v));
+      if (v != null) { sum += v; cnt++; }
+    }
+    rows.push([footerNames[fi], ...cells, cnt ? csvNum(sum / cnt) : '']);
+  }
+  return rows;
+}
+
+function buildCSVLong() {
+  const rows = [];
+  const st = STATIONS[activeStationId];
+  const period = mode === 'single' ? String(currentYear)
+               : mode === 'climatology' ? `${fromYear}-${toYear}`
+               : 'compare';
+
+  if (mode === 'compare' && compareDetail === 'daily') {
+    rows.push(['station', 'period', 'year', 'date', 'field', 'value']);
+    for (const year of compareYears) {
+      for (let d = 0; d < getMonthDaysForYear(year); d++) {
+        const v = getCompareDailyValue(year, MONTH_START_DOY[activeMonth] + d);
+        if (v == null) continue;
+        rows.push([activeStationId, period, year, csvDate(year, d), activeField, csvNum(v)]);
+      }
+    }
+    return rows;
+  }
+
+  rows.push(['station', 'period', 'year', 'date', 'hour', 'field', 'value']);
+
+  if (mode === 'compare') {
+    for (const year of compareYears) {
+      for (let d = 0; d < getMonthDaysForYear(year); d++) {
+        for (let h = 0; h < 24; h++) {
+          const v = getCompareValue(year, MONTH_START_DOY[activeMonth] + d, h);
+          if (v == null) continue;
+          rows.push([activeStationId, period, year, csvDate(year, d), h, activeField, csvNum(v)]);
+        }
+      }
+    }
+    return rows;
+  }
+
+  // Climatology rows have no single calendar year, so the year column is
+  // left blank and the date carries month-day only.
+  const yearCol = mode === 'single' ? currentYear : '';
+  for (let d = 0; d < getMonthDays(); d++) {
+    for (let h = 0; h < 24; h++) {
+      const v = getGridValue(MONTH_START_DOY[activeMonth] + d, h);
+      if (v == null) continue;
+      const date = mode === 'single'
+        ? csvDate(currentYear, d)
+        : `${String(activeMonth + 1).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
+      rows.push([activeStationId, period, yearCol, date, h, activeField, csvNum(v)]);
+    }
+  }
+  return rows;
+}
+
+function downloadCSV(shape) {
+  if (mode === 'compare' && !compareYears.length) { alert('Add at least one year to export.'); return; }
+  const rows = shape === 'long' ? buildCSVLong() : buildCSVWide();
+  const text = rows.map(r => r.map(csvEscape).join(',')).join('\n') + '\n';
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const periodSlug = mode === 'single' ? String(currentYear)
+                   : mode === 'climatology' ? `${fromYear}-${toYear}`
+                   : (compareYears.length > 6
+                       ? `${compareYears[0]}-${compareYears[compareYears.length-1]}_${compareYears.length}yr`
+                       : compareYears.join('-'));
+  const link = document.createElement('a');
+  link.download = `monthly-heatmap-${activeStationId}-${activeField}-${MONTHS_SHORT[activeMonth]}_${periodSlug}-${shape}.csv`;
+  link.href = url;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
 function init() {
@@ -2959,19 +3654,43 @@ function init() {
   fromSel.value = fromYear;
   toSel.value   = toYear;
 
+  // Restore anything carried in the query string, then mirror it into the
+  // controls BEFORE the first render so nothing flashes the default view.
+  applyURL();
+  document.getElementById('station-select').value = activeStationId;
+  monthSelSingle.value  = activeMonth;
+  monthSelClimo.value   = activeMonth;
+  monthSelCompare.value = activeMonth;
+  document.getElementById('year-select').value = currentYear;
+  document.getElementById('from-year').value   = fromYear;
+  document.getElementById('to-year').value     = toYear;
+  document.getElementById('cmp-detail-daily').classList.toggle('active',  compareDetail === 'daily');
+  document.getElementById('cmp-detail-hourly').classList.toggle('active', compareDetail === 'hourly');
+  document.getElementById('range-row-btn').classList.toggle('active', showRangeRow);
+
   requestAnimationFrame(() => {
     setupCanvas();
     renderHourLabels();
     renderDayLabels();
     renderLegend();
-    updateTitle();
     updateFieldButtons();
-    loadSingleYear(currentYear);
+    urlSyncReady = true;
+    // setMode() is the single path that sizes the canvas, lays out the
+    // sidebar, shows the right controls and kicks the right loader, so the
+    // restored mode goes through it rather than duplicating that here.
+    setMode(mode);
   });
 
   window.addEventListener('resize', () => {
     dpr = window.devicePixelRatio || 1;
+    // The daily strips are fitted to the viewport, so a resize changes how
+    // tall each row should be, not just the backing-store scale.
+    recomputeCompareStripH();
     setupCanvas();
+    if (mode === 'compare' && compareDetail === 'daily') {
+      renderHourLabels();
+      updateCompareValuesBtn();
+    }
     renderDayLabels();
     renderLegend();
     const hasData = mode === 'single' ? !!singleData
