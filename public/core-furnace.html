@@ -167,6 +167,24 @@
     .timeline-caption { font-size:13px; color:var(--color-text-secondary); line-height:1.55; margin-top:10px; }
     .timeline-caption strong { color:var(--color-text-primary); font-weight:600; }
 
+    /* ESSRT p.2 comparison row */
+    .timeline-tabs { display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+    .tl-div { width:1px; height:21px; background:var(--color-border); flex:0 0 auto; }
+    .tl-row-label {
+      display:none; font-family:var(--font-mono); font-size:12px;
+      letter-spacing:.09em; text-transform:uppercase;
+      color:var(--color-text-muted); margin:0 0 5px;
+    }
+    .tl-row-label.show { display:block; }
+    .tl-row-label.second { margin-top:13px; }
+    #essrtBar { display:none; }
+    #essrtBar.show { display:flex; }
+    .essrt-seg.merged { outline:1.5px solid #D67E60; outline-offset:-1.5px; }
+    .essrt-seg.merged { text-shadow:0 0 3px rgba(255,248,235,.75); }
+    .essrt-note { display:none; }
+    .essrt-note.show { display:block; }
+    .essrt-note b { color:#D67E60; font-weight:600; }
+
     .collapse-zone { margin-top:22px; }
     .collapse-prompt, .collapse-result {
       display:none; background:var(--color-surface);
@@ -283,13 +301,24 @@
 
   <div class="timeline-head">
     <span class="cc-eyebrow">How long each stage lasts</span>
-    <div class="cc-segmented" id="scaleTabs">
-      <button class="cc-segmented-btn is-active" data-scale="log">Log scale</button>
-      <button class="cc-segmented-btn" data-scale="true">True scale</button>
+    <div class="timeline-tabs">
+      <div class="cc-segmented" id="refTabs">
+        <button class="cc-segmented-btn is-active" data-ref="real">Real stages</button>
+        <button class="cc-segmented-btn" data-ref="essrt">ESSRT p.&#8202;2</button>
+      </div>
+      <span class="tl-div"></span>
+      <div class="cc-segmented" id="scaleTabs">
+        <button class="cc-segmented-btn is-active" data-scale="log">Log scale</button>
+        <button class="cc-segmented-btn" data-scale="true">True scale</button>
+      </div>
     </div>
   </div>
+  <p class="tl-row-label" id="realLabel">The Core Furnace &#183; 7 stages</p>
   <div class="timeline-bar" id="timelineBar"></div>
+  <p class="tl-row-label second" id="essrtLabel">ESSRT p.&#8202;2 &#183; 6 rows</p>
+  <div class="timeline-bar" id="essrtBar"></div>
   <p class="timeline-caption" id="timelineCaption"></p>
+  <p class="timeline-caption essrt-note" id="essrtNote"></p>
 
   <div class="collapse-zone">
     <div class="collapse-prompt" id="collapsePrompt">
@@ -437,6 +466,29 @@ var MASSIVE = {
   shells:[ {s:0,r:168},{s:1,r:145},{s:2,r:124},{s:3,r:105},{s:4,r:87},{s:5,r:68},{s:6,r:44} ],
   alpha:[0.28,0.33,0.38,0.44,0.50,0.60,0.86]
 };
+
+/* ══ ESSRT p.2 MAPPING ════════════════════════════════════════════════
+   The 2026 reference table prints SIX rows over what are really SEVEN
+   stages. `slots` maps each printed row onto the MASSIVE stage indices it
+   covers. Only one row is not a straight match: C -> O merges carbon
+   burning with neon burning, and names a product that neither of them
+   makes. The printed durations are fine (600 yr + 1 yr vs 600 years); it
+   is the chemistry that is wrong. */
+var ESSRT_ROWS = [
+  { label:'H \u2192 He',      dur:'7\u00d710\u2076 years', slots:[0] },
+  { label:'He \u2192 C',      dur:'7\u00d710\u2075 years', slots:[1] },
+  { label:'C \u2192 O',       dur:'600 years',   slots:[2,3], merged:true },
+  { label:'O \u2192 Si',      dur:'6 months',    slots:[4] },
+  { label:'Si \u2192 Fe',     dur:'1 day',       slots:[5] },
+  { label:'Core Collapse', dur:'1/4 second', slots:[6] }
+];
+
+var ESSRT_NOTE =
+  'Six printed rows over seven real stages. <b>C \u2192 O</b> is one row covering two of ' +
+  'them \u2014 carbon burning (600 yr) and neon burning (1 yr) \u2014 and it names a product ' +
+  'neither of them makes: \u00b9\u00b2C + \u00b9\u00b2C gives \u00b2\u2070Ne + \u03b1, or \u00b2\u00b3Na + p. The oxygen came ' +
+  'from helium burning, and later from neon. <strong>The durations hold up</strong>: ' +
+  '600 yr + 1 yr against the printed 600 years.';
 
 /* ══ THE SUN — 1 M☉ ═══════════════════════════════════════════════════ */
 var LOCK = function(ring, label, sub, needT, why){
@@ -1692,7 +1744,7 @@ function drawHill(ctx, S){
 
 /* ══ STATE ════════════════════════════════════════════════════════════ */
 var S = {
-  star: SUN, slot: 0, p: 0, playing: !REDUCED, tab: 'curve', scaleMode: 'log',
+  star: SUN, slot: 0, p: 0, playing: !REDUCED, tab: 'curve', scaleMode: 'log', ref: 'real',
   legend: false, journey: false, endPlaying: false, endDone: false, endStart: 0,
   ringAlpha: [0,0,0,0,0,0,0], curveLevel: [1,0,0,0,0,0,0], last: 0
 };
@@ -1710,6 +1762,7 @@ var rgtX = setupCanvas(document.getElementById('rightCanvas'),   RGT_W, RGT_H);
 
 var $ = function(id){ return document.getElementById(id); };
 var stepperEl = $('stepperButtons'), timelineEl = $('timelineBar'), starBarEl = $('starBar');
+var essrtEl = $('essrtBar');
 
 function drawLegend(ctx){
   ctx.fillStyle = 'rgba(30,35,32,0.94)'; ctx.fillRect(0, 0, CHM_W, SC_BOT+2);
@@ -1786,6 +1839,13 @@ function buildSlots(){
       timelineEl.appendChild(sg);
     })(i);
   }
+  essrtEl.innerHTML = '';
+  for (var r = 0; r < ESSRT_ROWS.length; r++){
+    var eg = document.createElement('div');
+    eg.className = 'timeline-seg essrt-seg' + (ESSRT_ROWS[r].merged ? ' merged' : '');
+    eg.dataset.row = r;
+    essrtEl.appendChild(eg);
+  }
 }
 
 function setStar(key){
@@ -1809,8 +1869,9 @@ function setStar(key){
     b[i].disabled = false;
     b[i].title = stg.on ? '' : ('The Sun never reaches ' + stg.needT);
   }
+  $('refTabs').style.display = (key === 'massive') ? '' : 'none';
   setSlot(0);
-  layoutTimeline();
+  setRef(S.ref);
 }
 
 function setSlot(i){
@@ -1830,6 +1891,7 @@ function setSlot(i){
   var segs = timelineEl.querySelectorAll('.timeline-seg');
   for (k = 0; k < segs.length; k++)
     segs[k].classList.toggle('active', Number(segs[k].dataset.index) === i);
+  markEssrtActive(i);
 
   $('rvTemp').textContent = stg.on ? stg.temp : ('needs ' + stg.needT);
   $('rvTemp').style.color = stg.accent;
@@ -1858,8 +1920,7 @@ function setSlot(i){
   $('resultTitle').style.color = S.star.endingCol;
   $('resultSub').textContent = S.star.endingSub;
 
-  var h = '#s=' + S.star.key + ',' + i;
-  if (location.hash !== h) history.replaceState(null, '', h);
+  writeHash();
 }
 
 function updateRightNote(){
@@ -1890,16 +1951,73 @@ function layoutTimeline(){
   }
 
   var segs = timelineEl.querySelectorAll('.timeline-seg'), off2 = -1.6;
+  var slotVal = function(k){
+    var st = S.star.stages[k];
+    if (!st.on || st.noTime) return 0;
+    return S.scaleMode === 'true' ? st.seconds : (lg(st.seconds) - off2);
+  };
   for (i = 0; i < NSLOT; i++){
     var stg = S.star.stages[i];
     if (!stg.on || stg.noTime){ segs[i].style.flex = '0 0 0%'; segs[i].style.minWidth = '0'; segs[i].textContent = ''; continue; }
-    var val = S.scaleMode === 'true' ? stg.seconds : (lg(stg.seconds) - off2);
-    var pct = val/tot*100;
+    var pct = slotVal(i)/tot*100;
     segs[i].style.minWidth = '2px';
     segs[i].style.flex = '0 0 ' + pct.toFixed(4) + '%';
     segs[i].style.background = stg.accent;
     segs[i].textContent = pct > 6 ? stg.duration : '';
   }
+
+  /* The printed rows ride the SAME total, so the two bars stay aligned and a
+     merged row sits exactly over the stages it covers. */
+  var esegs = essrtEl.querySelectorAll('.essrt-seg');
+  for (i = 0; i < ESSRT_ROWS.length; i++){
+    var row = ESSRT_ROWS[i], v = 0, j;
+    for (j = 0; j < row.slots.length; j++) v += slotVal(row.slots[j]);
+    var epct = v/tot*100;
+    var aCol = S.star.stages[row.slots[0]].accent;
+    var bCol = S.star.stages[row.slots[row.slots.length-1]].accent;
+    esegs[i].style.minWidth = '2px';
+    esegs[i].style.flex = '0 0 ' + epct.toFixed(4) + '%';
+    esegs[i].style.background = aCol;
+    esegs[i].style.backgroundImage = row.merged
+      ? ('repeating-linear-gradient(135deg, rgba(20,18,14,.20) 0 3px, rgba(20,18,14,0) 3px 9px),' +
+         'linear-gradient(90deg,' + aCol + ',' + bCol + ')')
+      : '';
+    esegs[i].textContent = epct > 6 ? row.label : '';
+    esegs[i].title = row.label + ' \u00b7 ' + row.dur +
+      (row.merged ? ' \u2014 one printed row covering carbon burning and neon burning' : '');
+  }
+}
+
+function markEssrtActive(i){
+  var esg = essrtEl.querySelectorAll('.essrt-seg'), k;
+  for (k = 0; k < esg.length; k++){
+    var slots = ESSRT_ROWS[Number(esg[k].dataset.row)].slots, hit = false, j;
+    for (j = 0; j < slots.length; j++) if (slots[j] === i) hit = true;
+    esg[k].classList.toggle('active', hit);
+  }
+}
+
+/* The reference-table view only exists for the massive star \u2014 the printed
+   diagram is titled "in a Massive Star", and the Sun never runs these stages. */
+function setRef(mode){
+  if (S.star.key !== 'massive') mode = 'real';
+  S.ref = mode;
+  var on = mode === 'essrt';
+  $('realLabel').classList.toggle('show', on);
+  $('essrtLabel').classList.toggle('show', on);
+  $('essrtBar').classList.toggle('show', on);
+  $('essrtNote').classList.toggle('show', on);
+  $('essrtNote').innerHTML = ESSRT_NOTE;
+  var rt = $('refTabs').querySelectorAll('.cc-segmented-btn');
+  for (var i = 0; i < rt.length; i++) rt[i].classList.toggle('is-active', rt[i].dataset.ref === mode);
+  layoutTimeline();
+  markEssrtActive(S.slot);
+  writeHash();
+}
+
+function writeHash(){
+  var h = '#s=' + S.star.key + ',' + S.slot + (S.ref === 'essrt' ? ',essrt' : '');
+  if (location.hash !== h) history.replaceState(null, '', h);
 }
 
 function startEnding(){
@@ -2001,6 +2119,10 @@ for (var q = 0; q < rt.length; q++){
     updateRightNote();
   });
 }
+var rtb = $('refTabs').querySelectorAll('.cc-segmented-btn');
+for (var qr = 0; qr < rtb.length; qr++){
+  rtb[qr].addEventListener('click', function(){ setRef(this.dataset.ref); });
+}
 var stb = $('scaleTabs').querySelectorAll('.cc-segmented-btn');
 for (q = 0; q < stb.length; q++){
   stb[q].addEventListener('click', function(){
@@ -2020,11 +2142,13 @@ document.addEventListener('keydown', function(e){
 function applyHash(hash){
   var h = (hash !== undefined ? hash : (location.hash || '')).replace('#s=', ''), parts = h.split(',');
   var key = parts[0], slot = parseInt(parts[1], 10);
+  var ref = parts[2] === 'essrt' ? 'essrt' : 'real';
   var ok = false;
   for (var i = 0; i < STARS.length; i++) if (STARS[i].key === key) ok = true;
   if (!ok) return false;
   if (S.star.key !== key) setStar(key);
   if (!isNaN(slot) && slot >= 0 && slot < NSLOT && slot !== S.slot) setSlot(slot);
+  if (ref !== S.ref) setRef(ref);
   return true;
 }
 window.addEventListener('hashchange', applyHash);
