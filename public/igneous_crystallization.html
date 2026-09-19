@@ -155,10 +155,10 @@
   .viewrow .cc-segmented-btn { padding: 9px 15px; }
   .viewrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-  .stats .cc-stat-chip { padding: 7px 10px; gap: 0; }
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)) auto; gap: 7px; }
+  .stats .cc-stat-chip { padding: 7px 9px; gap: 0; }
   .stats .cc-stat-label { font-size: 9.5px; letter-spacing: .09em; }
-  .stat-n { font-family: var(--font-mono); font-size: 15px; color: var(--color-text-primary); line-height: 1.35; white-space: nowrap; }
+  .stat-n { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-primary); line-height: 1.35; white-space: nowrap; }
 
   /* ── Bowen temperature axis ───────────────────────────────────────── */
   .bow { position: relative; height: 392px; margin: 2px 0 0; }
@@ -279,9 +279,10 @@
         <button class="cc-segmented-btn on" data-light="ppl">Plane light</button>
         <button class="cc-segmented-btn" data-light="xpl">Crossed polars</button>
       </div>
-      <div class="cc-segmented" id="scaleSeg">
-        <button class="cc-segmented-btn on" data-scale="grain">Grain scale</button>
-        <button class="cc-segmented-btn" data-scale="hand">Hand sample</button>
+      <div class="cc-segmented" id="zoomSeg">
+        <button class="cc-segmented-btn" data-zoom="0">4 mm</button>
+        <button class="cc-segmented-btn on" data-zoom="1">4 cm</button>
+        <button class="cc-segmented-btn" data-zoom="2">10 cm</button>
       </div>
     </div>
 
@@ -290,6 +291,7 @@
       <div class="cc-stat-chip"><span class="cc-stat-label">Depth</span><span class="stat-n" id="sDepth">—</span></div>
       <div class="cc-stat-chip"><span class="cc-stat-label">Elapsed</span><span class="stat-n" id="sTime">—</span></div>
       <div class="cc-stat-chip"><span class="cc-stat-label">Crystals</span><span class="stat-n" id="sSolid">—</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Grain</span><span class="stat-n" id="sGrain">—</span></div>
     </div>
   </div>
 
@@ -397,22 +399,35 @@ var COMPS = [
 ];
 var DARK = {olivine:1, pyroxene:1, amphibole:1, biotite:1};
 
-/* Field of view and grain size are real millimetres — the scale bar and
-   the hand-sample lock both read straight off these. */
+/* Grain size is a real millimetre figure. Field of view is NOT a property
+   of the rock — it is a property of the view (ZOOM, below), identical for
+   every texture, so that switching rocks never rescales the image. */
 var TEX = [
-  { key:'pegmatitic', n:'Pegmatitic', grainMm:24, fovMm:130, dur:15000, depth:9,  secs:6.3e13,
+  { key:'pegmatitic', n:'Pegmatitic', grainMm:24, dur:15000, depth:9,  secs:6.3e13,
     grain:'> 10 mm', env:'Very slow cooling in a water-rich residual melt' },
-  { key:'phaneritic', n:'Phaneritic', grainMm:4.0, fovMm:40, dur:12000, depth:15, secs:1.9e13,
+  { key:'phaneritic', n:'Phaneritic', grainMm:4.0, dur:12000, depth:15, secs:1.9e13,
     grain:'1–10 mm', env:'Slow cooling deep underground' },
-  { key:'porphyritic', n:'Porphyritic', grainMm:0.55, fovMm:26, dur:12000, depth:12, secs:7.9e12,
+  { key:'porphyritic', n:'Porphyritic', grainMm:0.55, dur:12000, depth:12, secs:7.9e12,
     grain:'two sizes', env:'Slow at depth, then erupted and chilled', two:true, phenoMm:6.5 },
-  { key:'aphanitic', n:'Aphanitic', grainMm:0.3, fovMm:4, dur:5200, depth:0, secs:7.8e5,
+  { key:'aphanitic', n:'Aphanitic', grainMm:0.3, dur:5200, depth:0, secs:7.8e5,
     grain:'< 1 mm', env:'Rapid cooling at the surface' },
-  { key:'vesicular', n:'Vesicular', grainMm:0.28, fovMm:40, dur:4000, depth:0, secs:2.2e4,
+  { key:'vesicular', n:'Vesicular', grainMm:0.28, dur:4000, depth:0, secs:2.2e4,
     grain:'< 1 mm + cavities', env:'Gas escaping from erupting lava', ves:true },
-  { key:'glassy', n:'Glassy', grainMm:0, fovMm:40, dur:2400, depth:0, secs:90,
+  { key:'glassy', n:'Glassy', grainMm:0, dur:2400, depth:0, secs:90,
     grain:'none', env:'Quenched too fast for crystals to form', glass:true }
 ];
+
+/* One zoom ladder in absolute millimetres, shared by every rock. */
+var ZOOM = [ {mm:4, n:'hand lens'}, {mm:40, n:'hand sample'}, {mm:100, n:'slab'} ];
+
+/* The field is seeded over a plane larger than the frame and then cropped,
+   so a crystal wider than the view is cut by the edge instead of being the
+   only thing in it. The margin is measured in grains, not pixels: fine
+   rocks pay nothing for it. */
+function padFor(T, fovMm){
+  var charMm = Math.max(T.grainMm || 0, T.phenoMm || 0);
+  return Math.min(0.45, 1.2 * charMm / fovMm);
+}
 
 /* rock[textureIndex][compIndex] — null means the combination is not on
    the chart (ultramafic magma effectively never reaches the surface). */
@@ -427,7 +442,10 @@ var ROCK = [
 
 var W = 480, H = 480, NPX = W * H;
 var AR_CAP = 2.55;
-var SEED_CAP = 6200;
+/* Grid-accelerated Voronoi is flat in seed count per pixel, so the cap is
+   set by legibility, not cost: 30000 seeds is a 1.6 px grain radius, below
+   which nothing about size is readable anyway. */
+var SEED_CAP = 30000;
 
 /* ═══════════════════════════════════════════════════════════════════════
    UTILITIES
@@ -486,7 +504,7 @@ function voronoi(sX, sY, sCos, sSin, sAx, sWt, nHeavy, wMaxL){
   var start = new Int32Array(NC + 1), bin = new Int32Array(S);
   var s, i;
   for (s=nHeavy;s<S;s++){
-    var gx = Math.min(gw-1, (sX[s]/cell)|0), gy = Math.min(gh-1, (sY[s]/cell)|0);
+    var gx = Math.min(gw-1, Math.max(0, (sX[s]/cell)|0)), gy = Math.min(gh-1, Math.max(0, (sY[s]/cell)|0));
     bin[s] = gy*gw + gx; start[bin[s]+1]++;
   }
   for (i=0;i<NC;i++) start[i+1] += start[i];
@@ -603,6 +621,7 @@ function buildField(texI, compI, fovMm){
   var T = TEX[texI], C = COMPS[compI];
   var rand = rng(hashStr(T.key + '|' + C.key + '|' + fovMm));
   var pxmm = W / fovMm;
+  var pad = padFor(T, fovMm), span = 1 + 2*pad, area = span * span;
   var curve = tempCurve(texI, compI);
 
   /* — seed inventory ————————————————————————————————— */
@@ -610,7 +629,7 @@ function buildField(texI, compI, fovMm){
   var i, j, k;
 
   if (T.two){
-    heavyN = Math.max(3, Math.min(18, Math.round(Math.pow(fovMm / T.phenoMm, 2) * 0.34)));
+    heavyN = Math.max(3, Math.min(40, Math.round(Math.pow(fovMm * span / T.phenoMm, 2) * 0.34)));
     var phk = C.mins[0].k, phT = C.mins[0].T;
     var phR = T.phenoMm * pxmm * 0.5;
     for (i=0;i<heavyN;i++){
@@ -620,8 +639,8 @@ function buildField(texI, compI, fovMm){
     }
   }
   if (!T.glass){
-    var nLight = Math.round(Math.pow(fovMm / T.grainMm, 2));
-    nLight = Math.max(2, Math.min(SEED_CAP, nLight));
+    var nLight = Math.round(Math.pow(fovMm * span / T.grainMm, 2));
+    nLight = Math.max(3, Math.min(SEED_CAP, nLight));
     var pool = [], wsum = 0, wq = [];
     for (i=0;i<C.mins.length;i++){
       var szi = C.mins[i].sz || 1;
@@ -636,7 +655,7 @@ function buildField(texI, compI, fovMm){
     while (pool.length < nLight) pool.push(0);
     pool.length = nLight;
     for (i=pool.length-1;i>0;i--){ var q = (rand()*(i+1))|0, tmp = pool[i]; pool[i] = pool[q]; pool[q] = tmp; }
-    var meanR2 = W * H / nLight / Math.PI;
+    var meanR2 = W * H * area / nLight / Math.PI;
     for (i=0;i<nLight;i++){
       var m = C.mins[pool[i]];
       /* Bowen's continuous series: plagioclase nucleates across a temperature
@@ -658,9 +677,9 @@ function buildField(texI, compI, fovMm){
 
   var S = mkList.length;
   var out = {
-    tex:texI, comp:compI, fovMm:fovMm, curve:curve, S:S, heavyN:heavyN,
+    tex:texI, comp:compI, fovMm:fovMm, span:span, curve:curve, S:S, heavyN:heavyN,
     seedMin:mkList, glass:!!T.glass,
-    grainPx: S ? Math.sqrt(W*H/Math.max(1,S-heavyN)) * 0.5 : W
+    grainPx: S ? Math.sqrt(W*H*area/Math.max(1,S-heavyN)) * 0.5 : W
   };
 
   var gpx = out.grainPx;
@@ -686,9 +705,8 @@ function buildField(texI, compI, fovMm){
     var xE = new Float32Array(S), xE2 = new Float32Array(S);
     for (i=0;i<S;i++){
       var mk = mkList[i], M = MIN[mk];
-      var margin = i < heavyN ? 0.16 : 0;
-      sX[i] = (margin + rand()*(1-2*margin)) * W;
-      sY[i] = (margin + rand()*(1-2*margin)) * H;
+      sX[i] = (rand()*span - pad) * W;
+      sY[i] = (rand()*span - pad) * H;
       var th = rand() * Math.PI;
       sTh[i] = th; sCos[i] = Math.cos(th); sSin[i] = Math.sin(th);
       sAx[i] = Math.max(1, Math.min(AR_CAP, M.ar + (rand()-0.5)*0.45));
@@ -810,12 +828,14 @@ function buildField(texI, compI, fovMm){
   out.ves = null;
   if (T.ves){
     var felsic = compI === 0;
-    var nV = felsic ? 210 : 54;
+    /* number per mm² is the physical constant, not number per frame */
+    var nV = Math.max(2, Math.min(2400,
+      Math.round((felsic ? 0.13125 : 0.03375) * fovMm * fovMm * area)));
     var rMm = felsic ? 0.82 : 2.1;
     var vT = new Float32Array(NPX), vS = new Float32Array(NPX);
     for (i=0;i<NPX;i++) vT[i] = 2;
     for (var v=0; v<nV; v++){
-      var bx = rand()*W, by = rand()*H;
+      var bx = (rand()*span - pad) * W, by = (rand()*span - pad) * H;
       var br = (rMm * (0.45 + rand()*1.5)) * pxmm;
       if (br < 2.5) br = 2.5;
       var app = 0.28 + rand()*0.52;
@@ -861,10 +881,10 @@ var SHIM = new Float32Array(NPX);
 var GLASS = [19, 16, 21];
 var REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-var st = { tex:-1, comp:0, scale:'grain', light:'ppl', p:0, playing:false, field:null, token:0, hoverSeed:-1 };
+var st = { tex:-1, comp:0, zoom:1, light:'ppl', p:0, playing:false, field:null, token:0, hoverSeed:-1 };
 var CACHE = [];   /* small LRU — each field is a few MB */
 
-function fovFor(texI){ return st.scale === 'hand' ? 40 : TEX[texI].fovMm; }
+function fovFor(){ return ZOOM[st.zoom].mm; }
 
 function getField(texI, compI, fovMm){
   var key = texI + '|' + compI + '|' + fovMm;
@@ -1040,13 +1060,24 @@ function paintComposition(compI){
   $('pT1').innerHTML = C.T1 + '<small> °C</small>';
 }
 
+function grainText(texI){
+  var T = TEX[texI];
+  if (T.glass) return 'none';
+  if (T.two) return T.phenoMm + ' / ' + T.grainMm.toFixed(1);
+  return T.grainMm >= 10 ? String(T.grainMm) : T.grainMm.toFixed(T.grainMm < 1 ? 2 : 1);
+}
+function paintGrain(texI){
+  var T = TEX[texI];
+  $('sGrain').innerHTML = grainText(texI) + (T.glass ? '' : '<small> mm</small>');
+}
+
 function paintScale(F){
   var fov = F.fovMm;
   var mm = scaleBarFor(fov);
   var px = mm / fov * $('scopeWrap').clientWidth;
   $('sbarLine').style.width = px + 'px';
   $('sbarTxt').textContent = fmtMm(mm);
-  $('apLbl').textContent = 'view ' + fmtMm(fov) + (fov <= 12 ? ' · hand lens' : '');
+  $('apLbl').textContent = 'view ' + fmtMm(fov) + ' · ' + ZOOM[st.zoom].n;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1112,6 +1143,7 @@ function select(texI, compI, keepP){
 
   $('cellName').textContent = ROCK[texI][compI] || '—';
   paintComposition(compI);
+  paintGrain(texI);
   buildBowen(compI);
   $('res').classList.remove('on');
   clearHover();
@@ -1122,7 +1154,7 @@ function select(texI, compI, keepP){
 
   requestAnimationFrame(function(){ requestAnimationFrame(function(){
     if (st.token !== tk) return;
-    var F = getField(texI, compI, fovFor(texI));
+    var F = getField(texI, compI, fovFor());
     if (st.token !== tk) return;
     st.field = F;
     wrap.classList.remove('busy');
@@ -1199,9 +1231,10 @@ segWire('lightSeg', 'data-light', function(v){
   st.light = v;
   if (st.field) render(st.p);
 });
-segWire('scaleSeg', 'data-scale', function(v){
-  st.scale = v;
+segWire('zoomSeg', 'data-zoom', function(v){
+  st.zoom = +v;
   if (st.tex >= 0) select(st.tex, st.comp, true);
+  else if (st.field) paintScale(st.field);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════
