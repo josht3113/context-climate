@@ -218,13 +218,13 @@ header .cc-subtitle { max-width: 620px; margin: 0 auto 10px; }
     <div class="cc-legend-row">
       <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:#4EC9A0"></span>Rising air · surface low</div>
       <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:#E08A3C"></span>Sinking air · surface high</div>
-      <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:#3CA3AE"></span>Jet core · westerly, out of the page</div>
+      <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:#3CA3AE"></span>Jet core · westerly, out of the page · zonal-mean speed</div>
       <div class="cc-legend-chip">Altitude km (ft) · wind m/s</div>
     </div>
   </div>
 </div>
 
-<p class="provenance cc-tag">Coastlines: Natural Earth 50 m land, simplified to 0.16°. The circulation is an idealised annual-mean model — cell boundaries at 0°, 30° and 60°, surface flow deflected 45° from the meridian, and jet core speeds of 45 and 35 m/s as representative annual-mean values. It is a schematic of the ESSRT model, not a reanalysis, and it carries no seasonal shift.</p>
+<p class="provenance cc-tag">Coastlines: Natural Earth 50 m land, simplified to 0.16°. The circulation is an idealised annual-mean model — cell boundaries at 0°, 30° and 60°, surface flow deflected 45° from the meridian, and jet core speeds of 45 and 35 m/s as representative annual ZONAL-MEAN values — an individual jet streak runs far faster than its zonal mean. It is a schematic of the ESSRT model, not a reanalysis, and it carries no seasonal shift.</p>
 
 </div>
 
@@ -516,14 +516,24 @@ function buildBands() {
 // which is why short trails read as straight lines. Curvature is a function of
 // arc traversed, not of speed, so the fix is span rather than velocity —
 // sampling every other frame doubles the ground a fixed-length trail covers.
-// Surface flow stagnates at every belt boundary (that is what convergence at
-// 60 and divergence at 30 MEAN), so a tracer that drifts into one stops moving
-// and its trail collapses to a dot. Recycling the stalled ones keeps the
-// population in the fast parts of each belt, where the curvature is.
-const NT = 460, TRAIL_N = 104, SAMPLE_EVERY = 3, T_LIFE = 900, STALL = 0.055;
+// The honest curvature in this field comes from the 1/cos(lat) term: a tracer
+// heading poleward at a fixed bearing sweeps through more longitude per degree
+// of latitude the further poleward it gets, and the effect is strongest
+// approaching 60 — exactly where surface flow stagnates, and exactly where the
+// old time-based sampling threw tracers away before the bend could appear.
+//
+// Sampling by DISTANCE TRAVELLED rather than elapsed time fixes both at once:
+// every trail spans the same arc however fast its tracer is moving, so one
+// slowing into a belt boundary keeps building its trail instead of collapsing
+// to a dot, and the recycle threshold can drop far enough to let it get deep
+// into the bend first.
+const NT = 380, TRAIL_N = 90, STEP_DEG = 0.55, T_LIFE = 1400, STALL = 0.018;
 const trc = [];
 function resetT(t, init) {
-  t.lat = Math.asin(Math.random()*2 - 1)/DEG;   // uniform on the sphere
+  // Uniform in LATITUDE, not uniform on the sphere. Uniform-on-sphere scatters
+  // points evenly over a globe but concentrates them near the equator, and the
+  // curvature worth seeing is at high latitude.
+  t.lat = Math.random()*168 - 84;
   t.lon = Math.random()*360 - 180;
   t.age = init ? Math.random()*T_LIFE : 0;
   t.hist = [];
@@ -540,10 +550,9 @@ function stepTracers(fu) {
     t.age += fu;
     const moving = Math.abs(vSurf(t.lat, S.stage));
     if (t.lat > 88 || t.lat < -88 || t.age > T_LIFE ||
-        (t.age > 90 && moving < STALL)) { resetT(t, false); continue; }
-    t.samp += fu;
-    if (t.samp >= SAMPLE_EVERY) {
-      t.samp -= SAMPLE_EVERY;
+        (t.age > 260 && moving < STALL)) { resetT(t, false); continue; }
+    const last = t.hist[t.hist.length - 1];
+    if (!last || Math.hypot((t.lon - last[0]) * Math.cos(t.lat*DEG), t.lat - last[1]) >= STEP_DEG) {
       t.hist.push([t.lon, t.lat]);
       if (t.hist.length > TRAIL_N) t.hist.shift();
     }
@@ -602,7 +611,7 @@ function drawGlobe() {
   // tracers
   for (const t of trc) {
     if (t.hist.length < 2) continue;
-    const fade = Math.min(1, t.age/60) * Math.max(0, 1 - Math.max(0, t.age-(T_LIFE-120))/120);
+    const fade = Math.min(1, t.age/70) * Math.max(0, 1 - Math.max(0, t.age-(T_LIFE-160))/160);
     if (fade < 0.02) continue;
     ctx.beginPath(); let pen = false, lx = 0, ly = 0, px2 = 0, py2 = 0;
     for (let i = 0; i < t.hist.length; i++) {
@@ -660,16 +669,24 @@ const GLOBE_LABELS = [
 ];
 function labelBelts(ctx) {
   ctx.save();
-  ctx.font = mono(11, 600);
+  ctx.font = mono(10, 600);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   const list = S.stage === 'three' ? GLOBE_LABELS : GLOBE_LABELS.filter(l => l.lat === 0);
-  for (const L of list) {
-    // Anchored well inside the limb rather than near it — at +96° of longitude
-    // the text started at the disc edge and ran off the panel.
-    const [sx, sy, z] = gpt(S.camLon + 52, L.lat);
-    if (z <= 0.02) continue;
-    // Clamp so a long label near the limb cannot spill past the panel edge,
-    // which it does at the larger type size.
+
+  // Each label sits at the screen y of its own parallel, so once the type grew
+  // the closer belts began overprinting each other. Place them all, sort down
+  // the screen, then push any that lands within MIN_GAP of the one above.
+  const MIN_GAP = 20;
+  const placed = list
+    .map(L => { const [sx, sy, z] = gpt(S.camLon + 56, L.lat); return { L, sx, sy, z }; })
+    .filter(o => o.z > 0.02)
+    .sort((a, b) => a.sy - b.sy);
+  for (let i = 1; i < placed.length; i++) {
+    if (placed[i].sy - placed[i-1].sy < MIN_GAP) placed[i].sy = placed[i-1].sy + MIN_GAP;
+  }
+
+  for (const { L, sx, sy } of placed) {
+    // Clamp so a long label near the limb cannot spill past the panel edge.
     const w = ctx.measureText(L.txt).width;
     const x = Math.min(sx + 6, G.W - 5 - w);
     ctx.lineWidth = 3.5; ctx.strokeStyle = HALO; ctx.strokeText(L.txt, x, sy);
@@ -749,7 +766,7 @@ function stepX(fu) {
 }
 
 // ══ Cross section drawing ═════════════════════════════════════════════════
-function drawXsec() {
+function drawXsec(ts) {
   const ctx = X.ctx;
   ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, X.W, X.H);
   const x0 = XPAD.l, x1 = X.W - XPAD.r, yg = yOf(0), yt = yOf(ZTOP);
@@ -804,22 +821,6 @@ function drawXsec() {
     arrowHead(ctx, ax, ay, bx, by, 3.1, `rgba(${col[0]},${col[1]},${col[2]},${(0.35+0.6*mag)*fade})`);
   }
 
-  // parcels
-  for (const p of S.parcels) {
-    ctx.beginPath();
-    for (let i = 0; i < p.hist.length; i++) {
-      const [l, z] = p.hist[i];
-      if (S.hemi === 'n' && l < -0.5) { continue; }
-      const px = xOf(l), py = yOf(z*TROP(l));
-      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.strokeStyle = 'rgba(232,228,217,0.55)'; ctx.lineWidth = 1.6; ctx.stroke();
-    const px = xOf(p.lat), py = yOf(p.z*TROP(p.lat));
-    ctx.beginPath(); ctx.arc(px, py, 4.5, 0, 7);
-    ctx.fillStyle = cellW(p.lat,p.z,S.stage) > 0 ? RISE : SINK; ctx.fill();
-    ctx.lineWidth = 1.4; ctx.strokeStyle = HALO; ctx.stroke();
-  }
-
   // tropopause
   ctx.beginPath();
   for (let i = 0; i <= 320; i++) {
@@ -845,6 +846,9 @@ function drawXsec() {
     const list = S.hemi === 'n' ? JETS : JETS.concat(JETS.map(j => ({...j, lat: -j.lat})));
     for (const j of list) drawJet(ctx, j);
   }
+
+  // parcels last, so nothing paints over them
+  drawParcels(ctx, ts);
 
   // cell names
   drawCellNames(ctx);
@@ -921,6 +925,59 @@ function drawTower(ctx) {
   const t2 = S.hemi === 'n' ? 'ITCZ' : 'ITCZ';
   ctx.strokeText(t2, px, top - 7); ctx.fillStyle = RISE; ctx.fillText(t2, px, top - 7);
   ctx.restore();
+}
+
+// The released parcel has to be findable at a glance inside a field of nearly
+// 400 tracers, so it gets size, a pulse, and colour that reports what it is
+// doing. The trail is coloured segment by segment by whether the parcel was
+// rising or sinking there, which makes the shape of the loop readable even when
+// the parcel itself is on the far side of it.
+function drawParcels(ctx, ts) {
+  const t = (ts || 0) / 1000;
+  for (const p of S.parcels) {
+    ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+    for (let i = 1; i < p.hist.length; i++) {
+      const [l0, z0] = p.hist[i-1], [l1, z1] = p.hist[i];
+      if (S.hemi === 'n' && (l0 < -0.5 || l1 < -0.5)) continue;
+      const up = cellW(l1, z1, S.stage) > 0;
+      const a = 0.22 + 0.5 * (i / p.hist.length);
+      ctx.strokeStyle = up ? `rgba(78,201,160,${a})` : `rgba(224,138,60,${a})`;
+      ctx.beginPath();
+      ctx.moveTo(xOf(l0), yOf(z0*TROP(l0)));
+      ctx.lineTo(xOf(l1), yOf(z1*TROP(l1)));
+      ctx.stroke();
+    }
+
+    const px = xOf(p.lat), py = yOf(p.z*TROP(p.lat));
+    const up = cellW(p.lat, p.z, S.stage) > 0;
+    const col = up ? [78,201,160] : [224,138,60];
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.2);
+
+    const g = ctx.createRadialGradient(px, py, 2, px, py, 26);
+    g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},${0.34 + 0.12*pulse})`);
+    g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(px, py, 26, 0, 7); ctx.fill();
+
+    ctx.beginPath(); ctx.arc(px, py, 12 + 4*pulse, 0, 7);
+    ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${0.75 - 0.45*pulse})`;
+    ctx.lineWidth = 2; ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(px, py, 9.5, 0, 7);
+    ctx.fillStyle = 'rgba(7,10,8,0.95)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, 8, 0, 7);
+    ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`; ctx.fill();
+    ctx.beginPath(); ctx.arc(px, py, 3.2, 0, 7);
+    ctx.fillStyle = '#F2EFE6'; ctx.fill();
+
+    // chevron repeats in shape what the colour says, for anyone who cannot
+    // separate green from orange
+    ctx.beginPath();
+    const d = up ? -1 : 1;
+    ctx.moveTo(px - 4.2, py + 1.6*d); ctx.lineTo(px, py - 2.2*d); ctx.lineTo(px + 4.2, py + 1.6*d);
+    ctx.strokeStyle = 'rgba(7,10,8,0.9)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
 }
 
 function drawCellNames(ctx) {
@@ -1033,11 +1090,11 @@ let rafId = null, rdAcc = 200;
 function frame(ts) {
   const { fu, ms } = elapsed(ts);
   stepTracers(fu); stepX(fu);
-  drawGlobe(); drawXsec();
+  drawGlobe(); drawXsec(ts);
   rdAcc += ms; if (rdAcc >= 150) { rdAcc = 0; updateReadout(); }
   rafId = requestAnimationFrame(frame);
 }
-function redrawStatic() { drawGlobe(); drawXsec(); updateReadout(); }
+function redrawStatic() { drawGlobe(); drawXsec(performance.now()); updateReadout(); }
 function setRunning(on) {
   if (on === S.running) return;
   S.running = on;
@@ -1173,7 +1230,9 @@ window.WINDBELTS = {
   else setLat(S.markerLat);
 
   buildBands();
-  for (let i = 0; i < TRAIL_N * SAMPLE_EVERY + 20; i++) { stepTracers(1); stepX(1); }
+  // Distance-based sampling makes warm-up a function of tracer SPEED, not of a
+  // sample count: long enough for a slow tracer to lay down a full trail.
+  for (let i = 0; i < 900; i++) { stepTracers(1); stepX(1); }
   updateReadout();
 
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
