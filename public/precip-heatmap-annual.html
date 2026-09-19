@@ -41,6 +41,26 @@
   .legend-end { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
   #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
 
+  /* ── Compare Years — year chips + empty state ── */
+  .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .compare-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-family: var(--font-label); font-size: 13px; font-weight: 600;
+    padding: 3px 6px 3px 10px; border-radius: 20px;
+    background: rgba(255,215,0,0.08); border: 1px solid #FFD700; color: #FFD700;
+    white-space: nowrap;
+  }
+  .compare-chip button {
+    background: none; border: none; color: inherit; cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 50%;
+  }
+  .compare-chip button:hover { background: rgba(255,215,0,0.18); }
+  .compare-empty {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-family: var(--font-label); font-size: 14px; color: var(--color-text-muted);
+    text-align: center; padding: 20px; pointer-events: none;
+  }
+
   .heatmap-wrapper { width: 100%; }
   .heatmap-inner { display: flex; align-items: flex-start; width: 100%; }
   .hour-labels { flex-shrink: 0; width: 56px; display: flex; flex-direction: column; }
@@ -88,6 +108,7 @@
   <div class="tab-bar">
     <button class="cc-tab active" id="tab-single" onclick="setMode('single')">Single Year</button>
     <button class="cc-tab"        id="tab-climo"  onclick="setMode('climatology')">Multi-Year Avg</button>
+    <button class="cc-tab"        id="tab-compare" onclick="setMode('compare')">Compare Years</button>
   </div>
 
   <div class="top-bar">
@@ -190,19 +211,32 @@
     <button class="cc-btn cc-btn-sm" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
   </div>
 
+  <div id="compare-controls" class="controls-row" style="display:none">
+    <span class="control-label">Add Year:</span>
+    <select id="compare-year-add" class="cc-select"></select>
+    <button class="cc-btn cc-btn-sm primary" onclick="onAddCompareYear()">+ Add</button>
+    <div class="compare-year-chips" id="compare-year-chips"></div>
+    <span class="control-label" style="margin-left:6px">Presets:</span>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(5)">Last 5 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(10)">Last 10 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(30)">Last 30 Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="setCompareAllYears()">All Years</button>
+    <button class="cc-btn cc-btn-sm" onclick="clearCompareYears()">Clear</button>
+  </div>
+
   <div class="cc-stat-row">
     <div class="cc-stat-chip">
-      <div class="cc-stat-label">Annual Total</div>
+      <div class="cc-stat-label" id="sl-total">Annual Total</div>
       <div class="cc-stat-value" id="sv-total" style="font-size:26px">—</div>
       <div class="cc-stat-note" id="sv-total-sub" style="font-size:11px">liquid equiv.</div>
     </div>
     <div class="cc-stat-chip">
-      <div class="cc-stat-label">Wet Days</div>
+      <div class="cc-stat-label" id="sl-wetdays">Wet Days</div>
       <div class="cc-stat-value" id="sv-wetdays" style="font-size:26px">—</div>
       <div class="cc-stat-note" style="font-size:11px">days w/ measurable precip</div>
     </div>
     <div class="cc-stat-chip">
-      <div class="cc-stat-label">Peak Hour</div>
+      <div class="cc-stat-label" id="sl-peak">Peak Hour</div>
       <div class="cc-stat-value" id="sv-peak" style="font-size:26px">—</div>
       <div class="cc-stat-note" id="sv-peak-sub" style="font-size:11px">highest single hour</div>
     </div>
@@ -212,7 +246,7 @@
   <div class="legend-row">
     <span class="legend-end">Dry</span>
     <canvas id="legend-canvas" height="14" width="260"></canvas>
-    <span class="legend-end">≥ 1.00 in/hr</span>
+    <span class="legend-end" id="legend-hi">&ge; 1.00 in/hr</span>
   </div>
 
   <div class="heatmap-wrapper">
@@ -224,6 +258,7 @@
         <div class="month-label-bar" id="month-labels"></div>
         <div class="canvas-container">
           <canvas id="heatmap-canvas"></canvas>
+          <div class="compare-empty" id="compare-empty">Add a year above to start comparing years side by side.</div>
           <div class="loading-overlay" id="loading-overlay">
             <div class="loading-text" id="loading-text">Initializing…</div>
             <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
@@ -261,6 +296,12 @@ const FOOTER_GAP    = 6;
 const AVG_GAP       = 6;
 const TOTAL_H       = CANVAS_HEIGHT + FOOTER_GAP + FOOTER_H;
 const GRID_SIZE     = 366 * 24;
+// Compare Years: one horizontal strip per selected year, 366 days wide,
+// colored by that day's PRECIPITATION TOTAL (the ACIS daily series that
+// already feeds the Total footer row) rather than by an hourly rate --
+// totals are what a year-over-year comparison is actually about, and one
+// row per year keeps decades legible at once.
+const COMPARE_ROW_H = 24;
 const FIRST_YEAR    = 1973;
 const CURRENT_YEAR  = new Date().getFullYear();
 const DEFAULT_CLIMO_FROM = 1991;
@@ -418,6 +459,12 @@ let toYear          = DEFAULT_CLIMO_TO;
 let singleData      = null;
 let climoData       = null;
 const climoCache    = new Map();
+// Compare Years state. Unlike the temperature tools' Compare mode (which
+// needs each year's full hourly IEM grid), this view only ever shows daily
+// totals, so it fetches ACIS daily data ALONE -- no IEM hourly request at
+// all. That makes a compare year roughly 24x lighter to load.
+let compareYears = [];            // selected years, kept sorted ascending
+const compareDaily = new Map();   // key "stationId_year" -> Float32Array(366) daily totals
 let loadToken = 0; // bumped each loadClimatology()/loadSingleYear() call; lets a stale in-flight request detect it's superseded
 let liveTimer=null, fakeTimer=null;
 let dpr = window.devicePixelRatio || 1;
@@ -509,6 +556,33 @@ function getDayTotal(doy){
   if(!singleData)return null;const v=singleData.dayTotal[doy];return isNaN(v)?null:v;
 }
 
+// ── Compare Years accessors ──
+function compareDataKey(year){return `${activeStationId}_${year}`;}
+// One cell of a compare strip: `year`'s precipitation total for `doy`.
+function getCompareDayTotal(year,doy){
+  const arr=compareDaily.get(compareDataKey(year));
+  if(!arr)return null;
+  const v=arr[doy];
+  return isNaN(v)?null:v;
+}
+// A whole year's precipitation total -- the value in that row's Tot cell.
+// Feb 29 of a non-leap year is simply absent from the ACIS series, so it
+// stays NaN and contributes nothing; no leap-day special-casing needed.
+function getCompareYearTotal(year){
+  const arr=compareDaily.get(compareDataKey(year));
+  if(!arr)return null;
+  let s=0,ok=false;
+  for(let doy=0;doy<366;doy++){const v=arr[doy];if(!isNaN(v)){s+=v;ok=true;}}
+  return ok?s:null;
+}
+function getCompareWetDays(year){
+  const arr=compareDaily.get(compareDataKey(year));
+  if(!arr)return null;
+  let n=0;
+  for(let doy=0;doy<366;doy++){const v=arr[doy];if(!isNaN(v)&&v>=TRACE)n++;}
+  return n;
+}
+
 // ═══════════════════════════════════════════════
 // FORMATTERS
 // ═══════════════════════════════════════════════
@@ -594,7 +668,11 @@ function parseCSVInto(text,y1,y2,single,accum){
     if(accum&&v!=null){accum.p01i.sum[idx]+=v;accum.p01i.sum2[idx]+=v*v;accum.p01i.cnt[idx]++;}
   }
 }
-function parseACISDaily(json,single,accum){
+function parseACISDaily(json,single,accum,compareOut){
+  // compareOut: a Map to fill with year -> Float32Array(366) of daily
+  // totals, or null. Compare Years fetches several years in one ACIS
+  // request (like climatology does) but keeps each year's own series
+  // instead of folding them into a running mean.
   if(!json||!Array.isArray(json.data))return;
   for(const row of json.data){
     if(!Array.isArray(row)||row.length<2)continue;
@@ -606,18 +684,32 @@ function parseACISDaily(json,single,accum){
     const v=parsePcpn(pcpn);
     if(single&&v!=null)single.dayTotal[doy]=v;
     if(accum&&v!=null){accum.dayTotal.sum[doy]+=v;accum.dayTotal.cnt[doy]++;}
+    if(compareOut){
+      let arr=compareOut.get(yr);
+      if(!arr){arr=new Float32Array(366).fill(NaN);compareOut.set(yr,arr);}
+      if(v!=null)arr[doy]=v;
+    }
   }
 }
 
 // ═══════════════════════════════════════════════
 // CANVAS
 // ═══════════════════════════════════════════════
+// Compare mode's canvas grows and shrinks with the number of selected
+// years; the other two modes keep the fixed 24-row + footer height.
+// Clamped to one row's worth so the element never collapses to 0px with
+// nothing selected (rendering separately no-ops on an empty selection).
+function activeCanvasHeight(){
+  if(mode==='compare')return Math.max(compareYears.length,1)*COMPARE_ROW_H;
+  return TOTAL_H;
+}
 function setupCanvas(){
   const W=document.getElementById('canvas-area').clientWidth||900;
+  const H=activeCanvasHeight();
   canvas.style.width  = W+'px';
-  canvas.style.height = TOTAL_H+'px';
+  canvas.style.height = H+'px';
   canvas.width  = Math.round(W*dpr);
-  canvas.height = Math.round(TOTAL_H*dpr);
+  canvas.height = Math.round(H*dpr);
   ctx.setTransform(1,0,0,1,0,0);ctx.scale(dpr,dpr);
 }
 
@@ -754,9 +846,207 @@ function renderHeatmap(){
   ctx.restore();
 }
 
+// Compare Years renderer: one 366-day strip per selected year, colored by
+// that day's precipitation total, plus a Tot cell carrying the year's
+// annual total. Deliberately separate from renderHeatmap() -- the two
+// layouts (one year's 24-row hourly grid + Tot column + Total footer vs. N
+// one-row strips with no hourly axis at all) share no geometry.
+function renderCompareHeatmap(){
+  const pw=canvas.width,ph=canvas.height;
+  if(!compareYears.length){ctx.clearRect(0,0,pw,ph);return;}
+
+  const FULL_W=canvas.width/dpr;
+  const GRID_W=FULL_W-AVG_GAP-TOT_COL_W;
+  const cw=GRID_W/366;
+  const TOT_X=GRID_W+AVG_GAP;
+  const rh=COMPARE_ROW_H;
+  const stackH=compareYears.length*rh;
+
+  const img=ctx.createImageData(pw,ph);const data=img.data;
+  const BG=[30,35,32];
+  for(let i=0;i<data.length;i+=4){data[i]=BG[0];data[i+1]=BG[1];data[i+2]=BG[2];data[i+3]=255;}
+  function fillRect(x0,y0,x1,y1,r,g,b){
+    for(let py=y0;py<y1;py++)for(let px=x0;px<x1;px++){const i=(py*pw+px)*4;data[i]=r;data[i+1]=g;data[i+2]=b;data[i+3]=255;}
+  }
+
+  const yearTotals=[];
+  compareYears.forEach((year,ri)=>{
+    const y0=Math.round(ri*rh*dpr),y1=Math.round((ri+1)*rh*dpr);
+    for(let doy=0;doy<366;doy++){
+      const x0=Math.round(doy*cw*dpr),x1=Math.round((doy+1)*cw*dpr);
+      const[r,g,b]=getColorRGB(getCompareDayTotal(year,doy),SCALE_DAILY);
+      fillRect(x0,y0,x1,y1,r,g,b);
+    }
+    const tot=getCompareYearTotal(year);
+    yearTotals.push(tot);
+    const tx0=Math.round(TOT_X*dpr),tx1=Math.round((TOT_X+TOT_COL_W)*dpr);
+    const[r,g,b]=getColorRGB(tot,SCALE_CORNER_ANNUAL_TOTAL);
+    fillRect(tx0,y0,tx1,y1,r,g,b);
+  });
+
+  ctx.putImageData(img,0,0);
+
+  // Row separators (day columns are ~3px wide -- far too narrow to rule)
+  ctx.strokeStyle='rgba(0,0,0,0.22)';ctx.lineWidth=0.5;ctx.beginPath();
+  for(let ri=1;ri<compareYears.length;ri++){
+    const y=Math.round(ri*rh);
+    ctx.moveTo(0,y+.5);ctx.lineTo(GRID_W,y+.5);
+    ctx.moveTo(TOT_X,y+.5);ctx.lineTo(TOT_X+TOT_COL_W,y+.5);
+  }
+  ctx.stroke();
+
+  // Month boundary lines, carried down the whole stack so the same calendar
+  // position lines up across every year
+  ctx.strokeStyle='rgba(255,255,255,0.45)';ctx.lineWidth=1;
+  for(let m=1;m<12;m++){
+    const x=Math.round(MONTH_START_DOY[m]*cw);
+    ctx.beginPath();ctx.moveTo(x+.5,0);ctx.lineTo(x+.5,stackH);ctx.stroke();
+  }
+
+  // Grid <-> Tot column separator + outer borders
+  ctx.strokeStyle='rgba(255,255,255,0.5)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(GRID_W+.5,0);ctx.lineTo(GRID_W+.5,stackH);ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.85)';ctx.lineWidth=1.5;
+  ctx.strokeRect(.75,.75,GRID_W-1.5,stackH-1.5);
+  ctx.strokeRect(TOT_X+.75,.75,TOT_COL_W-1.5,stackH-1.5);
+
+  // Tot column text -- those cells are wide enough for a number; the 366
+  // day cells are not, so they stay color-only and read on hover.
+  ctx.save();
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.font='9px "JetBrains Mono",monospace';
+  ctx.shadowColor='rgba(0,0,0,0.5)';ctx.shadowBlur=1.5;
+  const totCX=TOT_X+TOT_COL_W/2;
+  compareYears.forEach((year,ri)=>{
+    const v=yearTotals[ri];const text=formatAnnualTot(v);if(!text)return;
+    const[r,g,b]=getColorRGB(v,SCALE_CORNER_ANNUAL_TOTAL);
+    ctx.fillStyle=textCol(r,g,b);
+    ctx.fillText(text,totCX,(ri+0.5)*rh);
+  });
+  ctx.restore();
+}
+
+// Anything that can render without knowing the mode ahead of time goes
+// through here.
+function renderActiveHeatmap(){
+  if(mode==='compare')renderCompareHeatmap();else renderHeatmap();
+}
+
+// ═══════════════════════════════════════════════
+// COMPARE YEARS — DATA MANAGEMENT
+// ═══════════════════════════════════════════════
+// Same batching idea as the temperature tools: fold nearby missing years
+// into one request instead of one request per year. The span cap is looser
+// here (30 vs. their 15) because this view fetches ACIS DAILY data only --
+// one row per day rather than 24 -- so a 30-year request is still smaller
+// than a 15-year hourly one.
+const COMPARE_FETCH_MAX_GAP  = 5;
+const COMPARE_FETCH_MAX_SPAN = 30;
+
+function groupYearsForFetch(years){
+  const sorted=[...years].sort((a,b)=>a-b);
+  const groups=[];let cur=null;
+  for(const y of sorted){
+    if(cur&&y-cur.end<=COMPARE_FETCH_MAX_GAP&&(y-cur.start)<COMPARE_FETCH_MAX_SPAN){cur.end=y;}
+    else{cur={start:y,end:y};groups.push(cur);}
+  }
+  return groups;
+}
+
+async function ensureCompareYearsData(years,onProgress){
+  const missing=years.filter(y=>!compareDaily.has(compareDataKey(y)));
+  if(!missing.length)return;
+  const groups=groupYearsForFetch(missing);
+  for(let i=0;i<groups.length;i++){
+    const g=groups[i];
+    const label=g.start===g.end?`${g.start}`:`${g.start}–${g.end}`;
+    if(onProgress)onProgress(i,groups.length,label);
+    const json=await fetchACISDaily(activeStationId,g.start,g.end);
+    const perYear=new Map();
+    parseACISDaily(json,null,null,perYear);
+    for(let y=g.start;y<=g.end;y++){
+      // Store even an empty year, so a station with no record for it isn't
+      // refetched on every render -- its strip simply stays dark.
+      compareDaily.set(compareDataKey(y),perYear.get(y)||new Float32Array(366).fill(NaN));
+    }
+  }
+}
+
+function renderCompareChips(){
+  const wrap=document.getElementById('compare-year-chips');
+  wrap.innerHTML='';
+  for(const year of compareYears){
+    const chip=document.createElement('span');
+    chip.className='compare-chip';
+    chip.innerHTML=`${year} <button type="button" aria-label="Remove ${year}" onclick="onRemoveCompareYear(${year})">×</button>`;
+    wrap.appendChild(chip);
+  }
+}
+
+async function refreshCompareView(){
+  renderCompareChips();
+  if(!compareYears.length){
+    document.getElementById('compare-empty').style.display='flex';
+    setupCanvas();renderHourLabels();renderMonthLabels();renderLegend();updateTitle();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    updateStats();
+    return;
+  }
+  document.getElementById('compare-empty').style.display='none';
+
+  const missing=compareYears.filter(y=>!compareDaily.has(compareDataKey(y)));
+  if(missing.length){
+    showLoading(`Loading ${missing.length} year${missing.length>1?'s':''} from ACIS…`);
+    startFakeProgress();
+    try{
+      await ensureCompareYearsData(missing,(i,total,label)=>{
+        setProgress(Math.round((i/total)*90),`Fetching ${label}… (${i+1}/${total})`);
+      });
+      stopFakeProgress();hideLoading();
+    }catch(e){stopFakeProgress();showError(e.message);console.error(e);return;}
+  }
+
+  setupCanvas();renderHourLabels();renderMonthLabels();
+  renderCompareHeatmap();renderLegend();updateTitle();updateStats();
+}
+
+function onAddCompareYear(){
+  const year=parseInt(document.getElementById('compare-year-add').value);
+  if(isNaN(year)||compareYears.includes(year))return;
+  compareYears.push(year);compareYears.sort((a,b)=>a-b);
+  refreshCompareView();
+}
+function onRemoveCompareYear(year){
+  const i=compareYears.indexOf(year);
+  if(i<0)return;
+  compareYears.splice(i,1);
+  refreshCompareView();
+}
+function clearCompareYears(){compareYears.length=0;refreshCompareView();}
+function setComparePreset(n){
+  compareYears.length=0;
+  for(let y=CURRENT_YEAR-n+1;y<=CURRENT_YEAR;y++)if(y>=FIRST_YEAR)compareYears.push(y);
+  refreshCompareView();
+}
+function setCompareAllYears(){
+  compareYears.length=0;
+  for(let y=FIRST_YEAR;y<=CURRENT_YEAR;y++)compareYears.push(y);
+  refreshCompareView();
+}
+
 function renderHourLabels(){
   const cont=document.getElementById('hour-labels');
   cont.innerHTML='<div class="hour-labels-spacer"></div>';
+  if(mode==='compare'){
+    // One gold year label per strip. Heights must match COMPARE_ROW_H
+    // exactly or the labels drift out of line with the canvas rows.
+    for(const year of compareYears){
+      const el=document.createElement('div');el.className='hour-label';
+      el.style.height=COMPARE_ROW_H+'px';el.style.color='#FFD700';el.style.fontWeight='700';
+      el.textContent=String(year);cont.appendChild(el);
+    }
+    return;
+  }
   for(let h=0;h<24;h++){
     const el=document.createElement('div');el.className='hour-label';
     el.style.height=CELL_H+'px';el.textContent=HOURS[h];cont.appendChild(el);
@@ -783,19 +1073,30 @@ function renderMonthLabels(){
   totEl.textContent='Tot';bar.appendChild(totEl);
 }
 
+// The legend has to follow whatever scale the grid is actually painted
+// with: SCALE_HOURLY (in/hr) for the hourly grid, SCALE_DAILY (in/day) for
+// Compare mode's daily-total strips.
+function activeScale(){return mode==='compare'?SCALE_DAILY:SCALE_HOURLY;}
 function renderLegend(){
   const lc=document.getElementById('legend-canvas');const lx=lc.getContext('2d');
   const W=lc.width,H=lc.height;
   const grad=lx.createLinearGradient(0,0,W,0);
-  const sc=SCALE_HOURLY,lo=sc.vals[0],span=sc.vals[sc.vals.length-1]-lo;
+  const sc=activeScale(),lo=sc.vals[0],span=sc.vals[sc.vals.length-1]-lo;
   sc.vals.forEach((v,i)=>grad.addColorStop((v-lo)/span,sc.cols[i]));
   lx.fillStyle=grad;lx.fillRect(0,0,W,H);
+  document.getElementById('legend-hi').textContent =
+    mode==='compare'?'\u2265 5.00 in/day':'\u2265 1.00 in/hr';
 }
 
 // ═══════════════════════════════════════════════
 // STATS
 // ═══════════════════════════════════════════════
 function updateStats(){
+  if(mode==='compare'){updateCompareStats();return;}
+  // Restore the single/climatology chip labels when switching back
+  document.getElementById('sl-total').textContent='Annual Total';
+  document.getElementById('sl-wetdays').textContent='Wet Days';
+  document.getElementById('sl-peak').textContent='Peak Hour';
   let annualTotal=0,wetDays=0,peakV=null,peakDoy=-1,peakH=-1;let hasData=false;
   for(let doy=0;doy<366;doy++){
     const dt=getDayTotal(doy);
@@ -818,10 +1119,52 @@ function updateStats(){
   document.getElementById('sv-peak-sub').textContent=peakDoy>=0?`${doyToDisplay(peakDoy)} · ${fmtHour(peakH)}`:'highest single hour';
 }
 
+// Compare mode has no hourly axis, so "Peak Hour" has nothing to report --
+// the chips are relabelled to describe the comparison itself: the mean
+// annual total and mean wet-day count across the selected years, and the
+// single wettest day anywhere in the comparison.
+function updateCompareStats(){
+  document.getElementById('sl-total').textContent='Mean Annual';
+  document.getElementById('sl-wetdays').textContent='Mean Wet Days';
+  document.getElementById('sl-peak').textContent='Wettest Day';
+
+  let totSum=0,totN=0,wetSum=0,wetN=0;
+  let peakV=null,peakDoy=-1,peakYear=null;
+  for(const year of compareYears){
+    const t=getCompareYearTotal(year);
+    if(t!=null){totSum+=t;totN++;}
+    const w=getCompareWetDays(year);
+    if(w!=null&&t!=null){wetSum+=w;wetN++;}
+    const arr=compareDaily.get(compareDataKey(year));
+    if(!arr)continue;
+    for(let doy=0;doy<366;doy++){
+      const v=arr[doy];
+      if(!isNaN(v)&&(peakV==null||v>peakV)){peakV=v;peakDoy=doy;peakYear=year;}
+    }
+  }
+
+  if(!totN){
+    ['sv-total','sv-wetdays','sv-peak'].forEach(id=>document.getElementById(id).textContent='—');
+    document.getElementById('sv-total-sub').textContent='liquid equiv.';
+    document.getElementById('sv-peak-sub').textContent='highest single day';
+    return;
+  }
+  document.getElementById('sv-total').textContent=fmtPrecipDisplay(totSum/totN);
+  document.getElementById('sv-total-sub').textContent=`avg of ${totN} year${totN>1?'s':''}`;
+  document.getElementById('sv-wetdays').textContent=wetN?String(Math.round(wetSum/wetN)):'—';
+  document.getElementById('sv-peak').textContent=peakV!=null?(peakV<TRACE+0.0005?'Trace':peakV.toFixed(2)+'"'):'—';
+  document.getElementById('sv-peak-sub').textContent=
+    peakDoy>=0?`${doyToDisplay(peakDoy)} · ${peakYear}`:'highest single day';
+}
+
 function updateTitle(){
   const st=STATIONS[activeStationId];
   document.getElementById('title-station').textContent=st.label;
-  document.getElementById('title-period').textContent=mode==='single'?String(currentYear):`${fromYear}–${toYear} Avg`;
+  let period;
+  if(mode==='single')period=String(currentYear);
+  else if(mode==='climatology')period=`${fromYear}–${toYear} Avg`;
+  else period=compareYears.length?`Compare: ${compareYears.join(', ')}`:'Compare Years';
+  document.getElementById('title-period').textContent=period;
   document.getElementById('footer-tz').textContent=st.tzLabel+' Local Time';
   document.getElementById('live-dot').style.display=(mode==='single'&&currentYear===CURRENT_YEAR)?'inline':'none';
 }
@@ -873,7 +1216,7 @@ async function loadSingleYear(year){
 async function loadClimatology(fy,ty){
   const st=STATIONS[activeStationId];const cacheKey=`${activeStationId}_${fy}_${ty}`;
   const myToken=++loadToken;
-  if(climoCache.has(cacheKey)){climoData=climoCache.get(cacheKey);updateTitle();renderHeatmap();renderLegend();updateStats();return;}
+  if(climoCache.has(cacheKey)){climoData=climoCache.get(cacheKey);updateTitle();renderActiveHeatmap();renderLegend();updateStats();return;}
   showLoading(`Fetching ${fy}–${ty}… (${ty-fy+1} years)`);startFakeProgress();
   try{
     const[iemResult,acisResult]=await Promise.allSettled([
@@ -900,10 +1243,20 @@ function setMode(m){
   mode=m;
   document.getElementById('tab-single').classList.toggle('active',m==='single');
   document.getElementById('tab-climo').classList.toggle('active',m==='climatology');
+  document.getElementById('tab-compare').classList.toggle('active',m==='compare');
   document.getElementById('single-controls').style.display=m==='single'?'flex':'none';
   document.getElementById('climo-controls').style.display=m==='climatology'?'flex':'none';
+  document.getElementById('compare-controls').style.display=m==='compare'?'flex':'none';
+  if(m!=='compare')document.getElementById('compare-empty').style.display='none';
+  // Canvas height, sidebar layout and legend scale are all mode-dependent,
+  // so all three have to be rebuilt on every switch -- otherwise leaving
+  // Compare Years keeps its year-label sidebar and stack height while the
+  // other modes draw a 24-row grid into it.
+  setupCanvas();renderHourLabels();renderMonthLabels();renderLegend();
   stopLiveRefresh();
-  if(m==='single')loadSingleYear(currentYear);else loadClimatology(fromYear,toYear);
+  if(m==='single')loadSingleYear(currentYear);
+  else if(m==='climatology')loadClimatology(fromYear,toYear);
+  else refreshCompareView();
 }
 function onYearChange(){currentYear=parseInt(document.getElementById('year-select').value);singleData=null;stopLiveRefresh();loadSingleYear(currentYear);}
 function onClimoLoad(){
@@ -915,7 +1268,13 @@ function setPreset(fy,ty){document.getElementById('from-year').value=fy;document
 function onStationChange(){
   activeStationId=document.getElementById('station-select').value;singleData=null;
   climoData=climoCache.get(`${activeStationId}_${fromYear}_${toYear}`)||null;
-  stopLiveRefresh();if(mode==='single')loadSingleYear(currentYear);else loadClimatology(fromYear,toYear);
+  stopLiveRefresh();
+  // compareDaily's keys carry the station (compareDataKey), so switching
+  // stations falls through refreshCompareView's missing-year check and
+  // refetches; the old station's series stay cached in case of a switch back.
+  if(mode==='single')loadSingleYear(currentYear);
+  else if(mode==='climatology')loadClimatology(fromYear,toYear);
+  else refreshCompareView();
 }
 
 // ═══════════════════════════════════════════════
@@ -928,6 +1287,30 @@ canvas.addEventListener('mousemove',e=>{
   const FULL_W=canvas.width/dpr;
   const GRID_W=FULL_W-AVG_GAP-TOT_COL_W;
   const cw=GRID_W/366;
+
+  if(mode==='compare'){
+    if(!compareYears.length){tooltip.style.display='none';return;}
+    const stackH=compareYears.length*COMPARE_ROW_H;
+    if(mx<0||mx>FULL_W||my<0||my>stackH){tooltip.style.display='none';return;}
+    // Tot column values are printed in the cell already
+    if(mx>GRID_W){tooltip.style.display='none';return;}
+    const ri=Math.min(compareYears.length-1,Math.floor(my/COMPARE_ROW_H));
+    const year=compareYears[ri];
+    const doy=Math.min(365,Math.floor(mx/cw));
+    const v=getCompareDayTotal(year,doy);
+    document.getElementById('tt-date').textContent=`${doyToDisplay(doy)}  ·  ${year}`;
+    let cvStr='—';
+    if(v!=null&&!isNaN(v))cvStr=v===0?'Dry':v<TRACE+0.0005?'Trace':v.toFixed(2)+'"';
+    document.getElementById('tt-value').textContent=cvStr;
+    document.getElementById('tt-detail').textContent='daily total';
+    tooltip.style.display='block';
+    const TW2=220,TH2=80;let tx2=e.clientX+16,ty2=e.clientY-10;
+    if(tx2+TW2>window.innerWidth-10)tx2=e.clientX-TW2-12;
+    if(ty2+TH2>window.innerHeight-10)ty2=window.innerHeight-TH2-10;
+    tooltip.style.left=tx2+'px';tooltip.style.top=ty2+'px';
+    return;
+  }
+
   if(mx<0||mx>FULL_W||my<0||my>TOTAL_H){tooltip.style.display='none';return;}
   if(mx>GRID_W||my>CANVAS_HEIGHT){tooltip.style.display='none';return;}
   const doy=Math.min(365,Math.floor(mx/cw));
@@ -951,12 +1334,15 @@ canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
 // ═══════════════════════════════════════════════
 function downloadPNG(){
   const st=STATIONS[activeStationId];
-  const period=mode==='single'?String(currentYear):`${fromYear}–${toYear} Avg`;
+  if(mode==='compare'&&!compareYears.length){alert('Add at least one year to export.');return;}
+  const period=mode==='single'?String(currentYear)
+              :mode==='climatology'?`${fromYear}–${toYear} Avg`
+              :`Compare ${compareYears[0]}–${compareYears[compareYears.length-1]}`;
   const EXPORT_SCALE = 3;
   const origDpr = dpr;
   dpr = EXPORT_SCALE;
   setupCanvas();
-  renderHeatmap();
+  renderActiveHeatmap();
 
   const cw2=canvas.width/dpr,ch2=canvas.height/dpr;
   const PAD=24,HDR=98,MBAR=22,FTR=20; // HDR bumped 90->98: the legend colorbar
@@ -980,9 +1366,11 @@ function downloadPNG(){
   oc.fillStyle='#E8E4D9';oc.font='bold 18px "Barlow Condensed",sans-serif';
   oc.fillText(`${st.label}  ·  Annual Precipitation Heatmap  ·  ${period}`,PAD,28);
   oc.fillStyle='#A6A499';oc.font='13px "Barlow Condensed",sans-serif';
-  oc.fillText(`Hourly liquid-equivalent precipitation  ·  ${st.tzLabel} local time`,PAD,46);
+  oc.fillText(mode==='compare'
+    ? `Daily precipitation totals  ·  liquid equivalent  ·  Data: NOAA ACIS`
+    : `Hourly liquid-equivalent precipitation  ·  ${st.tzLabel} local time`,PAD,46);
   oc.fillStyle='#D08425';oc.font='bold 12px "Barlow Condensed",sans-serif';
-  oc.fillText(`Annual Total: ${document.getElementById('sv-total').textContent}   Wet Days: ${document.getElementById('sv-wetdays').textContent}   Peak Hour: ${document.getElementById('sv-peak').textContent}`,PAD,62);
+  oc.fillText(`${document.getElementById('sl-total').textContent}: ${document.getElementById('sv-total').textContent}   ${document.getElementById('sl-wetdays').textContent}: ${document.getElementById('sv-wetdays').textContent}   ${document.getElementById('sl-peak').textContent}: ${document.getElementById('sv-peak').textContent}`,PAD,62);
   oc.fillStyle='#948F82';oc.font='12px "Barlow Condensed",sans-serif';oc.textAlign='right';
   oc.fillText('contextclimate.io',ow-PAD,28);
 
@@ -990,15 +1378,21 @@ function downloadPNG(){
   const canvasX=PAD+HLABEL_W;
   oc.fillStyle='#A6A499';oc.font='11px "Barlow Condensed",sans-serif';
   oc.textAlign='left';  oc.fillText('Dry',           canvasX,      92);
-  oc.textAlign='right'; oc.fillText('≥ 1.00 in/hr',  canvasX+cw2,  92);
+  oc.textAlign='right'; oc.fillText(mode==='compare'?'≥ 5.00 in/day':'≥ 1.00 in/hr',  canvasX+cw2,  92);
   oc.textAlign='left';
   oc.fillStyle=grad; oc.fillRect(canvasX+24, 70, cw2-24-82, 9);
 
-  // Hour labels
+  // Row labels — hours in single/climatology, one year per strip in compare
   oc.textAlign='right';oc.textBaseline='middle';oc.font='11px "Barlow Condensed",sans-serif';
   const hLabelX=PAD+HLABEL_W-6;
-  for(let h=0;h<24;h++){oc.fillStyle='#A6A499';oc.fillText(HOURS[h],hLabelX,HDR+MBAR+(h+0.5)*CELL_H);}
-  oc.fillStyle='#88c8ff';oc.fillText('Total',hLabelX,HDR+MBAR+CANVAS_HEIGHT+FOOTER_GAP+CELL_H*0.5);
+  if(mode==='compare'){
+    oc.font='bold 12px "Barlow Condensed",sans-serif';oc.fillStyle='#FFD700';
+    compareYears.forEach((year,ri)=>{oc.fillText(String(year),hLabelX,HDR+MBAR+(ri+0.5)*COMPARE_ROW_H);});
+    oc.font='11px "Barlow Condensed",sans-serif';
+  }else{
+    for(let h=0;h<24;h++){oc.fillStyle='#A6A499';oc.fillText(HOURS[h],hLabelX,HDR+MBAR+(h+0.5)*CELL_H);}
+    oc.fillStyle='#88c8ff';oc.fillText('Total',hLabelX,HDR+MBAR+CANVAS_HEIGHT+FOOTER_GAP+CELL_H*0.5);
+  }
 
   // Month labels
   oc.textAlign='center';oc.textBaseline='alphabetic';oc.font='11px "Barlow Condensed",sans-serif';
@@ -1014,13 +1408,21 @@ function downloadPNG(){
 
   dpr = origDpr;
   setupCanvas();
-  renderHeatmap();
+  renderActiveHeatmap();
   oc.fillStyle='#948F82';oc.font='11px "Barlow Condensed",sans-serif';
   oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS & NOAA ACIS  ·  contextclimate.io`,PAD,oh-8);
   oc.fillStyle=grad;oc.fillRect(0,oh-2,ow,2);
 
   const link=document.createElement('a');
-  link.download=`precip-heatmap-annual-${activeStationId}-${period.replace(/[\s–]/g,'_')}.png`;
+  // Listing every year inline blows past the 255-char filename limit once a
+  // big preset is selected (All Years = 54 years), so long selections
+  // collapse to a range + count.
+  const slug=mode==='compare'
+    ? (compareYears.length>6
+        ? `compare_${compareYears[0]}-${compareYears[compareYears.length-1]}_${compareYears.length}yr`
+        : `compare_${compareYears.join('-')}`)
+    : period.replace(/[\s–]/g,'_');
+  link.download=`precip-heatmap-annual-${activeStationId}-${slug}.png`;
   link.href=off.toDataURL('image/png');link.click();
 }
 
@@ -1031,10 +1433,12 @@ function init(){
   const yrSel=document.getElementById('year-select');
   const fromSel=document.getElementById('from-year');
   const toSel=document.getElementById('to-year');
+  const cmpSel=document.getElementById('compare-year-add');
   for(let y=CURRENT_YEAR;y>=FIRST_YEAR;y--){
     const o=document.createElement('option');o.value=y;o.textContent=y;yrSel.appendChild(o);
     const o1=document.createElement('option');o1.value=y;o1.textContent=y;fromSel.appendChild(o1);
     const o2=document.createElement('option');o2.value=y;o2.textContent=y;toSel.appendChild(o2);
+    const o3=document.createElement('option');o3.value=y;o3.textContent=y;cmpSel.appendChild(o3);
   }
   yrSel.value=currentYear;fromSel.value=fromYear;toSel.value=toYear;
   requestAnimationFrame(()=>{
@@ -1043,7 +1447,8 @@ function init(){
   });
   window.addEventListener('resize',()=>{
     dpr=window.devicePixelRatio||1;setupCanvas();renderMonthLabels();renderLegend();
-    const hasData=mode==='single'?!!singleData:!!climoData;if(hasData)renderHeatmap();
+    const hasData=mode==='single'?!!singleData:mode==='climatology'?!!climoData:compareYears.length>0;
+    if(hasData)renderActiveHeatmap();
   });
 }
 init();

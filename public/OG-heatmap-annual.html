@@ -727,24 +727,28 @@ function accumToStats(accum) {
 // IEM FETCH + PARSE
 // ═══════════════════════════════════════════════════════════
 function buildURL(stId, tz, y1, y2) {
-  // Start the request one day early -- Dec 31 of the year BEFORE y1 --
-  // instead of Jan 1 of y1. parseCSVInto rolls any ob stamped :45-:59 into
-  // the next hour (ASOS obs post a few minutes before the hour they
-  // describe), so the ob that's supposed to land in y1's Jan 1 Midnight
-  // cell is timestamped Dec 31, y1-1, ~23:5x -- one day before the old
-  // range started. Without it, that source observation was never
-  // downloaded at all, so Jan 1 Midnight was permanently empty for every
-  // year/station. The existing `yr < y1 || yr > y2` filter in
-  // parseCSVInto still buckets this extra day's obs correctly (everything
-  // but that one rolled-forward ob gets discarded, same as before) --
-  // no change needed there. The end of the range doesn't need the same
-  // treatment: Dec 31 y2's own hours are fully populated from obs already
-  // inside [y1,y2], and the ob that rolls past Dec 31 y2 into Jan 1 y2+1
-  // correctly belongs to next year's grid, not this one.
-  const day1Year = y1 - 1;
+  // Two separate boundary fixes, both needed:
+  //
+  // 1) END boundary: IEM's end date (year2/month2/day2) is an EXCLUSIVE
+  //    cutoff -- it returns data strictly before 00:00 of that date, not
+  //    through the end of it. The original `year2=y2&month2=12&day2=31`
+  //    therefore silently dropped every reading from Dec 31 of y2 itself
+  //    (confirmed against the sibling Monthly Heatmap tool, which already
+  //    carries this exact fix, tested live). Fix: end the request on
+  //    Jan 1 of y2+1 so Dec 31 of y2 is fully included.
+  //
+  // 2) START boundary: parseCSVInto rolls any ob stamped :45-:59 into the
+  //    next hour (ASOS obs post a few minutes before the hour they
+  //    describe), so the ob that's supposed to land in y1's Jan 1
+  //    Midnight cell is timestamped Dec 31, y1-1, ~23:5x -- one day
+  //    before a request starting Jan 1 of y1 would ever reach. Fix: start
+  //    the request on Dec 31 of y1-1 instead. The existing
+  //    `yr < y1 || yr > y2` filter in parseCSVInto already buckets this
+  //    extra day's obs correctly (everything but that one rolled-forward
+  //    ob gets discarded) -- no change needed there.
   return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?` +
     `station=${stId}&data=tmpf,dwpf,sknt,skyc1,skyc2,skyc3` +
-    `&year1=${day1Year}&month1=12&day1=31&year2=${y2}&month2=12&day2=31` +
+    `&year1=${y1-1}&month1=12&day1=31&year2=${y2+1}&month2=1&day2=1` +
     `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
 }
 
@@ -1355,14 +1359,24 @@ function compareDataKey(year) { return `${activeStationId}_${year}`; }
 // bounded waste for a scattered pick (e.g. 1985 + 2024 costs two requests,
 // not one 40-year one).
 const COMPARE_FETCH_MAX_GAP = 5;
+// Hard cap on how many years a single request is allowed to span, even for
+// a fully contiguous run. Without this, "Last 30 Years" or "All Years"
+// (54+ years, all gap=1 so they'd otherwise merge into one group) turns
+// into one enormous multi-decade IEM request -- more likely to time out or
+// get refused than several smaller ones. A long run just gets split into
+// sequential chunks instead of one giant call.
+const COMPARE_FETCH_MAX_SPAN = 15;
 
 function groupYearsForFetch(years) {
   const sorted = [...years].sort((a,b) => a-b);
   const groups = [];
   let cur = null;
   for (const y of sorted) {
-    if (cur && y - cur.end <= COMPARE_FETCH_MAX_GAP) cur.end = y;
-    else { cur = { start: y, end: y }; groups.push(cur); }
+    if (cur && y - cur.end <= COMPARE_FETCH_MAX_GAP && (y - cur.start) < COMPARE_FETCH_MAX_SPAN) {
+      cur.end = y;
+    } else {
+      cur = { start: y, end: y }; groups.push(cur);
+    }
   }
   return groups;
 }
@@ -1385,6 +1399,10 @@ async function ensureCompareYearsData(years, onProgress) {
     for (const [year, grid] of perYear) {
       fillFeb29(grid, year);
       compareData.set(compareDataKey(year), grid);
+      // Drop anything derived for this year before its grid landed.
+      for (const k of [...compareDailyCache.keys()]) {
+        if (k.startsWith(`${activeStationId}_${year}_`)) compareDailyCache.delete(k);
+      }
     }
   }
 }
@@ -1420,7 +1438,15 @@ function getClimoDailyMeanArray(baseField) {
 // station/year/field so switching the field toggle re-renders instantly
 // instead of re-averaging every time.
 function getCompareDailyArray(year, field) {
-  const key = `${activeStationId}_${year}_${field}`;
+  // Anomaly arrays depend on which climatology is loaded, so their key has
+  // to carry the reference period too -- otherwise switching the Multi-Year
+  // Avg range kept serving anomalies computed against the previous
+  // baseline. Base fields don't depend on climoData, so they keep the
+  // shorter key and survive a reference-period change untouched.
+  const isAnom = (field === 'temp_anom' || field === 'td_anom');
+  const key = isAnom
+    ? `${activeStationId}_${year}_${field}_${fromYear}_${toYear}`
+    : `${activeStationId}_${year}_${field}`;
   let arr = compareDailyCache.get(key);
   if (arr) return arr;
 
@@ -1441,7 +1467,11 @@ function getCompareDailyArray(year, field) {
 
   arr = new Float32Array(366).fill(NaN);
   const grid = compareData.get(compareDataKey(year));
-  if (grid) {
+  // A render can fire for a year whose grid hasn't landed yet. Return the
+  // empty array WITHOUT caching it -- caching here would pin all-NaN for
+  // that year even after its data arrives.
+  if (!grid) return arr;
+  {
     const src = grid[field];
     for (let doy = 0; doy < 366; doy++) {
       let sum = 0, cnt = 0;
@@ -1610,6 +1640,13 @@ function setMode(m) {
   document.getElementById('compare-controls').style.display = m === 'compare' ? 'flex' : 'none';
 
   updateFieldButtons();
+  // Both of these are mode-dependent: the sidebar is one label per selected
+  // year in Compare mode vs 24 hour labels otherwise, and the canvas height
+  // is compareYears.length * COMPARE_ROW_H vs the fixed 24-row height.
+  // Without them, switching out of Compare Years kept the compare layout
+  // and the other two modes rendered into a mismatched canvas.
+  setupCanvas();
+  renderRowLabels();
 
   stopLiveRefresh();
   if (m === 'single') {
@@ -1859,7 +1896,14 @@ function downloadPNG() {
   renderHeatmap();
 
   const link = document.createElement('a');
-  const slug = mode === 'compare' ? compareYears.join('-') : period.replace(/[–\s]/g,'_');
+  // Listing every year inline blows past the 255-char filename limit once a
+  // big preset is selected (All Years = 54 years), so long selections
+  // collapse to a range + count.
+  const slug = mode === 'compare'
+    ? (compareYears.length > 6
+        ? `${compareYears[0]}-${compareYears[compareYears.length-1]}_${compareYears.length}yr`
+        : compareYears.join('-'))
+    : period.replace(/[–\s]/g,'_');
   link.download = `annual-heatmap-${activeStationId}-${activeField}-${slug}.png`;
   link.href = off.toDataURL('image/png');
   link.click();
