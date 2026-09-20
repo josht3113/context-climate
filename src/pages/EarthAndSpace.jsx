@@ -166,11 +166,11 @@ const SECTIONS = [
           },
           {
             tags:        ['Planetary Formation', 'Interactive'],
-            title:       'Chemical Fractionation',
+            title:       'Planet Formation',
             description: "Explore how planets positioned in different regions of the young solar system formed from different materials, and see how Earth developed its interior layers.",
             footerTags:  ['Planetary Differentiation'],
-            to:          '/earthandspace/chemical-fractionation',
-            thumb:       '/ChemicalFractionation_thumbnail.png',
+            to:          '/earthandspace/planet-formation',
+            thumb:       '/PlanetFormation_thumbnail.png',
             status:      'live',
           },
           {
