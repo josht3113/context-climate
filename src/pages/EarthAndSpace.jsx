@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
 import SectionNav from './SectionNav'
+import { parseQuery, filterSections, countCards } from './toolSearch'
 
 // ── Accent colors per section ─────────────────────────────────────────────────
 const ACCENT = {
@@ -541,8 +543,25 @@ const SECTIONS = [
 // drift out of sync with the actual section order/labels/colors above.
 const NAV_SECTIONS = SECTIONS.map(({ key, label, accent }) => ({ id: key, label, accent }))
 
+// Denominator for the filter's "n of m" readout — derived, so it can't drift
+// as tools are added.
+const TOTAL_TOOLS = countCards(SECTIONS)
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function EarthAndSpace() {
+  // Filter state lives here, not in SectionNav — the nav owns the input, this
+  // page owns what a match means for its own card/subgroup shape.
+  const [query, setQuery] = useState('')
+  const terms           = useMemo(() => parseQuery(query), [query])
+  const visibleSections = useMemo(() => filterSections(SECTIONS, terms), [terms])
+  const resultCount     = useMemo(() => countCards(visibleSections), [visibleSections])
+  // Sections filtered out entirely — their pills dim rather than disappear,
+  // so the row keeps a stable width while typing.
+  const emptyIds = useMemo(() => {
+    const visible = new Set(visibleSections.map((s) => s.key))
+    return NAV_SECTIONS.filter((s) => !visible.has(s.id)).map((s) => s.id)
+  }, [visibleSections])
+
   return (
     <div className="page-container">
 
@@ -598,11 +617,29 @@ export default function EarthAndSpace() {
         </Link>
       </section>
 
-      {/* Jump nav */}
-      <SectionNav sections={NAV_SECTIONS} />
+      {/* Jump nav + tool filter */}
+      <SectionNav
+        sections={NAV_SECTIONS}
+        query={query}
+        onQueryChange={setQuery}
+        emptyIds={emptyIds}
+        resultCount={resultCount}
+        totalCount={TOTAL_TOOLS}
+      />
+
+      {resultCount === 0 && (
+        <p style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize:   '13px',
+          color:      'var(--color-text-muted)',
+          margin:     '0 0 56px',
+        }}>
+          No tools match &ldquo;{query.trim()}&rdquo;.
+        </p>
+      )}
 
       {/* Sections */}
-      {SECTIONS.map((section) => (
+      {visibleSections.map((section) => (
         <section key={section.key} id={section.key} style={{ marginBottom: '56px' }}>
 
           {/* Section header — reuses Home's .sectionLabel so section titles
@@ -636,16 +673,16 @@ export default function EarthAndSpace() {
                     {sub.label}
                   </h3>
                   <div className={styles.grid}>
-                    {sub.cards.map((card, i) => (
-                      <ToolCard key={`${section.key}-${sub.key}-${i}`} {...card} accent={section.accent} />
+                    {sub.cards.map((card) => (
+                      <ToolCard key={card.to} {...card} accent={section.accent} />
                     ))}
                   </div>
                 </div>
               ))
             : (
               <div className={styles.grid}>
-                {section.cards.map((card, i) => (
-                  <ToolCard key={`${section.key}-${i}`} {...card} accent={section.accent} />
+                {section.cards.map((card) => (
+                  <ToolCard key={card.to} {...card} accent={section.accent} />
                 ))}
               </div>
             )

@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
 import SectionNav from './SectionNav'
+import { parseQuery, filterSections, countCards } from './toolSearch'
 
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
@@ -516,14 +518,34 @@ const SECTIONS = [
 // Section list for the jump nav — accent is read off each section's first
 // card (same convention the section header already uses below), so this
 // stays in sync automatically if cards are added/reordered.
+// NOTE: derived from the FULL SECTIONS, not the filtered list — the nav needs
+// every pill (dimmed when empty) and a stable accent per section regardless of
+// which card happens to match.
 const NAV_SECTIONS = SECTIONS.map((section) => ({
   id:     section.id,
   label:  section.label,
   accent: `var(${section.cards[0]?.accentVar || '--color-text-primary'})`,
 }))
 
+// Denominator for the filter's "n of m" readout — derived, so it can't drift
+// as tools are added.
+const TOTAL_TOOLS = countCards(SECTIONS)
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
+  // Filter state lives here, not in SectionNav — the nav owns the input, this
+  // page owns what a match means for its own card shape.
+  const [query, setQuery] = useState('')
+  const terms           = useMemo(() => parseQuery(query), [query])
+  const visibleSections = useMemo(() => filterSections(SECTIONS, terms), [terms])
+  const resultCount     = useMemo(() => countCards(visibleSections), [visibleSections])
+  // Sections filtered out entirely — their pills dim rather than disappear,
+  // so the row keeps a stable width while typing.
+  const emptyIds = useMemo(() => {
+    const visible = new Set(visibleSections.map((s) => s.id))
+    return NAV_SECTIONS.filter((s) => !visible.has(s.id)).map((s) => s.id)
+  }, [visibleSections])
+
   return (
     <div className="page-container">
 
@@ -578,11 +600,29 @@ export default function Home() {
         </Link>
       </section>
 
-      {/* Jump nav */}
-      <SectionNav sections={NAV_SECTIONS} />
+      {/* Jump nav + tool filter */}
+      <SectionNav
+        sections={NAV_SECTIONS}
+        query={query}
+        onQueryChange={setQuery}
+        emptyIds={emptyIds}
+        resultCount={resultCount}
+        totalCount={TOTAL_TOOLS}
+      />
+
+      {resultCount === 0 && (
+        <p style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize:   '13px',
+          color:      'var(--color-text-muted)',
+          margin:     '0 0 56px',
+        }}>
+          No tools match &ldquo;{query.trim()}&rdquo;.
+        </p>
+      )}
 
       {/* Sections */}
-      {SECTIONS.map((section, i) => (
+      {visibleSections.map((section, i) => (
         <section
           key={section.id}
           id={section.id}
