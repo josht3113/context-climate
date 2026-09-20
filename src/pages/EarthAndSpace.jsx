@@ -165,10 +165,10 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Planetary Formation', 'Interactive'],
+            tags:        ['Planet Formation', 'Interactive'],
             title:       'Planet Formation',
-            description: "Explore how planets positioned in different regions of the young solar system formed from different materials, and see how Earth developed its interior layers.",
-            footerTags:  ['Planetary Differentiation'],
+            description: "Explore the stages of planet formation from a spiraling disc of debris that grows into a collection of spheres by acrretion, eventually forming the solar system we recognize today.",
+            footerTags:  ['Condensation', 'Accretion', 'Differentiation'],
             to:          '/earthandspace/planet-formation',
             thumb:       '/PlanetFormation_thumbnail.png',
             status:      'live',
