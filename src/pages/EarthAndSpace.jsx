@@ -26,7 +26,7 @@ const SECTIONS = [
       {
         tags:        ['ESSRT', 'Page 2', 'Interactive'],
         title:       'Solar System Objects Data Table',
-        description: 'Explore ESSRT page 2 interactively — show or hide the Sun, terrestrial and Jovian planets, the Moon, dwarf planets and Pallas, sort any column, switch to Earth = 1 units, and open any object to see its axial tilt and true orbit shape drawn from its own row of data.',
+        description: 'Explore ESSRT page 2 interactively — sort any column, switch to Earth = 1 units, and open any object to see its axial tilt and true orbit shape drawn from its own row of data.',
         footerTags:  ['Planets', 'Orbital Eccentricity', 'Axial Tilt'],
         to:          '/ESSRT_2',
         thumb:       '/ESSRT_2_thumbnail.png',
