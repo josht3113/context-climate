@@ -43,8 +43,13 @@ html,body{padding:0;margin:0}
   min-width:104px;text-align:right}
 .ctrl-val.out{color:var(--color-text-muted)}
 .out-note{font-family:var(--font-mono);font-size:12px;color:var(--accent-seasons);white-space:nowrap}
+.span-slot{position:relative;display:inline-block;min-width:270px;height:19px;flex:0 0 auto}
+.span-slot>*{position:absolute;left:0;top:50%;transform:translateY(-50%);
+  transition:opacity .12s}
 .range-key{display:flex;align-items:center;gap:7px;font-family:var(--font-mono);
   font-size:12px;color:var(--color-text-muted);white-space:nowrap}
+.range-key.is-off{opacity:0}
+.out-note.is-off{opacity:0}
 .range-key i{display:inline-block;width:16px;height:7px;border-radius:2px;
   background:rgba(255,209,102,.38)}
 input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;
@@ -118,10 +123,12 @@ canvas{display:block}
   </div>
   <div class="ctrl-group" id="gEcc" hidden>
     <span class="ctrl-lbl">Eccentricity</span>
-    <input type="range" id="ecc" min="0" max="0.07" step="0.0005" value="0.0167" style="width:210px">
+    <input type="range" id="ecc" min="0" max="0.07" step="0.0001" value="0.0167" style="width:210px">
     <span class="ctrl-val" id="eccVal">0.0167</span>
-    <span class="range-key"><i></i>Berger 800 kyr span 0.0044–0.0529</span>
-    <span class="out-note" id="outNote" hidden>outside the modelled span</span>
+    <span class="span-slot">
+      <span class="range-key" id="rangeKey"><i></i>Berger 800 kyr span 0.0044–0.0529</span>
+      <span class="out-note is-off" id="outNote">outside the modelled span</span>
+    </span>
   </div>
   <div class="ctrl-group" id="gLat" hidden>
     <span class="ctrl-lbl">Latitude</span>
@@ -221,23 +228,36 @@ function drawShapeStage(ctx, w, h){
   var cx = w * 0.47, cy = h * 0.50;
   var sunX = cx + C;
 
-  /* the circle the orbit would be if e were 0 */
-  ctx.save(); ctx.setLineDash([2,6]);
-  ctx.strokeStyle = 'rgba(232,228,217,.20)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx, cy, A, 0, Math.PI*2); ctx.stroke(); ctx.restore();
-
   ctx.beginPath(); ctx.ellipse(cx, cy, A, B, 0, 0, Math.PI*2);
   ctx.strokeStyle = COL.orbit; ctx.lineWidth = 1.6; ctx.stroke();
+
+  /* the circle the orbit would be if e were 0 — drawn OVER the ellipse, or a
+     near-circular orbit hides it and reads as a missing comparison rather
+     than as "these two coincide" */
+  ctx.save(); ctx.setLineDash([2,6]);
+  ctx.strokeStyle = 'rgba(232,228,217,.30)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, A, 0, Math.PI*2); ctx.stroke(); ctx.restore();
 
   var sg = ctx.createRadialGradient(sunX, cy, 0, sunX, cy, 34);
   sg.addColorStop(0, 'rgba(255,207,107,.5)'); sg.addColorStop(1, 'rgba(255,207,107,0)');
   ctx.beginPath(); ctx.arc(sunX, cy, 34, 0, Math.PI*2); ctx.fillStyle = sg; ctx.fill();
   ctx.beginPath(); ctx.arc(sunX, cy, 11, 0, Math.PI*2); ctx.fillStyle = COL.sun; ctx.fill();
-  ctx.beginPath(); ctx.arc(cx - C, cy, 3.5, 0, Math.PI*2);
-  ctx.strokeStyle = 'rgba(232,228,217,.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+  /* At the drawing's scale the Sun's disc is far larger than a true-scale Sun
+     would be, so for small e the empty focus falls inside it. The dot stays
+     where it belongs and gets a dark backing; the label steps clear of the
+     glow and keeps a leader back to the dot. */
+  var fx = cx - C, GLOW = 34;
+  var labelR = Math.min(fx - 8, sunX - GLOW - 10);
+  ctx.save(); ctx.setLineDash([2,3]);
+  ctx.strokeStyle = 'rgba(232,228,217,.28)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(labelR + 5, cy + 21); ctx.lineTo(fx, cy + 7); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(fx, cy, 4.5, 0, Math.PI*2);
+  ctx.fillStyle = 'rgba(21,26,23,.92)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(232,228,217,.55)'; ctx.lineWidth = 1.2; ctx.stroke();
   ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText('empty focus', cx - C, cy + 10);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('empty focus', labelR, cy + 21);
 
   var rP = A_EARTH * (1 - e), rA = A_EARTH * (1 + e);
   var fP = M.S0 * Math.pow(A_EARTH / rP, 2), fA = M.S0 * Math.pow(A_EARTH / rA, 2);
@@ -600,7 +620,7 @@ function sizeCanvas(cv, w, h){
   return ctx;
 }
 var stageW = 760, stageH = 380, chartH = 0;
-function stageHeight(){ return step === 1 ? 380 : (step === 4 ? 300 : 340); }
+function stageHeight(){ return step === 1 ? 470 : (step === 4 ? 300 : 340); }
 function chartHeight(){ return step === 4 ? 222 : 0; }
 function drawStage(ctx, w, h){
   if (step === 1) drawShapeStage(ctx, w, h);
@@ -662,7 +682,8 @@ function updateEccReadout(){
   var el = document.getElementById('eccVal');
   el.textContent = e.toFixed(4);
   el.classList.toggle('out', out);
-  document.getElementById('outNote').hidden = !out;
+  document.getElementById('outNote').classList.toggle('is-off', !out);
+  document.getElementById('rangeKey').classList.toggle('is-off', out);
 }
 
 /* ══════════ controls ══════════ */
