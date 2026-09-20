@@ -490,7 +490,7 @@ const SECTIONS = [
       },
       {
         tags:        ['Stream Velocity', 'Interactive'],
-        title:       'Stream Sediment Transport Simulator',
+        title:       'Stream Transport Simulator',
         description: 'Control stream velocity and observe how erosion, saltation, suspension, and deposition respond.',
         footerTags:  ['Stream Transport', 'Erosion & Deposition'],
         to:          '/stream-transport',
