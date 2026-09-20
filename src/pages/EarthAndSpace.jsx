@@ -201,6 +201,15 @@ const SECTIONS = [
         cards: [
           {
             tags:        ['Milankovitch Cycles', 'Interactive', '1 of 4'],
+            title:       'Eccentricity Explorer',
+            description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
+            footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles'],
+            to:          '/earthandspace/eccentricity-explorer',
+            thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
             title:       'Obliquity Explorer',
             description: 'Animate Earth\'s axial tilt as it cycles between ~22° and 24.5° over roughly 41,000 years — and see how changing obliquity drives long-term shifts in seasonal contrast and Milankovitch-driven climate cycles.',
             footerTags:  ['Axial Tilt', 'Milankovitch Cycles'],
@@ -209,21 +218,12 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
+            tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
             title:       'Precession Explorer',
             description: 'Follow Earth\'s slow axial wobble — a ~26,000-year cycle that shifts which star sits at the celestial north pole and alters when perihelion falls relative to the seasons.',
             footerTags:  ['Axial Precession', 'Milankovitch Cycles'],
             to:          '/earthandspace/precession-explorer',
             thumb:       '/PrecessionExplorer_thumbnail.png',
-            status:      'live',
-          },
-          {
-            tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
-            title:       'Eccentricity Explorer',
-            description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
-            footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles'],
-            to:          '/earthandspace/eccentricity-explorer',
-            thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
             status:      'live',
           },
           {
@@ -490,7 +490,7 @@ const SECTIONS = [
       },
       {
         tags:        ['Stream Velocity', 'Interactive'],
-        title:       'Stream Transport Simulator',
+        title:       'Stream Sediment Transport Simulator',
         description: 'Control stream velocity and observe how erosion, saltation, suspension, and deposition respond.',
         footerTags:  ['Stream Transport', 'Erosion & Deposition'],
         to:          '/stream-transport',
