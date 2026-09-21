@@ -288,6 +288,15 @@ const SECTIONS = [
             status:      'live',
           },
           {
+            tags:        ['Spectroscopy', 'Practice', 'Interactive'],
+            title:       'Doppler Shift Challenge',
+            description: 'Five spectra from five moving sources. Match each one to its element using the ESRT reference patterns, then drag your reference into alignment — the direction you had to drag is the direction the source is moving. Four sets, and a results card to hand in.',
+            footerTags:  ['Redshift', 'Blueshift', 'Spectral Lines'],
+            to:          '/earthandspace/doppler-shift-challenge',
+            thumb:       '/DopplerShiftChallenge_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ['Cosmology', 'Interactive'],
             title:       "Hubble's Law Explorer",
             description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from four classic galaxy clusters.',
