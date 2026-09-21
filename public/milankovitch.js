@@ -349,7 +349,11 @@ function trueAnomalyAtTimeFraction(e, frac, nu0) {
    surplus > 0 means more melt than snowfall: the snow is gone by autumn.
    surplus < 0 means snow survives the summer — where ice sheets start. */
 function meltSeason(lat, ageBP, opts) {
-  var o = orbit(ageBP);
+  /* opts.orbit overrides the age lookup, so a tool can run a CONTROLLED
+     experiment — vary one parameter with the other two held fixed —
+     instead of the confounded real-Earth state at that age. When absent
+     the behaviour is exactly as before. */
+  var o = (opts && opts.orbit) ? opts.orbit : orbit(ageBP);
   var cfg = {
     albedo:       (opts && opts.albedo       != null) ? opts.albedo       : MELT_DEFAULTS.albedo,
     qcrit:        (opts && opts.qcrit        != null) ? opts.qcrit        : MELT_DEFAULTS.qcrit,

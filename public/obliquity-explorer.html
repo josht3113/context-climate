@@ -144,6 +144,18 @@ canvas{display:block}
     <span class="ctrl-val" id="scrubVal" style="min-width:104px">today</span>
     <button class="cc-btn cc-btn-sm" id="pinBtn">＋ Pin</button>
   </div>
+  <div class="ctrl-group" id="gTiltState" hidden>
+    <span class="ctrl-lbl">Tilt</span>
+    <div class="cc-segmented">
+      <button class="cc-segmented-btn" data-eps="22.1">22.1° min</button>
+      <button class="cc-segmented-btn is-active" data-eps="23.4463">23.4° today</button>
+      <button class="cc-segmented-btn" data-eps="24.5">24.5° max</button>
+    </div>
+    <span class="range-key"><i></i>Earth's long-term range</span>
+  </div>
+  <div class="ctrl-group" id="gWhy" hidden>
+    <button class="cc-btn cc-btn-sm" id="whyBtn">Why 65°N?</button>
+  </div>
   <div class="ctrl-group" id="gLat">
     <span class="ctrl-lbl">Latitude</span>
     <select class="cc-select" id="latSel">
@@ -185,6 +197,7 @@ canvas{display:block}
     &nbsp;·&nbsp; <b>Insolation</b> daily mean at the solstice, top of atmosphere, S₀ = 1361 W/m².
     &nbsp;·&nbsp; <b>Coastlines</b> Natural Earth 1:110m, simplified.
     &nbsp;·&nbsp; <b>Melt panel</b> is a toy surface-energy budget (albedo 0.75, threshold 100 W/m² absorbed), not a mass-balance model.
+    &nbsp;·&nbsp; <b>Step 4</b> varies obliquity alone; eccentricity and longitude of perihelion are held at today's values, so the melt difference is attributable to tilt.
     &nbsp;·&nbsp; contextclimate.io
   </div>
 </div>
@@ -214,6 +227,16 @@ var season = 'jun';           // 'jun' | 'dec'
 var spinning = true, spinPhase = 0, lastFrame = 0;
 var LAT = 65, ACCUM = 250;
 var scrubAge = 0, pins = [];
+/* Step 4 runs a CONTROLLED experiment: obliquity varies, eccentricity and
+   the longitude of perihelion stay at today's values. Those two are what
+   precession moves, and at 65 N precession outweighs obliquity, so letting
+   them drift with a real age would confound the one attribution the step
+   makes. meltEps is the rendered value, meltTarget the selected state. */
+var MELT_LAT = 65;
+var meltEps = 23.4463, meltTarget = 23.4463;
+var meltTween = null;         // {from, to, t0} while a state change animates
+var MELT_TWEEN_MS = 600;
+var whyLat = false;           // "Why 65°N?" panel
 var CAM_BETA = 14 * D2R;      // ONE camera for the whole scene
 
 /* ══════════ URL state ══════════ */
@@ -616,43 +639,53 @@ function markChart(ctx, x, h, col, dashed){
 }
 
 /* ══════════ step 4 — melt season ══════════ */
+/* Controlled orbit: today's e and longPeri, the chosen obliquity. */
+function meltOrbit(eps){
+  var o0 = M.orbit(0);
+  return { e: o0.e, obliquity: eps, longPeri: o0.longPeri };
+}
 function drawMelt(ctx, w, h){
   ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
-  var r = M.meltSeason(LAT, scrubAge, { accumulation: ACCUM });
+  var o = meltOrbit(meltEps);
+  var r = M.meltSeason(MELT_LAT, 0, { accumulation: ACCUM, steps: 365, orbit: o });
 
-  /* ── schematic ice index, drawn on the globe ──────────────────────────
-     NOT a computed ice margin. Summer melt in this budget has a MINIMUM
-     near 65 N and rises again toward the pole, because north of the Arctic
-     Circle the midsummer sun never sets: daily-mean insolation at the pole
-     in June beats 65 N. So there is no snowline to grow a cap outward from,
-     and any latitude drawn here would be invented. The cap's size is a
-     stated linear function of the 65 N melt surplus and carries no latitude
-     claim. The caption on the canvas says so. */
-  var surp65 = M.meltSeason(65, scrubAge, { accumulation: ACCUM, steps: 120 }).surplus;
-  var capFrac = Math.max(0, Math.min(1, -surp65 / 200));
-  var gR = Math.min(h * 0.255, 82), gx = 22 + gR * 1.5, gy = h * 0.44;
-  drawGlobe(ctx, gx, gy, gR, M.orbit(scrubAge).obliquity,
-            { circles: false, angle: false, capFrac: capFrac });
-  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = COL.ice;
+  /* three columns, reading order = causal order:
+     tilt  ->  the summer it produces  ->  what that does to the snow */
+  var PAD = 20;
+  var colA = Math.max(Math.min(200, w * 0.17), 132);
+  var colC = Math.max(Math.min(360, w * 0.30), 236);
+  var bx   = w - PAD - colC;
+  var cx0  = PAD + colA + 52;
+  var curveW = Math.max(bx - 58 - cx0, 150);
+
+  /* ── A · the globe, at the selected tilt ───────────────────────────
+     No ice index is drawn: this budget's melt has a minimum near 65 N and
+     rises again toward the pole, so there is no snowline to grow a cap
+     outward from and any margin drawn here would be invented. drawGlobe's
+     default cap edge is the polar circle at 90 - eps, which is geometry
+     rather than a claim about ice. The circles and their labels belong to
+     step 2 and are off here. */
+  var gR = Math.min(colA * 0.44, h * 0.27);
+  var gx = PAD + colA / 2, gy = h * 0.46;
+  drawGlobe(ctx, gx, gy, gR, meltEps, { circles: false, angle: false });
+  ctx.font = '700 26px "Zilla Slab", serif'; ctx.fillStyle = COL.axis;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(capFrac > 0.02 ? 'ICE INDEX ' + Math.round(capFrac * 100) + '%' : 'NO ICE GROWTH',
-               gx, gy + gR + 26);
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.fillText('schematic index scaled from the 65°N', gx, gy + gR + 44);
-  ctx.fillText('melt surplus — not an ice margin', gx, gy + gR + 60);
+  ctx.fillText(meltEps.toFixed(2) + '°', gx, gy + gR + 22);
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.fillText('axial tilt', gx, gy + gR + 54);
 
-  var cx0 = gx + gR * 1.75, cy0 = 40, cy1 = h - 72, ch = cy1 - cy0;
-  var curveW = Math.min((w - cx0) * 0.42, 380);
-
-  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText('SUMMER MELT BUDGET · ' + (LAT + '°N') + ' · ' + M.fmtAge(scrubAge).toUpperCase() +
-               ' · TILT ' + M.orbit(scrubAge).obliquity.toFixed(2) + '°', cx0 - 60, 12);
-
+  /* ── B · the summer that tilt produces ─────────────────────────────── */
+  var cy0 = 62, cy1 = h - 46, ch = cy1 - cy0;
   var qMax = 0, i;
   for (i = 0; i < r.curve.length; i++) qMax = Math.max(qMax, r.curve[i].q);
   qMax = Math.max(qMax, 560) * 1.04;
-  var thr = r.config.qcrit / (1 - r.config.albedo);
+  var thr  = r.config.qcrit / (1 - r.config.albedo);
+  /* The threshold is named here rather than floated next to its line: at
+     narrow widths no position beside the curve stays clear of it. */
+  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('SUNLIGHT AT ' + MELT_LAT + '°N THROUGH THE YEAR  ·  SNOW MELTS ABOVE '
+               + Math.round(thr) + ' W/m²', cx0 - 46, 22);
   var qMin = Math.min(150, thr * 0.45);
   var yq = function(q){ return cy1 - (Math.max(q, qMin) - qMin) / (qMax - qMin) * ch; };
   var xd = function(d){ return cx0 + d / r.curve.length * curveW; };
@@ -665,52 +698,74 @@ function drawMelt(ctx, w, h){
     } else if (open){ ctx.lineTo(xd(i), yq(thr)); open = false; }
   }
   if (open) ctx.lineTo(xd(r.curve.length - 1), yq(thr));
-  ctx.closePath(); ctx.fillStyle = 'rgba(255,179,71,.26)'; ctx.fill();
+  ctx.closePath(); ctx.fillStyle = 'rgba(255,179,71,.30)'; ctx.fill();
+
+  var eps0 = M.orbit(0).obliquity;
+  if (Math.abs(meltEps - eps0) > 0.05){
+    var g = M.meltSeason(MELT_LAT, 0, { accumulation: ACCUM, steps: 365, orbit: meltOrbit(eps0) });
+    ctx.save(); ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = 'rgba(232,228,217,.40)'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (i = 0; i < g.curve.length; i++){
+      var gxp = xd(i), gyp = yq(g.curve[i].q);
+      if (i === 0) ctx.moveTo(gxp, gyp); else ctx.lineTo(gxp, gyp);
+    }
+    ctx.stroke(); ctx.restore();
+    var pk = 0, pki = 0;
+    for (i = 0; i < g.curve.length; i++) if (g.curve[i].q > pk){ pk = g.curve[i].q; pki = i; }
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.fillText('today', xd(pki), yq(pk) - 7);
+  }
 
   ctx.beginPath();
   for (i = 0; i < r.curve.length; i++){
     var x = xd(i), y = yq(r.curve[i].q);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.strokeStyle = '#FFB347'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.strokeStyle = '#FFB347'; ctx.lineWidth = 1.8; ctx.stroke();
 
-  ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(232,228,217,.42)'; ctx.lineWidth = 1;
+  ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(232,228,217,.5)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx0, yq(thr)); ctx.lineTo(cx0 + curveW, yq(thr)); ctx.stroke(); ctx.restore();
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-  ctx.fillText('melt threshold ' + Math.round(thr) + ' W/m²', cx0 + curveW, yq(thr) - 4);
-  ctx.textBaseline = 'middle';
-  ctx.fillText(Math.round(qMin) + ' W/m²', cx0 - 5, cy1);
-  ctx.fillText(Math.round(qMax) + ' W/m²', cx0 - 5, cy0);
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(qMin) + ' W/m²', cx0 - 7, cy1);
+  ctx.fillText(Math.round(qMax) + ' W/m²', cx0 - 7, cy0);
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ['Mar','Jun','Sep','Dec'].forEach(function(mn, k){
-    ctx.fillText(mn, xd(r.curve.length * k / 4), cy1 + 3);
+    ctx.fillText(mn, xd(r.curve.length * k / 4), cy1 + 5);
   });
 
-  var bx = cx0 + curveW + 46, bw = Math.max(w - bx - 120, 86);
-  var maxBar = Math.max(r.melt, ACCUM, 100) * 1.08, bh = 17;
+  /* ── C · what that does to the snow ────────────────────────────────── */
+  var bw = colC - 96, bh = 22;
+  var blockH = 46 + 46 + 26 + 62;                 // two bars, verdict, surplus
+  var by = Math.max(cy0 + 2, (h - blockH) / 2 - 8);
   function bar(label, val, col, row){
-    var y = cy0 + 4 + row * 34;
-    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
+    var y = by + row * 46;
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
     ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(label, bx, y - 3);
+    ctx.fillText(label, bx, y - 5);
     ctx.fillStyle = CSS.surf2; ctx.fillRect(bx, y, bw, bh);
     ctx.fillStyle = col; ctx.fillRect(bx, y, bw * Math.min(val / maxBar, 1), bh);
-    ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
+    ctx.font = '700 18px "Zilla Slab", serif'; ctx.fillStyle = CSS.text;
     ctx.textBaseline = 'middle';
-    ctx.fillText(Math.round(val) + ' mm', bx + bw + 8, y + bh / 2);
+    ctx.fillText(Math.round(val) + ' mm', bx + bw + 10, y + bh / 2);
   }
+  var maxBar = Math.max(r.melt, ACCUM, 100) * 1.08;
   bar('WINTER SNOWFALL', ACCUM, '#C0D7FC', 0);
-  bar('SUMMER MELT', r.melt, '#FFB347', 1);
+  bar('SUMMER MELT',     r.melt, '#FFB347', 1);
 
   var survives = r.surplus < 0;
-  ctx.font = '600 15px "Public Sans", sans-serif';
+  var vy = by + 2 * 46 + 26;
+  ctx.font = '700 22px "Zilla Slab", serif';
   ctx.fillStyle = survives ? '#C0D7FC' : '#FFB347';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText(survives ? 'SNOW SURVIVES THE SUMMER' : 'SNOW GONE BY AUTUMN', bx, cy0 + 4 + 68 + 10);
-  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-  ctx.fillText((r.surplus >= 0 ? '+' : '') + Math.round(r.surplus) + ' mm  ·  ' + r.days + ' melt days',
-               bx, cy0 + 4 + 68 + 29);
+  ctx.fillText(survives ? 'SNOW SURVIVES' : 'SNOW IS GONE', bx, vy);
+  ctx.font = '700 22px "Zilla Slab", serif';
+  ctx.fillText(survives ? 'THE SUMMER' : 'BY AUTUMN', bx, vy + 27);
+  ctx.font = '16px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.fillText((r.surplus >= 0 ? '+' : '−') + Math.round(Math.abs(r.surplus)) + ' mm',
+               bx, vy + 62);
 }
 
 /* ══════════ step 4 chart — where on Earth tilt matters ══════════ */
@@ -806,12 +861,13 @@ function drawLatChart(ctx, w, h){
    midsummer sun never sets north of the Arctic Circle. Computed, not drawn. */
 function drawMeltLatChart(ctx, w, h){
   ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
+  var o = meltOrbit(meltEps);
   var lats = [], melt = [], i, lat;
-  for (lat = 35; lat <= 90; lat += 2.5){
+  for (lat = 35; lat <= 90; lat += 1.25){
     lats.push(lat);
-    melt.push(M.meltSeason(lat, scrubAge, { accumulation: ACCUM, steps: 120 }).melt);
+    melt.push(M.meltSeason(lat, 0, { accumulation: ACCUM, steps: 120, orbit: o }).melt);
   }
-  var hi = 0, minV = 1e9, minLat = 65;
+  var hi = 0, minV = 1e9, minLat = MELT_LAT;
   for (i = 0; i < melt.length; i++){
     hi = Math.max(hi, melt[i]);
     if (melt[i] < minV){ minV = melt[i]; minLat = lats[i]; }
@@ -827,7 +883,7 @@ function drawMeltLatChart(ctx, w, h){
     ctx.strokeStyle = 'rgba(232,228,217,.07)';
     ctx.beginPath(); ctx.moveTo(PLc, Y(v)); ctx.lineTo(w - PRc, Y(v)); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     ctx.fillText(Math.round(v), PLc - 7, Y(v));
     ctx.setLineDash([2, 5]);
@@ -839,7 +895,7 @@ function drawMeltLatChart(ctx, w, h){
   ctx.strokeStyle = '#C0D7FC'; ctx.lineWidth = 1.6;
   ctx.beginPath(); ctx.moveTo(PLc, Y(ACCUM)); ctx.lineTo(w - PRc, Y(ACCUM)); ctx.stroke();
   ctx.restore();
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = '#C0D7FC';
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = '#C0D7FC';
   ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
   ctx.fillText('winter snowfall ' + ACCUM + ' mm', PLc + 6, Y(ACCUM) - 4);
 
@@ -853,18 +909,16 @@ function drawMeltLatChart(ctx, w, h){
   /* the minimum */
   ctx.beginPath(); ctx.arc(X(minLat), Y(minV), 4.5, 0, Math.PI * 2);
   ctx.fillStyle = '#FFB347'; ctx.fill();
-  ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = '#FFB347';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText('least melt: ' + minLat + '°N', X(minLat), Y(minV) - 9);
+  /* labelled once, in the callout at the right — the dot marks it here */
 
   /* selected latitude */
   ctx.save(); ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(232,228,217,.45)'; ctx.lineWidth = 1.2;
   ctx.beginPath(); ctx.moveTo(X(LAT), PTc); ctx.lineTo(X(LAT), h - PBc); ctx.stroke(); ctx.restore();
-  ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
+  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(LAT + '°N', X(LAT), PTc - 3);
+  ctx.fillText(LAT + '°N', X(LAT), h - PBc - 5);
 
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
   ctx.textBaseline = 'top';
   [40, 50, 60, 70, 80, 90].forEach(function(la){
     ctx.fillText(la + '°N', X(la), h - PBc + 6);
@@ -872,19 +926,14 @@ function drawMeltLatChart(ctx, w, h){
 
   ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
   ctx.textAlign = 'left';
-  ctx.fillText('SUMMER MELT BY LATITUDE · ' + M.fmtAge(scrubAge).toUpperCase(), PLc + 6, 8);
+  ctx.fillText('SUMMER MELT BY LATITUDE · TILT ' + meltEps.toFixed(2) + '°', PLc + 6, 8);
 
   var lx = w - PRc + 26, ly = PTc + 6;
   ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = '#FFB347';
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText('Least melt at ' + minLat + '°N', lx, ly);
+  ctx.fillText('Least melt at ' + minLat.toFixed(1) + '°N', lx, ly);
   ctx.font = '700 24px "Zilla Slab", serif'; ctx.fillStyle = CSS.text;
   ctx.fillText(Math.round(minV) + ' mm', lx, ly + 20);
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.fillText('melt rises again toward', lx, ly + 54);
-  ctx.fillText('the pole — north of the', lx, ly + 70);
-  ctx.fillText('Arctic Circle the mid-', lx, ly + 86);
-  ctx.fillText('summer sun never sets', lx, ly + 102);
 }
 
 /* ══════════ side readouts ══════════ */
@@ -926,13 +975,18 @@ function renderSide(){
     html += chip(LAT + '°N summer', Math.round(M.dailyMean(LAT, 90,
       { e:ob.e, obliquity:ob.obliquity, longPeri:ob.longPeri })) + ' W/m²', null, '#FFB347');
   } else {
-    var ob2 = M.orbit(scrubAge);
-    var lo = M.dailyMean(LAT, 90, { e:ob2.e, obliquity:22.1, longPeri:ob2.longPeri });
-    var hi = M.dailyMean(LAT, 90, { e:ob2.e, obliquity:24.5, longPeri:ob2.longPeri });
-    html += chip('Tilt', ob2.obliquity.toFixed(2) + '°', M.fmtAge(scrubAge), COL.curve);
+    var oc = meltOrbit(meltEps);
+    var lo = M.dailyMean(MELT_LAT, 90, { e:oc.e, obliquity:22.1, longPeri:oc.longPeri });
+    var hi = M.dailyMean(MELT_LAT, 90, { e:oc.e, obliquity:24.5, longPeri:oc.longPeri });
+    var mLo = M.meltSeason(MELT_LAT, 0, { accumulation:ACCUM, steps:365, orbit:meltOrbit(22.1) }).melt;
+    var mHi = M.meltSeason(MELT_LAT, 0, { accumulation:ACCUM, steps:365, orbit:meltOrbit(24.5) }).melt;
+    html += chip('Summer sun at ' + MELT_LAT + '°N',
+                 Math.round(M.dailyMean(MELT_LAT, 90, oc)) + ' W/m²',
+                 'daily mean at the June solstice', '#FFB347');
     html += chip('Tilt alone spans', Math.round(hi - lo) + ' W/m²',
-                 'at ' + LAT + '°N, across 22.1°–24.5°', '#FFB347');
-    html += chip('Precession spans', '~99 W/m²', 'at high eccentricity — 2.5× obliquity', '#3CA3AE');
+                 'across 22.1°–24.5° at ' + MELT_LAT + '°N', COL.curve);
+    html += chip('Melt spans', Math.round(mLo) + ' → ' + Math.round(mHi) + ' mm',
+                 (mHi / mLo).toFixed(1) + '× across the same range', '#C0D7FC');
   }
   document.getElementById('sideCol').innerHTML = html;
 }
@@ -949,9 +1003,9 @@ var stageW = 700, stageH = 420, chartH = 196;
 function layout(){
   var col = document.querySelector('.stage-col');
   stageW = Math.max(col.clientWidth, 380);
-  stageH = (step === 4) ? 300 : (step === 1 ? 400 : 330);
-  chartH = (step === 1) ? 0 : (step === 3 ? 210 : 218);
-  document.getElementById('chartBox').hidden = (step === 1);
+  stageH = (step === 4) ? (whyLat ? 310 : 330) : (step === 1 ? 400 : 330);
+  chartH = (step === 1) ? 0 : (step === 4 ? (whyLat ? 218 : 0) : (step === 3 ? 210 : 218));
+  document.getElementById('chartBox').hidden = !chartH;
   render();
 }
 function render(){
@@ -971,7 +1025,9 @@ function render(){
   }
   renderSide();
   document.getElementById('tiltTag').textContent =
-    (step >= 3 ? M.orbit(scrubAge).obliquity : (step === 1 ? 0 : tilt)).toFixed(2) + '°';
+    (step === 4 ? meltEps
+     : step === 3 ? M.orbit(scrubAge).obliquity
+     : step === 1 ? 0 : tilt).toFixed(2) + '°';
 }
 
 /* ══════════ animation ══════════ */
@@ -983,7 +1039,14 @@ function frame(ts){
     if (lastFrame) spinPhase = (spinPhase + (ts - lastFrame) / 8000 * 360) % 360;
     lastFrame = ts; render(); drew = true;
   } else lastFrame = 0;
-  if (playing && step >= 3){
+  if (meltTween){
+    var u = Math.min(1, (ts - meltTween.t0) / MELT_TWEEN_MS);
+    var k = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);   // ease in-out
+    meltEps = meltTween.from + (meltTween.to - meltTween.from) * k;
+    if (u >= 1){ meltEps = meltTween.to; meltTween = null; }
+    render(); drew = true;
+  }
+  if (playing && step === 3){
     if (playLast){
       scrubAge += (ts - playLast) / 1000 * PLAY_RATE;
       if (scrubAge > M.TIME.DEEP_START) scrubAge = 0;
@@ -1009,10 +1072,15 @@ function showGroups(){
   document.getElementById('gTilt').hidden   = (step !== 2);
   document.getElementById('gSeason').hidden = (step !== 2);
   document.getElementById('gSpin').hidden   = (step > 2);
-  document.getElementById('gScrub').hidden  = (step < 3);
+  /* Step 3 owns the time axis and the 41 kyr cycle. Step 4 owns the
+     consequence, so its variable is tilt, not age. */
+  document.getElementById('gScrub').hidden  = (step !== 3);
+  document.getElementById('gPlay').hidden   = (step !== 3);
+  document.getElementById('pinStrip').hidden = (step !== 3);
   document.getElementById('accumPanel').hidden = (step !== 4);
-  document.getElementById('gPlay').hidden = (step < 3);
-  document.getElementById('pinStrip').hidden = (step < 3);
+  document.getElementById('gTiltState').hidden = (step !== 4);
+  document.getElementById('gWhy').hidden = (step !== 4);
+  document.getElementById('gLat').hidden = (step === 4 && !whyLat);
 }
 document.querySelectorAll('.step-btn').forEach(function(b){
   b.addEventListener('click', function(){
@@ -1023,7 +1091,8 @@ document.querySelectorAll('.step-btn').forEach(function(b){
     /* Each step owns its tilt, so re-entering gives its intended picture. */
     if (step === 2) { tilt = M.orbit(0).obliquity; syncTilt(); }
     if (step >= 3) tilt = M.orbit(scrubAge).obliquity;
-    if (step < 3) setPlay(false);
+    if (step !== 3) setPlay(false);
+    if (step === 4){ LAT = MELT_LAT; syncLatSel(); }
     showGroups(); layout();
   });
 });
@@ -1076,6 +1145,29 @@ document.getElementById('scrub').addEventListener('input', function(e){
 document.getElementById('latSel').addEventListener('change', function(e){
   LAT = parseFloat(e.target.value); render();
 });
+function syncLatSel(){ document.getElementById('latSel').value = String(LAT); }
+
+/* Tilt states snap; the tween exists so the eye can follow which way the
+   curve and the bars moved, and then it stops. */
+document.querySelectorAll('#gTiltState .cc-segmented-btn').forEach(function(b){
+  b.addEventListener('click', function(){
+    var to = parseFloat(b.dataset.eps);
+    document.querySelectorAll('#gTiltState .cc-segmented-btn').forEach(function(x){
+      x.classList.toggle('is-active', x === b);
+    });
+    meltTarget = to;
+    var reduce = window.matchMedia &&
+                 window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce){ meltEps = to; meltTween = null; render(); }
+    else meltTween = { from: meltEps, to: to, t0: performance.now() };
+  });
+});
+document.getElementById('whyBtn').addEventListener('click', function(){
+  whyLat = !whyLat;
+  this.classList.toggle('is-active', whyLat);
+  if (!whyLat){ LAT = MELT_LAT; syncLatSel(); }
+  showGroups(); layout();
+});
 document.getElementById('accum').addEventListener('input', function(e){
   ACCUM = parseFloat(e.target.value);
   document.getElementById('accumVal').textContent = ACCUM + ' mm w.e.';
@@ -1125,8 +1217,8 @@ document.getElementById('pngBtn').addEventListener('click', function(){
 });
 function exportPNG(){
   var W = 1400, S = EXPORT_SCALE, head = 92, foot = 60;
-  var bodyH = (step === 4) ? 320 : (step === 1 ? 430 : 350);
-  var chH = (step === 1) ? 0 : (step === 3 ? 220 : 228);
+  var bodyH = (step === 4) ? (whyLat ? 310 : 330) : (step === 1 ? 430 : 350);
+  var chH = (step === 1) ? 0 : (step === 4 ? (whyLat ? 228 : 0) : (step === 3 ? 220 : 228));
   var total = head + bodyH + chH + foot;
   var cv = document.createElement('canvas');
   cv.width = W * S; cv.height = total * S;
@@ -1144,8 +1236,8 @@ function exportPNG(){
         '°N · Tropic of Cancer ' + tilt.toFixed(2) + '°N'
     : (step === 3) ? 'Axial tilt through time, Berger (1978) · ' + M.fmtAge(scrubAge) +
         ' · ' + M.orbit(scrubAge).obliquity.toFixed(2) + '°'
-    : 'Summer melt budget and the reach of tilt by latitude · ' + M.fmtAge(scrubAge) +
-        ' · ' + M.orbit(scrubAge).obliquity.toFixed(2) + '°';
+    : 'Summer melt budget at ' + MELT_LAT + '°N · tilt ' + meltEps.toFixed(2) +
+        '° · eccentricity and perihelion held at today\u2019s values';
   ctx.fillText(sub, 22, 66);
 
   var prevW = stageW; stageW = W;
@@ -1170,7 +1262,9 @@ function exportPNG(){
   ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
   ctx.fillText('Obliquity: Berger (1978) full series · Insolation: daily mean at the solstice, top of atmosphere, S₀ = 1361 W/m²', 22, y + 14);
-  ctx.fillText('Coastlines: Natural Earth 1:110m · melt panel is a toy energy budget', 22, y + 32);
+  ctx.fillText('Coastlines: Natural Earth 1:110m · melt panel is a toy energy budget'
+    + (step === 4 ? ' · step 4 varies obliquity only, with e and longitude of perihelion fixed at today' : ''),
+    22, y + 32);
   ctx.textAlign = 'right'; ctx.fillText('contextclimate.io', W - 22, y + 32);
 
   cv.toBlob(function(blob){
