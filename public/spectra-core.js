@@ -28,9 +28,12 @@ const CC_SPECTRA = (function () {
   //   strong : mirrors the bold/thick line on the source chart.
   //   ref    : the single line a tool uses for its numeric readout — a
   //            functional UI choice, independent of "strong".
+  //   note   : one-line description of the pattern's shape, for tools that
+  //            want to name what the student is looking at.
   const ELEMENTS = {
     hydrogen: {
       name: 'Hydrogen', symbol: 'H', color: '#E4756B',
+      note: 'the Balmer series \u2014 the same four lines used to identify hydrogen in any star.',
       lines: [
         { wl: 410.2, strong: false },
         { wl: 434.0, strong: false },
@@ -40,6 +43,7 @@ const CC_SPECTRA = (function () {
     },
     helium: {
       name: 'Helium', symbol: 'He', color: '#E8C468',
+      note: 'a dense cluster near 400\u2013450 nm plus the bright 587.6 nm line, first seen in the solar spectrum in 1868, before helium was found on Earth.',
       lines: [
         { wl: 402.6, strong: false }, { wl: 412.1, strong: false }, { wl: 414.4, strong: false },
         { wl: 438.8, strong: false }, { wl: 443.8, strong: false }, { wl: 447.1, strong: false },
@@ -49,6 +53,7 @@ const CC_SPECTRA = (function () {
     },
     carbon: {
       name: 'Carbon', symbol: 'C', color: '#8FA6C4',
+      note: 'a scattered set of lines through the green and yellow, with a sharp marker near 590 nm.',
       lines: [
         { wl: 506, strong: false }, { wl: 514, strong: false }, { wl: 530, strong: false },
         { wl: 590, strong: true, ref: true }, { wl: 642, strong: false }, { wl: 648, strong: false },
@@ -57,6 +62,7 @@ const CC_SPECTRA = (function () {
     },
     nitrogen: {
       name: 'Nitrogen', symbol: 'N', color: '#7FBF9E',
+      note: 'a tight bundle in the green near 500 nm and a dense red cluster around 630\u2013650 nm.',
       lines: [
         { wl: 495, strong: false }, { wl: 500, strong: false }, { wl: 505, strong: false },
         { wl: 632, strong: false }, { wl: 638, strong: false }, { wl: 645, strong: false },
@@ -65,6 +71,7 @@ const CC_SPECTRA = (function () {
     },
     oxygen: {
       name: 'Oxygen', symbol: 'O', color: '#6FA8D8',
+      note: 'a pair of lines in the violet and a dense orange-red group around 600\u2013627 nm.',
       lines: [
         { wl: 415, strong: false }, { wl: 425, strong: false },
         { wl: 600, strong: false }, { wl: 608, strong: false }, { wl: 615, strong: true, ref: true },
@@ -73,6 +80,7 @@ const CC_SPECTRA = (function () {
     },
     silicon: {
       name: 'Silicon', symbol: 'Si', color: '#C48FC2',
+      note: 'lines spread fairly evenly across the whole visible range, without one standout line.',
       lines: [
         { wl: 412, strong: false }, { wl: 460, strong: false }, { wl: 490, strong: false },
         { wl: 498, strong: false }, { wl: 528, strong: false }, { wl: 535, strong: false, ref: true },
@@ -171,15 +179,67 @@ const CC_SPECTRA = (function () {
   }
 
   // ── Drawing ────────────────────────────────────────────────────────
-  function drawRainbow(ctx, plot) {
-    const grad = ctx.createLinearGradient(plot.x, 0, plot.x + plot.w, 0);
+  // opts.irFrom (nm): everything past this wavelength is drawn as a flat
+  // near-infrared strip with a boundary line, rather than faked as visible
+  // color. Used where a redshift carries a line out of the visible range.
+  function drawRainbow(ctx, plot, opts) {
+    const o = opts || {};
+    const visMax = o.irFrom && o.irFrom < plot.wlMax ? o.irFrom : plot.wlMax;
+    const visX = wlToX(visMax, plot);
+
+    const grad = ctx.createLinearGradient(plot.x, 0, visX, 0);
     const steps = 72;
     for (let i = 0; i <= steps; i++) {
-      const wl = plot.wlMin + (i / steps) * (plot.wlMax - plot.wlMin);
+      const wl = plot.wlMin + (i / steps) * (visMax - plot.wlMin);
       grad.addColorStop(i / steps, wavelengthToRGB(wl));
     }
     ctx.fillStyle = grad;
+    ctx.fillRect(plot.x, plot.y, visX - plot.x, plot.h);
+
+    if (visMax < plot.wlMax) {
+      const irGrad = ctx.createLinearGradient(visX, 0, plot.x + plot.w, 0);
+      irGrad.addColorStop(0, '#2A1412');
+      irGrad.addColorStop(1, '#160D0C');
+      ctx.fillStyle = irGrad;
+      ctx.fillRect(visX, plot.y, plot.x + plot.w - visX, plot.h);
+
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = 'rgba(232,228,217,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(visX, plot.y);
+      ctx.lineTo(visX, plot.y + plot.h);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.font = '500 11px "Courier Prime", monospace';
+      ctx.fillStyle = 'rgba(232,228,217,0.42)';
+      ctx.textAlign = 'left';
+      ctx.fillText('infrared', visX + 8, plot.y + plot.h - 8);
+      ctx.restore();
+    }
+  }
+
+  // Bright emission lines on black: the gas IS the source.
+  function drawEmissionLines(ctx, plot, el, velocity, opts) {
+    const o = opts || {};
+    ctx.fillStyle = o.background || '#0A0C0A';
     ctx.fillRect(plot.x, plot.y, plot.w, plot.h);
+    ctx.save();
+    el.lines.forEach(line => {
+      const wl = shiftedWl(line.wl, velocity);
+      const x = wlToX(wl, plot);
+      if (x < plot.x - 4 || x > plot.x + plot.w + 4) return;
+      const w = (line.strong ? 3.5 : 2) * (o.widthScale || 1);
+      const color = wavelengthToRGB(wl);
+      ctx.fillStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = line.strong ? 10 : 5;
+      ctx.fillRect(x - w / 2, plot.y, w, plot.h);
+    });
+    ctx.restore();
   }
 
   function drawGridlines(ctx, plot, ticks) {
@@ -273,8 +333,120 @@ const CC_SPECTRA = (function () {
     ctx.restore();
   }
 
+  // ── PNG export card ────────────────────────────────────────────────
+  // One implementation for every tool in the series. `setScale` is the
+  // tool's own hook: it sets dpr, re-sizes its canvases and re-renders, so
+  // the bitmaps captured here are at EXPORT_SCALE regardless of the
+  // viewing display's devicePixelRatio. It is called again afterwards to
+  // put the on-screen canvases back.
+  const EXPORT_SCALE = 3;
+
+  function exportCard(opts) {
+    const PAD = opts.pad || 24;
+    const HDR = opts.headerHeight || 70;
+    const GAP = opts.gap || 14;
+    const FTR = opts.footerHeight || 30;
+    const accent = opts.accent || '#3CA3AE';
+    const panels = opts.canvases || [];
+
+    if (opts.setScale) opts.setScale(EXPORT_SCALE);
+
+    const width = opts.width || (PAD * 2 + Math.max.apply(null, panels.map(p => p.w)));
+    const stackH = panels.reduce((sum, p, i) => sum + p.h + (i ? GAP : 0), 0);
+    const height = HDR + stackH + FTR;
+
+    const off = document.createElement('canvas');
+    off.width = width * EXPORT_SCALE;
+    off.height = height * EXPORT_SCALE;
+    const oc = off.getContext('2d');
+    oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+    oc.fillStyle = SURFACE;
+    oc.fillRect(0, 0, width, height);
+    oc.fillStyle = accent;
+    oc.fillRect(0, 0, width, 3);
+
+    oc.textAlign = 'left';
+    oc.fillStyle = '#E8E4D9';
+    oc.font = 'bold 20px "Zilla Slab", serif';
+    oc.fillText(opts.title || '', PAD, 32);
+
+    if (opts.subtitle) {
+      oc.fillStyle = '#A6A499';
+      oc.font = '13px "Public Sans", sans-serif';
+      oc.fillText(opts.subtitle, PAD, 52);
+    }
+
+    let y = HDR;
+    panels.forEach((p, i) => {
+      if (i) y += GAP;
+      oc.drawImage(p.cv, PAD, y, p.w, p.h);
+      y += p.h;
+    });
+
+    if (opts.setScale) opts.setScale(null); // null = restore
+
+    oc.fillStyle = '#948F82';
+    oc.font = '11px "Courier Prime", monospace';
+    oc.fillText(opts.footer || 'contextclimate.io', PAD, height - 12);
+    oc.fillStyle = accent;
+    oc.fillRect(0, height - 2, width, 2);
+
+    const link = document.createElement('a');
+    link.download = opts.filename || 'contextclimate.png';
+    link.href = off.toDataURL('image/png');
+    link.click();
+  }
+
+  // ── Series navigation ──────────────────────────────────────────────
+  // Teaching order, not build order: the observation comes first, then the
+  // spectroscopy needed to explain it.
+  const SERIES = [
+    { key: 'hubble',      label: "Hubble's Law",     route: '/earthandspace/hubbles-law-explorer' },
+    { key: 'fingerprint', label: 'Spectral Analysis', route: '/earthandspace/spectral-fingerprint-lab' },
+    { key: 'doppler',     label: 'Doppler Shift',     route: '/earthandspace/doppler-shift-explorer' },
+    { key: 'challenge',   label: 'Doppler Challenge', route: '/earthandspace/doppler-shift-challenge' }
+  ];
+
+  // These tools run inside an iframe on a HashRouter site, so a bare "#/..."
+  // would only move the iframe. Build an absolute URL against the parent
+  // document and open it with target="_top".
+  function seriesHref(route) {
+    try {
+      const t = window.top.location;
+      return t.origin + t.pathname + '#' + route;
+    } catch (e) {
+      return '#' + route;
+    }
+  }
+
+  function renderSeriesNav(containerId, currentKey) {
+    const host = document.getElementById(containerId);
+    if (!host) return;
+    host.className = 'cc-series-nav';
+    host.innerHTML = '';
+    SERIES.forEach((item, i) => {
+      const isCurrent = item.key === currentKey;
+      const node = document.createElement(isCurrent ? 'span' : 'a');
+      node.className = 'cc-series-step' + (isCurrent ? ' is-current' : '');
+      if (!isCurrent) {
+        node.href = seriesHref(item.route);
+        node.target = '_top';
+      }
+      node.innerHTML = '<span class="cc-series-n">' + (i + 1) + '</span>' + item.label;
+      host.appendChild(node);
+      if (i < SERIES.length - 1) {
+        const arrow = document.createElement('span');
+        arrow.className = 'cc-series-arrow';
+        arrow.textContent = '\u2192';
+        host.appendChild(arrow);
+      }
+    });
+  }
+
   return {
-    ELEMENTS, ELEMENT_ORDER, C_KM_S, RED_C, BLUE_C, SURFACE,
+    ELEMENTS, ELEMENT_ORDER, C_KM_S, RED_C, BLUE_C, SURFACE, EXPORT_SCALE,
+    SERIES, seriesHref, renderSeriesNav, exportCard, drawEmissionLines,
     shiftedWl, velocityFor, refLine, shiftColor, signLabel, fmtVel,
     wavelengthToRGB, wlToX, xToWl, nmPerPx, sizeCanvas,
     drawRainbow, drawGridlines, drawFrame, drawLines, drawRefTicks, drawTickLabels
