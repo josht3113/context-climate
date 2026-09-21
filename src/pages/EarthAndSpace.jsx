@@ -34,7 +34,7 @@ const SECTIONS = [
       },
       {
         tags:        ['ESSRT', 'Pages 6 & 7', 'Interactive'],
-        title:       'Geologic History of New York State',
+        title:       'Geologic History of NY State',
         description: 'Explore ESSRT pages 6–7 interactively with zoom and overlay functions, as well as information about key index fossils.',
         footerTags:  ['Geologic Time', 'Fossils', 'New York State'],
         to:          '/ESSRT_6_7',
@@ -290,7 +290,7 @@ const SECTIONS = [
           {
             tags:        ['Spectroscopy', 'Practice', 'Interactive'],
             title:       'Doppler Shift Challenge',
-            description: 'Five spectra from five moving sources. Match each one to its element using the ESRT reference patterns, then drag your reference into alignment — the direction you had to drag is the direction the source is moving. Four sets, and a results card to hand in.',
+            description: 'Five spectra from five moving sources. Match each one to its element using the ESSRT reference patterns, then drag your reference into alignment.',
             footerTags:  ['Redshift', 'Blueshift', 'Spectral Lines'],
             to:          '/earthandspace/doppler-shift-challenge',
             thumb:       '/DopplerShiftChallenge_thumbnail.png',
