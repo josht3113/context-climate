@@ -109,6 +109,7 @@ import AtmosphericDensity          from './pages/AtmosphericDensity'
 import StationModelBuilder         from './pages/StationModelBuilder'
 import ContactMetamorphism         from './pages/ContactMetamorphism'
 import PlanetaryWindBelts          from './pages/PlanetaryWindBelts'
+import DopplerShiftChallenge       from './pages/DopplerShiftChallenge'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -253,6 +254,7 @@ export default function App() {
           <Route path="/earthandspace/station-model-builder"       element={<StationModelBuilder />}        />
           <Route path="/earthandspace/contact-metamorphism"        element={<ContactMetamorphism />}        />
           <Route path="/earthandspace/planetary-wind-belts"        element={<PlanetaryWindBelts />}         />
+          <Route path="/earthandspace/doppler-shift-challenge"     element={<DopplerShiftChallenge />}      />
         </Routes>
       </main>
       <footer style={{
