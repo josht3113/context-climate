@@ -44,7 +44,7 @@ const SECTIONS = [
       {
         tags:        ['ESSRT', 'Pages 8, 9, 10', 'Interactive'],
         title:       'NYS Bedrock, Resources & Landscape Regions',
-        description: 'Explore ESSRT pages 8–10 interactively along with a digital topographic map of NY State.',
+        description: 'Interactive versions of pages 8, 9 and 10. Zoom function, latitude/longitude toggle, plus a digital topographic map of NY State.',
         footerTags:  ['Bedrock', 'Mineral Resources', 'Landscape Regions'],
         to:          '/ESSRT_8_9_10',
         thumb:       '/ESSRT_8_9_10_thumbnail.png',
