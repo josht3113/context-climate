@@ -270,7 +270,16 @@ const SECTIONS = [
         label: 'Stars, Spectra & Cosmology',
         cards: [
           {
-            tags:        ['Spectroscopy', 'Interactive'],
+            tags:        ['Cosmology', 'Interactive', '1 of 4'],
+            title:       "Hubble's Law Explorer",
+            description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from five galaxy clusters.',
+            footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang'],
+            to:          '/earthandspace/hubbles-law-explorer',
+            thumb:       '/HubblesLawExplorer_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Spectroscopy', 'Interactive', '2 of 4'],
             title:       'Spectral Analysis',
             description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that provides information about the composition of stars and their motions.',
             footerTags:  ['Emission Spectra', 'Absorption Spectra'],
@@ -279,7 +288,7 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Spectroscopy', 'Interactive'],
+            tags:        ['Spectroscopy', 'Interactive', '3 of 4'],
             title:       'Doppler Shift Explorer',
             description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
             footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect'],
@@ -288,21 +297,12 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Spectroscopy', 'Practice', 'Interactive'],
+            tags:        ['Spectroscopy', 'Interactive', '4 of 4'],
             title:       'Doppler Shift Challenge',
             description: 'Five spectra from five moving sources. Match each one to its element using the ESSRT reference patterns, then drag your reference into alignment.',
             footerTags:  ['Redshift', 'Blueshift', 'Spectral Lines'],
             to:          '/earthandspace/doppler-shift-challenge',
             thumb:       '/DopplerShiftChallenge_thumbnail.png',
-            status:      'live',
-          },
-          {
-            tags:        ['Cosmology', 'Interactive'],
-            title:       "Hubble's Law Explorer",
-            description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from four classic galaxy clusters.',
-            footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang'],
-            to:          '/earthandspace/hubbles-law-explorer',
-            thumb:       '/HubblesLawExplorer_thumbnail.png',
             status:      'live',
           },
           {
