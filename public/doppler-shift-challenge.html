@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="core-sample-tools.css">
+<title>Doppler Shift Challenge — ContextClimate</title>
+<style>
+  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css,
+     shared line data + spectrum drawing in spectra-core.js */
+  :root { --tool-accent: var(--accent-earth); } /* Earth & Space section */
+
+  body { display: block; }
+
+  .tool-wrap { max-width: 1200px; margin: 0 auto; }
+
+  header { max-width: 780px; width: 100%; margin: 0 auto; text-align: center; }
+  .cc-eyebrow { margin-bottom: 10px; }
+  .cc-title { margin-bottom: 10px; }
+  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 900px);
+    column-gap: 28px;
+    justify-content: center;
+    align-items: start;
+    margin-top: 26px;
+  }
+
+  .panel-label {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin: 0 0 8px;
+  }
+  .panel-label .pl-dim { color: var(--color-text-muted); opacity: 0.7; }
+
+  .rail-panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+  }
+  .rail-panel .cc-btn-row-label { margin: 0 0 8px; }
+  .rail-divider { height: 1px; background: var(--color-border); margin: 16px 0 14px; }
+
+  #setBar { display: flex; width: 100%; }
+  #setBar .cc-segmented-btn { flex: 1; padding: 8px 0; letter-spacing: 0.06em; }
+
+  .name-input {
+    width: 100%;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+  .name-input:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; }
+
+  /* ── Progress list ─────────────────────────────────────────────── */
+  .prog-list { display: flex; flex-direction: column; gap: 4px; }
+  .prog-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .prog-row:hover { border-color: var(--color-border-hover); color: var(--color-text-primary); }
+  .prog-row.is-active { border-color: var(--tool-accent); color: var(--color-text-primary); }
+  .prog-row .pr-n { min-width: 14px; }
+  .prog-row .pr-marks { margin-left: auto; display: flex; gap: 6px; }
+  .pr-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 1px solid var(--color-border-hover);
+    background: transparent;
+  }
+  .pr-dot.ok   { background: #2AA87E; border-color: #2AA87E; }
+  .pr-dot.bad  { background: #C75B4F; border-color: #C75B4F; }
+
+  .score-line {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    padding: 3px 0;
+  }
+  .score-line b { font-family: var(--font-display); font-size: 17px; color: var(--color-text-primary); }
+
+  /* ── Canvases ──────────────────────────────────────────────────── */
+  #obs-canvas, #ref-canvas { width: 100%; height: auto; display: block; }
+  #obs-canvas { touch-action: none; }
+  #obs-canvas.draggable { cursor: ew-resize; }
+  #ref-canvas { cursor: pointer; }
+  .canvas-block + .canvas-block { margin-top: 18px; }
+
+  .action-row {
+    margin-top: 18px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .action-row .hint {
+    margin-right: auto;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+
+  .source-note {
+    margin: 22px auto 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    text-align: center;
+    font-style: italic;
+    max-width: 640px;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 1220px) {
+    .layout { grid-template-columns: minmax(0, 900px); row-gap: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="tool-wrap">
+
+  <header>
+    <p class="cc-eyebrow">Identify the Source</p>
+    <h1 class="cc-title">Doppler Shift Challenge</h1>
+    <p class="cc-subtitle">Five spectra from five moving light sources. Match each one to its element, then drag your reference pattern until it lines up — which way you had to drag tells you which way the source is moving.</p>
+  </header>
+
+  <div class="layout">
+
+    <!-- ── Left rail ──────────────────────────────────────────────── -->
+    <div>
+      <p class="panel-label">Progress</p>
+      <div class="rail-panel">
+        <p class="cc-btn-row-label">Set</p>
+        <div class="cc-segmented" id="setBar"></div>
+
+        <div class="rail-divider"></div>
+
+        <p class="cc-btn-row-label">Name</p>
+        <input type="text" class="name-input" id="nameInput" placeholder="for the results card" autocomplete="off">
+
+        <div class="rail-divider"></div>
+
+        <div class="prog-list" id="progList"></div>
+
+        <div class="rail-divider"></div>
+
+        <div class="score-line"><span>Element</span><b id="scoreElement">—</b></div>
+        <div class="score-line"><span>Motion</span><b id="scoreMotion">—</b></div>
+
+        <div id="resultsActions" style="display:none; margin-top:14px;">
+          <button class="cc-btn cc-btn-sm" id="resultsBtn" style="width:100%">↓ Results PNG</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Main column ────────────────────────────────────────────── -->
+    <div>
+      <div class="canvas-block">
+        <p class="panel-label" id="obsLabel">Observation 1 of 5</p>
+        <canvas id="obs-canvas" class="cc-canvas-frame" width="900" height="248"></canvas>
+      </div>
+
+      <div class="canvas-block">
+        <p class="panel-label">Reference — rest wavelengths <span class="pl-dim">· NYSED ESRT p.3 · click to select</span></p>
+        <canvas id="ref-canvas" class="cc-canvas-frame" width="900" height="248"></canvas>
+      </div>
+
+      <div class="action-row">
+        <span class="hint" id="hintText"></span>
+        <button class="cc-btn cc-btn-sm" id="resetBtn">Reset alignment</button>
+        <button class="cc-btn primary cc-btn-sm" id="checkBtn">Check</button>
+      </div>
+
+      <p class="source-note">Rest wavelengths digitized from the NYSED Earth &amp; Space Sciences Reference Tables (2026 Rev. Edition), p. 3. Observed spectra use the classical Doppler relation λ = λ₀(1 + v/c), so each pattern is scaled rather than slid — spacing stretches with redshift and compresses with blueshift.</p>
+    </div>
+
+  </div>
+
+</div>
+
+  <script src="spectra-core.js"></script>
+  <script>
+    const S = CC_SPECTRA;
+    const { ELEMENTS, ELEMENT_ORDER } = S;
+
+    const OK_C = '#2AA87E', BAD_C = '#C75B4F';
+
+    // ── Seeded item sets ────────────────────────────────────────────────────────
+    // Each set ramps: an easy wide shift, a dense pattern, an AT-REST item that
+    // catches students who assume every spectrum is shifted, a small shift
+    // between two similar patterns, then a large shift on the busiest element.
+    // Every velocity is chosen so the element's full pattern stays inside the
+    // 380–760 nm display window — a truncated pattern is not a fair puzzle.
+    const SETS = {
+      A: [
+        { element: 'hydrogen', velocity:   9500 },
+        { element: 'helium',   velocity:  -7200 },
+        { element: 'oxygen',   velocity:      0 },
+        { element: 'carbon',   velocity:   3800 },
+        { element: 'silicon',  velocity: -14000 }
+      ],
+      B: [
+        { element: 'helium',   velocity: -10500 },
+        { element: 'hydrogen', velocity:   5600 },
+        { element: 'nitrogen', velocity:      0 },
+        { element: 'oxygen',   velocity:  -4200 },
+        { element: 'carbon',   velocity:  16000 }
+      ],
+      C: [
+        { element: 'hydrogen', velocity: -12000 },
+        { element: 'silicon',  velocity:   6800 },
+        { element: 'carbon',   velocity:      0 },
+        { element: 'nitrogen', velocity:   4600 },
+        { element: 'helium',   velocity:  15500 }
+      ],
+      D: [
+        { element: 'oxygen',   velocity:   8900 },
+        { element: 'nitrogen', velocity:  -6300 },
+        { element: 'silicon',  velocity:      0 },
+        { element: 'hydrogen', velocity:  -3500 },
+        { element: 'carbon',   velocity: -13200 }
+      ]
+    };
+    const SET_KEYS = ['A', 'B', 'C', 'D'];
+
+    // Wider than the explorer's 400–700 nm so a shifted pattern stays on screen.
+    const WL_MIN = 380, WL_MAX = 760;
+    const TICKS = [400, 450, 500, 550, 600, 650, 700, 750];
+    const REST_BAND = 750; // km/s — inside this, an alignment counts as "at rest"
+
+    // ── Canvas geometry ─────────────────────────────────────────────────────────
+    const CW = 900, GUT = 82, PR = 12, PW = CW - GUT - PR;
+
+    const obsCanvas = document.getElementById('obs-canvas');
+    const obsCtx = obsCanvas.getContext('2d');
+    const refCanvas = document.getElementById('ref-canvas');
+    const refCtx = refCanvas.getContext('2d');
+
+    const OBS_H = 248, REF_H = 248;
+    const OBS_PLOT = { x: GUT, y: 30, w: PW, h: 140, wlMin: WL_MIN, wlMax: WL_MAX };
+    const OBS_TICK_Y = 190;
+    const OBS_READ_Y = 216;
+    const OBS_VERDICT_Y = 238;
+
+    const ROW_TOP = 8, ROW_H = 26, ROW_GAP = 11;
+    const REF_TICK_Y = 240;
+    function rowPlot(i) {
+      return { x: GUT, y: ROW_TOP + i * (ROW_H + ROW_GAP), w: PW, h: ROW_H, wlMin: WL_MIN, wlMax: WL_MAX };
+    }
+
+    let dpr = Math.max(1, window.devicePixelRatio || 1);
+    function setupCanvases() {
+      S.sizeCanvas(obsCanvas, obsCtx, CW, OBS_H, dpr);
+      S.sizeCanvas(refCanvas, refCtx, CW, REF_H, dpr);
+    }
+
+    // km/s per logical pixel of drag, derived from the plot scale so the
+    // alignment feels the same regardless of canvas size.
+    const KM_PER_PX = S.C_KM_S / (((WL_MIN + WL_MAX) / 2) * (PW / (WL_MAX - WL_MIN)));
+    const V_CAP = 26000;
+
+    // ── State ───────────────────────────────────────────────────────────────────
+    let setKey = 'A';
+    let idx = 0;
+    let answers = [];          // per item: {pick, alignV, elementOK, motionOK} once checked
+    let pick = null;           // element key currently selected
+    let alignV = 0;            // km/s dialed in by dragging
+    let checked = false;
+
+    function items() { return SETS[setKey]; }
+    function item() { return items()[idx]; }
+    function allChecked() { return answers.length === 5 && answers.every(a => a); }
+
+    function loadSet(key) {
+      setKey = key;
+      answers = [null, null, null, null, null];
+      idx = 0;
+      loadItem(0);
+      buildSetBar();
+      renderAll();
+    }
+
+    function loadItem(i) {
+      idx = i;
+      const a = answers[i];
+      if (a) { pick = a.pick; alignV = a.alignV; checked = true; }
+      else { pick = null; alignV = 0; checked = false; }
+    }
+
+    // ── Left rail ───────────────────────────────────────────────────────────────
+    const setBar = document.getElementById('setBar');
+    function buildSetBar() {
+      setBar.innerHTML = '';
+      SET_KEYS.forEach(k => {
+        const b = document.createElement('button');
+        b.className = 'cc-segmented-btn' + (k === setKey ? ' is-active' : '');
+        b.textContent = k;
+        b.addEventListener('click', () => { if (k !== setKey) loadSet(k); });
+        setBar.appendChild(b);
+      });
+    }
+
+    const progList = document.getElementById('progList');
+    function buildProgList() {
+      progList.innerHTML = '';
+      items().forEach((it, i) => {
+        const a = answers[i];
+        const row = document.createElement('div');
+        row.className = 'prog-row' + (i === idx ? ' is-active' : '');
+        row.innerHTML =
+          `<span class="pr-n">${i + 1}</span>` +
+          `<span>${a ? ELEMENTS[it.element].name : '—'}</span>` +
+          `<span class="pr-marks">` +
+            `<span class="pr-dot ${a ? (a.elementOK ? 'ok' : 'bad') : ''}"></span>` +
+            `<span class="pr-dot ${a ? (a.motionOK ? 'ok' : 'bad') : ''}"></span>` +
+          `</span>`;
+        row.addEventListener('click', () => { loadItem(i); renderAll(); });
+        progList.appendChild(row);
+      });
+    }
+
+    function updateScores() {
+      const done = answers.filter(Boolean);
+      const e = done.filter(a => a.elementOK).length;
+      const m = done.filter(a => a.motionOK).length;
+      document.getElementById('scoreElement').textContent = done.length ? `${e}/${done.length}` : '—';
+      document.getElementById('scoreMotion').textContent = done.length ? `${m}/${done.length}` : '—';
+      document.getElementById('resultsActions').style.display = allChecked() ? 'block' : 'none';
+    }
+
+    // ── Observation canvas ──────────────────────────────────────────────────────
+    function drawObs() {
+      const it = item();
+      const trueEl = ELEMENTS[it.element];
+
+      obsCtx.clearRect(0, 0, CW, OBS_H);
+      obsCtx.fillStyle = S.SURFACE;
+      obsCtx.fillRect(0, 0, CW, OBS_H);
+
+      // Legend
+      obsCtx.font = '500 12px "Public Sans", sans-serif';
+      obsCtx.textAlign = 'left';
+      obsCtx.fillStyle = 'rgba(232,228,217,0.5)';
+      obsCtx.fillText('■ observed', GUT, 20);
+      if (pick) {
+        obsCtx.textAlign = 'right';
+        obsCtx.fillText('- - - your reference, aligned', GUT + PW, 20);
+      }
+
+      // Gutter label
+      obsCtx.textAlign = 'right';
+      obsCtx.font = '600 13px "Public Sans", sans-serif';
+      obsCtx.fillStyle = 'rgba(232,228,217,0.78)';
+      obsCtx.fillText('observed', GUT - 12, OBS_PLOT.y + OBS_PLOT.h / 2 - 4);
+      obsCtx.font = '400 11px "Courier Prime", monospace';
+      obsCtx.fillStyle = 'rgba(148,143,130,0.9)';
+      obsCtx.fillText('source ' + (idx + 1), GUT - 12, OBS_PLOT.y + OBS_PLOT.h / 2 + 12);
+
+      S.drawRainbow(obsCtx, OBS_PLOT);
+      S.drawGridlines(obsCtx, OBS_PLOT, TICKS);
+
+      // The observation itself — neutral dark lines, no element color.
+      S.drawLines(obsCtx, OBS_PLOT, trueEl, it.velocity);
+
+      // The student's reference overlay, scaled by the velocity they dialed in.
+      if (pick) {
+        S.drawRefTicks(obsCtx, OBS_PLOT, ELEMENTS[pick], alignV,
+          { color: checked ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.92)' });
+      }
+      // After checking, the true answer overlays in the element's own color.
+      if (checked) {
+        S.drawRefTicks(obsCtx, OBS_PLOT, trueEl, it.velocity,
+          { color: trueEl.color, lineWidth: 2.4 });
+      }
+
+      S.drawFrame(obsCtx, OBS_PLOT);
+      S.drawTickLabels(obsCtx, OBS_PLOT, TICKS, OBS_TICK_Y);
+      obsCtx.textAlign = 'right';
+      obsCtx.font = '400 11px "Courier Prime", monospace';
+      obsCtx.fillStyle = 'rgba(148,143,130,0.9)';
+      obsCtx.fillText('nm', GUT + PW + 10, OBS_TICK_Y);
+
+      // Alignment readout
+      obsCtx.textAlign = 'left';
+      if (!pick) {
+        obsCtx.font = '500 13px "Public Sans", sans-serif';
+        obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
+        obsCtx.fillText('Select a reference pattern below.', GUT, OBS_READ_Y);
+      } else {
+        const tint = S.shiftColor(alignV, REST_BAND) || 'rgba(232,228,217,0.8)';
+        obsCtx.font = '400 12px "Courier Prime", monospace';
+        obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
+        obsCtx.fillText('alignment', GUT, OBS_READ_Y);
+        obsCtx.font = '700 15px "Courier Prime", monospace';
+        obsCtx.fillStyle = tint;
+        obsCtx.fillText(
+          `${S.fmtVel(alignV)}   ${S.signLabel(alignV, REST_BAND)}`,
+          GUT + 78, OBS_READ_Y
+        );
+        if (!checked) {
+          obsCtx.textAlign = 'right';
+          obsCtx.font = '400 12px "Courier Prime", monospace';
+          obsCtx.fillStyle = 'rgba(148,143,130,0.8)';
+          obsCtx.fillText('drag across the band to align  ·  ← → to nudge', GUT + PW, OBS_READ_Y);
+        }
+      }
+
+      // Verdict
+      if (checked) {
+        const a = answers[idx];
+        obsCtx.textAlign = 'left';
+        obsCtx.font = '700 14px "Public Sans", sans-serif';
+
+        obsCtx.fillStyle = a.elementOK ? OK_C : BAD_C;
+        const eMark = a.elementOK ? '✓' : '✗';
+        obsCtx.fillText(`${eMark} ${trueEl.name}`, GUT, OBS_VERDICT_Y);
+        const w1 = obsCtx.measureText(`${eMark} ${trueEl.name}`).width;
+
+        if (!a.elementOK) {
+          obsCtx.font = '400 13px "Public Sans", sans-serif';
+          obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
+          obsCtx.fillText(`— you chose ${ELEMENTS[a.pick].name}`, GUT + w1 + 10, OBS_VERDICT_Y);
+        }
+
+        obsCtx.textAlign = 'right';
+        obsCtx.font = '700 14px "Public Sans", sans-serif';
+        obsCtx.fillStyle = a.motionOK ? OK_C : BAD_C;
+        const mMark = a.motionOK ? '✓' : '✗';
+        obsCtx.fillText(
+          `${mMark} ${S.signLabel(it.velocity, REST_BAND)}  ·  ${S.fmtVel(it.velocity)}`,
+          GUT + PW, OBS_VERDICT_Y
+        );
+      }
+    }
+
+    // ── Reference canvas ────────────────────────────────────────────────────────
+    function drawRef() {
+      refCtx.clearRect(0, 0, CW, REF_H);
+      refCtx.fillStyle = S.SURFACE;
+      refCtx.fillRect(0, 0, CW, REF_H);
+
+      const it = item();
+
+      ELEMENT_ORDER.forEach((key, i) => {
+        const el = ELEMENTS[key];
+        const plot = rowPlot(i);
+        const selected = pick === key;
+        const isTrue = checked && key === it.element;
+        const isWrongPick = checked && selected && key !== it.element;
+
+        refCtx.save();
+        refCtx.globalAlpha = selected || isTrue || !pick ? 1 : 0.78;
+
+        S.drawRainbow(refCtx, plot);
+        S.drawLines(refCtx, plot, el, 0);
+        S.drawFrame(refCtx, plot);
+
+        // Label gutter
+        refCtx.textAlign = 'right';
+        refCtx.font = (selected ? '600 13px' : '500 13px') + ' "Public Sans", sans-serif';
+        refCtx.fillStyle = selected ? '#E8E4D9' : 'rgba(232,228,217,0.72)';
+        refCtx.fillText(el.name, GUT - 20, plot.y + plot.h / 2 + 4);
+
+        refCtx.beginPath();
+        refCtx.arc(GUT - 11, plot.y + plot.h / 2, 4.5, 0, Math.PI * 2);
+        refCtx.fillStyle = el.color;
+        refCtx.fill();
+        refCtx.restore();
+
+        // Selection / verdict outline
+        let ring = null, ringW = 2;
+        if (isTrue) { ring = OK_C; ringW = 2.5; }
+        else if (isWrongPick) { ring = BAD_C; ringW = 2.5; }
+        else if (selected) { ring = 'var'; }
+        if (ring) {
+          refCtx.strokeStyle = ring === 'var' ? getAccent() : ring;
+          refCtx.lineWidth = ringW;
+          refCtx.strokeRect(plot.x - 2.5, plot.y - 2.5, plot.w + 5, plot.h + 5);
+        }
+      });
+
+      S.drawTickLabels(refCtx, { x: GUT, y: 0, w: PW, h: 0, wlMin: WL_MIN, wlMax: WL_MAX }, TICKS, REF_TICK_Y);
+      refCtx.textAlign = 'right';
+      refCtx.font = '400 11px "Courier Prime", monospace';
+      refCtx.fillStyle = 'rgba(148,143,130,0.9)';
+      refCtx.fillText('nm', GUT + PW + 10, REF_TICK_Y);
+    }
+
+    let _accent = null;
+    function getAccent() {
+      if (!_accent) {
+        _accent = getComputedStyle(document.documentElement)
+          .getPropertyValue('--tool-accent').trim() || '#3CA3AE';
+      }
+      return _accent;
+    }
+
+    // ── Interaction ─────────────────────────────────────────────────────────────
+    function canvasScale(cv) { return CW / cv.getBoundingClientRect().width; }
+
+    refCanvas.addEventListener('click', e => {
+      if (checked) return;
+      const r = refCanvas.getBoundingClientRect();
+      const y = (e.clientY - r.top) * (REF_H / r.height);
+      for (let i = 0; i < ELEMENT_ORDER.length; i++) {
+        const p = rowPlot(i);
+        if (y >= p.y - 5 && y <= p.y + p.h + 5) { setPick(ELEMENT_ORDER[i]); return; }
+      }
+    });
+
+    function setPick(key) {
+      pick = key;
+      renderAll();
+    }
+
+    let dragging = false, dragStartX = 0, dragStartV = 0;
+    obsCanvas.addEventListener('pointerdown', e => {
+      if (!pick || checked) return;
+      dragging = true;
+      dragStartX = e.clientX;
+      dragStartV = alignV;
+      obsCanvas.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    obsCanvas.addEventListener('pointermove', e => {
+      if (!dragging) return;
+      const dx = (e.clientX - dragStartX) * canvasScale(obsCanvas);
+      const fine = e.shiftKey ? 0.25 : 1;
+      setAlign(dragStartV + dx * KM_PER_PX * fine);
+    });
+    ['pointerup', 'pointercancel'].forEach(ev =>
+      obsCanvas.addEventListener(ev, () => { dragging = false; }));
+
+    obsCanvas.tabIndex = 0;
+    obsCanvas.addEventListener('keydown', e => {
+      if (!pick || checked) return;
+      const step = e.shiftKey ? 1000 : 250;
+      if (e.key === 'ArrowRight') { setAlign(alignV + step); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft') { setAlign(alignV - step); e.preventDefault(); }
+    });
+
+    function setAlign(v) {
+      alignV = Math.max(-V_CAP, Math.min(V_CAP, v));
+      if (Math.abs(alignV) < 300) alignV = 0; // detent at rest
+      drawObs();
+    }
+
+    document.addEventListener('keydown', e => {
+      if (e.target.tagName === 'INPUT') return;
+      const n = parseInt(e.key, 10);
+      if (n >= 1 && n <= 6 && !checked) { setPick(ELEMENT_ORDER[n - 1]); return; }
+      if (e.key === 'Enter') { checkBtn.click(); }
+    });
+
+    // ── Check / advance ─────────────────────────────────────────────────────────
+    const checkBtn = document.getElementById('checkBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const hintText = document.getElementById('hintText');
+
+    resetBtn.addEventListener('click', () => { if (!checked) setAlign(0); });
+
+    checkBtn.addEventListener('click', () => {
+      if (!checked) {
+        if (!pick) return;
+        const it = item();
+        answers[idx] = {
+          pick,
+          alignV,
+          elementOK: pick === it.element,
+          motionOK: S.signLabel(alignV, REST_BAND) === S.signLabel(it.velocity, REST_BAND)
+        };
+        checked = true;
+        renderAll();
+      } else {
+        const next = answers.findIndex(a => !a);
+        if (next !== -1) { loadItem(next); renderAll(); }
+      }
+    });
+
+    function updateControls() {
+      document.getElementById('obsLabel').textContent = `Observation ${idx + 1} of 5`;
+      resetBtn.style.display = checked ? 'none' : '';
+      obsCanvas.classList.toggle('draggable', !!pick && !checked);
+      if (!checked) {
+        checkBtn.style.display = '';
+        checkBtn.textContent = 'Check';
+        checkBtn.disabled = !pick;
+        checkBtn.style.opacity = pick ? '1' : '0.45';
+        checkBtn.style.cursor = pick ? 'pointer' : 'not-allowed';
+        hintText.textContent = pick ? '' : 'keys 1–6 select an element';
+      } else {
+        checkBtn.disabled = false;
+        checkBtn.style.opacity = '1';
+        checkBtn.style.cursor = 'pointer';
+        const remaining = answers.filter(a => !a).length;
+        checkBtn.textContent = remaining ? 'Next observation' : 'All five checked';
+        checkBtn.style.display = remaining ? '' : 'none';
+        hintText.textContent = remaining ? '' : 'download the results card from the left';
+      }
+    }
+
+    function renderAll() {
+      drawObs();
+      drawRef();
+      buildProgList();
+      updateScores();
+      updateControls();
+    }
+
+    // ── Results card PNG ────────────────────────────────────────────────────────
+    const EXPORT_SCALE = 3;
+
+    function downloadResults() {
+      const name = document.getElementById('nameInput').value.trim();
+      const PAD = 26, W = 760;
+      const HDR = 96, ROWH = 38, FTR = 74;
+      const H = HDR + 5 * ROWH + FTR;
+
+      const off = document.createElement('canvas');
+      off.width = W * EXPORT_SCALE;
+      off.height = H * EXPORT_SCALE;
+      const oc = off.getContext('2d');
+      oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+      oc.fillStyle = S.SURFACE;
+      oc.fillRect(0, 0, W, H);
+      oc.fillStyle = getAccent();
+      oc.fillRect(0, 0, W, 3);
+
+      oc.fillStyle = '#E8E4D9';
+      oc.font = 'bold 21px "Zilla Slab", serif';
+      oc.textAlign = 'left';
+      oc.fillText('Doppler Shift Challenge', PAD, 36);
+
+      oc.fillStyle = '#A6A499';
+      oc.font = '13px "Public Sans", sans-serif';
+      oc.fillText(`Set ${setKey}${name ? '  ·  ' + name : ''}  ·  ${new Date().toLocaleDateString()}`, PAD, 57);
+
+      const e = answers.filter(a => a && a.elementOK).length;
+      const m = answers.filter(a => a && a.motionOK).length;
+      oc.textAlign = 'right';
+      oc.font = 'bold 15px "Courier Prime", monospace';
+      oc.fillStyle = '#E8E4D9';
+      oc.fillText(`element ${e}/5    motion ${m}/5`, W - PAD, 50);
+
+      oc.textAlign = 'left';
+      oc.font = '11px "Courier Prime", monospace';
+      oc.fillStyle = '#948F82';
+      oc.fillText('OBSERVATION', PAD, HDR - 14);
+      oc.fillText('ELEMENT', PAD + 130, HDR - 14);
+      oc.fillText('MOTION', PAD + 400, HDR - 14);
+
+      oc.strokeStyle = 'rgba(232,228,217,0.14)';
+      oc.lineWidth = 1;
+      oc.beginPath(); oc.moveTo(PAD, HDR - 6); oc.lineTo(W - PAD, HDR - 6); oc.stroke();
+
+      items().forEach((it, i) => {
+        const a = answers[i];
+        const y = HDR + i * ROWH + 24;
+        const trueEl = ELEMENTS[it.element];
+
+        oc.font = '13px "Courier Prime", monospace';
+        oc.fillStyle = '#A6A499';
+        oc.fillText(String(i + 1), PAD, y);
+
+        oc.beginPath();
+        oc.arc(PAD + 24, y - 4, 4.5, 0, Math.PI * 2);
+        oc.fillStyle = trueEl.color;
+        oc.fill();
+
+        oc.font = 'bold 14px "Public Sans", sans-serif';
+        oc.fillStyle = a && a.elementOK ? OK_C : BAD_C;
+        oc.fillText(a && a.elementOK ? '✓' : '✗', PAD + 130, y);
+        oc.fillStyle = '#E8E4D9';
+        oc.font = '14px "Public Sans", sans-serif';
+        let txt = trueEl.name;
+        if (a && !a.elementOK) txt += `   (you: ${ELEMENTS[a.pick].name})`;
+        oc.fillText(txt, PAD + 150, y);
+
+        oc.font = 'bold 14px "Public Sans", sans-serif';
+        oc.fillStyle = a && a.motionOK ? OK_C : BAD_C;
+        oc.fillText(a && a.motionOK ? '✓' : '✗', PAD + 400, y);
+        oc.fillStyle = '#E8E4D9';
+        oc.font = '14px "Public Sans", sans-serif';
+        let mtxt = `${S.signLabel(it.velocity, REST_BAND)}  ${S.fmtVel(it.velocity)}`;
+        if (a && !a.motionOK) mtxt += `   (you: ${S.signLabel(a.alignV, REST_BAND)})`;
+        oc.fillText(mtxt, PAD + 420, y);
+
+        oc.strokeStyle = 'rgba(232,228,217,0.08)';
+        oc.beginPath();
+        oc.moveTo(PAD, HDR + i * ROWH + ROWH - 4);
+        oc.lineTo(W - PAD, HDR + i * ROWH + ROWH - 4);
+        oc.stroke();
+      });
+
+      oc.fillStyle = '#948F82';
+      oc.font = '11px "Courier Prime", monospace';
+      oc.fillText('contextclimate.io · NYSED ESRT (2026), p.3 · v = c(Δλ/λ₀)', PAD, H - 18);
+      oc.fillStyle = getAccent();
+      oc.fillRect(0, H - 2, W, 2);
+
+      const link = document.createElement('a');
+      link.download = `doppler-challenge-set${setKey}${name ? '-' + name.replace(/\s+/g, '-').toLowerCase() : ''}.png`;
+      link.href = off.toDataURL('image/png');
+      link.click();
+    }
+    document.getElementById('resultsBtn').addEventListener('click', downloadResults);
+
+    // Init
+    setupCanvases();
+    loadSet('A');
+  </script>
+
+</body>
+</html>
