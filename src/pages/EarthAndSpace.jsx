@@ -34,7 +34,7 @@ const SECTIONS = [
       },
       {
         tags:        ['ESSRT', 'Pages 6 & 7', 'Interactive'],
-        title:       'Geologic History of New York State',
+        title:       'Geologic History of NY State',
         description: 'Explore ESSRT pages 6–7 interactively with zoom and overlay functions, as well as information about key index fossils.',
         footerTags:  ['Geologic Time', 'Fossils', 'New York State'],
         to:          '/ESSRT_6_7',
