@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
 import SectionNav from './SectionNav'
+import HeroMeta from './HeroMeta'
 import { parseQuery, filterSections, countCards } from './toolSearch'
 
 // ── Accent colors per section ─────────────────────────────────────────────────
@@ -577,14 +578,9 @@ export default function EarthAndSpace() {
       {/* Hero */}
       <section className="page-hero">
 
-        {/* Display notice — top-right of the hero, level with the title */}
-        <span className="display-note">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <rect x="1.5" y="2.5" width="13" height="9" rx="1" />
-            <path d="M5 14h6" />
-          </svg>
-          Built for Chromebook &amp; desktop
-        </span>
+        {/* Hero meta tags — display notice + tool count.
+            Top-right of the hero, level with the title. */}
+        <HeroMeta toolCount={TOTAL_TOOLS} />
 
         <p className="page-eyebrow">Interactive Learning Tools</p>
         <h1 className="page-title">Earth &amp; Space Science</h1>
@@ -603,7 +599,7 @@ export default function EarthAndSpace() {
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
-            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             email
           </a>{' '}
@@ -613,7 +609,7 @@ export default function EarthAndSpace() {
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             X
           </a>.
@@ -621,7 +617,7 @@ export default function EarthAndSpace() {
         <p className="page-intro">
           The ContextClimate page contains charts and graphs using real data, some of which are also useful in the classroom.
         </p>
-        <Link to="/" className="jump-link">
+        <Link to="/" className="jump-link" style={{ '--jump-accent': 'var(--brand-cc)' }}>
           Jump to ContextClimate <span className="jump-link-arrow">→</span>
         </Link>
       </section>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
 import SectionNav from './SectionNav'
+import HeroMeta from './HeroMeta'
 import { parseQuery, filterSections, countCards } from './toolSearch'
 
 // ── Section & card data ───────────────────────────────────────────────────────
@@ -551,14 +552,9 @@ export default function Home() {
 
       {/* Hero */}
       <section className="page-hero">
-        {/* Display notice — top-right of the hero, level with the title */}
-        <span className="display-note">
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-            <rect x="1.5" y="2.5" width="13" height="9" rx="1" />
-            <path d="M5 14h6" />
-          </svg>
-          Built for Chromebook &amp; desktop
-        </span>
+        {/* Hero meta tags — display notice + tool count.
+            Top-right of the hero, level with the title. */}
+        <HeroMeta toolCount={TOTAL_TOOLS} />
 
         <p className="page-eyebrow">Interactive Data Tools</p>
         <h1 className="page-title">Weather &amp; Climate</h1>
@@ -577,7 +573,7 @@ export default function Home() {
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
-            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             email
           </a>{' '}
@@ -587,7 +583,7 @@ export default function Home() {
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: 'var(--accent-earth, #3CA3AE)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             X
           </a>.
@@ -595,7 +591,7 @@ export default function Home() {
         <p className="page-intro">
           The Earth &amp; Space page contains interactive learning tools aligned with NY State curriculum for classroom use or casual curiosity.
         </p>
-        <Link to="/earthandspace" className="jump-link">
+        <Link to="/earthandspace" className="jump-link" style={{ '--jump-accent': 'var(--accent-earth)' }}>
           Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
         </Link>
       </section>
