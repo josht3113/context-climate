@@ -576,13 +576,7 @@ export default function EarthAndSpace() {
     <div className="page-container">
 
       {/* Hero */}
-      {/* --page-accent: the color of THIS page (hero links + jump link at rest).
-          --jump-accent: the color of where the jump link GOES (hover only).
-          See the "Page accent" block in src/index.css. */}
-      <section
-        className="page-hero"
-        style={{ '--page-accent': 'var(--accent-earth)', '--jump-accent': 'var(--brand-cc)' }}
-      >
+      <section className="page-hero">
 
         {/* Hero meta tags — display notice + tool count.
             Top-right of the hero, level with the title. */}
