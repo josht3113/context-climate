@@ -52,6 +52,16 @@ html,body{padding:0;margin:0}
    145px ("Perihelion: May") to 192px ("Perihelion: September"), so the month
    changing shifted the title on roughly every second of playback. */
 #periTag{box-sizing:border-box;width:200px;text-align:center;white-space:nowrap}
+/* And for the side chips, which are rebuilt every frame during playback. The
+   step-1 note "ϖ = 283.1° from the March equinox" sat right at the chip's
+   wrap width, so ϖ gaining or losing a digit flipped it between two and three
+   lines; the side column grew and shrank ~22px, the page height with it, and
+   everything below the fold (or the whole page, when scrolled) jumped. The
+   note now breaks at a fixed point, and digits are tabular so values don't
+   shift sideways either. */
+.side-col .cc-stat-value,.side-col .cc-stat-note{font-variant-numeric:tabular-nums}
+#playBtn{width:104px;line-height:20px}
+.cc-segmented-btn{font-family:var(--font-mono)}
 input[type=range]{-webkit-appearance:none;height:6px;border-radius:3px;
   background:var(--color-surface-2);outline:none;cursor:pointer}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;
@@ -110,22 +120,26 @@ canvas{display:block}
 
 <div class="ctrl-wrap">
   <button class="cc-btn primary" id="playBtn">▶ Play</button>
-  <div class="ctrl-group">
+  <div class="ctrl-group" id="gScrub">
     <span class="ctrl-lbl">Age</span>
     <input type="range" id="scrub" min="-30000" max="800000" step="100" value="0" style="width:300px">
     <span class="ctrl-val" id="scrubVal">today</span>
     <button class="cc-btn cc-btn-sm" id="pinBtn">＋ Pin</button>
     <button class="cc-btn cc-btn-sm" id="todayBtn">★ Today</button>
   </div>
-  <div class="ctrl-group" id="gLat" hidden>
-    <span class="ctrl-lbl">Latitude</span>
-    <select class="cc-select" id="latSel">
-      <option value="75">75°N</option>
-      <option value="65" selected>65°N</option>
-      <option value="45">45°N</option>
-      <option value="25">25°N</option>
-      <option value="0">Equator</option>
-    </select>
+  <div class="ctrl-group" id="gPeri" hidden>
+    <span class="ctrl-lbl">Perihelion</span>
+    <div class="cc-segmented">
+      <button class="cc-segmented-btn is-active" data-peri="jan">January · today</button>
+      <button class="cc-segmented-btn" data-peri="jun">June</button>
+    </div>
+  </div>
+  <div class="ctrl-group" id="gEcc" hidden>
+    <span class="ctrl-lbl">Orbit</span>
+    <div class="cc-segmented">
+      <button class="cc-segmented-btn is-active" data-e="today">e 0.017 · today</button>
+      <button class="cc-segmented-btn" data-e="high">e 0.040 · stretched</button>
+    </div>
   </div>
   <button class="cc-btn primary" id="pngBtn">↓ Download PNG</button>
 </div>
@@ -154,7 +168,7 @@ canvas{display:block}
     &nbsp;·&nbsp; <b>Star positions</b> J2000 right ascension and declination; pole path drawn about the north ecliptic pole at RA 18ʰ, Dec +66.56°.
     &nbsp;·&nbsp; <b>Insolation</b> daily mean at the solstice, top of atmosphere, S₀ = 1361 W/m².
     &nbsp;·&nbsp; <b>Orbit drawing</b> eccentricity exaggerated for visibility; the readouts use the true value.
-    &nbsp;·&nbsp; <b>Melt panel</b> is a toy surface-energy budget, not a mass-balance model.
+    &nbsp;·&nbsp; <b>Melt panel</b> is a toy surface-energy budget, not a mass-balance model; step 4 holds tilt at today’s value and varies only perihelion and eccentricity.
     &nbsp;·&nbsp; contextclimate.io
   </div>
 </div>
@@ -247,7 +261,7 @@ function surfacePoint(latDeg, lonDeg, epsDeg, lean){
   u = [u[0]/mu, u[1]/mu, 0];
   var v = [a[1]*u[2] - a[2]*u[1], a[2]*u[0] - a[0]*u[2], a[0]*u[1] - a[1]*u[0]];
   var p = latDeg * D2R, l = lonDeg * D2R;
-  var cp = Math.cos(p), s = Math.sin(p), cl = Math.cos(l), sl = Math.sin(l);
+  var cp = Math.cos(p), s = Math.sin(p), cl = Math.cos(l), sl = -Math.sin(l);   // camera maps +X to screen right, which mirrors the view; flipping longitude's sense makes the drawn Earth a true (unmirrored) one
   return [cp*(cl*u[0] + sl*v[0]) + s*a[0],
           cp*(cl*u[1] + sl*v[1]) + s*a[1],
           cp*(cl*u[2] + sl*v[2]) + s*a[2]];
@@ -441,11 +455,6 @@ function drawOrbitStage(ctx, w, h){
   ctx.beginPath(); ctx.arc(cx, cy, 34, 0, Math.PI*2); ctx.fillStyle = sg; ctx.fill();
   ctx.beginPath(); ctx.arc(cx, cy, 11, 0, Math.PI*2); ctx.fillStyle = COL.sun; ctx.fill();
 
-  /* Markers first, then every label in one staggered pass. Perihelion sits
-     close to a solstice for much of the cycle — today it is 12° from the
-     December solstice — so any fixed label offset collides. Labels are sorted
-     by screen angle and pushed to an outer ring whenever the neighbour they
-     follow is within 24°. */
   var marks = [
     { lam: peri,               text: 'PERIHELION',    col: COL.peri, dot: 4,  ring: true },
     { lam: (peri + 180) % 360, text: 'APHELION',      col: COL.aph,  dot: 4,  ring: true },
@@ -476,28 +485,27 @@ function drawOrbitStage(ctx, w, h){
     }
   });
 
-  var sorted = marks.slice().sort(function(a, b){ return a.th - b.th; });
-  var prevTh = null, prevOuter = false;
-  sorted.forEach(function(m){
-    var outer = false;
-    if (prevTh !== null){
-      var d = Math.abs(m.th - prevTh);
-      if (d > Math.PI) d = 2*Math.PI - d;
-      if (d < 24 * D2R && !prevOuter) outer = true;
-    }
+  /* Season labels sit outside the orbit at fixed anchors (the seasons do not
+     move on this drawing); the two apsis labels ride inside it, on their own
+     radial, backed by a plate. The two sets can never meet, so no label ever
+     has to jump to dodge another. */
+  marks.forEach(function(m){
     var ux = m.p.x - cx, uy = m.p.y - cy, ul = Math.sqrt(ux*ux + uy*uy) || 1;
-    var off = outer ? 76 : 36;
     ctx.font = (m.big ? '600 13px' : (m.ring ? '600 12px' : '12px')) + ' "Courier Prime", monospace';
+    ctx.textBaseline = 'middle';
+    var lx, ly;
+    if (m.ring){
+      lx = cx + ux * 0.66; ly = cy + uy * 0.66;
+      ctx.textAlign = 'center';
+      var tw = ctx.measureText(m.text).width;
+      ctx.fillStyle = 'rgba(21,26,23,.88)';
+      ctx.fillRect(lx - tw/2 - 4, ly - 9, tw + 8, 18);
+    } else if (m.lam === 0){   lx = m.p.x - 14; ly = m.p.y; ctx.textAlign = 'right'; }
+    else if (m.lam === 180){   lx = m.p.x + 14; ly = m.p.y; ctx.textAlign = 'left'; }
+    else if (m.lam === 90){    lx = m.p.x;      ly = m.p.y + 22; ctx.textAlign = 'center'; }
+    else {                     lx = m.p.x;      ly = m.p.y - 18; ctx.textAlign = 'center'; }
     ctx.fillStyle = m.col;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    var lx2 = cx + ux/ul * (ul + off), ly2 = cy + uy/ul * (ul + off) * 0.62;
-    ctx.fillText(m.text, lx2, ly2);
-    if (outer){
-      ctx.save(); ctx.globalAlpha = .35; ctx.strokeStyle = m.col; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(cx + ux/ul*(ul+12), cy + uy/ul*(ul+12)*0.62);
-      ctx.lineTo(lx2, ly2 + 9); ctx.stroke(); ctx.restore();
-    }
-    prevTh = m.th; prevOuter = outer;
+    ctx.fillText(m.text, lx, ly);
   });
 
   ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
@@ -712,48 +720,103 @@ function markLine(ctx, x, y0, y1, col, dashed){
   ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke(); ctx.restore();
 }
 
-/* ══════════ step 4 — the summer consequence ══════════ */
+/* ══════════ step 4 — what it does to summer ══════════
+   A controlled comparison: tilt held at today's value, perihelion and
+   eccentricity switched between two states each. The age axis belongs to
+   steps 1–3 and is off here. */
+var MELT_LAT = 65;
+var O4_TODAY = M.orbit(0);
+var LP4 = { jan: O4_TODAY.longPeri, jun: 90 };   // today (≈3 Jan) · at the June solstice
+var E4  = { today: O4_TODAY.e, high: 0.040 };
+var peri4 = 'jan', ecc4 = 'today';
+var cur4 = { lp: LP4.jan, e: E4.today }, tween4 = null;
+function orbit4(lp, e){
+  return { e: e, obliquity: O4_TODAY.obliquity, longPeri: ((lp % 360) + 360) % 360 };
+}
+function melt4(o){ return M.meltSeason(MELT_LAT, 0, { accumulation: ACCUM, steps: 365, orbit: o }); }
+/* Fixed scales over every state the buttons can reach, so bars and curves
+   are comparable between states and never rescale mid-tween. */
+var Q4_MIN = 150, Q4_MAX = 582, BAR4_MAX = (function(){
+  var m = 450;
+  ['jan','jun'].forEach(function(p){ ['today','high'].forEach(function(k){
+    m = Math.max(m, M.meltSeason(MELT_LAT, 0, { steps: 365, orbit: orbit4(LP4[p], E4[k]) }).melt);
+  }); });
+  return m * 1.08;
+})();
+function tick4(ts){
+  if (!tween4) return false;
+  var t = Math.min((ts - tween4.t0) / 600, 1), k = t < .5 ? 2*t*t : 1 - Math.pow(-2*t + 2, 2) / 2;
+  cur4.lp = tween4.lp0 + (tween4.lp1 - tween4.lp0) * k;
+  cur4.e  = tween4.e0  + (tween4.e1  - tween4.e0)  * k;
+  if (t >= 1){ cur4.lp = tween4.lp1; cur4.e = tween4.e1; tween4 = null; }
+  return true;
+}
+function go4(){
+  var lp1 = LP4[peri4], e1 = E4[ecc4];
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce){ cur4.lp = lp1; cur4.e = e1; tween4 = null; render(); return; }
+  tween4 = { lp0: cur4.lp, lp1: lp1, e0: cur4.e, e1: e1, t0: performance.now() };
+}
+
 function drawMeltStage(ctx, w, h){
   ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
-  var o = M.orbit(scrubAge);
-  var r = M.meltSeason(LAT, scrubAge, { accumulation: ACCUM });
+  var o = orbit4(cur4.lp, cur4.e), r = melt4(o), i;
 
-  /* a small orbit inset: where June sits relative to perihelion */
-  var A = Math.min(h * 0.20, 56), gx = 18 + A * 1.8, gy = h * 0.42;
-  ctx.beginPath();
-  for (var l = 0; l <= 360; l += 4){
-    var p = orbitXY(l, o.longPeri, gx, gy, A);
-    if (l === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
+  var PAD = 20;
+  var colA = Math.max(Math.min(210, w * 0.18), 150);
+  var colC = Math.max(Math.min(360, w * 0.30), 236);
+  var bx   = w - PAD - colC;
+  var cx0  = PAD + colA + 58;
+  var curveW = Math.max(bx - 58 - cx0, 150);
+
+  /* ── A · the orbit: where June falls against perihelion ─────────── */
+  /* sized so the most stretched state (e 0.040 drawn as 0.40) stays clear
+     of the month readout below it */
+  var eV = Math.min(o.e * 10, 0.4), A = Math.min(colA * 0.40, (h - 132) / 2.9);
+  var ox = PAD + colA / 2, oy = 30 + (h - 128) / 2;
+  function oxy(lam){
+    var rr = (1 - eV*eV) / (1 + eV * Math.cos((lam - o.longPeri) * D2R)) * A, th = (lam + 180) * D2R;
+    return { x: ox + rr * Math.cos(th), y: oy - rr * Math.sin(th) };
   }
-  ctx.closePath(); ctx.strokeStyle = COL.orbit; ctx.lineWidth = 1.2; ctx.stroke();
-  ctx.beginPath(); ctx.arc(gx, gy, 7, 0, Math.PI*2); ctx.fillStyle = COL.sun; ctx.fill();
-  var pj = orbitXY(90, o.longPeri, gx, gy, A);
-  ctx.beginPath(); ctx.arc(pj.x, pj.y, 6, 0, Math.PI*2);
-  ctx.fillStyle = '#3E5E70'; ctx.fill();
+  ctx.beginPath();
+  for (var l = 0; l <= 360; l += 3){
+    var q = oxy(l);
+    if (l === 0) ctx.moveTo(q.x, q.y); else ctx.lineTo(q.x, q.y);
+  }
+  ctx.closePath(); ctx.strokeStyle = COL.orbit; ctx.lineWidth = 1.3; ctx.stroke();
+  var sg = ctx.createRadialGradient(ox, oy, 0, ox, oy, 22);
+  sg.addColorStop(0, 'rgba(255,207,107,.5)'); sg.addColorStop(1, 'rgba(255,207,107,0)');
+  ctx.beginPath(); ctx.arc(ox, oy, 22, 0, Math.PI*2); ctx.fillStyle = sg; ctx.fill();
+  ctx.beginPath(); ctx.arc(ox, oy, 8, 0, Math.PI*2); ctx.fillStyle = COL.sun; ctx.fill();
+  var pJ = oxy(90), pD = oxy(270);
+  ctx.beginPath(); ctx.arc(pD.x, pD.y, 4, 0, Math.PI*2); ctx.fillStyle = 'rgba(142,154,144,.7)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(pJ.x, pJ.y, 7, 0, Math.PI*2); ctx.fillStyle = '#3E5E70'; ctx.fill();
   ctx.strokeStyle = COL.melt; ctx.lineWidth = 2; ctx.stroke();
-  var pp = orbitXY(o.longPeri, o.longPeri, gx, gy, A);
-  ctx.beginPath(); ctx.arc(pp.x, pp.y, 3.5, 0, Math.PI*2); ctx.fillStyle = COL.peri; ctx.fill();
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
+  var pP = oxy(o.longPeri);
+  ctx.beginPath(); ctx.arc(pP.x, pP.y, 5, 0, Math.PI*2); ctx.fillStyle = COL.peri; ctx.fill();
+  ctx.font = '600 12px "Courier Prime", monospace'; ctx.textAlign = 'center';
+  ctx.fillStyle = COL.melt; ctx.textBaseline = 'top';    ctx.fillText('JUNE', pJ.x, pJ.y + 11);
+  ctx.fillStyle = CSS.muted; ctx.textBaseline = 'bottom'; ctx.fillText('Dec', pD.x, pD.y - 8);
+
+  var ty = h - 74;
+  ctx.font = '700 26px "Zilla Slab", serif'; ctx.fillStyle = COL.peri;
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText('June vs perihelion', gx, gy + A + 22);
-  ctx.fillStyle = COL.peri;
-  ctx.fillText('perihelion: ' + periMonth(o), gx, gy + A + 40);
+  ctx.fillText(periMonth(o), ox, ty);
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.fillText('perihelion · e ' + o.e.toFixed(3), ox, ty + 32);
 
-  var cx0 = gx + A * 1.5 + 82, cy0 = 40, cy1 = h - 72, ch = cy1 - cy0;
-  var curveW = Math.min((w - cx0) * 0.42, 380);
-
+  /* ── B · the summer it produces ────────────────────────────────── */
+  var cy0 = 62, cy1 = h - 46, ch = cy1 - cy0;
+  var thr = r.config.qcrit / (1 - r.config.albedo);
   ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText('SUMMER MELT BUDGET · ' + LAT + '°N · ' + M.fmtAge(scrubAge).toUpperCase(),
-               cx0 - 40, 12);
-
-  var qMax = 0, i;
-  for (i = 0; i < r.curve.length; i++) qMax = Math.max(qMax, r.curve[i].q);
-  qMax = Math.max(qMax, 560) * 1.04;
-  var thr = r.config.qcrit / (1 - r.config.albedo);
-  var qMin = Math.min(150, thr * 0.45);
-  var yq = function(q){ return cy1 - (Math.max(q, qMin) - qMin) / (qMax - qMin) * ch; };
+  ctx.fillText('SUNLIGHT AT ' + MELT_LAT + '°N THROUGH THE YEAR  ·  SNOW MELTS ABOVE '
+               + Math.round(thr) + ' W/m²', cx0 - 46, 22);
+  var yq = function(v){ return cy1 - (Math.max(v, Q4_MIN) - Q4_MIN) / (Q4_MAX - Q4_MIN) * ch; };
   var xd = function(d){ return cx0 + d / r.curve.length * curveW; };
+  /* the melt curve is in equal time steps from the March equinox, so the
+     calendar ticks go where the dates actually fall */
+  var xl = function(lam){ return cx0 + keplerTimeFraction(o, lam) * curveW; };
 
   ctx.beginPath(); var open = false;
   for (i = 0; i < r.curve.length; i++){
@@ -763,133 +826,73 @@ function drawMeltStage(ctx, w, h){
     } else if (open){ ctx.lineTo(xd(i), yq(thr)); open = false; }
   }
   if (open) ctx.lineTo(xd(r.curve.length - 1), yq(thr));
-  ctx.closePath(); ctx.fillStyle = 'rgba(255,179,71,.26)'; ctx.fill();
+  ctx.closePath(); ctx.fillStyle = 'rgba(255,179,71,.30)'; ctx.fill();
+
+  var isToday = Math.abs(cur4.lp - LP4.jan) < 0.5 && Math.abs(cur4.e - E4.today) < 1e-4;
+  if (!isToday){
+    var g = melt4(orbit4(LP4.jan, E4.today));
+    ctx.save(); ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = 'rgba(232,228,217,.40)'; ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (i = 0; i < g.curve.length; i++){
+      if (i === 0) ctx.moveTo(xd(i), yq(g.curve[i].q)); else ctx.lineTo(xd(i), yq(g.curve[i].q));
+    }
+    ctx.stroke(); ctx.restore();
+    /* labelled where the ghost's falling leg crosses the threshold, on its
+       outer side: the live curve's leg is on the other side in every state */
+    var pki = 0, gi;
+    for (i = 1; i < g.curve.length; i++) if (g.curve[i].q > g.curve[pki].q) pki = i;
+    for (gi = pki; gi < g.curve.length - 1 && g.curve[gi].q > thr; gi++);
+    var liveGi;
+    for (liveGi = 0, i = 1; i < r.curve.length; i++) if (r.curve[i].q > r.curve[liveGi].q) liveGi = i;
+    for (; liveGi < r.curve.length - 1 && r.curve[liveGi].q > thr; liveGi++);
+    var right = gi >= liveGi;
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+    ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'bottom';
+    ctx.fillText('today', xd(gi) + (right ? 8 : -8), yq(thr) - 6);
+  }
 
   ctx.beginPath();
   for (i = 0; i < r.curve.length; i++){
-    var x = xd(i), y = yq(r.curve[i].q);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    if (i === 0) ctx.moveTo(xd(i), yq(r.curve[i].q)); else ctx.lineTo(xd(i), yq(r.curve[i].q));
   }
-  ctx.strokeStyle = COL.melt; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.strokeStyle = COL.melt; ctx.lineWidth = 1.8; ctx.stroke();
 
-  ctx.save(); ctx.setLineDash([4,4]); ctx.strokeStyle = 'rgba(232,228,217,.42)'; ctx.lineWidth = 1;
+  ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(232,228,217,.5)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx0, yq(thr)); ctx.lineTo(cx0 + curveW, yq(thr)); ctx.stroke(); ctx.restore();
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-  ctx.fillText('melt threshold ' + Math.round(thr) + ' W/m²', cx0 + curveW, yq(thr) - 4);
-  ctx.textBaseline = 'middle';
-  ctx.fillText(Math.round(qMin) + ' W/m²', cx0 - 5, cy1);
-  ctx.fillText(Math.round(qMax) + ' W/m²', cx0 - 5, cy0);
+  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText(Q4_MIN + ' W/m²', cx0 - 7, cy1);
+  ctx.fillText(Q4_MAX + ' W/m²', cx0 - 7, cy0);
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ['Mar','Jun','Sep','Dec'].forEach(function(mn, k){
-    ctx.fillText(mn, xd(r.curve.length * k / 4), cy1 + 3);
+  [['Mar', 0], ['Jun', 90], ['Sep', 180], ['Dec', 270]].forEach(function(m){
+    ctx.fillText(m[0], xl(m[1]), cy1 + 5);
   });
 
-  var bx = cx0 + curveW + 46, bw = Math.max(w - bx - 120, 86), bh = 17;
-  var maxBar = Math.max(r.melt, ACCUM, 100) * 1.08;
+  /* ── C · what that does to the snow ────────────────────────────── */
+  var bw = colC - 96, bh = 22;
+  var by = Math.max(cy0 + 2, (h - 180) / 2 - 8);
   function bar(label, val, col, row){
-    var y = cy0 + 4 + row * 34;
-    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
+    var y = by + row * 46;
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
     ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(label, bx, y - 3);
+    ctx.fillText(label, bx, y - 5);
     ctx.fillStyle = CSS.surf2; ctx.fillRect(bx, y, bw, bh);
-    ctx.fillStyle = col; ctx.fillRect(bx, y, bw * Math.min(val / maxBar, 1), bh);
-    ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
+    ctx.fillStyle = col; ctx.fillRect(bx, y, bw * Math.min(val / BAR4_MAX, 1), bh);
+    ctx.font = '700 18px "Zilla Slab", serif'; ctx.fillStyle = CSS.text;
     ctx.textBaseline = 'middle';
-    ctx.fillText(Math.round(val) + ' mm', bx + bw + 8, y + bh/2);
+    ctx.fillText(Math.round(val) + ' mm', bx + bw + 10, y + bh / 2);
   }
   bar('WINTER SNOWFALL', ACCUM, COL.snow, 0);
   bar('SUMMER MELT', r.melt, COL.melt, 1);
-  var survives = r.surplus < 0;
-  ctx.font = '600 15px "Public Sans", sans-serif';
+  var survives = r.surplus < 0, vy = by + 2 * 46 + 26;
+  ctx.font = '700 22px "Zilla Slab", serif';
   ctx.fillStyle = survives ? COL.snow : COL.melt;
   ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillText(survives ? 'SNOW SURVIVES THE SUMMER' : 'SNOW GONE BY AUTUMN', bx, cy0 + 82);
-  ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-  ctx.fillText((r.surplus >= 0 ? '+' : '') + Math.round(r.surplus) + ' mm  ·  ' + r.days + ' melt days',
-               bx, cy0 + 101);
-}
-
-/* step 4 chart — precession's reach against obliquity's, by latitude */
-function drawLatCompareChart(ctx, w, h){
-  ctx.fillStyle = CSS.surf; ctx.fillRect(0, 0, w, h);
-  var o = M.orbit(scrubAge), e = o.e, i, lat, p;
-  var N = 61, lats = [], precS = [], oblS = [];
-  for (i = 0; i < N; i++){
-    lat = -90 + 180 * i / (N - 1);
-    var lo = 1e9, hi = -1e9;
-    for (p = 0; p < 360; p += 10){
-      var q = M.dailyMean(lat, 90, { e: e, obliquity: o.obliquity, longPeri: p });
-      lo = Math.min(lo, q); hi = Math.max(hi, q);
-    }
-    lats.push(lat); precS.push(hi - lo);
-    oblS.push(M.dailyMean(lat, 90, { e:e, obliquity:24.5, longPeri:o.longPeri }) -
-              M.dailyMean(lat, 90, { e:e, obliquity:22.1, longPeri:o.longPeri }));
-  }
-  var top = 0, bot = 0;
-  for (i = 0; i < N; i++){ top = Math.max(top, precS[i], oblS[i]); bot = Math.min(bot, oblS[i]); }
-  top = Math.ceil((top + 8) / 20) * 20; bot = Math.floor((bot - 4) / 10) * 10;
-
-  var PL = 74, PR = 292, PT = 30, PB = 28;
-  var X = function(la){ return PL + (la + 90) / 180 * (w - PL - PR); };
-  var Y = function(v){ return PT + (1 - (v - bot) / (top - bot)) * (h - PT - PB); };
-
-  ctx.save(); ctx.setLineDash([2,5]); ctx.lineWidth = 1;
-  for (var v = bot; v <= top + .01; v += (top - bot) / 4){
-    ctx.strokeStyle = Math.abs(v) < 0.01 ? 'rgba(232,228,217,.24)' : 'rgba(232,228,217,.07)';
-    ctx.beginPath(); ctx.moveTo(PL, Y(v)); ctx.lineTo(w - PR, Y(v)); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    ctx.fillText(Math.round(v), PL - 7, Y(v));
-    ctx.setLineDash([2,5]);
-  }
-  ctx.restore();
-
-  [[precS, COL.prec, 2.4], [oblS, COL.axis, 2.0]].forEach(function(s){
-    ctx.beginPath();
-    for (i = 0; i < N; i++){
-      var x = X(lats[i]), y = Y(s[0][i]);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = s[1]; ctx.lineWidth = s[2]; ctx.lineJoin = 'round'; ctx.stroke();
-  });
-
-  var xs = X(LAT), iSel = Math.round((LAT + 90) / 180 * (N - 1));
-  ctx.save(); ctx.setLineDash([3,4]); ctx.strokeStyle = 'rgba(232,228,217,.45)'; ctx.lineWidth = 1.2;
-  ctx.beginPath(); ctx.moveTo(xs, PT); ctx.lineTo(xs, h - PB); ctx.stroke(); ctx.restore();
-  ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = CSS.text;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillText(LAT + (LAT >= 0 ? '°N' : '°S'), xs, PT - 3);
-
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-  ctx.textBaseline = 'top';
-  [-90,-60,-30,0,30,60,90].forEach(function(la){
-    ctx.fillText(la === 0 ? 'eq' : Math.abs(la) + (la > 0 ? '°N' : '°S'), X(la), h - PB + 6);
-  });
-
-  ctx.font = '600 13px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-  ctx.textAlign = 'left';
-  ctx.fillText('JUNE-SOLSTICE SWING, BY LATITUDE · e = ' + e.toFixed(4), PL + 6, 8);
-
-  var lx = w - PR + 26, ly = PT + 6;
-  [['precession (full ϖ circuit)', COL.prec, precS[iSel]],
-   ['obliquity (22.1°–24.5°)',    COL.axis, oblS[iSel]]].forEach(function(s, k){
-    ctx.strokeStyle = s[1]; ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.moveTo(lx, ly + k*46 + 7); ctx.lineTo(lx + 20, ly + k*46 + 7); ctx.stroke();
-    ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(s[0], lx + 26, ly + k*46 + 7);
-    ctx.font = '700 20px "Zilla Slab", serif'; ctx.fillStyle = CSS.text;
-    ctx.textBaseline = 'top';
-    ctx.fillText((s[2] >= 0 ? '+' : '') + Math.round(s[2]) + ' W/m² at ' + LAT + '°N', lx + 26, ly + k*46 + 16);
-  });
-  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = CSS.muted;
-  ctx.textBaseline = 'top';
-  ctx.fillText('obliquity crosses zero near', lx, ly + 104);
-  ctx.fillText('15°N — in the tropics,', lx, ly + 120);
-  ctx.fillText('precession is the only', lx, ly + 136);
-  ctx.fillText('orbital signal there is', lx, ly + 152);
+  ctx.fillText(survives ? 'SNOW SURVIVES' : 'SNOW IS GONE', bx, vy);
+  ctx.fillText(survives ? 'THE SUMMER' : 'BY AUTUMN', bx, vy + 27);
+  ctx.font = '16px "Courier Prime", monospace'; ctx.fillStyle = CSS.sec;
+  ctx.fillText((r.surplus >= 0 ? '+' : '−') + Math.round(Math.abs(r.surplus)) + ' mm', bx, vy + 62);
 }
 
 /* ══════════ side readouts ══════════ */
@@ -900,10 +903,9 @@ function chip(label, value, note, col){
 }
 function renderSide(){
   var o = M.orbit(scrubAge);
-  var qJun = M.dailyMean(LAT, 90, o), qDec = M.dailyMean(LAT, 270, o);
   var html = '';
   if (step === 1){
-    html += chip('Perihelion', periMonth(o), 'ϖ = ' + o.longPeri.toFixed(1) + '° from the March equinox', COL.peri);
+    html += chip('Perihelion', periMonth(o), 'ϖ = ' + o.longPeri.toFixed(1) + '°<br>from the March equinox', COL.peri);
     html += chip('Earth–Sun in June', realAU(90, o).toFixed(4) + ' AU', null, '#74BBFB');
     html += chip('Earth–Sun in December', realAU(270, o).toFixed(4) + ' AU', null, COL.peri);
     html += chip('Eccentricity', o.e.toFixed(4), 'sets how much that difference matters', COL.ecc);
@@ -918,12 +920,15 @@ function renderSide(){
     html += chip('Seasons vs orbit', (T_CLIM/1000).toFixed(1) + ' kyr', 'the two rates combined', COL.prec);
     html += chip('e·sin ϖ peaks', '23.6 · 22.5 · 19.0', 'kyr — eccentricity splits the 21 kyr beat', COL.prec);
   } else {
-    var r = M.meltSeason(LAT, scrubAge, { accumulation: ACCUM });
-    html += chip('Perihelion', periMonth(o), null, COL.peri);
-    html += chip(LAT + '°N summer', Math.round(qJun) + ' W/m²',
-                 'winter ' + Math.round(qDec) + ' W/m²', COL.melt);
-    html += chip('Melt surplus', (r.surplus >= 0 ? '+' : '') + Math.round(r.surplus) + ' mm',
-                 r.days + ' melt days', r.surplus < 0 ? COL.snow : COL.melt);
+    var o4 = orbit4(cur4.lp, cur4.e);
+    var jan = orbit4(LP4.jan, cur4.e), jul = orbit4(LP4.jun, cur4.e);
+    var qJan = M.dailyMean(MELT_LAT, 90, jan), qJul = M.dailyMean(MELT_LAT, 90, jul);
+    html += chip('Summer sun at ' + MELT_LAT + '°N', Math.round(M.dailyMean(MELT_LAT, 90, o4)) + ' W/m²',
+                 'daily mean at the June solstice', COL.melt);
+    html += chip('January → June', '+' + Math.round(qJul - qJan) + ' W/m²',
+                 'at e ' + cur4.e.toFixed(3), COL.peri);
+    html += chip('Melt spans', Math.round(melt4(jan).melt) + ' → ' + Math.round(melt4(jul).melt) + ' mm',
+                 'January → June', COL.melt);
   }
   document.getElementById('sideCol').innerHTML = html;
 }
@@ -937,8 +942,8 @@ function sizeCanvas(cv, w, h){
   return ctx;
 }
 var stageW = 760, stageH = 380, chartH = 0;
-function stageHeight(){ return step === 4 ? 300 : (step === 3 ? 300 : 380); }
-function chartHeight(){ return step === 3 ? 226 : (step === 4 ? 232 : 0); }
+function stageHeight(){ return step === 4 ? 330 : (step === 3 ? 300 : 380); }
+function chartHeight(){ return step === 3 ? 226 : 0; }
 function layout(){
   stageW = Math.max(document.querySelector('.stage-col').clientWidth, 420);
   stageH = stageHeight(); chartH = chartHeight();
@@ -956,10 +961,10 @@ function render(){
   if (chartH){
     var c = sizeCanvas(document.getElementById('chart'), stageW - 2, chartH);
     if (step === 3) drawPrecChart(c, stageW - 2, chartH);
-    else drawLatCompareChart(c, stageW - 2, chartH);
   }
   renderSide();
-  document.getElementById('periTag').textContent = 'Perihelion: ' + periMonth(M.orbit(scrubAge));
+  document.getElementById('periTag').textContent = 'Perihelion: ' +
+    periMonth(step === 4 ? orbit4(cur4.lp, cur4.e) : M.orbit(scrubAge));
 }
 
 /* ══════════ animation ══════════ */
@@ -973,6 +978,7 @@ function frame(ts){
     }
     playLast = ts;
   } else playLast = 0;
+  if (tick4(ts) && step === 4) render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -992,8 +998,14 @@ function setAge(a, url){
 
 /* ══════════ controls ══════════ */
 function showGroups(){
-  document.getElementById('gLat').hidden = (step !== 4);
-  document.getElementById('accumPanel').hidden = (step !== 4);
+  var s4 = (step === 4);
+  document.getElementById('playBtn').hidden = s4;
+  document.getElementById('gScrub').hidden = s4;
+  document.getElementById('gPeri').hidden = !s4;
+  document.getElementById('gEcc').hidden = !s4;
+  document.getElementById('accumPanel').hidden = !s4;
+  document.getElementById('pinStrip').hidden = s4;
+  if (s4) setPlay(false);
 }
 document.querySelectorAll('.step-btn').forEach(function(b){
   b.addEventListener('click', function(){
@@ -1008,9 +1020,18 @@ document.getElementById('playBtn').addEventListener('click', function(){ setPlay
 document.getElementById('scrub').addEventListener('pointerdown', function(){ setPlay(false); });
 document.getElementById('scrub').addEventListener('input', function(e){ setAge(parseFloat(e.target.value)); });
 document.getElementById('todayBtn').addEventListener('click', function(){ setPlay(false); setAge(0); });
-document.getElementById('latSel').addEventListener('change', function(e){
-  LAT = parseFloat(e.target.value); render();
-});
+function seg4(sel, attr, set){
+  document.querySelectorAll(sel + ' .cc-segmented-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll(sel + ' .cc-segmented-btn').forEach(function(x){
+        x.classList.toggle('is-active', x === b);
+      });
+      set(b.dataset[attr]); go4();
+    });
+  });
+}
+seg4('#gPeri', 'peri', function(v){ peri4 = v; });
+seg4('#gEcc',  'e',    function(v){ ecc4 = v; });
 document.getElementById('accum').addEventListener('input', function(e){
   ACCUM = parseFloat(e.target.value);
   document.getElementById('accumVal').textContent = ACCUM + ' mm w.e.';
@@ -1071,7 +1092,7 @@ function exportPNG(){
   var sub = (step === 1) ? 'Perihelion in ' + periMonth(o) + ' · ϖ = ' + o.longPeri.toFixed(1) + '° · ' + M.fmtAge(scrubAge)
     : (step === 2) ? 'Axial precession, 25.69 kyr circuit · ' + M.fmtAge(scrubAge)
     : (step === 3) ? 'Axis 25.69 kyr + perihelion 114 kyr = seasons against the orbit every 21.0 kyr'
-    : 'Summer melt budget and precession’s reach by latitude · ' + M.fmtAge(scrubAge);
+    : 'Summer melt at 65°N · perihelion in ' + periMonth(orbit4(cur4.lp, cur4.e)) + ', e = ' + cur4.e.toFixed(3) + ', tilt held at today';
   ctx.fillText(sub, 22, 66);
 
   var prevW = stageW; stageW = W;
@@ -1084,7 +1105,7 @@ function exportPNG(){
     var o2 = document.createElement('canvas');
     o2.width = W*S; o2.height = (chH - 10)*S;
     var c2 = o2.getContext('2d'); c2.setTransform(S, 0, 0, S, 0, 0);
-    if (step === 3) drawPrecChart(c2, W, chH - 10); else drawLatCompareChart(c2, W, chH - 10);
+    drawPrecChart(c2, W, chH - 10);
     ctx.drawImage(o2, 0, 0, W*S, (chH-10)*S, 0, head + bodyH + 10, W, chH - 10);
   }
   stageW = prevW;
