@@ -551,7 +551,13 @@ export default function Home() {
     <div className="page-container">
 
       {/* Hero */}
-      <section className="page-hero">
+      {/* --page-accent: the color of THIS page (hero links + jump link at rest).
+          --jump-accent: the color of where the jump link GOES (hover only).
+          See the "Page accent" block in src/index.css. */}
+      <section
+        className="page-hero"
+        style={{ '--page-accent': 'var(--brand-cc)', '--jump-accent': 'var(--accent-earth)' }}
+      >
         {/* Hero meta tags — display notice + tool count.
             Top-right of the hero, level with the title. */}
         <HeroMeta toolCount={TOTAL_TOOLS} />
@@ -573,7 +579,6 @@ export default function Home() {
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
-            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             email
           </a>{' '}
@@ -583,7 +588,6 @@ export default function Home() {
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             X
           </a>.
@@ -591,7 +595,7 @@ export default function Home() {
         <p className="page-intro">
           The Earth &amp; Space page contains interactive learning tools aligned with NY State curriculum for classroom use or casual curiosity.
         </p>
-        <Link to="/earthandspace" className="jump-link" style={{ '--jump-accent': 'var(--accent-earth)' }}>
+        <Link to="/earthandspace" className="jump-link">
           Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
         </Link>
       </section>

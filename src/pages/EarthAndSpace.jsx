@@ -576,7 +576,13 @@ export default function EarthAndSpace() {
     <div className="page-container">
 
       {/* Hero */}
-      <section className="page-hero">
+      {/* --page-accent: the color of THIS page (hero links + jump link at rest).
+          --jump-accent: the color of where the jump link GOES (hover only).
+          See the "Page accent" block in src/index.css. */}
+      <section
+        className="page-hero"
+        style={{ '--page-accent': 'var(--accent-earth)', '--jump-accent': 'var(--brand-cc)' }}
+      >
 
         {/* Hero meta tags — display notice + tool count.
             Top-right of the hero, level with the title. */}
@@ -599,7 +605,6 @@ export default function EarthAndSpace() {
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
-            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             email
           </a>{' '}
@@ -609,7 +614,6 @@ export default function EarthAndSpace() {
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: 'var(--color-link)', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             X
           </a>.
@@ -617,7 +621,7 @@ export default function EarthAndSpace() {
         <p className="page-intro">
           The ContextClimate page contains charts and graphs using real data, some of which are also useful in the classroom.
         </p>
-        <Link to="/" className="jump-link" style={{ '--jump-accent': 'var(--brand-cc)' }}>
+        <Link to="/" className="jump-link">
           Jump to ContextClimate <span className="jump-link-arrow">→</span>
         </Link>
       </section>
