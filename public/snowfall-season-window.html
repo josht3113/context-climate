@@ -57,6 +57,7 @@
   .sw-ring { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid; flex-shrink: 0; }
   .sw-out { width: 12px; height: 12px; border: 1px dashed rgba(232,228,217,.6); flex-shrink: 0; }
   .sw-star { font-size: 14px; line-height: 1; color: #FFFFFF; }
+  .sw-x { font-size: 12px; line-height: 1; font-weight: 700; }
   .load-note { margin-left: auto; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); }
   .chart-wrap { position: relative; min-height: 320px; }
   #chart { width: 100%; }
@@ -146,7 +147,7 @@
   <div class="stats-grid trend-grid" id="trend-grid" hidden></div>
   <div class="rec-wrap" id="rec-wrap" hidden><table class="rec-table" id="rec-table"></table></div>
 
-  <p class="cc-source-note" id="source-note">Daily snowfall: NOAA ACIS. ENSO: DJF Niño 3.4, HadISST 1.1, CPC centered 30-yr base, ±0.5 °C. Seasons run Jul 1 – Jun 30 and count when Oct–Apr each have ≥ 90% of days reported. Trends: Sen's slope, Mann–Kendall test.</p>
+  <p class="cc-source-note" id="source-note">Daily snowfall and minimum temperature: NOAA ACIS. Snowfall counts only on days with a minimum ≤ 40 °F (June–August entries without a minimum are excluded). ENSO: DJF Niño 3.4, HadISST 1.1, CPC centered 30-yr base, ±0.5 °C. Seasons run Jul 1 – Jun 30 and count when Oct–Apr each have ≥ 90% of days reported. Trends: Sen's slope, Mann–Kendall test.</p>
 </div>
 
 <script>
@@ -269,6 +270,8 @@ const CORE_MONTHS = [10, 11, 12, 1, 2, 3, 4];
 const CMP_FROM = 1991, CMP_TO = 2020;   // Stations view: seasons 1991–92 … 2020–21
 const CMP_MIN_SEASONS = 20;
 const ONI_BASE_END_MAX = 2020;     // latest 30-yr base CPC uses (1991–2020)
+const SCREEN_MINT = 40;            // °F — snowfall on a day whose minimum stayed above this is set aside (hail)
+const SUMMER_MONTHS = [6, 7, 8];   // entries here with no minimum reported are set aside too
 
 // Day-of-season on a 366-day calendar starting Jul 1 (Feb 29 keeps its own slot,
 // so every date after February sits at the same position in leap and common years).
@@ -287,7 +290,7 @@ const C = {
   bg: '#1E2320', surface: '#262B27', text: '#E8E4D9', text2: '#A6A499', muted: '#948F82',
   border: 'rgba(232,228,217,0.14)', grid: 'rgba(232,228,217,0.06)', accent: '#D08425',
   warm: '#E07A5F', cool: '#6FA8DC', neutral: 'rgba(232,228,217,0.55)',
-  rail: '#383C38', ring: '#9FC2E6', inc: '#948F82',
+  rail: '#383C38', ring: '#9FC2E6', inc: '#948F82', scr: '#D9895B',
   totHi: '#9FC2E6', totLo: '#4F6072',
 };
 const MONO = '"Courier Prime", monospace';
@@ -422,7 +425,7 @@ async function withRetry(attempt, signal, onStatus) {
 async function acisRequest(sid, sdate, edate, signal) {
   const res = await fetch(ACIS_URL, {
     method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sid, sdate, edate, elems: [{ name: 'snow' }], meta: 'name,state,valid_daterange' }),
+    body: JSON.stringify({ sid, sdate, edate, elems: [{ name: 'snow' }, { name: 'mint' }], meta: 'name,state,valid_daterange' }),
   });
   if (!res.ok) { const e = new Error('HTTP ' + res.status); e.status = res.status; throw e; }
   const json = await res.json();
@@ -438,19 +441,28 @@ function parseVal(s) {
   const n = parseFloat(s);
   return isFinite(n) && n >= 0 ? n : NaN;
 }
+function parseTemp(s) {
+  if (s == null) return NaN;
+  const n = parseFloat(String(s).trim());
+  return isFinite(n) ? n : NaN;
+}
 function rowsToRecord(rows) {
   const start = dayNum(rows[0][0]), end = dayNum(rows[rows.length - 1][0]);
   const vals = new Float32Array(end - start + 1).fill(NaN);
-  for (const [d, v] of rows) { const i = dayNum(d) - start; if (i >= 0 && i < vals.length) vals[i] = parseVal(v); }
-  return { start, vals };
+  const mint = new Float32Array(end - start + 1).fill(NaN);
+  for (const [d, v, t] of rows) { const i = dayNum(d) - start; if (i >= 0 && i < vals.length) { vals[i] = parseVal(v); mint[i] = parseTemp(t); } }
+  return { start, vals, mint };
 }
 function mergeRows(rec, rows) {
   const lastDay = dayNum(rows[rows.length - 1][0]);
-  let vals = rec.vals;
+  let vals = rec.vals, mint = rec.mint;
   const need = lastDay - rec.start + 1;
-  if (need > vals.length) { const nv = new Float32Array(need).fill(NaN); nv.set(vals); vals = nv; }
-  for (const [d, v] of rows) { const i = dayNum(d) - rec.start; if (i >= 0 && i < vals.length) vals[i] = parseVal(v); }
-  return { ...rec, vals };
+  if (need > vals.length) {
+    const nv = new Float32Array(need).fill(NaN); nv.set(vals); vals = nv;
+    const nt = new Float32Array(need).fill(NaN); nt.set(mint); mint = nt;
+  }
+  for (const [d, v, t] of rows) { const i = dayNum(d) - rec.start; if (i >= 0 && i < vals.length) { vals[i] = parseVal(v); mint[i] = parseTemp(t); } }
+  return { ...rec, vals, mint };
 }
 // Tries each SID and keeps whichever record starts earliest (Central Park: COOP id → 1869).
 async function fetchRecord(station, signal, onStatus) {
@@ -475,7 +487,7 @@ async function fetchRecord(station, signal, onStatus) {
 //  Browser cache (IndexedDB). Past seasons cannot change; the season in
 //  progress is refreshed with a small request on every visit.
 // ═══════════════════════════════════════════════
-const IDB_NAME = 'cc-snowfall-season-window', IDB_STORE = 'stations', CACHE_DAYS = 30, CACHE_VERSION = 1;
+const IDB_NAME = 'cc-snowfall-season-window', IDB_STORE = 'stations', CACHE_DAYS = 30, CACHE_VERSION = 2;
 function idbOpen() {
   return new Promise(resolve => {
     try {
@@ -496,7 +508,7 @@ async function cacheGet(key) {
       req.onsuccess = () => {
         const v = req.result;
         const fresh = v && v.v === CACHE_VERSION && v.season === CUR_SY && Date.now() - v.savedAt < CACHE_DAYS * 864e5;
-        resolve(fresh ? { start: v.start, vals: v.vals, sid: v.sid, name: v.name || '' } : null);
+        resolve(fresh ? { start: v.start, vals: v.vals, mint: v.mint, sid: v.sid, name: v.name || '' } : null);
       };
       req.onerror = () => resolve(null);
     } catch (e) { resolve(null); }
@@ -507,7 +519,7 @@ async function cachePut(key, rec) {
   if (!db) return;
   try {
     db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE)
-      .put({ v: CACHE_VERSION, season: CUR_SY, savedAt: Date.now(), start: rec.start, vals: rec.vals, sid: rec.sid, name: rec.name }, key);
+      .put({ v: CACHE_VERSION, season: CUR_SY, savedAt: Date.now(), start: rec.start, vals: rec.vals, mint: rec.mint, sid: rec.sid, name: rec.name }, key);
   } catch (e) { /* storage unavailable */ }
 }
 
@@ -537,13 +549,20 @@ function buildDataset(station, rec) {
     const y = dt.getUTCFullYear(), mo = dt.getUTCMonth() + 1, d = dt.getUTCDate();
     const sy = mo >= 7 ? y : y - 1;
     let s = seasons.get(sy);
-    if (!s) { s = { sy, v: new Float32Array(366).fill(NaN) }; seasons.set(sy, s); }
-    s.v[ciOf(mo, d)] = rec.vals[i];
+    if (!s) { s = { sy, v: new Float32Array(366).fill(NaN), t: new Float32Array(366).fill(NaN), scr: [] }; seasons.set(sy, s); }
+    const ci = ciOf(mo, d), v = rec.vals[i], t = rec.mint[i];
+    s.t[ci] = t;
+    // Hail screen: snowfall only counts on a day cold enough for snow to reach the ground.
+    // A screened entry stays "reported" (0) so it never makes a season look incomplete.
+    if (v > 0 && !(t <= SCREEN_MINT || (isNaN(t) && !SUMMER_MONTHS.includes(mo)))) {
+      s.scr.push({ ci, v, t });
+      s.v[ci] = 0;
+    } else s.v[ci] = v;
   }
   const sys = [...seasons.keys()].sort((a, b) => a - b);
   const list = [];
   for (let sy = sys[0]; sy <= sys[sys.length - 1]; sy++) {
-    const s = seasons.get(sy) || { sy, v: new Float32Array(366).fill(NaN) };
+    const s = seasons.get(sy) || { sy, v: new Float32Array(366).fill(NaN), t: new Float32Array(366).fill(NaN), scr: [] };
     let minCov = 1, rep = 0, tot = 0;
     CORE_MONTHS.forEach(m => {
       const y = m >= 7 ? sy : sy + 1, nd = daysInMonth(y, m);
@@ -828,6 +847,7 @@ function legendHTML(items) {
     else if (it.kind === 'out') sw = `<span class="sw-out"></span>`;
     else if (it.kind === 'star') sw = `<span class="sw-star">★</span>`;
     else if (it.kind === 'dash') sw = `<span class="sw-tick" style="background:${it.color};width:10px;height:2px"></span>`;
+    else if (it.kind === 'x') sw = `<span class="sw-x" style="color:${it.color}">✕</span>`;
     return `<span class="item">${sw}${it.text}</span>`;
   }).join('');
 }
@@ -897,7 +917,8 @@ function buildMainFigure() {
         const r = ci - lo, v = s.v[ci];
         if (v > 0 && th.test(v)) {
           z[r][col] = binOf(v);
-          cd[r][col] = `<b>${dateLong(s.sy, ci)}</b> · ${v < 0.0995 ? 'Trace' : inch(v)}<br>${seasonLabel(s.sy)}${s.current ? ' (in progress)' : ''} · ${seasonSummaryLine(s, th)}`;
+          const tm = s.t[ci];
+          cd[r][col] = `<b>${dateLong(s.sy, ci)}</b> · ${v < 0.0995 ? 'Trace' : inch(v)}${isNaN(tm) ? '' : ` · min ${Math.round(tm)}°F`}<br>${seasonLabel(s.sy)}${s.current ? ' (in progress)' : ''} · ${seasonSummaryLine(s, th)}`;
         } else {
           z[r][col] = -1;
           cd[r][col] = summ;
@@ -957,6 +978,24 @@ function buildMainFigure() {
       hovertemplate: '%{customdata}<extra></extra>', yaxis: 'y', xaxis: 'x',
     });
     legend.push({ kind: 'dash', color: C.inc, text: 'Incomplete' });
+  }
+
+  // Screened entries (warm-day "snowfall", i.e. hail). Ones outside the plotted
+  // range are pinned just inside the nearer edge; the hover gives the real date.
+  const scr = [];
+  L.forEach((s, col) => {
+    if (!s.complete && !s.current) return;
+    s.scr.forEach(e => { if (th.test(e.v)) scr.push({ s, col, e }); });
+  });
+  if (scr.length) {
+    data.push({
+      type: 'scatter', mode: 'markers', x: scr.map(o => o.col),
+      y: scr.map(o => Math.min(hi - 2, Math.max(lo + 7, o.e.ci))),
+      marker: { symbol: 'x-thin', size: 8, color: C.scr, line: { width: 1.8, color: C.scr } },
+      customdata: scr.map(o => `<b>${dateLong(o.s.sy, o.e.ci)}</b> · ${o.e.v < 0.0995 ? 'Trace' : inch(o.e.v)} recorded<br>${isNaN(o.e.t) ? 'No minimum reported (summer)' : `Min ${Math.round(o.e.t)}°F`} · not counted as snow`),
+      hovertemplate: '%{customdata}<extra></extra>', yaxis: 'y', xaxis: 'x',
+    });
+    legend.push({ kind: 'x', color: C.scr, text: `Screened · ${scr.length} warm day${scr.length === 1 ? '' : 's'}` });
   }
 
   // Season in progress: dashed outline + hover catcher
@@ -1360,6 +1399,10 @@ function drawLegendItem(c, it, x, cy) {
   if (it.kind === 'band') { c.fillStyle = 'rgba(232,228,217,0.08)'; c.fillRect(x, cy + 2, 16, 10); c.strokeStyle = 'rgba(232,228,217,0.55)'; c.lineWidth = 1; c.setLineDash([2, 2]); c.strokeRect(x + 0.5, cy + 2.5, 15, 9); c.setLineDash([]); return 16; }
   if (it.kind === 'ring') { c.strokeStyle = it.color; c.lineWidth = 1.6; c.beginPath(); c.arc(x + 5, cy + 7, 4.5, 0, Math.PI * 2); c.stroke(); return 10; }
   if (it.kind === 'out') { c.strokeStyle = 'rgba(232,228,217,0.6)'; c.lineWidth = 1; c.setLineDash([2, 2]); c.strokeRect(x + 0.5, cy + 1.5, 11, 11); c.setLineDash([]); return 12; }
+  if (it.kind === 'x') {
+    c.strokeStyle = it.color; c.lineWidth = 1.8; c.beginPath();
+    c.moveTo(x + 1, cy + 3); c.lineTo(x + 9, cy + 11); c.moveTo(x + 9, cy + 3); c.lineTo(x + 1, cy + 11); c.stroke(); return 10;
+  }
   if (it.kind === 'star') { c.fillStyle = '#FFFFFF'; c.font = `14px ${MONO}`; c.fillText('★', x, cy); c.font = `13px ${MONO}`; return 12; }
   return 0;
 }
@@ -1444,7 +1487,7 @@ async function composeExport() {
   c.fillText('contextclimate.io', PAD, y + 10);
   const credW = c.measureText('contextclimate.io').width + 24;
   c.fillStyle = C.muted; c.textAlign = 'right';
-  const src = 'Data: NOAA ACIS daily snowfall' + (lastFig.kind === 'main' && ui.enso && ensoState === 'ok' ? ' · ENSO: HadISST 1.1 Niño 3.4, DJF, CPC base' : '');
+  const src = 'Data: NOAA ACIS daily snowfall, min temp ≤ 40°F' + (lastFig.kind === 'main' && ui.enso && ensoState === 'ok' ? ' · ENSO: HadISST 1.1 Niño 3.4, DJF, CPC base' : '');
   fitText(c, src, W - PAD, y + 10, innerW - credW, 12, '');
   return off;
 }
