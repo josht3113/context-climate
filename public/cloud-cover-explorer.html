@@ -14,9 +14,6 @@
     --c-median: #2AA87E;
     --c-median-pre: #948F82;
     --c-compare: #6D96D8;
-    --c-nino: #DE6E55;
-    --c-nina: #5C9BD6;
-    --c-neutral: #8A877D;
     --click-text: #F2EEE3;
   }
   [hidden] { display: none !important; }
@@ -136,7 +133,6 @@
     <button class="cc-tab is-active" data-tab="trend" type="button">Trend</button>
     <button class="cc-tab" data-tab="seasonal" type="button">Seasonal Cycle</button>
     <button class="cc-tab" data-tab="heatmap" type="button">Heatmap</button>
-    <button class="cc-tab" data-tab="enso" type="button">ENSO</button>
   </div>
 
   <div class="cc-stat-row" id="statRow" style="justify-content:center;"></div>
@@ -192,13 +188,6 @@
     <div class="legend" id="legendHeatmap"></div>
   </div>
 
-  <!-- ENSO -->
-  <div id="panelEnso" class="tab-panel" hidden>
-    <div class="readout" id="readoutEnso" style="margin: 0 0 8px;">&nbsp;</div>
-    <div class="cc-panel canvas-box"><canvas id="ensoCanvas"></canvas></div>
-    <div class="legend" id="legendEnso"></div>
-  </div>
-
   <div class="cc-btn-row" style="margin-top:18px;">
     <button id="pngBtn" class="cc-btn" type="button">&#8595; PNG</button>
   </div>
@@ -218,11 +207,10 @@
       is taken from the same side of it.</p>
     <p id="tierNote"><strong>This station:</strong> &mdash;</p>
     <p><strong>Data sources:</strong> hourly ASOS/AWOS observations via the Iowa Environmental Mesonet;
-      ASOS commissioning dates from NOAA NCEI station history; ENSO phase from Ni&ntilde;o 3.4 SST
-      anomalies (NOAA PSL), classified by the December&ndash;February mean against a rolling 30-year base.</p>
+      ASOS commissioning dates from NOAA NCEI station history.</p>
   </div>
 
-  <div class="footer-credit">Data: IEM ASOS &middot; NOAA NCEI &middot; NOAA PSL &middot; Chart: ContextClimate</div>
+  <div class="footer-credit">Data: IEM ASOS &middot; NOAA NCEI &middot; Chart: ContextClimate</div>
 </div>
 <script>
 (function () {
@@ -235,17 +223,14 @@ const MONTH_NAMES = ['January','February','March','April','May','June','July','A
 const ERA_MIN_YEARS = 5;          // an era needs this many values of a month to have its own normal
 const MAX_PINS = 4;
 const PIN_COLORS = ['#D08425', '#A08CC6', '#D67E60', '#3CA3AE'];
-const ENSO_FILE = 'nino34.ersst5.anom.data';
 
 // Canvas can't resolve CSS var(), so content colours are mirrored here.
 const COL = {
   bg: '#1E2320', surface: '#262B27', text: '#E8E4D9', text2: '#A6A499', muted: '#948F82',
   grid: 'rgba(232,228,217,0.07)', gridStrong: 'rgba(232,228,217,0.22)',
   current: '#E8E4D9', median: '#2AA87E', medianPre: '#948F82', compare: '#6D96D8',
-  nino: '#DE6E55', nina: '#5C9BD6', neutral: '#8A877D', asos: '#C9A86A'
+  asos: '#C9A86A'
 };
-const PHASE_COLOR = { nina: COL.nina, neutral: COL.neutral, nino: COL.nino };
-const PHASE_LABEL = { nina: 'La Niña', neutral: 'Neutral', nino: 'El Niño' };
 
 // Sequential "clear -> overcast" ramp (unchanged from the previous build).
 const CLOUD_STOPS = [
@@ -316,7 +301,6 @@ const S = {
   cmpMeta: null, cmpD: null,    // comparison station
   tab: 'trend', smooth: 12, hmField: 'pct',
   pins: [], hoverYear: null,
-  enso: null, ensoStatus: 'loading',
   trendChart: null
 };
 
@@ -398,69 +382,6 @@ function rankPhrase(d, y, m) {
   if (!r.rank) return '';
   const scope = r.era === 'post' ? ' since ASOS' : r.era === 'pre' ? ' before ASOS' : '';
   return ordinal(r.rank) + ' cloudiest ' + MONTH_NAMES[m - 1] + ' of ' + r.n + scope;
-}
-
-// ---------- ENSO (Niño 3.4 -> DJF phase per ENSO year) ----------
-function parsePSL(text) {
-  const lines = text.split(/\r?\n/);
-  const hdr = lines[0].trim().split(/\s+/).map(Number);
-  if (hdr.length < 2 || !isFinite(hdr[0]) || !isFinite(hdr[1])) throw new Error('bad header');
-  const y1 = hdr[0], y2 = hdr[1], out = new Map();
-  for (let i = 1; i < lines.length; i++) {
-    const p = lines[i].trim().split(/\s+/);
-    if (p.length !== 13) continue;
-    const y = +p[0];
-    if (!Number.isInteger(y) || y < y1 || y > y2) continue;
-    for (let m = 1; m <= 12; m++) {
-      const v = parseFloat(p[m]);
-      if (isFinite(v) && v > -99) out.set(monthKey(y, m), v);
-    }
-  }
-  if (out.size < 120) throw new Error('too little data');
-  return out;
-}
-// Re-baseline to a rolling 30-year period the way CPC does for the ONI: each 5-year block
-// [S, S+4] uses base [S-15, S+14], capped at the latest completed decade.
-function rebaseline(a) {
-  const keys = Array.from(a.keys());
-  const years = Array.from(new Set(keys.map((k) => Math.floor(k / 12)))).sort((x, y) => x - y);
-  const first = years[0];
-  const complete = years.filter((y) => { for (let m = 1; m <= 12; m++) if (!a.has(monthKey(y, m))) return false; return true; });
-  const cap = 10 * Math.floor(complete[complete.length - 1] / 10);
-  const cache = new Map(), out = new Map();
-  a.forEach((v, k) => {
-    const y = Math.floor(k / 12), m = (k % 12) + 1;
-    const S0 = 1951 + 5 * Math.floor((y - 1951) / 5);
-    let end = Math.min(S0 + 14, cap), start = end - 29;
-    if (start < first) { start = first; end = start + 29; }
-    const ck = start + ':' + m;
-    if (!cache.has(ck)) {
-      const vals = [];
-      for (let yy = start; yy <= end; yy++) { const x = a.get(monthKey(yy, m)); if (x !== undefined) vals.push(x); }
-      cache.set(ck, mean(vals));
-    }
-    out.set(k, v - cache.get(ck));
-  });
-  return out;
-}
-// ENSO year y0 runs Jul(y0)–Jun(y0+1) and takes the phase of its Dec–Feb mean.
-function classifyDJF(r) {
-  const phase = new Map();
-  const years = new Set(Array.from(r.keys()).map((k) => Math.floor(k / 12)));
-  years.forEach((y0) => {
-    const ks = [monthKey(y0, 12), monthKey(y0 + 1, 1), monthKey(y0 + 1, 2)];
-    if (!ks.every((k) => r.has(k))) return;
-    const v = (r.get(ks[0]) + r.get(ks[1]) + r.get(ks[2])) / 3;
-    phase.set(y0, v >= 0.5 ? 'nino' : v <= -0.5 ? 'nina' : 'neutral');
-  });
-  return phase;
-}
-const ensoYearOf = (y, m) => (m >= 7 ? y : y - 1);
-function loadEnso() {
-  return fetch(BASE + '/' + ENSO_FILE, { cache: 'no-cache' })
-    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-    .then((t) => { S.enso = classifyDJF(rebaseline(parsePSL(t))); S.ensoStatus = 'ok'; })
-    .catch(() => { S.enso = null; S.ensoStatus = 'error'; });
 }
 
 // ---------- data loading ----------
@@ -1020,141 +941,6 @@ function renderHeatmap() {
   renderLegend(qs('#legendHeatmap'), heatmapLegendItems());
 }
 
-// ---------- ENSO ----------
-let ensoLayout = null;
-const ENSO_ORDER = [7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6];
-function ensoPoints() {
-  const d = S.d, pts = [], years = { nina: new Set(), neutral: new Set(), nino: new Set() };
-  let current = null;
-  if (!S.enso) return { pts, years, current };
-  const last = d.months[d.months.length - 1];
-  const curY0 = ensoYearOf(last.y, last.m);
-  if (!S.enso.has(curY0)) current = curY0;
-  d.months.forEach((r) => {
-    const y0 = ensoYearOf(r.y, r.m), a = d.anom(r.y, r.m);
-    if (a == null) return;
-    if (S.enso.has(y0)) {
-      const ph = S.enso.get(y0);
-      pts.push({ y: r.y, m: r.m, y0, phase: ph, a, pct: r.pct });
-      years[ph].add(y0);
-    } else if (y0 === current) {
-      pts.push({ y: r.y, m: r.m, y0, phase: 'current', a, pct: r.pct });
-    }
-  });
-  return { pts, years, current };
-}
-function ensoStats(pts) {
-  const med = {};
-  ['nina', 'neutral', 'nino'].forEach((ph) => {
-    med[ph] = ENSO_ORDER.map((m) => median(pts.filter((p) => p.phase === ph && p.m === m).map((p) => p.a)));
-  });
-  return med;
-}
-function ensoLegendItems() {
-  const { years, current } = ensoPoints(), items = [];
-  ['nina', 'neutral', 'nino'].forEach((ph) => items.push({ kind: 'dot', color: PHASE_COLOR[ph], label: PHASE_LABEL[ph] + ' (' + years[ph].size + ' yrs)' }));
-  items.push({ kind: 'line', color: COL.text2, width: 3.5, label: 'Median of each group' });
-  items.push({ kind: 'tag', tag: 'EN − LN', label: 'El Niño median minus La Niña median' });
-  if (current != null) items.push({ kind: 'diamond', color: COL.current, label: current + '–' + String(current + 1).slice(2) + ' so far' });
-  return items;
-}
-const jitter = (y) => { const s = Math.sin(y * 12.9898) * 43758.5453; return s - Math.floor(s) - 0.5; };
-function drawEnso(canvas, dpr) {
-  const d = S.d;
-  const W = panelWidth(canvas); canvas._lastW = W;
-  const H = W < 640 ? 400 : 490;
-  const ctx = sizeCanvas(canvas, W, H, dpr);
-  ctx.fillStyle = COL.surface; ctx.fillRect(0, 0, W, H);
-  const { pts } = ensoPoints();
-  if (!pts.length) {
-    ctx.font = '15px "Public Sans", sans-serif'; ctx.fillStyle = COL.text2; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(S.ensoStatus === 'error' ? 'ENSO data unavailable.' : 'Loading ENSO data…', W / 2, H / 2);
-    ensoLayout = null;
-    return { w: W, h: H };
-  }
-  const L = 66, R = 18, T = 16, B = 70, pw = W - L - R, ph = H - T - B;
-  const span = niceMax(Math.max.apply(null, pts.map((p) => Math.abs(p.a))) + 1, 5);
-  const gw = pw / 12;
-  const gx = (mo) => L + (ENSO_ORDER.indexOf(mo) + 0.5) * gw;
-  const yOf = (v) => T + ph / 2 - (v / span) * (ph / 2);
-  const LANE = { nina: -0.28, neutral: 0, nino: 0.28 };
-
-  // grid
-  ctx.font = '13px "Courier Prime", monospace'; ctx.textBaseline = 'middle';
-  const step = span > 20 ? 10 : 5;
-  for (let v = -span; v <= span + 0.001; v += step) {
-    ctx.strokeStyle = v === 0 ? COL.gridStrong : COL.grid; ctx.lineWidth = v === 0 ? 1.5 : 1;
-    ctx.beginPath(); ctx.moveTo(L, Math.round(yOf(v)) + 0.5); ctx.lineTo(L + pw, Math.round(yOf(v)) + 0.5); ctx.stroke();
-    ctx.fillStyle = COL.text2; ctx.textAlign = 'right'; ctx.fillText(v === 0 ? '0' : fmtSigned(v, 0), L - 8, yOf(v));
-  }
-  for (let i = 1; i < 12; i++) {
-    ctx.strokeStyle = COL.grid; ctx.beginPath(); ctx.moveTo(Math.round(L + i * gw) + 0.5, T); ctx.lineTo(Math.round(L + i * gw) + 0.5, T + ph); ctx.stroke();
-  }
-  ctx.save(); ctx.translate(16, T + ph / 2); ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = 'center'; ctx.fillStyle = COL.text2; ctx.fillText('Overcast vs. normal (pts)', 0, 0); ctx.restore();
-
-  // dots
-  const drawn = [];
-  pts.forEach((p) => {
-    if (p.phase === 'current') return;
-    const x = gx(p.m) + (LANE[p.phase] + jitter(p.y0 * 13 + p.m) * 0.16) * gw;
-    const y = yOf(p.a);
-    ctx.fillStyle = PHASE_COLOR[p.phase]; ctx.globalAlpha = 0.8;
-    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-    drawn.push({ x, y, p });
-  });
-  // medians
-  const med = ensoStats(pts);
-  ['nina', 'neutral', 'nino'].forEach((phk) => {
-    ENSO_ORDER.forEach((m, i) => {
-      const v = med[phk][i];
-      if (v == null) return;
-      const cx = gx(m) + LANE[phk] * gw, y = yOf(v), hw = gw * 0.12;
-      ctx.lineCap = 'round';
-      ctx.strokeStyle = COL.surface; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(cx - hw, y); ctx.lineTo(cx + hw, y); ctx.stroke();
-      ctx.strokeStyle = PHASE_COLOR[phk]; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(cx - hw, y); ctx.lineTo(cx + hw, y); ctx.stroke();
-    });
-  });
-  // current ENSO year
-  pts.forEach((p) => {
-    if (p.phase !== 'current') return;
-    const x = gx(p.m), y = yOf(p.a);
-    ctx.strokeStyle = COL.surface; ctx.lineWidth = 5;
-    const dia = () => { ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 7, y); ctx.closePath(); };
-    dia(); ctx.stroke(); ctx.strokeStyle = COL.current; ctx.lineWidth = 2.25; dia(); ctx.stroke();
-    drawn.push({ x, y, p });
-  });
-  // month labels + El Niño minus La Niña median difference
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '13px "Courier Prime", monospace';
-  ENSO_ORDER.forEach((m, i) => {
-    ctx.fillStyle = COL.text2; ctx.fillText(MONS[m - 1], gx(m), T + ph + 8);
-    const a = med.nino[i], b = med.nina[i];
-    if (a != null && b != null) {
-      const dv = a - b;
-      ctx.fillStyle = dv >= 0 ? rgbStr(ANOM_STOPS[4]) : rgbStr(ANOM_STOPS[0]);
-      ctx.fillText(fmtSigned(dv), gx(m), T + ph + 34);
-    }
-  });
-  ctx.textAlign = 'right'; ctx.fillStyle = COL.muted; ctx.font = '12px "Courier Prime", monospace';
-  ctx.fillText('EN − LN', L - 6, T + ph + 35);
-
-  ensoLayout = { drawn, med };
-  return { w: W, h: H };
-}
-function ensoReadout(hit) {
-  const el = qs('#readoutEnso');
-  if (!hit) { el.innerHTML = S.ensoStatus === 'ok' ? '&nbsp;' : '&nbsp;'; return; }
-  const p = hit.p, d = S.d;
-  const season = p.y0 + '–' + String(p.y0 + 1).slice(2);
-  const phaseTxt = p.phase === 'current' ? season + ', phase not yet set' : PHASE_LABEL[p.phase] + ' winter ' + season;
-  el.innerHTML = '<strong>' + MONS[p.m - 1] + ' ' + p.y + '</strong> · ' + phaseTxt + ' · ' + p.pct.toFixed(1) +
-    '% overcast · ' + fmtSigned(p.a) + ' pts vs normal ' + d.normal(p.y, p.m).toFixed(1) + '%';
-}
-function renderEnso() {
-  drawEnso(qs('#ensoCanvas'), screenDpr());
-  renderLegend(qs('#legendEnso'), S.ensoStatus === 'ok' ? ensoLegendItems() : []);
-}
 
 // ---------- render dispatch ----------
 function renderActive() {
@@ -1162,7 +948,6 @@ function renderActive() {
   if (S.tab === 'trend') renderTrend();
   else if (S.tab === 'seasonal') renderSeasonal();
   else if (S.tab === 'heatmap') renderHeatmap();
-  else if (S.tab === 'enso') renderEnso();
 }
 function renderAll() {
   const m = S.meta;
@@ -1186,14 +971,14 @@ function renderAll() {
   const empty = !S.d || S.d.empty;
   qs('#emptyState').hidden = !empty;
   qs('#statRow').innerHTML = '';
-  if (empty) { ['#panelTrend', '#panelSeasonal', '#panelHeatmap', '#panelEnso'].forEach((s) => { qs(s).hidden = true; }); return; }
+  if (empty) { ['#panelTrend', '#panelSeasonal', '#panelHeatmap'].forEach((s) => { qs(s).hidden = true; }); return; }
   showTab(S.tab, true);
   renderStats();
   renderActive();
 }
 
 // ---------- tabs ----------
-const PANELS = { trend: '#panelTrend', seasonal: '#panelSeasonal', heatmap: '#panelHeatmap', enso: '#panelEnso' };
+const PANELS = { trend: '#panelTrend', seasonal: '#panelSeasonal', heatmap: '#panelHeatmap' };
 function showTab(name, silent) {
   if (!PANELS[name]) name = 'trend';
   S.tab = name;
@@ -1256,20 +1041,10 @@ function heatmapHit(e) {
 qs('#heatmapCanvas').addEventListener('mousemove', (e) => { const c = heatmapHit(e); if (c) qs('#readoutHeatmap').innerHTML = heatmapDescribe(c); });
 qs('#heatmapCanvas').addEventListener('click', (e) => { const c = heatmapHit(e); if (c) qs('#readoutHeatmap').innerHTML = heatmapDescribe(c); });
 
-function ensoHit(e) {
-  if (!ensoLayout) return null;
-  const [x, y] = relXY(e.currentTarget, e);
-  let best = null, bd = 10;
-  ensoLayout.drawn.forEach((h) => { const dd = Math.hypot(h.x - x, h.y - y); if (dd < bd) { bd = dd; best = h; } });
-  return best;
-}
-qs('#ensoCanvas').addEventListener('mousemove', (e) => ensoReadout(ensoHit(e)));
-qs('#ensoCanvas').addEventListener('click', (e) => ensoReadout(ensoHit(e)));
-
 let resizeT = 0;
 window.addEventListener('resize', () => {
   clearTimeout(resizeT);
-  resizeT = setTimeout(() => { if (S.tab === 'seasonal' || S.tab === 'enso') renderActive(); }, 120);
+  resizeT = setTimeout(() => { if (S.tab === 'seasonal') renderActive(); }, 120);
 });
 
 // ---------- station pickers ----------
@@ -1382,14 +1157,12 @@ function exportSpec() {
         (S.cmpMeta ? ', with ' + S.cmpMeta.city + ', ' + S.cmpMeta.state + ' (' + S.cmpMeta.icao + ')' : ''),
       legend: seasonalLegendItems(), capture: canvasCapture('#seasonalCanvas', (c, r) => { const h = S.hoverYear; S.hoverYear = null; const out = drawSeasonal(c, r); S.hoverYear = h; return out; }) };
   }
-  if (S.tab === 'heatmap') {
+  {
     return { sub: S.hmField === 'anom'
         ? 'Overcast frequency vs. normal (percentage points)' + (d.asos ? ', normal taken from the same side of the ' + asosLabel(d.asos) + ' ASOS commissioning' : '')
         : 'Share of hourly reports overcast, by month and year',
       legend: heatmapLegendItems(), capture: canvasCapture('#heatmapCanvas', drawHeatmap) };
   }
-  return { sub: 'Overcast frequency vs. normal by month, grouped by ENSO phase (Dec–Feb Niño 3.4)',
-    legend: ensoLegendItems(), capture: canvasCapture('#ensoCanvas', drawEnso), extraCredit: ' · Niño 3.4: NOAA PSL' };
 }
 function exportPNG() {
   if (!S.d || S.d.empty || (S.tab === 'trend' && !S.trendChart)) return Promise.resolve();
@@ -1426,7 +1199,7 @@ function exportPNG() {
       oc.fillStyle = COL.muted; oc.font = '12px "Courier Prime", monospace';
       const upd = S.d.months[S.d.months.length - 1];
       oc.fillText('Data: IEM ASOS/AWOS hourly obs through ' + MONS[upd.m - 1] + ' ' + upd.y +
-        (S.d.asos ? ' · ASOS date: NOAA NCEI' : '') + (spec.extraCredit || '') + ' · contextclimate.io', pad, H - 22);
+        (S.d.asos ? ' · ASOS date: NOAA NCEI' : '') + ' · contextclimate.io', pad, H - 22);
       const a = document.createElement('a');
       a.download = 'cloud-cover-' + m.icao + '-' + S.tab + (S.tab === 'heatmap' && S.hmField === 'anom' ? '-vs-normal' : '') + '.png';
       a.href = off.toDataURL('image/png');
@@ -1442,15 +1215,15 @@ qs('#pngBtn').addEventListener('click', exportPNG);
 
 // ---------- boot ----------
 window.__cce = S;   // test hooks
-S._fx = { derive, ensoPoints, ensoStats, monthRank, heatmapScale };
+S._fx = { derive, monthRank, heatmapScale };
 const urlInit = applyURL();
-Promise.all([loadStations(), loadEnso()]).then(() => {
+loadStations().then(() => {
   let id = urlInit.station;
   if (!S.byId[id]) id = S.byId.ISP ? 'ISP' : (S.stations[0] && S.stations[0].id);
   const meta = S.byId[id];
   if (meta) { qs('#stationSearch').value = stationLabel(meta); qs('#stationSearch')._last = stationLabel(meta); }
   return selectStation(id).then(() => (urlInit.cmp && S.byId[urlInit.cmp] ? selectCompare(urlInit.cmp) : null));
-}).then(() => { if (S.tab === 'enso') renderEnso(); });
+});
 })();
 </script>
 </body>
