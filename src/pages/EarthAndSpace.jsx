@@ -592,7 +592,7 @@ export default function EarthAndSpace() {
           color:         'var(--color-text-secondary)',
           letterSpacing: '0.01em',
         }}>
-          Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science Teacher
+          Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science teacher <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
         </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
           This page is a resource for students and teachers of the NY State Earth &amp; Space Science curriculum. Each card contains an interactive tool for exploring concepts and ideas related to the course material. Updates to the page will be relatively frequent as tools continue to be built and modified. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
