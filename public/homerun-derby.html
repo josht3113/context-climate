@@ -400,9 +400,9 @@ function selectStadium(s){
   curStadium=s;clearLive();
   $('s-alt').value=s.alt;
   document.querySelectorAll('#pcon .cc-btn').forEach(x=>x.classList.toggle('is-active',x.id==='pb-'+s.id));
-  history.length=0;
+  swingHist.length=0;
   updateLiveBtn();
-  if(gameState!==ST.PITCHING&&gameState!==ST.FLYING){gameState=ST.IDLE;curRes=null;ghostRes=null;hitResult=null;clearStats();}
+  if(gameState!==ST.PITCHING&&gameState!==ST.FLYING){gameState=ST.IDLE;curRes=null;ghostRes=null;hitResult=null;clearStats();startLoop();}
   refreshLabels();
 }
 function updateLiveBtn(){
@@ -508,13 +508,14 @@ let hitResult=null,missWhy='',flashEnd=0;
 let curRes=null,ghostRes=null,swingInfo=null;
 let flyStart=0;
 const FLY_DUR=2600;
-const history=[];                // previous contacts this stadium: {pts,result}
+const swingHist=[];                // previous contacts this stadium: {pts,result}
 const logRows=[];
 let rafId=null;
 const P_IDEAL=0.90,P_HALF=0.22;  // contact window: 0.68–1.12 of pitch flight
 const SPRAY_PER_E=50;            // deg of spray at the edge of the window (early → pull to LF)
 
 function beginPitch(){
+  archiveCurrent();
   const E=env();
   const pf=pitchFlight(E.rho),pfSea=pitchFlight(E.seaRho);
   pitchInfo={here:pf.plateMph,sea:pfSea.plateMph};
@@ -576,7 +577,7 @@ function ppoly(cx,pts,fill,stroke,lw=1){
   cx.beginPath();pts.forEach(([a,b],i)=>i?cx.lineTo(a,b):cx.moveTo(a,b));cx.closePath();
   if(fill){cx.fillStyle=fill;cx.fill();}if(stroke){cx.strokeStyle=stroke;cx.lineWidth=lw;cx.stroke();}
 }
-function flyIndex(res,prog){return Math.min(res.pts.length-1,Math.floor(prog*(res.pts.length-1)));}
+function flyIndex(res,prog){return clamp(Math.floor(prog*(res.pts.length-1)),0,res.pts.length-1);}
 
 // deterministic "air molecule" field for the side view
 const AIR=Array.from({length:1600},(_,i)=>{const a=Math.sin(i*12.9898+1)*43758.5453,b=Math.sin(i*78.233+2)*12543.123;return[a-Math.floor(a),b-Math.floor(b)];});
@@ -590,7 +591,7 @@ function sideGeom(){
   const axisTh=curRes?(curRes.result==='wall'||curRes.result==='hr'?curRes.crossTh:curRes.thLand):0;
   let xMax=Math.max(fenceR(st,axisTh)+70,460);
   [curRes,ghostRes].forEach(r=>{if(r) xMax=Math.max(xMax,r.distFt*1.06);});
-  history.forEach(h=>{xMax=Math.max(xMax,h.distFt*1.04);});
+  swingHist.forEach(h=>{xMax=Math.max(xMax,h.distFt*1.04);});
   let yMax=120;[curRes,ghostRes].forEach(r=>{if(r) yMax=Math.max(yMax,r.maxHFt*1.2);});
   const sc=Math.min((W-L-R)/xMax,(H-T-B)/yMax);
   return{W,H,L,R,T,B,sc,gY:H-B,axisTh,xMax:(W-L-R)/sc,yTop:(H-T-B)/sc};
@@ -629,10 +630,12 @@ function drawSide(now){
   cx.fillStyle=st.monster&&g.axisTh<-15?'#1f5a2a':'#1f4a26';
   cx.fillRect(X(fR)-2,Y(fH),5,fH*sc);
   cx.fillStyle=GOLD;cx.fillRect(X(fR)-3,Y(fH)-2,7,2.5);
-  cx.font=`bold 10px ${MONO}`;cx.textAlign='left';cx.fillStyle='rgba(245,200,66,.8)';
-  cx.fillText(`${Math.round(fR)} ft · wall ${fH} ft`,X(fR)+7,Y(fH)-4);
+  cx.font=`bold 10px ${MONO}`;cx.fillStyle='rgba(245,200,66,.8)';
+  const fTxt=`${Math.round(fR)} ft · wall ${fH} ft`,fW=cx.measureText(fTxt).width;
+  if(X(fR)+7+fW>W-g.R){cx.textAlign='right';cx.fillText(fTxt,X(fR)-7,Y(fH)-4);}
+  else {cx.textAlign='left';cx.fillText(fTxt,X(fR)+7,Y(fH)-4);}
   // previous swings
-  history.forEach(h=>pline(cx,h.pts.map(p=>[X(Math.hypot(p[0],p[1])*MTF),Y(p[2]*MTF)]),'rgba(232,228,217,.2)',1.2));
+  swingHist.forEach(h=>pline(cx,h.pts.map(p=>[X(Math.hypot(p[0],p[1])*MTF),Y(p[2]*MTF)]),'rgba(232,228,217,.2)',1.2));
   // sea-level ghost + current
   const flyProg=gameState===ST.FLYING?Math.min(1,(now-flyStart)/FLY_DUR):1;
   if(ghostRes){
@@ -842,7 +845,7 @@ function drawField(now){
   cx.font=`9px ${MONO}`;cx.fillStyle='rgba(255,255,255,.45)';
   const [lx,ly]=polar(fenceR(st,-45)*.84,-45);cx.textAlign='right';cx.fillText(`${fenceR(st,-45)} ft`,lx-5,ly);
   const [rx,ry]=polar(fenceR(st,45)*.84,45);cx.textAlign='left';cx.fillText(`${fenceR(st,45)} ft`,rx+5,ry);
-  if(st.monster){const [mx,my]=polar(fenceR(st,-32)-40,-32);cx.fillStyle='rgba(60,163,174,.75)';cx.textAlign='center';cx.font=`bold 9px ${MONO}`;cx.fillText('Green Monster 37 ft',mx,my);}
+  if(st.monster){const [mx,my]=polar(fenceR(st,-28)-75,-28);cx.fillStyle='rgba(60,163,174,.75)';cx.textAlign='center';cx.font=`bold 9px ${MONO}`;cx.fillText('Green Monster 37 ft',mx,my);}
   // compass (only where the park's orientation is known)
   if(st.bearing!=null){
     const ox=W-24,oy=24,a=-st.bearing*D2R;                // screen-up = CF bearing
@@ -864,7 +867,7 @@ function drawField(now){
     cx.fillText(`${Wd.spd} mph`,ox-22,oy+len/2+16);
   }
   // previous landings
-  history.forEach(h=>{const [sx,sy]=td(h.x*MTF,h.y*MTF);cx.fillStyle=h.result==='hr'?'rgba(245,200,66,.55)':h.result==='foul'?'rgba(232,228,217,.3)':'rgba(248,113,113,.5)';cx.beginPath();cx.arc(sx,sy,3,0,Math.PI*2);cx.fill();});
+  swingHist.forEach(h=>{const [sx,sy]=td(h.x*MTF,h.y*MTF);cx.fillStyle=h.result==='hr'?'rgba(245,200,66,.55)':h.result==='foul'?'rgba(232,228,217,.3)':'rgba(248,113,113,.5)';cx.beginPath();cx.arc(sx,sy,3,0,Math.PI*2);cx.fill();});
   // pitch dot
   if(gameState===ST.PITCHING){
     const prog=(now-pitchStartTime)/pitchDur;
@@ -943,7 +946,8 @@ function drawSweep(){
     cx.fillStyle=TOK['color-text-muted'];cx.fillText(y+' ft',L-6,Y(y)+3);
   }
   cx.textAlign='center';
-  for(let i=0;i<=6;i++){const x=S.min+(S.max-S.min)*i/6;cx.fillStyle=TOK['color-text-muted'];cx.fillText(S.fmt(x),X(x),H-B+15);}
+  const xs=niceStep((S.max-S.min)/6);
+  for(let x=Math.ceil(S.min/xs)*xs;x<=S.max+1e-9;x+=xs){cx.fillStyle=TOK['color-text-muted'];cx.fillText(S.fmt(x),X(x),H-B+15);}
   // fence reference
   pline(cx,[[L,Y(fence)],[W-R,Y(fence)]],'rgba(245,200,66,.5)',1,[4,4]);
   cx.fillStyle='rgba(245,200,66,.75)';cx.textAlign='right';cx.fillText(`CF fence ${Math.round(fence)} ft`,W-R-2,Y(fence)-5);
@@ -966,6 +970,7 @@ function drawSweep(){
     const tw=tip.offsetWidth;tip.style.left=(hx+14+tw>W?hx-tw-4:hx+14)+10+'px';tip.style.top=(Y(yv)-10)+'px';
   } else $('sweep-tip').style.display='none';
 }
+function niceStep(raw){const p=Math.pow(10,Math.floor(Math.log10(raw)));for(const m of [1,2,2.5,5,10]) if(m*p>=raw) return m*p;return 10*p;}
 function interpY(rows,x){
   for(let i=0;i<rows.length-1;i++) if(x<=rows[i+1][0]){const t=(x-rows[i][0])/(rows[i+1][0]-rows[i][0]);return rows[i][1]+t*(rows[i+1][1]-rows[i][1]);}
   return rows[rows.length-1][1];
@@ -999,8 +1004,12 @@ function logSwing(){
     `<td>${L.windMph?L.windMph+' '+windWords(L.windToward):'calm'}</td><td>${L.ev.toFixed(1)}</td><td>${L.la}</td><td>${sprayWords(L.spray)}</td><td>${Math.round(L.dist)}</td><td>${Math.round(L.sea)}</td><td class="${cls}">${RESULT_TXT[L.result]}</td>`;
   tb.insertBefore(tr,tb.firstChild);
   $('log-empty').style.display='none';$('log-table').style.display='table';
-  const h={pts:r.pts,result:r.result,distFt:r.distFt,x:r.pts[r.pts.length-1][0],y:r.pts[r.pts.length-1][1]};
-  history.push(h);if(history.length>8) history.shift();
+}
+function archiveCurrent(){
+  if(!curRes) return;
+  const r=curRes,e=r.pts[r.pts.length-1];
+  swingHist.push({pts:r.pts,result:r.result,distFt:r.distFt,x:e[0],y:e[1]});
+  if(swingHist.length>8) swingHist.shift();
 }
 $('clrBtn').onclick=()=>{logRows.length=0;$('log-table').querySelector('tbody').innerHTML='';$('log-empty').style.display='block';$('log-table').style.display='none';};
 $('csvBtn').onclick=()=>{
