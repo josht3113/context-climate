@@ -52,6 +52,10 @@
     .chip-group .cc-btn.active-b { background: rgba(224,122,58,.15); border-color: var(--col-b); color: #F0A878; font-weight: 600; }
     .slider-box { display: flex; align-items: center; gap: 14px; transition: opacity .2s; }
     .slider-box.dimmed { opacity: .5; }
+    #toy-sub .chip-group { gap: 5px; }
+    .toy-window { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .toy-window input[type="range"] { min-width: 220px; }
+    .toy-window .slider-window { min-width: 150px; text-align: left; color: var(--color-text-primary); }
     .slider-window { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-secondary); min-width: 96px; text-align: right; white-space: nowrap; }
     input[type="range"] { -webkit-appearance: none; appearance: none; flex: 1; height: 4px; background: var(--color-border); border-radius: 2px; outline: none; cursor: pointer; }
     input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: var(--tool-accent); cursor: pointer; }
@@ -161,8 +165,12 @@
       <div class="chip-group" id="period-b-btns"></div>
     </div>
     <div class="ctrl-row">
-      <span class="row-lbl">Season</span>
-      <div class="chip-group" id="season-btns"></div>
+      <span class="row-lbl">Time of year</span>
+      <div class="chip-group" id="toy-btns"></div>
+    </div>
+    <div class="ctrl-row" id="row-toy-sub" hidden>
+      <span class="row-lbl"></span>
+      <div id="toy-sub"></div>
     </div>
   </div>
 
@@ -360,7 +368,11 @@ let waitTimer = null;
 
 const ui = {
   mode: 'single',
-  season: 'all',
+  toy: 'all',
+  season: 'jja',
+  month: new Date().getMonth() + 1,
+  center: 0,
+  half: null,
   singleKey: 'n1991',
   sliderActive: false,
   aKey: null,
@@ -369,6 +381,7 @@ const ui = {
 };
 
 const $ = id => document.getElementById(id);
+const defaultHalf = () => 7;
 
 // ═══════════════════════════════════════════════
 //  Colour helpers
@@ -437,7 +450,7 @@ function isTransient(err) {
 async function fetchOnce(url, signal, onRecv) {
   const res = await fetch(url, { signal });
   if (!res.ok) { const e = new Error('HTTP ' + res.status); e.status = res.status; throw e; }
-  const raw = { yr: [], mo: [], t10: [] };
+  const raw = { yr: [], mo: [], doy: [], t10: [] };
   if (!res.body || !res.body.getReader) { parseCSV(await res.text(), raw); return raw; }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -508,8 +521,8 @@ async function fetchRanges(sid, ranges, signal, onStatus) {
   return out;
 }
 
-function mergeParts(parts, into = { yr: [], mo: [], t10: [] }) {
-  parts.forEach(p => { for (let i = 0; i < p.yr.length; i++) { into.yr.push(p.yr[i]); into.mo.push(p.mo[i]); into.t10.push(p.t10[i]); } });
+function mergeParts(parts, into = { yr: [], mo: [], doy: [], t10: [] }) {
+  parts.forEach(p => { for (let i = 0; i < p.yr.length; i++) { into.yr.push(p.yr[i]); into.mo.push(p.mo[i]); into.doy.push(p.doy[i]); into.t10.push(p.t10[i]); } });
   return into;
 }
 
@@ -518,7 +531,7 @@ function mergeParts(parts, into = { yr: [], mo: [], t10: [] }) {
 //  those cannot change until the calendar year rolls over, so a cached
 //  record is reused within the same year (and at most CACHE_DAYS old).
 // ═══════════════════════════════════════════════
-const IDB_NAME = 'cc-dewpoint-frequency', IDB_STORE = 'stations', CACHE_DAYS = 30, CACHE_VERSION = 1;
+const IDB_NAME = 'cc-dewpoint-frequency', IDB_STORE = 'stations', CACHE_DAYS = 30, CACHE_VERSION = 2;
 
 function idbOpen() {
   return new Promise(resolve => {
@@ -553,7 +566,7 @@ async function cachePut(d) {
   if (!db) return;
   try {
     db.transaction(IDB_STORE, 'readwrite').objectStore(IDB_STORE)
-      .put({ v: CACHE_VERSION, year: new Date().getUTCFullYear(), savedAt: Date.now(), yr: d.yr, mo: d.mo, t10: d.t10 }, d.sid);
+      .put({ v: CACHE_VERSION, year: new Date().getUTCFullYear(), savedAt: Date.now(), yr: d.yr, mo: d.mo, doy: d.doy, t10: d.t10 }, d.sid);
   } catch (e) { /* storage unavailable — fine */ }
 }
 
@@ -577,8 +590,9 @@ function parseCSV(text, raw) {
             const t10 = Math.round(v * 10);
             const yr = parseInt(text.substr(c1 + 1, 4), 10);
             const mo = parseInt(text.substr(c1 + 6, 2), 10);
-            if (t10 >= T10_MIN && t10 <= T10_MAX && yr > 1900 && mo >= 1 && mo <= 12) {
-              raw.yr.push(yr); raw.mo.push(mo); raw.t10.push(t10);
+            const dy = parseInt(text.substr(c1 + 9, 2), 10);
+            if (t10 >= T10_MIN && t10 <= T10_MAX && yr > 1900 && mo >= 1 && mo <= 12 && dy >= 1) {
+              raw.yr.push(yr); raw.mo.push(mo); raw.doy.push(doyOf(mo, dy)); raw.t10.push(t10);
             }
           }
         }
@@ -590,59 +604,113 @@ function parseCSV(text, raw) {
 
 function daysInMonth(y, m) { return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
 
-function buildDataset(sid, raw, failed) {
-  const n = raw.yr.length;
-  const d = { sid, n, raw, failed, yr: Int16Array.from(raw.yr), mo: Uint8Array.from(raw.mo), t10: Int16Array.from(raw.t10) };
-  if (!n) return d;
+// A (year, month) is complete when it has ended and holds at least `cov` of
+// its expected days/hours. Which months must be complete depends on the time
+// of year being viewed, so year usability is resolved per selection (selInfo).
+function finishDataset(d, cov, perDay) {
   let y0 = Infinity, y1 = -Infinity;
-  for (let i = 0; i < n; i++) { const y = d.yr[i]; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  for (let i = 0; i < d.n; i++) { const y = d.yr[i]; if (y < y0) y0 = y; if (y > y1) y1 = y; }
   const nY = y1 - y0 + 1;
   const mc = new Uint32Array(nY * 12);
-  for (let i = 0; i < n; i++) mc[(d.yr[i] - y0) * 12 + d.mo[i] - 1]++;
-  const usable = new Uint8Array(nY);
-  const usableYears = [];
-  for (let k = 0; k < nY; k++) {
-    let ok = true;
-    for (let m = 1; m <= 12 && ok; m++) {
-      if (mc[k * 12 + m - 1] < MONTH_COVERAGE * daysInMonth(y0 + k, m) * 24) ok = false;
-    }
-    usable[k] = ok ? 1 : 0;
-    if (ok) usableYears.push(y0 + k);
+  for (let i = 0; i < d.n; i++) mc[(d.yr[i] - y0) * 12 + d.mo[i] - 1]++;
+  const monthOK = new Uint8Array(nY * 12);
+  const now = Date.now();
+  for (let k = 0; k < nY; k++) for (let m = 1; m <= 12; m++) {
+    const ended = Date.UTC(y0 + k, m, 1) <= now;
+    monthOK[k * 12 + m - 1] = ended && mc[k * 12 + m - 1] >= cov * daysInMonth(y0 + k, m) * perDay ? 1 : 0;
   }
-  Object.assign(d, { y0, y1, usable, usableYears,
-    firstUsable: usableYears[0] ?? null, lastUsable: usableYears[usableYears.length - 1] ?? null, xr: {} });
-  return d;
+  return Object.assign(d, { y0, y1, nY, monthOK, sel: {}, xr: {} });
 }
 
-function usableYearsIn(s, e) {
-  if (!ds || !ds.usableYears) return 0;
+function buildDataset(sid, raw, failed) {
+  const n = raw.yr.length;
+  const d = { sid, n, raw, failed, yr: Int16Array.from(raw.yr), mo: Uint8Array.from(raw.mo), doy: Uint16Array.from(raw.doy), t10: Int16Array.from(raw.t10) };
+  if (!n) return d;
+  return finishDataset(d, MONTH_COVERAGE, 24);
+}
+
+function usableYearsIn(s, e, sel = curSel()) {
+  if (!ds || !ds.nY) return 0;
   let c = 0;
-  for (const y of ds.usableYears) if (y >= s && y <= e) c++;
+  for (const y of selInfo(sel).years) if (y >= s && y <= e) c++;
   return c;
 }
 
 // ═══════════════════════════════════════════════
 //  Aggregation — one pass over typed arrays (~ms)
 // ═══════════════════════════════════════════════
-function monthMask(months) {
-  const m = new Uint8Array(13);
-  months.forEach(k => { m[k] = 1; });
-  return m;
-}
+// ═══════════════════════════════════════════════
+//  Time of year — every view is a set of calendar days (365-day calendar,
+//  Feb 29 folded into Feb 28): all year, a season, a month, or a window
+//  centred on a date.
+// ═══════════════════════════════════════════════
+const MONTH_START = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+const MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function doyOf(mo, day) { return MONTH_START[mo - 1] + Math.min(day, mo === 2 ? 28 : 31) - 1; }
+function doyToMD(d) { d = ((d % 365) + 365) % 365; let m = 11; while (MONTH_START[m] > d) m--; return [m + 1, d - MONTH_START[m] + 1]; }
+function fmtDoy(d) { const [m, dd] = doyToMD(d); return `${MONTHS[m - 1]} ${dd}`; }
+function todayDoy() { const t = new Date(); return doyOf(t.getMonth() + 1, t.getDate()); }
 
-function aggregate(s, e, mask) {
+const selCache = new Map();
+function makeSel(k) {
+  if (selCache.has(k)) return selCache.get(k);
+  const days = new Uint8Array(365);
+  let label, slug;
+  const [kind, a, b] = k.split(':');
+  if (kind === 'all') { days.fill(1); label = 'All year'; slug = 'all'; }
+  else if (kind === 'season') {
+    const se = SEASONS.find(x => x.key === a);
+    se.months.forEach(m => days.fill(1, MONTH_START[m - 1], m === 12 ? 365 : MONTH_START[m]));
+    label = se.long; slug = a;
+  } else if (kind === 'month') {
+    const m = +a;
+    days.fill(1, MONTH_START[m - 1], m === 12 ? 365 : MONTH_START[m]);
+    label = MONTHS_FULL[m - 1]; slug = MONTHS[m - 1].toLowerCase();
+  } else {
+    const c = +a, h = +b;
+    for (let d = c - h; d <= c + h; d++) days[((d % 365) + 365) % 365] = 1;
+    label = `${fmtDoy(c - h)} – ${fmtDoy(c + h)}`;
+    slug = `${fmtDoy(c - h)}_${fmtDoy(c + h)}`.replace(/ /g, '').toLowerCase();
+  }
+  const months = [];
+  for (let m = 1; m <= 12; m++) { let hit = false; for (let d = MONTH_START[m - 1]; d < (m === 12 ? 365 : MONTH_START[m]); d++) if (days[d]) { hit = true; break; } if (hit) months.push(m); }
+  const sel = { key: k, days, months, label, slug };
+  selCache.set(k, sel);
+  return sel;
+}
+function windowHalf() { return ui.half ?? defaultHalf(); }
+function curSel() {
+  switch (ui.toy) {
+    case 'season': return makeSel(`season:${ui.season}`);
+    case 'month':  return makeSel(`month:${ui.month}`);
+    case 'window': return makeSel(`window:${ui.center}:${windowHalf()}`);
+    default:       return makeSel('all');
+  }
+}
+// Years whose months touched by the selection are all complete.
+function selInfo(sel) {
+  if (ds.sel[sel.key]) return ds.sel[sel.key];
+  const yearOK = new Uint8Array(ds.nY), years = [];
+  for (let k = 0; k < ds.nY; k++) {
+    if (sel.months.every(m => ds.monthOK[k * 12 + m - 1])) { yearOK[k] = 1; years.push(ds.y0 + k); }
+  }
+  return (ds.sel[sel.key] = { yearOK, years, first: years[0] ?? null, last: years[years.length - 1] ?? null });
+}
+const SI = () => selInfo(curSel());
+
+function aggregate(s, e, sel = curSel()) {
   const counts = new Uint32Array(NFINE);
   let n = 0, sum = 0, sumsq = 0;
-  const { yr, mo, t10, usable, y0 } = ds;
+  const { yr, doy, t10, y0 } = ds;
+  const ok = selInfo(sel).yearOK, days = sel.days;
   for (let i = 0, N = ds.n; i < N; i++) {
     const y = yr[i];
-    if (y < s || y > e || !usable[y - y0] || !mask[mo[i]]) continue;
+    if (y < s || y > e || !ok[y - y0] || !days[doy[i]]) continue;
     const t = t10[i];
     counts[t - T10_MIN]++;
     n++; sum += t; sumsq += t * t;
   }
-  const years = usableYearsIn(s, e);
-  return { counts, n, sum, sumsq, years };
+  return { counts, n, sum, sumsq, years: usableYearsIn(s, e, sel) };
 }
 
 function quantile(agg, p) {
@@ -734,9 +802,13 @@ function percentRank(agg, dwpf) {
   return Math.max(0, Math.min(100, (below + 0.5 * eq) / agg.n * 100));
 }
 
-function xRange(seasonKey) {
-  if (ds.xr[seasonKey]) return ds.xr[seasonKey];
-  const agg = aggregate(-9999, 9999, monthMask(SEASONS.find(s => s.key === seasonKey).months));
+// x range per view; a date window uses a wider, rounded window so the axis
+// stays put while the window slides.
+function xRange(sel) {
+  let base = sel;
+  if (sel.key.startsWith('window:')) base = makeSel(`window:${Math.round(+sel.key.split(':')[1] / 15) * 15 % 365}:45`);
+  if (ds.xr[base.key]) return ds.xr[base.key];
+  const agg = aggregate(-9999, 9999, base);
   let lo = 0, hi = 80;
   if (agg.n) {
     const nz = [];
@@ -744,7 +816,7 @@ function xRange(seasonKey) {
     lo = (nz[0] + T10_MIN) / 10; hi = (nz[nz.length - 1] + T10_MIN) / 10;
   }
   const r = { min: Math.floor((lo - 1) / 10) * 10, max: Math.ceil((hi + 2) / 10) * 10 };
-  ds.xr[seasonKey] = r;
+  ds.xr[base.key] = r;
   return r;
 }
 
@@ -753,11 +825,12 @@ function xRange(seasonKey) {
 // ═══════════════════════════════════════════════
 function buildPeriods() {
   const list = [];
-  if (ds.firstUsable == null) return list;
-  list.push({ key: 'full', label: 'Full Record', s: ds.firstUsable, e: ds.lastUsable });
+  const si = SI();
+  if (si.first == null) return list;
+  list.push({ key: 'full', label: 'Full Record', s: si.first, e: si.last });
   NORMALS.forEach(([s, e]) => list.push({ key: 'n' + s, label: `${s}–${e}`, s, e }));
-  const L = ds.lastUsable;
-  if (L !== 2020 && L - 29 >= ds.firstUsable) list.push({ key: 'latest', label: `${L - 29}–${L}`, s: L - 29, e: L });
+  const L = si.last;
+  if (L !== 2020 && L - 29 >= si.first) list.push({ key: 'latest', label: `${L - 29}–${L}`, s: L - 29, e: L });
   list.forEach(p => {
     p.years = usableYearsIn(p.s, p.e);
     p.available = p.key === 'full' ? p.years > 0 : p.years >= MIN_YEARS;
@@ -825,27 +898,77 @@ function buildPeriodButtons() {
   });
 }
 
-function buildSeasonButtons() {
-  const box = $('season-btns');
-  box.innerHTML = '';
-  SEASONS.forEach(s => {
-    const b = document.createElement('button');
-    b.className = 'cc-btn';
-    b.textContent = s.label;
-    if (s.key !== 'all') b.title = s.long;
-    b.classList.toggle('is-active', s.key === ui.season);
-    b.onclick = () => { ui.season = s.key; buildSeasonButtons(); scheduleUpdate(true); };
-    box.appendChild(b);
-  });
+const TOY_KINDS = [['all', 'All'], ['season', 'Season'], ['month', 'Month'], ['window', 'Date window']];
+function chipBtn(text, active, onclick, title) {
+  const b = document.createElement('button');
+  b.className = 'cc-btn' + (active ? ' is-active' : '');
+  b.textContent = text;
+  if (title) b.title = title;
+  b.onclick = onclick;
+  return b;
+}
+function buildToyControls() {
+  const top = $('toy-btns');
+  top.innerHTML = '';
+  TOY_KINDS.forEach(([k, lbl]) => top.appendChild(chipBtn(lbl, ui.toy === k, () => { ui.toy = k; buildToyControls(); selectionChanged(true); })));
+  const sub = $('toy-sub');
+  sub.innerHTML = '';
+  $('row-toy-sub').hidden = ui.toy === 'all';
+  if (ui.toy === 'season' || ui.toy === 'month') {
+    const g = document.createElement('div');
+    g.className = 'chip-group';
+    if (ui.toy === 'season') SEASONS.filter(x => x.key !== 'all').forEach(x =>
+      g.appendChild(chipBtn(x.label, ui.season === x.key, () => { ui.season = x.key; buildToyControls(); selectionChanged(true); }, x.long)));
+    else MONTHS.forEach((mn, i) =>
+      g.appendChild(chipBtn(mn, ui.month === i + 1, () => { ui.month = i + 1; buildToyControls(); selectionChanged(true); })));
+    sub.appendChild(g);
+  } else if (ui.toy === 'window') {
+    const w = document.createElement('div');
+    w.className = 'toy-window';
+    w.innerHTML = `<input type="range" id="toy-center" min="0" max="364" step="1" value="${ui.center}" aria-label="Window centre date">` +
+      `<span class="slider-window" id="toy-label"></span><div class="chip-group" id="toy-half"></div>`;
+    sub.appendChild(w);
+    const half = w.querySelector('#toy-half');
+    [3, 7, 15].forEach(h => half.appendChild(chipBtn(`±${h} d`, windowHalf() === h, () => { ui.half = h; buildToyControls(); selectionChanged(true); })));
+    half.appendChild(chipBtn('Today', ui.center === todayDoy(), () => { ui.center = todayDoy(); buildToyControls(); selectionChanged(true); }));
+    $('toy-label').textContent = curSel().label;
+    w.querySelector('#toy-center').addEventListener('input', e => {
+      ui.center = parseInt(e.target.value, 10);
+      $('toy-label').textContent = curSel().label;
+      selectionChanged(false);
+    });
+  }
+}
+
+// Periods, slider bounds and available chips depend on which years are
+// complete for the current time of year; rebuild them only when that changes.
+let periodSig = '';
+function selectionChanged(animate) {
+  if (!ds || !ds.nY) return;
+  const si = SI();
+  if (si.first == null) { periodSig = ''; showOverlay('<span>No complete years for this time of year</span>'); return; }
+  periods = buildPeriods();
+  validateSelections();
+  const sig = periods.map(p => p.key + (p.available ? '+' : '-') + p.years).join() + `|${si.first}-${si.last}`;
+  if (sig !== periodSig) {
+    periodSig = sig;
+    buildPeriodButtons();
+    initSlider();
+    applyModeUI();
+  }
+  scheduleUpdate(animate);
 }
 
 function initSlider() {
   const slider = $('period-slider');
-  const span = ds.firstUsable != null ? ds.lastUsable - ds.firstUsable + 1 : 0;
+  const si = SI();
+  const span = si.first != null ? si.last - si.first + 1 : 0;
   $('row-window').hidden = ui.mode !== 'single' || span < 30;
-  if (span < 30) return;
-  slider.min = ds.firstUsable + 15;
-  slider.max = ds.lastUsable - 14;
+  if (span < 30) { ui.sliderActive = false; return; }
+  const keep = ui.sliderActive ? parseInt(slider.value, 10) : null;
+  slider.min = si.first + 15;
+  slider.max = si.last - 14;
+  if (keep != null) slider.value = Math.max(si.first + 15, Math.min(si.last - 14, keep));
   syncSlider();
 }
 
@@ -879,7 +1002,8 @@ function applyModeUI() {
     b.classList.toggle('is-active', b.dataset.mode === ui.mode));
   const single = ui.mode === 'single';
   $('row-period').hidden = !single;
-  $('row-window').hidden = !single || !ds || ds.firstUsable == null || (ds.lastUsable - ds.firstUsable + 1) < 30;
+  const si = ds && ds.nY ? SI() : null;
+  $('row-window').hidden = !single || !si || si.first == null || (si.last - si.first + 1) < 30;
   $('row-a').hidden = single;
   $('row-b').hidden = single;
   $('stats-grid').hidden = !single;
@@ -895,29 +1019,26 @@ function buildZoneLegend() {
 // ═══════════════════════════════════════════════
 //  Model
 // ═══════════════════════════════════════════════
-function currentSeason() { return SEASONS.find(s => s.key === ui.season); }
-
 function buildModel() {
-  const season = currentSeason();
-  const mask = monthMask(season.months);
-  const xr = xRange(season.key);
+  const sel = curSel();
+  const xr = xRange(sel);
   if (ui.mode === 'single') {
     const p = activeSingle();
     if (!p) return null;
-    const agg = aggregate(p.s, p.e, mask);
+    const agg = aggregate(p.s, p.e, sel);
     const st = stats(agg);
     const bins = binsFor(agg, xr.min, xr.max);
-    return { mode: 'single', season, xr, A: { p, agg, st, bins, kde: st && ui.kde ? kdeFor(agg, st, bins) : null } };
+    return { mode: 'single', sel, xr, A: { p, agg, st, bins, kde: st && ui.kde ? kdeFor(agg, st, bins) : null } };
   }
   const pa = periodByKey(ui.aKey), pb = periodByKey(ui.bKey);
   if (!pa || !pb) return null;
   const mk = p => {
-    const agg = aggregate(p.s, p.e, mask);
+    const agg = aggregate(p.s, p.e, sel);
     const st = stats(agg);
     const bins = binsFor(agg, xr.min, xr.max);
     return { p, agg, st, bins, kde: st && ui.kde ? kdeFor(agg, st, bins) : null };
   };
-  return { mode: 'compare', season, xr, A: mk(pa), B: mk(pb) };
+  return { mode: 'compare', sel, xr, A: mk(pa), B: mk(pb) };
 }
 
 // ═══════════════════════════════════════════════
@@ -1103,14 +1224,14 @@ function tooltipLabel(it) {
 // ═══════════════════════════════════════════════
 function renderSeriesLegend(m) {
   const yrs = S => `${S.agg.years} yrs`;
-  const sea = m.season.key === 'all' ? '' : ` · ${m.season.long}`;
+  const sea = m.sel.key === 'all' ? '' : ` · ${m.sel.label}`;
   if (m.mode === 'single') {
     $('series-legend').innerHTML = `<span class="item"><b>${m.A.p.label}</b>&nbsp;· ${yrs(m.A)}${sea}</span>`;
   } else {
     $('series-legend').innerHTML =
       `<span class="item"><span class="sw-bar" style="background:${C.aFill};border:1px solid ${C.a}"></span><b>${m.A.p.label}</b>&nbsp;· ${yrs(m.A)}</span>` +
       `<span class="item"><span class="sw-line" style="background:${C.b}"></span><b>${m.B.p.label}</b>&nbsp;· ${yrs(m.B)}</span>` +
-      (sea ? `<span class="item">${m.season.long}</span>` : '');
+      (sea ? `<span class="item">${m.sel.label}</span>` : '');
   }
 }
 
@@ -1150,23 +1271,28 @@ function renderCompareTable(m) {
     THRESHOLDS.map(t => row(t.label, a.th[t.key].perYear, b.th[t.key].perYear, 'hrs/yr', hrs, dHrs)).join('');
 }
 
+function obsSel(tf) {
+  const t = new Date(obs.time || Date.now());
+  const d = doyOf(t.getMonth() + 1, t.getDate());
+  const cur = curSel();
+  return (ui.toy === 'month' || ui.toy === 'window') && cur.days[d] ? cur : makeSel(`window:${d}:7`);
+}
 function nowInfo(m) {
   if (!obs || !currentStation || obs.sid !== currentStation.sid || !m) return null;
-  const month = new Date(obs.time || Date.now()).getMonth() + 1;
-  const mask = monthMask([month]);
-  const pr = S => { const agg = aggregate(S.p.s, S.p.e, mask); return agg.n ? Math.round(percentRank(agg, obs.dwpf)) : null; };
-  return { month, a: pr(m.A), b: m.mode === 'compare' ? pr(m.B) : null };
+  const sel = obsSel();
+  const pr = S => { const agg = aggregate(S.p.s, S.p.e, sel); return agg.n ? Math.round(percentRank(agg, obs.dwpf)) : null; };
+  return { label: sel.label, a: pr(m.A), b: m.mode === 'compare' ? pr(m.B) : null };
 }
 
 function renderNowPill(m) {
   const el = $('now-pill');
   const info = nowInfo(m);
   if (!info) { el.hidden = true; el.innerHTML = ''; return; }
-  const mon = MONTHS[info.month - 1];
+  const mon = info.label;
   const t = obs.time ? new Date(obs.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : '';
   let pct;
   if (m.mode === 'single') pct = info.a != null ? `${ordinal(info.a)} pct for ${mon}` : '';
-  else pct = `${mon} pct: ${info.a != null ? ordinal(info.a) : '—'} A · ${info.b != null ? ordinal(info.b) : '—'} B`;
+  else pct = `pct for ${mon}: ${info.a != null ? ordinal(info.a) : '—'} A · ${info.b != null ? ordinal(info.b) : '—'} B`;
   el.innerHTML = [`<b>Now ${Math.round(obs.dwpf)}°F</b>`, pct, t].filter(Boolean).join('<span class="dot">·</span>');
   el.hidden = false;
 }
@@ -1187,7 +1313,7 @@ function scheduleUpdate(animate) {
 }
 
 function updateChart(animate) {
-  if (!ds || ds.firstUsable == null) return;
+  if (!ds || !ds.nY || SI().first == null) return;
   model = buildModel();
   if (!model || !model.A.st || (model.B && !model.B.st)) {
     showOverlay('<span>No complete years in this selection</span>');
@@ -1247,11 +1373,7 @@ function renderFetchNotice() {
 function renderHeader() {
   const st = currentStation;
   $('hdr-station').textContent = `${st.label} · ${st.sid}`;
-  if (!ds || !ds.n) { $('hdr-meta').textContent = ''; return; }
-  const nU = ds.usableYears.length;
-  $('hdr-meta').textContent = nU
-    ? `Record ${ds.y0}–${ds.y1} · ${nU} complete yrs · Hourly routine METARs · Data: IEM ASOS`
-    : `Record ${ds.y0}–${ds.y1} · no complete years · Data: IEM ASOS`;
+  $('hdr-meta').textContent = ds && ds.n ? `Record ${ds.y0}–${ds.y1} · Hourly routine METARs · Data: IEM ASOS` : '';
 }
 
 // ═══════════════════════════════════════════════
@@ -1280,7 +1402,7 @@ async function load(station) {
     const hit = await cacheGet(station.sid);
     if (seq !== loadSeq) return;
     if (hit) {
-      d = buildDataset(station.sid, { yr: Array.from(hit.yr), mo: Array.from(hit.mo), t10: Array.from(hit.t10) }, []);
+      d = buildDataset(station.sid, { yr: Array.from(hit.yr), mo: Array.from(hit.mo), doy: Array.from(hit.doy), t10: Array.from(hit.t10) }, []);
     } else {
       const ctrl = new AbortController();
       loadAbort = ctrl;
@@ -1319,16 +1441,13 @@ async function load(station) {
     if (rb) rb.onclick = () => { delete cache[station.sid]; load(station); };
     return;
   }
-  if (ds.firstUsable == null) {
+  if (SI().first == null) {
+    periodSig = '';
     showOverlay('<span class="err">⚠ No complete years of hourly data</span>');
     return;
   }
-  periods = buildPeriods();
-  validateSelections();
-  buildPeriodButtons();
-  initSlider();
-  applyModeUI();
-  updateChart(true);
+  periodSig = '';
+  selectionChanged(true);
 }
 
 async function retryFailed() {
@@ -1406,7 +1525,7 @@ async function toggleObs() {
 //  Export — composed offscreen at EXPORT_SCALE, independent of screen DPR
 // ═══════════════════════════════════════════════
 function contextLine(m) {
-  const tail = `${m.season.long} · % of hours per ${BIN}°F bin`;
+  const tail = `${m.sel.label} · % of hours per ${BIN}°F bin`;
   if (m.mode === 'single') return `Hourly dewpoint · ${m.A.p.label} (${m.A.agg.years} yrs) · ${tail}`;
   return `Hourly dewpoint · ${m.A.p.label} vs ${m.B.p.label} · ${tail}`;
 }
@@ -1424,11 +1543,11 @@ function statLine(m) {
 function nowLine(m) {
   const info = nowInfo(m);
   if (!info) return null;
-  const mon = MONTHS[info.month - 1];
+  const mon = info.label;
   const t = obs.time ? new Date(obs.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : '';
   const pct = m.mode === 'single'
     ? (info.a != null ? ` · ${ordinal(info.a)} percentile for ${mon}` : '')
-    : ` · ${mon} percentile ${info.a != null ? ordinal(info.a) : '—'} (A), ${info.b != null ? ordinal(info.b) : '—'} (B)`;
+    : ` · percentile for ${mon}: ${info.a != null ? ordinal(info.a) : '—'} (A), ${info.b != null ? ordinal(info.b) : '—'} (B)`;
   return `Now ${Math.round(obs.dwpf)}°F${pct}${t ? ' · ' + t : ''}`;
 }
 
@@ -1558,7 +1677,7 @@ async function composeExport() {
 function exportName() {
   const m = model;
   const per = m.mode === 'single' ? m.A.p.label : `${m.A.p.label}_vs_${m.B.p.label}`;
-  return `dewpoint-frequency_${currentStation.sid}_${per}_${m.season.key}.png`.replace(/–/g, '-');
+  return `dewpoint-frequency_${currentStation.sid}_${per}_${m.sel.slug}.png`.replace(/–/g, '-');
 }
 
 function flash(btn, cls, text, orig) {
@@ -1603,7 +1722,10 @@ async function exportImage(kind) {
 (function init() {
   Chart.defaults.font.family = 'Courier Prime';
   buildZoneLegend();
-  buildSeasonButtons();
+  ui.center = todayDoy();
+  const toy = new URLSearchParams(location.search).get('toy');
+  if (TOY_KINDS.some(([k]) => k === toy)) ui.toy = toy;
+  buildToyControls();
 
   const select = $('station-select');
   STATION_REGIONS.forEach(({ region, stations }) => {
