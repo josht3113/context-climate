@@ -1,0 +1,80 @@
+name: Probe GODAS sources
+# One-off diagnostic. Reports what CPC and PSL actually serve for GODAS so the
+# depth-section pipeline can be written against real file layouts.
+# Writes nothing to the repo. Delete this file once its output has been read.
+
+on:
+  workflow_dispatch:
+
+env:
+  UA: 'contextclimate-sst-pipeline/1.0 (+https://contextclimate.io)'
+  CPC: 'https://ftp.cpc.ncep.noaa.gov/godas'
+  PSL: 'https://psl.noaa.gov/thredds'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Install GRIB and netCDF tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libeccodes-tools netcdf-bin > /dev/null
+          echo "Run time (UTC): $(date -u '+%Y-%m-%d %H:%M')"
+
+      - name: 1 · CPC pentad directory (names, sizes, newest)
+        continue-on-error: true
+        run: |
+          curl -sS -L --http1.1 -A "$UA" --retry 3 -o pentad.html -w "HTTP %{http_code}\n" "$CPC/pentad/"
+          echo "--- newest 15 entries ---"
+          sed 's/<[^>]*>/ /g' pentad.html | grep -E '\.grb' | tail -15
+          echo "--- oldest 3 entries ---"
+          sed 's/<[^>]*>/ /g' pentad.html | grep -E '\.grb' | head -3
+          echo "grb files listed: $(grep -oE 'href="[^"]+\.grb"' pentad.html | wc -l)"
+
+      - name: 2 · Newest pentad file — GRIB inventory
+        continue-on-error: true
+        run: |
+          F=$(grep -oE 'href="[^"]+\.grb"' pentad.html | sed 's/href="//;s/"$//' | sort | tail -1)
+          echo "Newest file: $F"
+          curl -sS -L --http1.1 -A "$UA" --retry 5 --retry-all-errors -o latest.grb -w "HTTP %{http_code}, %{size_download} bytes\n" "$CPC/pentad/$F"
+          echo "--- message count by variable / level type ---"
+          grib_ls -p edition,shortName,typeOfLevel latest.grb | sed '1,2d' | head -n -3 | sort | uniq -c
+          echo "--- first 50 messages ---"
+          grib_ls -p edition,shortName,name,typeOfLevel,level,units,dataDate,stepRange latest.grb | head -55
+          echo "--- grid of first message ---"
+          grib_get -p gridType,Ni,Nj,latitudeOfFirstGridPointInDegrees,latitudeOfLastGridPointInDegrees,longitudeOfFirstGridPointInDegrees,longitudeOfLastGridPointInDegrees,iDirectionIncrementInDegrees,jDirectionIncrementInDegrees -w count=1 latest.grb
+
+      - name: 3 · Sample values at 0°, 140°W for every message
+        continue-on-error: true
+        run: |
+          grib_ls -l 0,220,1 -p shortName,typeOfLevel,level,units latest.grb | head -70
+
+      - name: 4 · Inventory file, if CPC publishes one
+        continue-on-error: true
+        run: |
+          F=$(grep -oE 'href="[^"]+\.grb"' pentad.html | sed 's/href="//;s/"$//' | sort | tail -1)
+          curl -sS -L --http1.1 -A "$UA" -o latest.inv -w "HTTP %{http_code}\n" "$CPC/pentad/$F.inv" && head -40 latest.inv
+
+      - name: 5 · CPC monthly directory (newest)
+        continue-on-error: true
+        run: |
+          curl -sS -L --http1.1 -A "$UA" --retry 3 -o monthly.html -w "HTTP %{http_code}\n" "$CPC/monthly/"
+          sed 's/<[^>]*>/ /g' monthly.html | grep -E '\.grb' | tail -6
+
+      - name: 6 · PSL GODAS monthly netCDF (catalog)
+        continue-on-error: true
+        run: |
+          curl -sS -L --http1.1 -A "$UA" --retry 3 -o godas_cat.html -w "HTTP %{http_code}\n" "$PSL/catalog/Datasets/godas/catalog.html"
+          sed 's/<[^>]*>/ /g' godas_cat.html | grep -E 'pottmp' | tail -6
+
+      - name: 7 · PSL subset request — equatorial slice, one year
+        continue-on-error: true
+        run: |
+          Y=$(( $(date -u +%Y) - 1 ))
+          curl -sS -L --http1.1 -A "$UA" --retry 3 -o slice.nc \
+            -w "HTTP %{http_code}, %{size_download} bytes, %{time_total}s\n" \
+            "$PSL/ncss/grid/Datasets/godas/pottmp.$Y.nc?var=pottmp&north=2.5&south=-2.5&west=110&east=285&horizStride=1&accept=netcdf"
+          ncdump -h slice.nc | head -70
+          echo "--- depth levels ---"
+          ncdump -v level slice.nc 2>/dev/null | sed -n '/data:/,$p' | head -12
