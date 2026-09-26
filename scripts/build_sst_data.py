@@ -36,6 +36,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -72,6 +73,7 @@ DAILY_PRELIM = NCEI + '/{ym}/oisst-avhrr-v02r01.{ymd}_preliminary.nc'
 DAILY_CLIM = 'sst.day.mean.ltm.1991-2020.nc'      # ~1.4 GB, cached between runs
 MONTHLY_MEAN = 'sst.mon.mean.nc'                   # ~2.2 GB, bootstrap only
 MONTHLY_CLIM = 'sst.mon.ltm.1991-2020.nc'          # ~46 MB
+RETRY_SLEEP = float(os.environ.get('SST_RETRY_SLEEP', '5'))
 USER_AGENT = 'contextclimate-sst-pipeline/1.0 (+https://contextclimate.io)'
 
 FAILURES = []
@@ -83,8 +85,13 @@ def fail(msg):
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
-def download(url, dest, max_time=180):
-    """Return True on success, False on HTTP 404, raise on anything else."""
+def download(url, dest, max_time=180, max_stalls=5, max_attempts=300):
+    """Return True on success, False on HTTP 404, raise after repeated failure.
+
+    Forces HTTP/1.1 (PSL's THREDDS server reset HTTP/2 streams mid-transfer)
+    and resumes a partial file with a byte-range request on each retry, so a
+    connection that drops part-way through a multi-GB file still makes progress.
+    """
     if url.startswith('/') or url.startswith('file://'):
         src = url[7:] if url.startswith('file://') else url
         if not os.path.exists(src):
@@ -93,23 +100,45 @@ def download(url, dest, max_time=180):
             fo.write(fi.read())
         return True
     tmp = dest + '.part'
-    r = subprocess.run(
-        ['curl', '-sS', '-L', '-A', USER_AGENT, '-o', tmp, '-w', '%{http_code}',
-         '--retry', '4', '--retry-all-errors', '--retry-delay', '5',
-         '--connect-timeout', '30', '--max-time', str(max_time), url],
-        capture_output=True, text=True)
-    code = r.stdout.strip()
-    if code == '404':
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        return False
-    if r.returncode != 0 or code != '200':
-        if os.path.exists(tmp):
-            os.remove(tmp)
-        last = (r.stderr.strip().splitlines() or [''])[-1]
-        raise RuntimeError(f'download failed ({code or r.returncode}): {url} {last}'.strip())
-    os.replace(tmp, dest)
-    return True
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    last = ''
+    stalls = 0
+    for attempt in range(1, max_attempts + 1):
+        have = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        cmd = ['curl', '-sS', '-L', '--http1.1', '-A', USER_AGENT, '-o', tmp, '-w', '%{http_code}',
+               '--connect-timeout', '30', '--max-time', str(max_time)]
+        if have:
+            cmd += ['-C', '-']
+        r = subprocess.run(cmd + [url], capture_output=True, text=True)
+        code = r.stdout.strip()
+        if code == '404':
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            return False
+        if r.returncode == 0 and code in ('200', '206'):
+            os.replace(tmp, dest)
+            return True
+        if have and code == '416':                 # range starts at EOF: already complete
+            os.replace(tmp, dest)
+            return True
+        err = (r.stderr.strip().splitlines() or [''])[-1]
+        last = f'({code or r.returncode}) {err}'.strip()
+        if code not in ('200', '206') or r.returncode == 33:
+            # error page or a server that ignored the range: never append to it
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        got = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+        # a cut connection that still moved bytes forward is progress, not a stall
+        stalls = 0 if got > have else stalls + 1
+        print(f'  retry {attempt} {os.path.basename(url)}: {last} '
+              f'[{got / 1e6:.1f} MB kept, stalls {stalls}/{max_stalls}]', flush=True)
+        if stalls >= max_stalls:
+            break
+        time.sleep(RETRY_SLEEP if got > have else min(60, RETRY_SLEEP * 2 ** stalls))
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    raise RuntimeError(f'download failed {last}: {url}')
 
 
 def download_psl(fname, dest, max_time):
