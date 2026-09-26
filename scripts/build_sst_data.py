@@ -60,12 +60,19 @@ MAX_NEW_PER_RUN = 60                 # gap-fill cap outside --bootstrap
 # SST_SOURCE_ROOT overrides every host (used by the test fixtures).
 _ROOT = os.environ.get('SST_SOURCE_ROOT')
 NCEI = _ROOT or 'https://www.ncei.noaa.gov/data/sea-surface-temperature-optimum-interpolation/v2.1/access/avhrr'
-PSL = _ROOT or 'https://downloads.psl.noaa.gov/Datasets/noaa.oisst.v2.highres'
+# PSL files are tried on each host in order. downloads.psl.noaa.gov returned
+# 502s to GitHub runners (and bot-blocks automated clients); the THREDDS file
+# server on psl.noaa.gov serves the same files.
+PSL_MIRRORS = ([m for m in os.environ['SST_PSL_MIRRORS'].split(',') if m] if os.environ.get('SST_PSL_MIRRORS')
+               else [_ROOT] if _ROOT
+               else ['https://psl.noaa.gov/thredds/fileServer/Datasets/noaa.oisst.v2.highres',
+                     'https://downloads.psl.noaa.gov/Datasets/noaa.oisst.v2.highres'])
 DAILY_FINAL = NCEI + '/{ym}/oisst-avhrr-v02r01.{ymd}.nc'
 DAILY_PRELIM = NCEI + '/{ym}/oisst-avhrr-v02r01.{ymd}_preliminary.nc'
-DAILY_CLIM = PSL + '/sst.day.mean.ltm.1991-2020.nc'
-MONTHLY_MEAN = PSL + '/sst.mon.mean.nc'
-MONTHLY_CLIM = PSL + '/sst.mon.ltm.1991-2020.nc'
+DAILY_CLIM = 'sst.day.mean.ltm.1991-2020.nc'      # ~1.4 GB, cached between runs
+MONTHLY_MEAN = 'sst.mon.mean.nc'                   # ~2.2 GB, bootstrap only
+MONTHLY_CLIM = 'sst.mon.ltm.1991-2020.nc'          # ~46 MB
+USER_AGENT = 'contextclimate-sst-pipeline/1.0 (+https://contextclimate.io)'
 
 FAILURES = []
 
@@ -87,7 +94,7 @@ def download(url, dest, max_time=180):
         return True
     tmp = dest + '.part'
     r = subprocess.run(
-        ['curl', '-sS', '-L', '-o', tmp, '-w', '%{http_code}',
+        ['curl', '-sS', '-L', '-A', USER_AGENT, '-o', tmp, '-w', '%{http_code}',
          '--retry', '4', '--retry-all-errors', '--retry-delay', '5',
          '--connect-timeout', '30', '--max-time', str(max_time), url],
         capture_output=True, text=True)
@@ -99,9 +106,30 @@ def download(url, dest, max_time=180):
     if r.returncode != 0 or code != '200':
         if os.path.exists(tmp):
             os.remove(tmp)
-        raise RuntimeError(f'download failed ({code or r.returncode}): {url} {r.stderr.strip()}')
+        last = (r.stderr.strip().splitlines() or [''])[-1]
+        raise RuntimeError(f'download failed ({code or r.returncode}): {url} {last}'.strip())
     os.replace(tmp, dest)
     return True
+
+
+def download_psl(fname, dest, max_time):
+    """Fetch a PSL file from the first mirror that serves a valid netCDF."""
+    errors = []
+    for base in PSL_MIRRORS:
+        url = base.rstrip('/') + '/' + fname
+        try:
+            if not download(url, dest, max_time=max_time):
+                errors.append(f'404 {url}')
+                continue
+        except Exception as e:  # noqa: BLE001
+            errors.append(str(e))
+            continue
+        if is_netcdf(dest):
+            print(f'✓ {fname} from {base}', flush=True)
+            return
+        errors.append(f'not netCDF: {url}')
+        os.remove(dest)
+    raise RuntimeError(' | '.join(errors))
 
 
 def is_netcdf(path):
@@ -449,13 +477,13 @@ def prune_daily(data_dir, idx, today):
 def bootstrap_monthly(data_dir, idx, cache, work, validator):
     mean_p = os.path.join(work, 'sst.mon.mean.nc')
     clim_p = os.path.join(cache, 'sst.mon.ltm.1991-2020.nc')
-    for url, p, t in ((MONTHLY_CLIM, clim_p, 600), (MONTHLY_MEAN, mean_p, 3600)):
-        if not os.path.exists(p) or url == MONTHLY_MEAN:
-            if not download(url, p, max_time=t):
-                fail(f'monthly bootstrap: 404 {url}')
-                return 0
-        if not is_netcdf(p):
-            fail(f'monthly bootstrap: {os.path.basename(p)} is not netCDF')
+    for fname, p, t in ((MONTHLY_CLIM, clim_p, 900), (MONTHLY_MEAN, mean_p, 5400)):
+        if os.path.exists(p) and is_netcdf(p) and fname != MONTHLY_MEAN:
+            continue
+        try:
+            download_psl(fname, p, t)
+        except Exception as e:  # noqa: BLE001
+            fail(f'monthly bootstrap: {e}')
             return 0
     cds, mds = open_nc(clim_p), open_nc(mean_p)
     cg = GridMap(_coord(cds, 'lat'), _coord(cds, 'lon'))
@@ -483,6 +511,7 @@ def bootstrap_monthly(data_dir, idx, cache, work, validator):
     idx['monthly'] = list(have.values())
     cds.close()
     mds.close()
+    os.remove(mean_p)                     # 2+ GB; not needed after bootstrap
     print(f'monthly: {added} frames written from PSL ({months[0]} .. {months[-1]})', flush=True)
     return added
 
@@ -509,9 +538,8 @@ def main():
 
     clim_p = os.path.join(args.cache_dir, 'sst.day.mean.ltm.1991-2020.nc')
     try:
-        if not os.path.exists(clim_p):
-            if not download(DAILY_CLIM, clim_p, max_time=3600):
-                raise RuntimeError(f'404 {DAILY_CLIM}')
+        if not (os.path.exists(clim_p) and is_netcdf(clim_p)):
+            download_psl(DAILY_CLIM, clim_p, 5400)
         clim = DailyClim(clim_p)
     except Exception as e:  # noqa: BLE001
         fail(f'daily climatology: {e}')
