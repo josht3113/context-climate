@@ -1,16 +1,29 @@
 name: Update Pacific SST Data
+# Name is unchanged on purpose: deploy.yml's workflow_run list already
+# listens for "Update Pacific SST Data".
 
 on:
   schedule:
-    - cron: '42 13 * * *'  # daily at 13:42 UTC — script no-ops if no new month is available yet
-  workflow_dispatch:         # allow manual trigger from Actions tab
+    - cron: '37 3 * * *'     # OISST posts the newest preliminary day overnight US time
+    - cron: '37 15 * * *'    # second pass picks up late postings and final upgrades
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Rebuild the monthly archive from PSL and fill the whole daily window'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: sst-data
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -23,13 +36,55 @@ jobs:
       - name: Install dependencies
         run: pip install netCDF4 numpy
 
-      - name: Run SST update check
-        run: python scripts/update_ersst_monthly.py
+      - name: Restore climatology cache
+        uses: actions/cache@v4
+        with:
+          path: .sst-cache
+          key: sst-clim-1991-2020-v1
 
-      - name: Commit if data changed
+      - name: Pull current data branch
         run: |
+          mkdir -p sst-out
+          if git ls-remote --exit-code --heads origin sst-data > /dev/null; then
+            git fetch --depth=1 origin sst-data
+            git archive FETCH_HEAD | tar -x -C sst-out
+            echo "Loaded existing sst-data branch"
+          else
+            echo "No sst-data branch yet — first run will bootstrap"
+          fi
+
+      - name: Build frames
+        run: |
+          ARGS="--data-dir sst-out --cache-dir .sst-cache --work-dir /tmp/sst"
+          if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
+          python scripts/build_sst_data.py $ARGS
+
+      - name: Publish to sst-data branch
+        run: |
+          if [ ! -f sst-out/index.json ]; then
+            echo "No index.json produced — nothing to publish"
+            exit 0
+          fi
+          if [ "$(cat /tmp/sst/CHANGED 2>/dev/null)" != "1" ]; then
+            echo "No new frames — skipping publish"
+            exit 0
+          fi
+          cd sst-out
+          git init -q
+          git checkout -q -b sst-data
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/pacific-sst-anomalies.json
-          git diff --cached --quiet || git commit -m "chore: update Pacific SST data $(date +%Y-%m-%d)"
-          git push
+          git add -A
+          git commit -q -m "SST frames $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Force-push a single commit so the frames never accumulate in history
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" sst-data
+          echo "Published $(ls daily 2>/dev/null | wc -l) daily and $(ls monthly 2>/dev/null | wc -l) monthly frames"
+
+      - name: Fail run if any source or frame was rejected
+        if: always()
+        run: |
+          if [ -s /tmp/sst/FAILURES ]; then
+            echo "::error::SST pipeline recorded failures:"
+            cat /tmp/sst/FAILURES
+            exit 1
+          fi
