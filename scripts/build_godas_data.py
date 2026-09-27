@@ -9,7 +9,9 @@ cropped to 110E-75W and 0-459 m.
            (filename date = LAST day of the 5-day mean). Rolling one-year window.
   Monthly  PSL OPeNDAP, https://psl.noaa.gov/thredds/dodsC/Datasets/godas/pottmp.YYYY.nc
            (time stamp = FIRST day of the month). 1980 onward.
-  Clim     PSL OPeNDAP, .../godas/Derived/pottmp.mon.ltm.nc (1991-2020 monthly means).
+  Clim     1991-2020 monthly means computed from the same PSL yearly files and
+           stored in the branch as clim.bin.gz (PSL's Derived/pottmp.mon.ltm.nc
+           returned DAP server errors; it is now only a logged cross-check).
            Pentad climatology = the monthly climatology linearly interpolated (periodic)
            to the pentad's centre day.
 
@@ -156,75 +158,148 @@ def clim_weights(center):
     return [(m0, 1 - t), (m1, t)]
 
 
-def load_clim(work):
+def nc_retry(fn, label, tries=4, wait=10):
+    """OPeNDAP calls occasionally fail with transient 'DAP server error's."""
+    import time
+    for k in range(1, tries + 1):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001
+            if k == tries:
+                raise
+            print(f'  retry {k}/{tries - 1} {label}: {e}', flush=True)
+            time.sleep(wait * k)
+
+
+def read_year(year):
+    """PSL monthly file for one year -> ([(y, m)], temps[t, depth, lon] degC, depths, lons).
+    Raises FileNotFoundError-like errors when the year does not exist."""
     import netCDF4
-    url = f'{_PSL}/Derived/pottmp.mon.ltm.nc'
-    ds = netCDF4.Dataset(url)
+    url = f'{_PSL}/pottmp.{year}.nc'
+    ds = nc_retry(lambda: netCDF4.Dataset(url), f'open pottmp.{year}.nc')
     try:
-        band = Band(ds['lat'][:], ds['lon'][:])
+        lat = np.asarray(ds['lat'][:], dtype=np.float64)
+        lon = np.asarray(ds['lon'][:], dtype=np.float64)
         lev = np.asarray(ds['level'][:], dtype=np.float64)
+        band = Band(lat, lon)
         k = np.where(lev <= MAX_DEPTH)[0]
-        v = ds['pottmp']
-        if v.shape[0] != 12:
-            raise ValueError(f'climatology has {v.shape[0]} time steps, expected 12')
-        cp = str(getattr(ds['time'], 'climo_period', ''))
-        if cp and not (cp.startswith('1991') and '2020' in cp):
-            raise ValueError(f'climatology period is {cp}, expected 1991-2020')
-        raw = v[:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1, band.cols[0]:band.cols[-1] + 1]
+        t = ds['time']
+        dates = netCDF4.num2date(t[:], t.units, getattr(t, 'calendar', 'standard'),
+                                 only_use_cftime_datetimes=True)
+        raw = nc_retry(lambda: ds['pottmp'][:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1,
+                                            band.cols[0]:band.cols[-1] + 1],
+                       f'read pottmp.{year}.nc')
         a = np.ma.filled(np.ma.asarray(raw).astype(np.float64), np.nan) - 273.15
         a[(a < -3) | (a > 40)] = np.nan
-        sub = Band(np.asarray(ds['lat'][:])[band.rows], np.asarray(ds['lon'][:])[band.cols])
-        clim = sub.reduce(a)                       # [12, depth, lon]
-        print(f'✓ climatology {cp or "(period attr missing)"}: {clim.shape}', flush=True)
-        return clim, lev[k], band.lons
+        sub = Band(lat[band.rows], lon[band.cols])
+        return [(d.year, d.month) for d in dates], sub.reduce(a), lev[k], band.lons
     finally:
         ds.close()
 
 
-# ── Monthly (PSL OPeNDAP) ────────────────────────────────────────────────────
-def monthly_year(year, clim, depths, lons, data_dir, have, optional=False):
+# ── Climatology (computed here from PSL's yearly files, stored in the branch) ──
+CLIM_Y0 = int(os.environ.get('GODAS_CLIM_Y0', '1991'))
+CLIM_Y1 = int(os.environ.get('GODAS_CLIM_Y1', '2020'))
+CLIM_FILE = 'clim.bin.gz'
+
+
+def build_clim(years_cache):
+    """Monthly means over CLIM_Y0..CLIM_Y1 from the same yearly files the monthly
+    frames come from. A cell needs >= 80% of the years present."""
+    acc = cnt = None
+    depths = lons = None
+    for y in range(CLIM_Y0, CLIM_Y1 + 1):
+        if y not in years_cache:
+            years_cache[y] = read_year(y)
+        months, temps, dep, lo = years_cache[y]
+        if len(months) != 12:
+            raise ValueError(f'{y} has {len(months)} months')
+        if depths is None:
+            depths, lons = dep, lo
+            acc = np.zeros((12,) + temps.shape[1:])
+            cnt = np.zeros((12,) + temps.shape[1:])
+        elif not (np.allclose(dep, depths) and np.allclose(lo, lons)):
+            raise ValueError(f'{y}: grid differs from {CLIM_Y0}')
+        for (yy, m), tt in zip(months, temps):
+            ok = np.isfinite(tt)
+            acc[m - 1][ok] += tt[ok]
+            cnt[m - 1][ok] += 1
+    n = CLIM_Y1 - CLIM_Y0 + 1
+    clim = np.where(cnt >= 0.8 * n, acc / np.maximum(cnt, 1), np.nan)
+    print(f'✓ climatology {CLIM_Y0}-{CLIM_Y1} computed: {clim.shape}', flush=True)
+    return clim, depths, lons
+
+
+def save_clim(data_dir, clim):
+    q = np.full(clim.shape, MISSING, dtype='<i2')
+    ok = np.isfinite(clim)
+    q[ok] = np.rint(clim[ok] / SCALE)
+    return write_frame(os.path.join(data_dir, CLIM_FILE), q)
+
+
+def load_stored_clim(data_dir, idx):
+    p = os.path.join(data_dir, CLIM_FILE)
+    g = idx.get('grid')
+    if not (os.path.exists(p) and g and idx.get('clim_period') == f'{CLIM_Y0}-{CLIM_Y1}'):
+        return None
+    depths, lons = np.array(g['depths']), np.array(g['lons'])
+    with gzip.open(p) as f:
+        q = np.frombuffer(f.read(), '<i2').reshape(12, len(depths), len(lons)).astype(np.float64)
+    clim = q * SCALE
+    clim[q == MISSING] = np.nan
+    return clim, depths, lons
+
+
+def crosscheck_psl_ltm(clim, depths):
+    """Non-fatal comparison with PSL's own 1991-2020 file; logs the difference."""
     import netCDF4
-    url = f'{_PSL}/pottmp.{year}.nc'
     try:
-        ds = netCDF4.Dataset(url)
+        ds = netCDF4.Dataset(f'{_PSL}/Derived/pottmp.mon.ltm.nc')
+        try:
+            lat, lon = np.asarray(ds['lat'][:]), np.asarray(ds['lon'][:])
+            lev = np.asarray(ds['level'][:]); band = Band(lat, lon)
+            k = np.where(lev <= MAX_DEPTH)[0]
+            raw = ds['pottmp'][:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1, band.cols[0]:band.cols[-1] + 1]
+            a = np.ma.filled(np.ma.asarray(raw).astype(np.float64), np.nan) - 273.15
+            a[(a < -3) | (a > 40)] = np.nan
+            ref = Band(lat[band.rows], lon[band.cols]).reduce(a)
+            d = np.abs(ref - clim)
+            print(f'  cross-check vs PSL pottmp.mon.ltm.nc: median |diff| {np.nanmedian(d):.3f}, '
+                  f'max {np.nanmax(d):.3f} degC', flush=True)
+        finally:
+            ds.close()
+    except Exception as e:  # noqa: BLE001
+        print(f'  cross-check vs PSL ltm skipped: {e}', flush=True)
+
+
+# ── Monthly frames ────────────────────────────────────────────────────────────
+def monthly_year(year, clim, depths, lons, data_dir, have, years_cache, optional=False):
+    try:
+        if year not in years_cache:
+            years_cache[year] = read_year(year)
     except Exception as e:  # noqa: BLE001
         if optional:
             # PSL creates a year's file once January is posted (~mid-February);
             # a real outage is caught by the staleness check instead
-            print(f'monthly {year}: not posted yet', flush=True)
+            print(f'monthly {year}: not posted yet ({e})', flush=True)
         else:
-            fail(f'monthly {year}: cannot open {url}: {e}')
+            fail(f'monthly {year}: {e}')
+        return 0
+    months, temps, dep, lo = years_cache[year]
+    if not (np.allclose(dep, depths) and np.allclose(lo, lons)):
+        fail(f'monthly {year}: grid differs from the climatology grid')
         return 0
     added = 0
-    try:
-        band = Band(ds['lat'][:], ds['lon'][:])
-        lev = np.asarray(ds['level'][:], dtype=np.float64)
-        k = np.where(lev <= MAX_DEPTH)[0]
-        if not np.allclose(lev[k], depths) or not np.allclose(band.lons, lons):
-            fail(f'monthly {year}: grid differs from the climatology grid')
-            return 0
-        t = ds['time']
-        dates = netCDF4.num2date(t[:], t.units, getattr(t, 'calendar', 'standard'),
-                                 only_use_cftime_datetimes=True)
-        raw = ds['pottmp'][:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1,
-                           band.cols[0]:band.cols[-1] + 1]
-        a = np.ma.filled(np.ma.asarray(raw).astype(np.float64), np.nan) - 273.15
-        a[(a < -3) | (a > 40)] = np.nan
-        sub = Band(np.asarray(ds['lat'][:])[band.rows], np.asarray(ds['lon'][:])[band.cols])
-        temps = sub.reduce(a)                      # [time, depth, lon]
-        for i, d in enumerate(dates):
-            ym = f'{d.year:04d}-{d.month:02d}'
-            err = validate(f'monthly {ym}', temps[i], depths)
-            if err:
-                fail(err)
-                continue
-            h = write_frame(os.path.join(data_dir, 'monthly', ym + '.bin.gz'),
-                            encode(temps[i], clim[d.month - 1]))
-            if have.get(ym, {}).get('h') != h:
-                added += 1
-            have[ym] = {'m': ym, 'h': h}
-    finally:
-        ds.close()
+    for (y, m), tt in zip(months, temps):
+        ym = f'{y:04d}-{m:02d}'
+        err = validate(f'monthly {ym}', tt, depths)
+        if err:
+            fail(err)
+            continue
+        h = write_frame(os.path.join(data_dir, 'monthly', ym + '.bin.gz'), encode(tt, clim[m - 1]))
+        if have.get(ym, {}).get('h') != h:
+            added += 1
+        have[ym] = {'m': ym, 'h': h}
     return added
 
 
@@ -319,7 +394,7 @@ def save_index(data_dir, idx, depths, lons):
     idx['source'] = 'NCEP GODAS potential temperature (CPC pentads, PSL monthly)'
     idx['base'] = '1991-2020'
     idx['pentad_date'] = 'last day of the 5-day mean'
-    h = hashlib.sha1(json.dumps([idx['pentads'], idx['monthly']], sort_keys=True).encode()).hexdigest()[:12]
+    h = hashlib.sha1(json.dumps([idx['pentads'], idx['monthly'], idx.get('clim_hash')], sort_keys=True).encode()).hexdigest()[:12]
     changed = idx.get('version') != h
     idx['version'] = h
     if changed:
@@ -350,8 +425,19 @@ def main():
     idx = load_index(args.data_dir)
     bootstrap = args.bootstrap or not idx['monthly']
 
+    years_cache = {}
+    clim = None
     try:
-        clim, depths, lons = load_clim(args.work_dir)
+        stored = None if args.bootstrap else load_stored_clim(args.data_dir, idx)
+        if stored:
+            clim, depths, lons = stored
+            print(f'✓ climatology {CLIM_Y0}-{CLIM_Y1} loaded from branch', flush=True)
+        else:
+            clim, depths, lons = build_clim(years_cache)
+            idx['clim_hash'] = save_clim(args.data_dir, clim)
+            idx['clim_period'] = f'{CLIM_Y0}-{CLIM_Y1}'
+            crosscheck_psl_ltm(clim, depths)
+            bootstrap = True        # new climatology -> rewrite every frame against it
     except Exception as e:  # noqa: BLE001
         fail(f'climatology: {e}')
         clim = None
@@ -360,7 +446,8 @@ def main():
         # ── monthly
         have = {e['m']: e for e in idx['monthly']}
         years = range(FIRST_YEAR, today.year + 1) if bootstrap else (today.year - 1, today.year)
-        n = sum(monthly_year(y, clim, depths, lons, args.data_dir, have, optional=(y == today.year))
+        n = sum(monthly_year(y, clim, depths, lons, args.data_dir, have, years_cache,
+                             optional=(y == today.year))
                 for y in years)
         idx['monthly'] = list(have.values())
         print(f'monthly: {n} new/changed frames, {len(have)} total', flush=True)
