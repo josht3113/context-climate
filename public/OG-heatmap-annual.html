@@ -53,9 +53,12 @@
      active state (gold) reads distinctly from the tab-bar's tool-accent
      active state. Split into two evenly-spaced groups (base fields /
      anomaly fields) divided by a hairline, instead of one left-clustered
-     row, so the buttons fill the row's full width. ── */
-  .field-toggle { display: flex; align-items: stretch; gap: 12px; margin-bottom: 14px; }
-  .field-group { display: flex; gap: 8px; flex: 1 1 0; min-width: 0; }
+     row, so the buttons fill the row's full width. Each group starts at the
+     width its own buttons need and shares out whatever is left, so a group
+     can never be squeezed narrower than its labels; groups with no visible
+     buttons are hidden by updateFieldGroups(). ── */
+  .field-toggle { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
+  .field-group { display: flex; gap: 8px; flex: 1 1 auto; }
   .field-toggle-sep { width: 1px; flex: 0 0 auto; align-self: stretch; background: var(--color-border); }
   .field-btn {
     font-family: var(--font-label); font-size: 13px; font-weight: 600;
@@ -84,6 +87,9 @@
   .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .legend-end { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
   #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
+  .legend-key { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; margin-left: 14px; display: none; align-items: center; gap: 6px; }
+  .legend-key.on { display: inline-flex; }
+  .legend-swatch { width: 14px; height: 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: #58544D; }
 
   /* ── Compare Years — year chips + empty state ── */
   .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -382,6 +388,7 @@
       <button class="field-btn"        id="fld-td"        onclick="setField('td')">Dewpoint</button>
       <button class="field-btn"        id="fld-clouds"    onclick="setField('clouds')">Cloud Cover</button>
       <button class="field-btn"        id="fld-wind"      onclick="setField('wind')">Wind Speed</button>
+      <button class="field-btn"        id="fld-gust"      onclick="setField('gust')">Wind Gusts</button>
     </div>
     <div class="field-toggle-sep"></div>
     <div class="field-group">
@@ -404,6 +411,7 @@
     <span class="legend-end" id="legend-lo"></span>
     <canvas id="legend-canvas" height="14" width="260"></canvas>
     <span class="legend-end" id="legend-hi"></span>
+    <span class="legend-key" id="legend-missing"><span class="legend-swatch"></span>Missing</span>
   </div>
 
   <!-- Heatmap -->
@@ -477,7 +485,12 @@ const TREND_BASE   = { temp_trend:'temp', td_trend:'td' };
 // DAY, so it cannot fill the hour-resolved grid -- it is offered only in
 // Compare Years, where a row already means one value per day.
 const DAILY_ONLY_FIELDS = ['dtr'];
-const ALL_FIELDS   = [...BASE_FIELDS, ...ANOM_FIELDS, ...TREND_FIELDS, ...DAILY_ONLY_FIELDS];
+// Wind gusts are stored alongside the base fields but kept out of
+// BASE_FIELDS: they are never averaged into a Multi-Year Avg (a mean of
+// only the gusty hours is not a climatology), and never despiked.
+const GUST_FIELD   = 'gust';
+const GRID_FIELDS  = [...BASE_FIELDS, GUST_FIELD];
+const ALL_FIELDS   = [...BASE_FIELDS, GUST_FIELD, ...ANOM_FIELDS, ...TREND_FIELDS, ...DAILY_ONLY_FIELDS];
 // Each cell's fit pools this many days either side of it at the same hour,
 // so a fit uses ~7x the observations a single cell would give. Without it
 // a slope from 30-54 points per cell is dominated by noise.
@@ -630,6 +643,7 @@ const SCALES = {
   td:       { vals:[-25,5,18,30,55,68,80],                        cols:['#4A3410','#B89870','#D4C060','#FFEE00','#3DB84A','#2A8C30','#2A72C8'] },
   clouds:   { vals:[1,2,3,4,5],                                   cols:['#F5FA82','#C5C46A','#848477','#626258','#404040'] },
   wind:     { vals:[0,5,10,15,20,25,30,55],                       cols:['#232323','#545E6B','#7D9BB5','#B4C8E3','#CEB8CC','#E09999','#E3625C','#FFE033'] },
+  gust:     { vals:[0,5,10,15,20,25,30,55],                       cols:['#232323','#545E6B','#7D9BB5','#B4C8E3','#CEB8CC','#E09999','#E3625C','#FFE033'] },
   temp_anom:{ vals:[-40,-24,-16,-10,-4,0,4,10,16,24,40],          cols:['#FFB3C6','#6AAACF','#3E7AAA','#1E4A72','#0D2238','#0D1218','#38120A','#962010','#D03A18','#F05030','#FFE000'] },
   td_anom:  { vals:[-30,-15,-5,0,5,15,30],                        cols:['#C8920A','#8C6208','#3D2A02','#2B2200','#2A3800','#4A6A00','#7DC840'] },
   temp_z:   { vals:[-5,-3,-2,-1.2,-0.5,0,0.5,1.2,2,3,5],         cols:['#FFB3C6','#6AAACF','#3E7AAA','#1E4A72','#0D2238','#0D1218','#38120A','#962010','#D03A18','#F05030','#FFE000'] },
@@ -646,7 +660,7 @@ SCALES.dtr = { vals:[0,6,12,18,24,32,45],
   cols:['#10181E','#1E3A52','#2E6E78','#4FA05A','#C8C83C','#E8862A','#FFE8C0'] };
 
 const SCALE_LABELS = {
-  temp:'°F', td:'°F', clouds:'', wind:'mph',
+  temp:'°F', td:'°F', clouds:'', wind:'mph', gust:'mph',
   temp_anom:'°F anomaly', td_anom:'°F anomaly', temp_z:'σ', td_z:'σ',
   temp_trend:'°F/decade', td_trend:'°F/decade', dtr:'°F range',
 };
@@ -747,7 +761,8 @@ function gradCss(scale) {
 // ═══════════════════════════════════════════════════════════
 function makeSingleData() {
   const d = {};
-  for (const f of BASE_FIELDS) d[f] = new Float32Array(GRID_SIZE).fill(NaN);
+  for (const f of GRID_FIELDS) d[f] = new Float32Array(GRID_SIZE).fill(NaN);
+  d.gustSeen = new Uint8Array(GRID_SIZE);   // 1 = wind reported for that hour's gust window
   return d;
 }
 
@@ -885,7 +900,7 @@ function buildURL(stId, tz, y1, y2) {
   //    extra day's obs correctly (everything but that one rolled-forward
   //    ob gets discarded) -- no change needed there.
   return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?` +
-    `station=${stId}&data=tmpf,dwpf,sknt,skyc1,skyc2,skyc3` +
+    `station=${stId}&data=tmpf,dwpf,sknt,gust,skyc1,skyc2,skyc3` +
     `&year1=${y1-1}&month1=12&day1=31&year2=${y2+1}&month2=1&day2=1` +
     `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
 }
@@ -1032,8 +1047,43 @@ function despikeGrid(grid) {
 
 function makeYearGrid() {
   const g = {};
-  for (const f of BASE_FIELDS) g[f] = new Float32Array(GRID_SIZE).fill(NaN);
+  for (const f of GRID_FIELDS) g[f] = new Float32Array(GRID_SIZE).fill(NaN);
+  g.gustSeen = new Uint8Array(GRID_SIZE);
   return g;
+}
+
+// ── Routine-observation selection ────────────────────────────────────
+// IEM returns every METAR for the station: the routine hourly ob (issued a
+// few minutes before the hour -- :56 at Islip, :51/:53 at others) plus any
+// SPECIs filed when conditions change. Each cell shows the ROUTINE ob.
+// A special only fills a field the routine ob is missing (or the whole
+// cell when there is no routine ob that hour), and then it is the special
+// closest in time to where the routine ob should have been.
+//
+// The routine minute isn't hard-coded per station: it is the most common
+// observation minute in each year of the returned data, so a station that
+// moved its reporting minute at some point is still read correctly.
+const ROUTINE_MIN_OBS = 200;   // fewer obs than this in a year -> use the whole file's mode
+
+function modeOfHist(hist) {
+  let best = -1, bestN = 0;
+  for (let m = 0; m < 60; m++) if (hist[m] > bestN) { bestN = hist[m]; best = m; }
+  return best;
+}
+
+// Wind gusts: a cell's gust is the highest gust reported in the routine
+// ob and any specials since the previous routine ob -- i.e. the hour whose
+// end the routine ob marks. `gustSeen` flags cells where the wind group
+// was reported at all, which is what separates "no gust" (blank) from
+// "no observation" (missing).
+const KT_TO_MPH = 1.15078;
+
+// Shifts a local calendar hour by `add` hours (0-2), rolling the date.
+function shiftHour(yr, mo, dy, h, add) {
+  h += add;
+  if (h <= 23) return [yr, mo, dy, h];
+  const nd = new Date(Date.UTC(yr, mo - 1, dy + 1));
+  return [nd.getUTCFullYear(), nd.getUTCMonth() + 1, nd.getUTCDate(), h - 24];
 }
 
 function parseCSVInto(text, y1, y2, single, accum, compareOut) {
@@ -1045,8 +1095,46 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   //             keeping each year's own grid instead of folding them all
   //             into a running mean.
   const lines = text.split('\n');
-  let tmpfI=2, dwpfI=3, skntI=4, skyc1I=5, skyc2I=6, skyc3I=7;
-  let inData = false;
+  let tmpfI=2, dwpfI=3, skntI=4, gustI=99, skyc1I=5, skyc2I=6, skyc3I=7;
+
+  // ── Pass 1: observation-minute histogram per year ──
+  const histByYear = new Map();
+  const histAll = new Int32Array(60);
+  {
+    let inHdr = false;
+    for (let li = 0; li < lines.length; li++) {
+      const line = lines[li];
+      if (!inHdr) { if (line.startsWith('station,')) inHdr = true; continue; }
+      const c1 = line.indexOf(',');
+      if (c1 < 0) continue;
+      const c2 = line.indexOf(',', c1 + 1);
+      const valid = c2 < 0 ? line.substring(c1 + 1) : line.substring(c1 + 1, c2);
+      const colon = valid.indexOf(':');
+      if (colon < 0) continue;
+      const yr = parseInt(valid.substring(0, 4), 10);
+      const mi = parseInt(valid.substring(colon + 1, colon + 3), 10);
+      if (isNaN(yr) || isNaN(mi) || mi < 0 || mi > 59) continue;
+      let hist = histByYear.get(yr);
+      if (!hist) { hist = new Int32Array(60); histByYear.set(yr, hist); }
+      hist[mi]++; histAll[mi]++;
+    }
+  }
+  const globalRoutine = modeOfHist(histAll);
+  const routineByYear = new Map();
+  for (const [yr, hist] of histByYear) {
+    let n = 0; for (let m = 0; m < 60; m++) n += hist[m];
+    routineByYear.set(yr, n >= ROUTINE_MIN_OBS ? modeOfHist(hist) : globalRoutine);
+  }
+  const routineMinute = yr => routineByYear.get(yr) ?? globalRoutine;
+
+  // Distance (minutes) from each cell's routine time to the ob currently
+  // filling it, per field. 0 = the routine ob itself; 255 = empty.
+  function makeDist() {
+    const d = {};
+    for (const f of BASE_FIELDS) d[f] = new Uint8Array(GRID_SIZE).fill(255);
+    return d;
+  }
+  const singleDist = single ? makeDist() : null;
 
   // Climatology folds many years into one running sum, so a per-year
   // scratch buffer is despiked BEFORE it's added in -- otherwise a single
@@ -1054,7 +1142,11 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   // harder (sum2 squares it). Compare mode reuses the same per-year
   // scratch buffer, just to keep each year's despiked grid instead of
   // accumulating it.
-  let yearBuf = null, yearBufYr = null;
+  let yearBuf = null, yearBufYr = null, yearDist = null;
+  // A gust window can end in the next calendar year (a special at 23:30 on
+  // Dec 31 belongs to the routine ob that fills Jan 1 Midnight), before
+  // that year's buffer exists -- those are held here until it does.
+  let gustCarry = [];
   function flushYearBuf() {
     if (!yearBuf) return;
     despikeGrid(yearBuf);
@@ -1076,9 +1168,20 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
       }
     }
     if (compareOut) compareOut.set(yearBufYr, yearBuf);
-    yearBuf = null;
+    yearBuf = null; yearDist = null;
+  }
+  function openYearBuf(yr) {
+    flushYearBuf();
+    yearBuf = makeYearGrid(); yearBufYr = yr; yearDist = makeDist();
+    for (const c of gustCarry) if (c.yr === yr) applyGust(yearBuf, c.idx, c.gust, c.seen);
+    gustCarry = [];
+  }
+  function applyGust(grid, idx, gust, seen) {
+    if (seen) grid.gustSeen[idx] = 1;
+    if (gust != null && !(grid.gust[idx] >= gust)) grid.gust[idx] = gust;
   }
 
+  let inData = false;
   for (let li=0; li<lines.length; li++) {
     const line = lines[li].trim();
     if (!line || line.startsWith('#')) continue;
@@ -1086,7 +1189,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     if (line.startsWith('station,')) {
       const h = line.split(',');
       const fi = f => { const i = h.indexOf(f); return i < 0 ? 99 : i; };
-      tmpfI=fi('tmpf'); dwpfI=fi('dwpf'); skntI=fi('sknt');
+      tmpfI=fi('tmpf'); dwpfI=fi('dwpf'); skntI=fi('sknt'); gustI=fi('gust');
       skyc1I=fi('skyc1'); skyc2I=fi('skyc2'); skyc3I=fi('skyc3');
       inData = true;
       continue;
@@ -1102,54 +1205,74 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     if (sp < 1) continue;
     const dp = valid.substring(0, sp).split('-');
     if (dp.length < 3) continue;
-    let yr = parseInt(dp[0]), mo = parseInt(dp[1]), dy = parseInt(dp[2]);
+    const ryr = parseInt(dp[0]), rmo = parseInt(dp[1]), rdy = parseInt(dp[2]);
     const hm = valid.substring(sp+1).split(':');
-    let h = parseInt(hm[0]);
+    const rh = parseInt(hm[0]);
     const mi = parseInt(hm[1]);
-    // Routine ASOS/AWOS obs are issued a few minutes before the top of the
-    // hour (typically :51-:56) so the reading is fresh for the hour that's
-    // about to start. Roll those into the next hour instead of filing them
-    // under the hour digit printed in the timestamp.
-    if (!isNaN(mi) && mi >= 45) {
-      h += 1;
-      if (h > 23) {
-        h = 0;
-        const nd = new Date(Date.UTC(yr, mo - 1, dy + 1));
-        yr = nd.getUTCFullYear();
-        mo = nd.getUTCMonth() + 1;
-        dy = nd.getUTCDate();
-      }
-    }
-    if (isNaN(yr)||isNaN(mo)||isNaN(dy)||isNaN(h)) continue;
-    if (yr < y1 || yr > y2) continue;
-    if (h < 0 || h > 23) continue;
+    if (isNaN(ryr)||isNaN(rmo)||isNaN(rdy)||isNaN(rh)||isNaN(mi)) continue;
+    if (rh < 0 || rh > 23) continue;
 
-    const doy = getDOY(yr, mo, dy);
-    if (doy < 0 || doy > 365) continue;
-    const idx = doy * 24 + h;
+    const R = routineMinute(ryr);
+    const routineLate = R >= 45;   // routine ob precedes the hour it fills
 
     const temp   = parseF(parts[tmpfI]);
     const td     = parseF(parts[dwpfI]);
     const sknt   = parseF(parts[skntI]);
-    const wind   = sknt != null ? sknt * 1.15078 : null;
+    const wind   = sknt != null ? sknt * KT_TO_MPH : null;
+    const gkt    = parseF(parts[gustI]);
+    const gust   = gkt != null ? gkt * KT_TO_MPH : null;
 
     const c1 = skyToNum(parts[skyc1I]), c2 = skyToNum(parts[skyc2I]), c3 = skyToNum(parts[skyc3I]);
     const clouds = [c1,c2,c3].reduce((m,v) => v!=null ? (m==null?v:Math.max(m,v)) : m, null);
 
     const vals = { temp, td, wind, clouds };
 
-    if (single) {
-      for (const f of BASE_FIELDS) {
-        const v = vals[f];
-        if (v != null) single[f][idx] = v;
+    // ── Base fields: the cell this ob sits in ──
+    // Routine ASOS/AWOS obs are issued a few minutes before the top of the
+    // hour (typically :51-:56) so the reading is fresh for the hour that's
+    // about to start. Obs at :45 or later roll into the next hour instead
+    // of being filed under the hour digit printed in the timestamp.
+    const [byr, bmo, bdy, bh] = shiftHour(ryr, rmo, rdy, rh, mi >= 45 ? 1 : 0);
+    // Minutes between this ob and the cell's routine time (both measured
+    // from the top of the cell's hour).
+    const obRel      = mi >= 45 ? mi - 60 : mi;
+    const routineRel = routineLate ? R - 60 : R;
+    const dist       = Math.min(254, Math.abs(obRel - routineRel));
+
+    if (byr >= y1 && byr <= y2) {
+      const doy = getDOY(byr, bmo, bdy);
+      if (doy >= 0 && doy <= 365) {
+        const idx = doy * 24 + bh;
+        if (single) {
+          for (const f of BASE_FIELDS) {
+            const v = vals[f];
+            if (v != null && dist <= singleDist[f][idx]) { single[f][idx] = v; singleDist[f][idx] = dist; }
+          }
+        }
+        if (accum || compareOut) {
+          if (yearBufYr !== byr) openYearBuf(byr);
+          for (const f of BASE_FIELDS) {
+            const v = vals[f];
+            if (v != null && dist <= yearDist[f][idx]) { yearBuf[f][idx] = v; yearDist[f][idx] = dist; }
+          }
+        }
       }
     }
+
+    // ── Gust: the cell of the next routine ob at or after this one ──
+    const seen = sknt != null || gust != null;
+    if (!seen) continue;
+    const gShift = (mi <= R ? 0 : 1) + (routineLate ? 1 : 0);
+    const [gyr, gmo, gdy, gh] = shiftHour(ryr, rmo, rdy, rh, gShift);
+    if (gyr < y1 || gyr > y2) continue;
+    const gdoy = getDOY(gyr, gmo, gdy);
+    if (gdoy < 0 || gdoy > 365) continue;
+    const gidx = gdoy * 24 + gh;
+    if (single) applyGust(single, gidx, gust, true);
     if (accum || compareOut) {
-      if (yearBufYr !== yr) { flushYearBuf(); yearBuf = makeYearGrid(); yearBufYr = yr; }
-      for (const f of BASE_FIELDS) {
-        const v = vals[f];
-        if (v != null) yearBuf[f][idx] = v;
-      }
+      if (yearBuf === null) openYearBuf(gyr);
+      if (gyr === yearBufYr) applyGust(yearBuf, gidx, gust, true);
+      else if (gyr > yearBufYr) gustCarry.push({ yr: gyr, idx: gidx, gust, seen: true });
     }
   }
   flushYearBuf();
@@ -1226,6 +1349,48 @@ function getCellValue(doy, row) {
   return getGridValue(doy, row);
 }
 
+// ── Missing data (Wind Gusts) ──
+// A blank gust cell means the wind was reported but no gust was. A cell with
+// no observation at all gets MISSING_FILL instead, so an outage doesn't read
+// as calm weather.
+const CELL_SETTLE_MIN = 20;          // minutes past the hour before an unfilled cell counts as missing
+const MISSING_FILL    = [88, 84, 77];
+
+// Station-local "now", refreshed at the start of each render.
+let nowStamp = { year: CURRENT_YEAR, doy: 365, h: 23, mi: 59 };
+function refreshNow() {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: STATIONS[activeStationId].tz, hourCycle: 'h23',
+      year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric',
+    }).formatToParts(new Date());
+    const g = t => parseInt(parts.find(p => p.type === t).value, 10);
+    const year = g('year');
+    nowStamp = { year, doy: getDOY(year, g('month'), g('day')), h: g('hour') % 24, mi: g('minute') };
+  } catch (e) { /* keep the previous stamp */ }
+}
+// Whether a cell's observation should exist by now.
+function cellIsPast(year, doy, h) {
+  const n = nowStamp;
+  if (year !== n.year) return year < n.year;
+  const a = doy * 24 + h, b = n.doy * 24 + n.h;
+  return a < b || (a === b && n.mi >= CELL_SETTLE_MIN);
+}
+
+// Wind Gusts only: true when the cell has no observation (vs. no gust).
+function gustCellMissing(doy, row) {
+  if (activeField !== GUST_FIELD) return false;
+  if (mode === 'compare') {
+    const year = compareYears[row];
+    const grid = year != null ? compareData.get(compareDataKey(year)) : null;
+    if (!grid || !cellIsPast(year, doy, 0)) return false;
+    for (let h = 0; h < 24; h++) if (grid.gustSeen[doy * 24 + h]) return false;
+    return true;
+  }
+  if (mode !== 'single' || !singleData || !cellIsPast(currentYear, doy, row)) return false;
+  return !singleData.gustSeen[doy * 24 + row];
+}
+
 // ═══════════════════════════════════════════════════════════
 // CANVAS SETUP + RENDERING
 // ═══════════════════════════════════════════════════════════
@@ -1268,6 +1433,7 @@ function renderHeatmap() {
   const img  = ctx.createImageData(pw, ph);
   const data = img.data;
   const scale = SCALES[activeField];
+  refreshNow();
 
   for (let doy=0; doy<366; doy++) {
     const x0 = Math.round(doy     * cw * dpr);
@@ -1275,7 +1441,8 @@ function renderHeatmap() {
     for (let row=0; row<rows; row++) {
       const y0 = Math.round(row     * ch * dpr);
       const y1 = Math.round((row+1) * ch * dpr);
-      const [r,g,b] = getColorRGB(getCellValue(doy,row), scale);
+      const v  = getCellValue(doy,row);
+      const [r,g,b] = (v == null && gustCellMissing(doy, row)) ? MISSING_FILL : getColorRGB(v, scale);
       for (let py=y0; py<y1; py++) {
         for (let px=x0; px<x1; px++) {
           const i = (py*pw+px)*4;
@@ -1334,6 +1501,7 @@ function renderLegend() {
   }
   document.getElementById('legend-lo').textContent = lo + (SCALE_LABELS[activeField] ? ' ' + SCALE_LABELS[activeField] : '');
   document.getElementById('legend-hi').textContent = hi2 + (SCALE_LABELS[activeField] ? ' ' + SCALE_LABELS[activeField] : '');
+  document.getElementById('legend-missing').classList.toggle('on', activeField === GUST_FIELD);
 }
 
 function renderRowLabels() {
@@ -1381,7 +1549,7 @@ function formatStat(v) {
   const f = activeField;
   if (f==='temp'||f==='td')          return Math.round(v) + '°';
   if (f==='clouds')                  return v.toFixed(1);
-  if (f==='wind')                    return Math.round(v) + ' mph';
+  if (f==='wind'||f==='gust')        return Math.round(v) + ' mph';
   if (f==='temp_anom'||f==='td_anom'){ const r=Math.round(v); return (r>0?'+':'')+r+'°'; }
   if (f==='temp_z'||f==='td_z')      return v.toFixed(2) + 'σ';
   if (f==='temp_trend'||f==='td_trend') return (v>0?'+':'') + v.toFixed(2);
@@ -1430,8 +1598,31 @@ function updateCloudStats() {
   sub.textContent = 'incl. ' + pct(ovc) + ' fully OVC';
 }
 
+// Wind gusts: the strongest gust, how many hours (days, in Compare Years)
+// had one, and the mean of those gusts.
+function updateGustStats() {
+  let peak = -Infinity, n = 0, sum = 0;
+  const rows = getRowCount();
+  for (let doy = 0; doy < 366; doy++) {
+    for (let row = 0; row < rows; row++) {
+      const v = getCellValue(doy, row);
+      if (v == null || isNaN(v)) continue;
+      n++; sum += v; if (v > peak) peak = v;
+    }
+  }
+  const daily = mode === 'compare';
+  document.getElementById('sl-avg').textContent = 'Peak Gust';
+  document.getElementById('sl-max').textContent = daily ? 'Gust Days' : 'Gust Hours';
+  document.getElementById('sl-min').textContent = daily ? 'Mean Peak' : 'Mean Gust';
+  document.getElementById('sv-avg').textContent = n ? formatStat(peak) : '—';
+  document.getElementById('sv-max').textContent = String(n);
+  document.getElementById('sv-min').textContent = n ? formatStat(sum / n) : '—';
+  document.getElementById('sv-min-sub').style.visibility = 'hidden';
+}
+
 function updateStats() {
   if (activeField === 'clouds') { updateCloudStats(); return; }
+  if (activeField === GUST_FIELD) { updateGustStats(); return; }
   // Restore generic chip labels when switching away from clouds
   document.getElementById('sl-avg').textContent = 'Period Avg';
   document.getElementById('sl-max').textContent = 'Period Max';
@@ -1506,6 +1697,7 @@ function startLiveRefresh() {
       singleData = makeSingleData();
       parseCSVInto(text, currentYear, currentYear, singleData, null);
       fillFeb29(singleData, currentYear);
+      renderHeatmap();
       updateStats();
     } catch(e) { console.warn('Live refresh failed:', e); }
   }, LIVE_INTERVAL);
@@ -1532,6 +1724,14 @@ function fillFeb29(data, year) {
       else if (!isNaN(v58))           data[f][i59] = v58;
       else if (!isNaN(v60))           data[f][i59] = v60;
     }
+  }
+  // Gusts: a peak can't be averaged, so the slot repeats Feb 28's hour
+  // (Mar 1's where Feb 28 wasn't observed).
+  for (let h = 0; h < 24; h++) {
+    const src = data.gustSeen[58 * 24 + h] ? 58 : (data.gustSeen[60 * 24 + h] ? 60 : -1);
+    if (src < 0) continue;
+    data.gust[59 * 24 + h]     = data.gust[src * 24 + h];
+    data.gustSeen[59 * 24 + h] = 1;
   }
 }
 async function loadSingleYear(year) {
@@ -1791,7 +1991,18 @@ function getCompareDailyArray(year, field) {
   // empty array WITHOUT caching it -- caching here would pin all-NaN for
   // that year even after its data arrives.
   if (!grid) return arr;
-  {
+  if (field === GUST_FIELD) {
+    // A day's gust is its peak, not its mean.
+    const src = grid.gust;
+    for (let doy = 0; doy < 366; doy++) {
+      let mx = NaN;
+      for (let h = 0; h < 24; h++) {
+        const v = src[doy*24 + h];
+        if (!isNaN(v) && !(mx >= v)) mx = v;
+      }
+      arr[doy] = mx;
+    }
+  } else {
     const src = grid[field];
     for (let doy = 0; doy < 366; doy++) {
       let sum = 0, cnt = 0;
@@ -1970,6 +2181,15 @@ function updateFieldButtons() {
       btn.title = climoData ? '' : 'Load a Multi-Year Avg range first';
       continue;
     }
+    // Wind Gusts has no Multi-Year Avg: a mean of only the gusty hours
+    // isn't a climatology.
+    if (f === GUST_FIELD) {
+      btn.style.display = mode === 'climatology' ? 'none' : '';
+      btn.classList.toggle('disabled', false);
+      btn.classList.toggle('active', f === activeField);
+      btn.title = '';
+      continue;
+    }
     // Diurnal Range is one value per day, so it only exists where a row
     // already means a day: Compare Years.
     if (DAILY_ONLY_FIELDS.includes(f)) {
@@ -2001,6 +2221,21 @@ function updateFieldButtons() {
   // Show/hide anomaly hint
   document.getElementById('anon-note').style.display =
     ((mode === 'single' || mode === 'compare') && !climoData) ? 'block' : 'none';
+  updateFieldGroups();
+}
+
+// Hides any button group with nothing visible in it (e.g. the trend group
+// outside Multi-Year Avg), plus the divider in front of it, so an empty
+// group never keeps a share of the row.
+function updateFieldGroups() {
+  let first = true;
+  for (const g of document.querySelectorAll('#field-toggle .field-group')) {
+    const shown = [...g.querySelectorAll('.field-btn')].some(b => b.style.display !== 'none');
+    g.style.display = shown ? '' : 'none';
+    const sep = g.previousElementSibling;
+    if (sep && sep.classList.contains('field-toggle-sep')) sep.style.display = (shown && !first) ? '' : 'none';
+    if (shown) first = false;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2012,6 +2247,7 @@ function setMode(m) {
   // temp_anom/td_anom (not the std-dev pair) -- switch away from anything
   // unsupported in the mode we're entering.
   if (m === 'climatology' && ANOM_FIELDS.includes(activeField)) activeField = 'temp';
+  if (m === 'climatology' && activeField === GUST_FIELD) activeField = 'wind';
   if (m === 'compare' && ANOM_FIELDS.includes(activeField) && !COMPARE_SUPPORTED_ANOM_FIELDS.includes(activeField)) activeField = 'temp';
   // Trend only in climatology; Diurnal Range only in compare.
   if (m !== 'climatology' && TREND_FIELDS.includes(activeField)) activeField = 'temp';
@@ -2051,6 +2287,7 @@ function setField(f) {
   const isAnom = ANOM_FIELDS.includes(f);
   if (TREND_FIELDS.includes(f) && (mode !== 'climatology' || !climoData)) return;
   if (DAILY_ONLY_FIELDS.includes(f) && mode !== 'compare') return;
+  if (f === GUST_FIELD && mode === 'climatology') return;
   if (isAnom && mode === 'climatology') return;
   if (isAnom && mode === 'compare' && !COMPARE_SUPPORTED_ANOM_FIELDS.includes(f)) return;
 
@@ -2122,23 +2359,30 @@ canvas.addEventListener('mousemove', e => {
   const doy = Math.min(365, Math.floor(mx / W * 366));
   const row = Math.min(rows-1, Math.floor(my / H * rows));
   const v   = getCellValue(doy, row);
+  refreshNow();
 
   let modeStr;
   if (mode === 'compare') {
     const year = compareYears[row];
     document.getElementById('tt-date').textContent = `${doyToDisplay(doy)}, ${year}`;
-    modeStr = `${year} daily avg`;
+    modeStr = activeField === GUST_FIELD ? `${year} daily peak gust` : `${year} daily avg`;
   } else {
     document.getElementById('tt-date').textContent = `${doyToDisplay(doy)}  ·  ${fmtHour(row)}`;
     modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
   }
 
   let valStr = '—', detail = '';
+  if (v == null && activeField === GUST_FIELD && mode !== 'climatology') {
+    if (gustCellMissing(doy, row)) { valStr = 'M'; detail = 'No observation'; }
+    else if (mode === 'compare' ? cellIsPast(compareYears[row], doy, 0)
+                                : cellIsPast(currentYear, doy, row)) detail = 'No gust reported';
+  }
   if (v != null) {
     const f = activeField;
     if (f==='temp'||f==='td')          { valStr = Math.round(v)+'°F'; }
     else if (f==='clouds')             { valStr = v.toFixed(1)+' / 5'; detail = ['','Clear','Few','Scattered','Broken','Overcast'][Math.round(v)]||''; }
     else if (f==='wind')               { valStr = Math.round(v)+' mph'; }
+    else if (f==='gust')               { valStr = Math.round(v)+' mph'; if (mode !== 'compare') detail = 'Peak gust'; }
     else if (f==='temp_anom'||f==='td_anom') { const r=Math.round(v); valStr=(r>0?'+':'')+r+'°F'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
     else if (f==='temp_z'||f==='td_z') { valStr=v.toFixed(2)+'σ'; detail='vs. '+fromYear+'–'+toYear+' avg'; }
     else if (f==='temp_trend'||f==='td_trend') {
@@ -2166,7 +2410,7 @@ canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; });
 // ═══════════════════════════════════════════════════════════
 function downloadPNG() {
   const st = STATIONS[activeStationId];
-  const fLabel = { temp:'Temperature', td:'Dewpoint', clouds:'Cloud Cover', wind:'Wind Speed',
+  const fLabel = { temp:'Temperature', td:'Dewpoint', clouds:'Cloud Cover', wind:'Wind Speed', gust:'Wind Gusts',
                    temp_anom:'Temp Anomaly', td_anom:'Dew Anomaly', temp_z:'Temp Std Dev', td_z:'Dew Std Dev',
                    temp_trend:'Temp Trend', td_trend:'Dew Trend', dtr:'Diurnal Range' }[activeField];
 
@@ -2187,6 +2431,7 @@ function downloadPNG() {
     period = `Compare ${compareYears[0]}–${compareYears[compareYears.length-1]}`;
     sub = ANOM_FIELDS.includes(activeField)
       ? `Daily anomaly vs. ${fromYear}–${toYear} reference  ·  ${st.tzLabel} local time`
+      : activeField === GUST_FIELD ? `Daily peak gusts  ·  ${st.tzLabel} local time`
       : `Daily averages  ·  ${st.tzLabel} local time`;
   }
 
@@ -2245,7 +2490,13 @@ function downloadPNG() {
   const avgEl = document.getElementById('sv-avg').textContent;
   const maxEl = document.getElementById('sv-max').textContent;
   const minEl = document.getElementById('sv-min').textContent;
-  oc.fillText(`Avg: ${avgEl}   Max: ${maxEl}   Min: ${minEl}`, PAD, 62);
+  // Cloud Cover and Wind Gusts relabel the chips, so their line uses the
+  // chip labels rather than Avg/Max/Min.
+  const chipLabels = activeField === 'clouds' || activeField === GUST_FIELD;
+  const lbl = id => document.getElementById(id).textContent;
+  oc.fillText(chipLabels
+    ? `${lbl('sl-avg')}: ${avgEl}   ${lbl('sl-max')}: ${maxEl}   ${lbl('sl-min')}: ${minEl}`
+    : `Avg: ${avgEl}   Max: ${maxEl}   Min: ${minEl}`, PAD, 62);
 
   oc.fillStyle = '#948F82';
   oc.font = '12px "Barlow Condensed", sans-serif';
@@ -2288,6 +2539,15 @@ function downloadPNG() {
   oc.fillStyle = '#948F82';
   oc.font = '11px "Barlow Condensed", sans-serif';
   oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS  ·  contextclimate.io`, PAD, oh-8);
+  if (activeField === GUST_FIELD) {
+    // Legend key for the missing-data fill
+    oc.textAlign = 'right';
+    oc.fillText('Missing', gridX + cw2, oh - 8);
+    const kx = gridX + cw2 - oc.measureText('Missing').width - 16;
+    oc.fillStyle = `rgb(${MISSING_FILL.join(',')})`;
+    oc.fillRect(kx, oh - 18, 10, 10);
+    oc.textAlign = 'left';
+  }
 
   // Bottom accent bar
   oc.fillStyle = grad;
