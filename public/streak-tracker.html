@@ -214,9 +214,11 @@ body { padding: 20px 0 48px; }
           <option value="temp">Temperature</option>
           <option value="dewpoint">Dewpoint</option>
           <option value="cloud">Cloud cover</option>
+          <option value="wind">Wind speed</option>
+          <option value="gust">Wind gust</option>
         </select>
       </div>
-      <div class="custom-field">
+      <div class="custom-field" id="agg-field">
         <label>Track by</label>
         <div class="cc-segmented" id="seg-agg">
           <button class="cc-segmented-btn" data-agg="hourly">Hourly</button>
@@ -231,7 +233,7 @@ body { padding: 20px 0 48px; }
           <option value="mean">Mean</option>
         </select>
       </div>
-      <div class="custom-field">
+      <div class="custom-field" id="op-field">
         <label>Direction</label>
         <div class="cc-segmented" id="seg-op">
           <button class="cc-segmented-btn" data-op="gte">&ge; At/Above</button>
@@ -345,7 +347,8 @@ const SPLIT_MAX_DEPTH = 4, MAX_INFLIGHT = 2;
 const EMPTY_STOP = 12;             // consecutive empty years that end the backward walk
 const POR_FLOOR = 1900;
 const ROUTINE_MIN_OBS = 200;
-const CACHE_VER = 1;
+const CACHE_VER = 2;
+const KT_TO_MPH = 1.15078;
 const EXPORT_SCALE = 3;
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const TEMPLATE_LEN = [31,29,31,30,31,30,31,31,30,31,30,31];
@@ -354,25 +357,36 @@ const TEMPLATE_LEN = [31,29,31,30,31,30,31,31,30,31,30,31];
 // VARIABLES, FAMILIES, PRESETS
 // ================================================================
 const VARIABLES = {
-  temp:     { label:'Temperature', unit:'°F', group:'tmpf', dailySource:'acis', rangeMin:-30, rangeMax:120, step:1,
+  temp:     { label:'Temperature', unit:'°F', group:'tmpf', out:'tmpf', dailySource:'acis', rangeMin:-30, rangeMax:120, step:1,
               metricLabel:{ max:'daily high', min:'daily low', mean:'daily mean' },
               fmt: v => `${Math.round(v)}°F` },
-  dewpoint: { label:'Dewpoint', unit:'°F', group:'dwpf', dailySource:'iem', rangeMin:-30, rangeMax:90, step:1,
+  dewpoint: { label:'Dewpoint', unit:'°F', group:'dwpf', out:'dwpf', dailySource:'iem', rangeMin:-30, rangeMax:90, step:1,
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
               fmt: v => `${Math.round(v)}°F` },
-  cloud:    { label:'Cloud cover', unit:'/8', group:'sky', dailySource:'iem', rangeMin:0, rangeMax:8, step:0.5,
+  cloud:    { label:'Cloud cover', unit:'/8', group:'sky', out:'sky', dailySource:'iem', rangeMin:0, rangeMax:8, step:0.5,
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
-              fmt: v => `${Math.round(v*2)/2}/8` }
+              fmt: v => `${Math.round(v*2)/2}/8` },
+  wind:     { label:'Wind speed', unit:' mph', group:'wind', out:'wind', dailySource:'iem', rangeMin:0, rangeMax:60, step:1,
+              metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
+              fmt: v => `${Math.round(v)} mph` },
+  // Gusts are events: an hour with a report but no gust is 0, not missing.
+  // Daily peak only, and only "at or above".
+  gust:     { label:'Wind gust', unit:' mph', group:'wind', out:'gust', dailySource:'iem', rangeMin:15, rangeMax:100, step:1,
+              dailyOnly:true, gteOnly:true,
+              metricLabel:{ max:'daily peak', min:'daily peak', mean:'daily peak' },
+              fmt: v => v > 0 ? `${Math.round(v)} mph` : 'no gusts' }
 };
 const GROUPS = {
-  tmpf: { fields:['tmpf'], chunk:10, label:'temperature' },
-  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint' },
-  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover' }
+  tmpf: { fields:['tmpf'], chunk:10, label:'temperature', outs:['tmpf'] },
+  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint', outs:['dwpf'] },
+  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover', outs:['sky'] },
+  wind: { fields:['sknt','gust','peak_wind_gust','peak_wind_time'], chunk:6, label:'wind', outs:['wind','gust'] }
 };
 const FAMILIES = [
   { id:'temp',  label:'Temperature' },
   { id:'moist', label:'Moisture' },
-  { id:'sky',   label:'Sky' }
+  { id:'sky',   label:'Sky' },
+  { id:'wind',  label:'Wind' }
 ];
 // ys = first month of the counting year (7 = Jul–Jun, so winter isn't split at New Year's)
 const PRESETS = [
@@ -397,10 +411,18 @@ const PRESETS = [
   { id:'c-grayday',     fam:'sky',   grp:'Cloudy', label:'Gray days (mean ≥7/8)',   variable:'cloud', agg:'daily', metric:'mean', op:'gte', value:7 },
   { id:'c-clear',       fam:'sky',   grp:'Clear',  label:'Clear hours 0/8',         variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:0 },
   { id:'c-fewclouds',   fam:'sky',   grp:'Clear',  label:'Mostly clear hours ≤3/8', variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:3 },
-  { id:'c-clearday',    fam:'sky',   grp:'Clear',  label:'Clear days (≤2/8 all day)', variable:'cloud', agg:'daily', metric:'max', op:'lte', value:2 }
+  { id:'c-clearday',    fam:'sky',   grp:'Clear',  label:'Clear days (≤2/8 all day)', variable:'cloud', agg:'daily', metric:'max', op:'lte', value:2 },
+  { id:'w-calm',        fam:'wind',  grp:'Sustained', label:'Calm hours ≤3 mph',     variable:'wind', agg:'hourly', metric:'max', op:'lte', value:3 },
+  { id:'w-breezy',      fam:'wind',  grp:'Sustained', label:'Breezy hours ≥15 mph',  variable:'wind', agg:'hourly', metric:'max', op:'gte', value:15 },
+  { id:'w-windy',       fam:'wind',  grp:'Sustained', label:'Windy hours ≥25 mph',   variable:'wind', agg:'hourly', metric:'max', op:'gte', value:25 },
+  { id:'w-breezyday',   fam:'wind',  grp:'Sustained', label:'Breezy days (mean ≥15 mph)', variable:'wind', agg:'daily', metric:'mean', op:'gte', value:15 },
+  { id:'w-lightday',    fam:'wind',  grp:'Sustained', label:'Light-wind days (mean ≤5 mph)', variable:'wind', agg:'daily', metric:'mean', op:'lte', value:5 },
+  { id:'g-30',          fam:'wind',  grp:'Gusts',  label:'Gusty days ≥30 mph',      variable:'gust', agg:'daily', metric:'max', op:'gte', value:30 },
+  { id:'g-40',          fam:'wind',  grp:'Gusts',  label:'Strong-gust days ≥40 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:40 },
+  { id:'g-50',          fam:'wind',  grp:'Gusts',  label:'Damaging-gust days ≥50 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:50 }
 ];
 const PRESET_BY_ID = Object.fromEntries(PRESETS.map(p => [p.id, p]));
-const FAMILY_OF_VARIABLE = { temp:'temp', dewpoint:'moist', cloud:'sky' };
+const FAMILY_OF_VARIABLE = { temp:'temp', dewpoint:'moist', cloud:'sky', wind:'wind', gust:'wind' };
 
 const SEASON_PRESETS = [
   { id:'all', label:'All months',        months:[1,2,3,4,5,6,7,8,9,10,11,12] },
@@ -524,10 +546,16 @@ function skyCodeToOktas(code) {
 }
 function modeOfHist(hist) { let best = -1, bestN = 0; for (let m = 0; m < 60; m++) if (hist[m] > bestN) { bestN = hist[m]; best = m; } return best; }
 
-// Parse one IEM chunk into Map(LST year -> Float32Array of hourly values | null).
-// Cell window: obs at :45 or later belong to the next hour. Within a cell the
-// routine ob wins; a special fills the cell only when the routine value is
-// missing, and then it is the special nearest the routine minute.
+const numOrNull = s => { if (s == null) return null; s = s.trim(); if (!s || s === 'M') return null; const f = parseFloat(s); return isNaN(f) ? null : f; };
+
+// Parse one IEM chunk into Map(LST year -> { out: Float32Array of hourly values } | null).
+// State fields (temp, dewpoint, sky, wind speed): cell window is (H-1):45 to
+// H:44, the routine ob wins, and a special fills a cell only when the routine
+// value is missing — then the special nearest the routine minute.
+// Gusts are events, binned by when they happened (clock hour, no rollover) so
+// a late-evening gust stays on its own day: the cell holds the highest gust of
+// any ob in the hour, or 0 when wind was reported with no gust. A METAR peak
+// wind (PK WND) is binned at its own reported time.
 function parseChunk(text, group, y1, y2, st) {
   const lines = text.split('\n');
   let hdr = -1;
@@ -535,42 +563,69 @@ function parseChunk(text, group, y1, y2, st) {
   const out = new Map();
   for (let Y = y1; Y <= y2; Y++) out.set(Y, null);
   if (hdr < 0) return out;
+  const G = GROUPS[group];
   const h = lines[hdr].split(',');
-  const vI = h.indexOf('valid');
-  const fI = GROUPS[group].fields.map(f => h.indexOf(f));
-  const isSky = group === 'sky';
+  const col = f => h.indexOf(f);
+  const vI = col('valid');
+  const I = {}; for (const f of G.fields) I[f] = col(f);
+  const toLst = (s) => {
+    if (!s || s.length < 16) return NaN;
+    const uy = +s.substr(0, 4), um = +s.substr(5, 2), ud = +s.substr(8, 2), uh = +s.substr(11, 2), umi = +s.substr(14, 2);
+    if (!(uy > 0) || isNaN(um) || isNaN(ud) || isNaN(uh) || isNaN(umi)) return NaN;
+    return Date.UTC(uy, um - 1, ud, uh, umi) + stdOffsetMin(st.iana, uy) * 60000;
+  };
+  // State value of a row for this group (one state output per group).
+  let stateOut, stateVal;
+  if (group === 'sky') {
+    stateOut = 'sky';
+    stateVal = parts => {
+      let v = null;
+      for (const f of G.fields) {
+        const idx = I[f]; if (idx < 0) continue;
+        const c = (parts[idx] || '').trim();
+        if (!c || c === 'M') continue;
+        const o = skyCodeToOktas(c);
+        if (o != null && (v === null || o > v)) v = o;
+      }
+      return v;
+    };
+  } else if (group === 'wind') {
+    stateOut = 'wind';
+    stateVal = parts => { const k = numOrNull(parts[I.sknt]); return k === null ? null : Math.round(k * KT_TO_MPH); };
+  } else {
+    stateOut = G.outs[0];
+    stateVal = parts => numOrNull(parts[I[G.fields[0]]]);
+  }
+  const hasGust = group === 'wind';
 
-  // Pass 1: parse rows once, histogram of LST minutes per LST year.
+  // Pass 1: parse rows, histogram of LST minutes per LST year.
   const rows = [];
   const histByYear = new Map(), histAll = new Int32Array(60);
   for (let i = hdr + 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     const parts = line.split(',');
-    const valid = parts[vI];
-    if (!valid || valid.length < 16) continue;
-    const uy = +valid.substr(0, 4), um = +valid.substr(5, 2), ud = +valid.substr(8, 2), uh = +valid.substr(11, 2), umi = +valid.substr(14, 2);
-    if (!(uy > 0) || isNaN(um) || isNaN(ud) || isNaN(uh) || isNaN(umi)) continue;
-    const lst = Date.UTC(uy, um - 1, ud, uh, umi) + stdOffsetMin(st.iana, uy) * 60000;
-    const mi = new Date(lst).getUTCMinutes();
-    const ly = new Date(lst).getUTCFullYear();
+    const lst = toLst(parts[vI]);
+    if (isNaN(lst)) continue;
+    const dt = new Date(lst), mi = dt.getUTCMinutes(), ly = dt.getUTCFullYear();
     let hist = histByYear.get(ly);
     if (!hist) { hist = new Int32Array(60); histByYear.set(ly, hist); }
     hist[mi]++; histAll[mi]++;
-    let v = null;
-    if (isSky) {
-      for (const idx of fI) {
-        if (idx < 0) continue;
-        const c = (parts[idx] || '').trim();
-        if (!c || c === 'M') continue;
-        const o = skyCodeToOktas(c);
-        if (o != null && (v === null || o > v)) v = o;
+    const v = stateVal(parts);
+    const row = { lst, mi, v };
+    if (hasGust) {
+      const g = numOrNull(parts[I.gust]);
+      row.seen = row.v !== null || g !== null;
+      row.gust = g === null ? null : Math.round(g * KT_TO_MPH);
+      const pk = numOrNull(parts[I.peak_wind_gust]);
+      if (pk !== null) {
+        let pt = I.peak_wind_time >= 0 ? toLst((parts[I.peak_wind_time] || '').trim()) : NaN;
+        // PK WND happened since the previous routine ob; if the time is absent or implausible, assume ~30 min earlier.
+        if (!(pt <= lst && lst - pt <= 2 * HOUR)) pt = lst - 30 * 60000;
+        row.pk = Math.round(pk * KT_TO_MPH); row.pkLst = pt;
       }
-    } else {
-      const s = (parts[fI[0]] || '').trim();
-      if (s && s !== 'M') { const f = parseFloat(s); if (!isNaN(f)) v = f; }
     }
-    rows.push(lst, mi, v === null ? NaN : v);
+    rows.push(row);
   }
   const globalR = modeOfHist(histAll);
   const routineOf = new Map();
@@ -580,23 +635,41 @@ function parseChunk(text, group, y1, y2, st) {
   }
 
   // Pass 2: fill cells.
-  const bufs = new Map();  // Y -> {vals, dist, any}
-  for (let k = 0; k < rows.length; k += 3) {
-    const lst = rows[k], mi = rows[k + 1], v = rows[k + 2];
-    const cell = Math.floor((lst + 15 * 60000) / HOUR) * HOUR;
-    const Y = new Date(cell).getUTCFullYear();
-    if (Y < y1 || Y > y2) continue;
+  const bufs = new Map();   // Y -> { vals: {out: arr}, dist }
+  const bufFor = (Y) => {
     let b = bufs.get(Y);
     if (!b) {
       const n = (Date.UTC(Y + 1, 0, 1) - Date.UTC(Y, 0, 1)) / HOUR;
-      b = { vals: new Float32Array(n).fill(NaN), dist: new Uint8Array(n).fill(255) };
+      b = { vals: {}, dist: new Uint8Array(n).fill(255) };
+      for (const o of G.outs) b.vals[o] = new Float32Array(n).fill(NaN);
       bufs.set(Y, b);
     }
-    if (isNaN(v)) continue;
-    const idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
-    const R = routineOf.get(new Date(lst).getUTCFullYear()) ?? globalR;
-    const dd = Math.abs(mi - R), d = Math.min(dd, 60 - dd);
-    if (d < b.dist[idx]) { b.dist[idx] = d; b.vals[idx] = v; }
+    return b;
+  };
+  const eventAt = (ms, v) => {
+    const cell = Math.floor(ms / HOUR) * HOUR;
+    const Y = new Date(cell).getUTCFullYear();
+    if (Y < y1 || Y > y2) return;
+    const arr = bufFor(Y).vals.gust, idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
+    if (!(arr[idx] >= v)) arr[idx] = v;
+  };
+  for (const r of rows) {
+    // State cell (with :45 rollover).
+    const cell = Math.floor((r.lst + 15 * 60000) / HOUR) * HOUR;
+    const Y = new Date(cell).getUTCFullYear();
+    if (Y >= y1 && Y <= y2) {
+      const b = bufFor(Y);
+      if (r.v !== null) {
+        const idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
+        const R = routineOf.get(new Date(r.lst).getUTCFullYear()) ?? globalR;
+        const dd = Math.abs(r.mi - R), d = Math.min(dd, 60 - dd);
+        if (d < b.dist[idx]) { b.dist[idx] = d; b.vals[stateOut][idx] = r.v; }
+      }
+    }
+    if (hasGust) {
+      if (r.seen) eventAt(r.lst, r.gust === null ? 0 : r.gust);
+      if (r.pk != null) eventAt(r.pkLst, r.pk);
+    }
   }
   for (const [Y, b] of bufs) out.set(Y, b.vals);
   return out;
@@ -658,7 +731,7 @@ function newStore(st) {
 }
 const storeAlive = tok => store && store.token === tok;
 function groupState(g) {
-  if (!store.groups[g]) store.groups[g] = { years: new Map(), failed: new Map(), status: 'idle', ver: 0, merged: null, mergedVer: -1, daily: null, dailyVer: -1, oldestTried: null };
+  if (!store.groups[g]) store.groups[g] = { years: new Map(), failed: new Map(), status: 'idle', ver: 0, merged: null, daily: null };
   return store.groups[g];
 }
 function applyYear(gs, Y, vals) { gs.years.set(Y, vals); gs.failed.delete(Y); gs.ver++; }
@@ -792,27 +865,33 @@ async function loadGroup(group) {
   onLoadProgress(true);
 }
 
-function mergedFor(group) {
+function mergedFor(group, outName) {
   const gs = store && store.groups[group];
   if (!gs) return null;
-  if (gs.merged && gs.mergedVer === gs.ver) return gs.merged;
+  gs.merged = gs.merged || {};
+  const hit = gs.merged[outName];
+  if (hit !== undefined && hit.ver === gs.ver) return hit.m;
   let minY = Infinity, maxY = -Infinity;
   for (const [Y, v] of gs.years) if (v) { if (Y < minY) minY = Y; if (Y > maxY) maxY = Y; }
-  if (minY === Infinity) { gs.merged = null; gs.mergedVer = gs.ver; return null; }
-  const startMs = Date.UTC(minY, 0, 1);
-  const vals = new Float32Array((Date.UTC(maxY + 1, 0, 1) - startMs) / HOUR).fill(NaN);
-  for (let Y = minY; Y <= maxY; Y++) { const v = gs.years.get(Y); if (v) vals.set(v, (Date.UTC(Y, 0, 1) - startMs) / HOUR); }
-  gs.merged = { startMs, startDay: startMs / DAY, vals, minY, maxY };
-  gs.mergedVer = gs.ver;
-  return gs.merged;
+  let m = null;
+  if (minY !== Infinity) {
+    const startMs = Date.UTC(minY, 0, 1);
+    const vals = new Float32Array((Date.UTC(maxY + 1, 0, 1) - startMs) / HOUR).fill(NaN);
+    for (let Y = minY; Y <= maxY; Y++) { const v = gs.years.get(Y); if (v && v[outName]) vals.set(v[outName], (Date.UTC(Y, 0, 1) - startMs) / HOUR); }
+    m = { startMs, startDay: startMs / DAY, vals, minY, maxY };
+  }
+  gs.merged[outName] = { ver: gs.ver, m };
+  return m;
 }
 
 // Per-LST-day aggregates of an hourly group.
-function dailyFor(group) {
+function dailyFor(group, outName) {
   const gs = store && store.groups[group];
-  const m = mergedFor(group);
+  const m = mergedFor(group, outName);
   if (!m) return null;
-  if (gs.daily && gs.dailyVer === gs.ver) return gs.daily;
+  gs.daily = gs.daily || {};
+  const hit = gs.daily[outName];
+  if (hit && hit.ver === gs.ver) return hit.d;
   const nDays = m.vals.length / 24;
   const max = new Float32Array(nDays).fill(NaN), min = new Float32Array(nDays).fill(NaN), mean = new Float32Array(nDays).fill(NaN), cnt = new Uint8Array(nDays);
   for (let d = 0; d < nDays; d++) {
@@ -824,9 +903,9 @@ function dailyFor(group) {
     cnt[d] = c;
     if (c >= MIN_HOURS_COMPLETE) { max[d] = hi; min[d] = lo; mean[d] = s / c; }
   }
-  gs.daily = { startDay: m.startDay, max, min, mean, cnt };
-  gs.dailyVer = gs.ver;
-  return gs.daily;
+  const d = { startDay: m.startDay, max, min, mean, cnt };
+  gs.daily[outName] = { ver: gs.ver, d };
+  return d;
 }
 
 // ================================================================
@@ -888,10 +967,12 @@ const app = {
   view: 'streaks',
   totalsGroupBy: 'year'
 };
-function defaultYearStart(variable, op) { return (variable !== 'cloud' && op === 'lte') ? 7 : 1; }
+function defaultYearStart(variable, op) { return ((variable === 'temp' || variable === 'dewpoint') && op === 'lte') ? 7 : 1; }
 function activeCfg() {
   const base = app.custom || PRESET_BY_ID[app.presetId] || PRESETS[0];
   const cfg = { variable: base.variable, agg: base.agg, metric: base.metric, op: base.op, value: base.value };
+  if (VARIABLES[cfg.variable].dailyOnly) { cfg.agg = 'daily'; cfg.metric = 'max'; }
+  if (VARIABLES[cfg.variable].gteOnly) cfg.op = 'gte';
   cfg.ys = (!app.custom && base.ys) ? base.ys : defaultYearStart(cfg.variable, cfg.op);
   // A season that runs across New Year's (e.g. Dec–Feb) needs Jul–Jun years to stay in one row.
   if (app.months.size < 12 && app.months.has(12) && app.months.has(1)) cfg.ys = 7;
@@ -973,12 +1054,13 @@ function buildSeries(cfg) {
     }
     return finalizeSeries('day', a.startDay, vals, cfg, st, 'acis');
   }
+  const out = VARIABLES[cfg.variable].out;
   if (cfg.agg === 'hourly') {
-    const m = mergedFor(src);
+    const m = mergedFor(src, out);
     if (!m) return null;
     return finalizeSeries('hour', m.startDay, m.vals, cfg, st, 'iem');
   }
-  const dly = dailyFor(src);
+  const dly = dailyFor(src, out);
   if (!dly) return null;
   return finalizeSeries('day', dly.startDay, dly[cfg.metric], cfg, st, cfg.variable === 'temp' ? 'iem-derived' : 'iem');
 }
@@ -1255,6 +1337,8 @@ function renderProvenance(cfg) {
     if (src === 'iem-derived') bits.push('Daily high/low derived from hourly observations.');
   }
   if (cfg.variable === 'cloud') bits.push('Cloud cover: highest reported sky layer in oktas (ASOS ceilometer, to 12,000 ft).');
+  if (cfg.variable === 'wind') bits.push('Wind: 2-minute sustained speed, knots converted to mph.');
+  if (cfg.variable === 'gust') bits.push('Gusts: highest gust or METAR peak wind (PK WND) reported during the day; a day with wind reports but no gust counts as zero.');
   bits.push('Days in local standard time.');
   if (cfg.ys !== 1) bits.push('Years run Jul–Jun.');
   bits.push('Forecast: NWS.');
@@ -1374,7 +1458,13 @@ async function maybeCheckForecast() {
   try {
     const periods = await fetchForecast(store.st, cfg.agg === 'hourly');
     if (seq !== forecastSeq) return;
+    const nums = str => (String(str || '').match(/\d+/g) || []).map(Number);
     const pv = p => {
+      if (cfg.variable === 'wind') { const n = nums(p.windSpeed); return n.length ? (cfg.agg === 'daily' && cfg.metric === 'mean' ? n.reduce((a, b) => a + b, 0) / n.length : Math.max(...n)) : null; }
+      if (cfg.variable === 'gust') {
+        const m = String(p.detailedForecast || '').match(/gusts?[^.]*?(?:as high as|up to|around|near|of)\s+(\d+)\s*mph/i);
+        return m ? +m[1] : 0;
+      }
       if (cfg.variable === 'temp') return typeof p.temperature === 'number' ? p.temperature : null;
       if (cfg.variable === 'cloud') return shortForecastToOktas(p.shortForecast);
       if (p.dewpoint && typeof p.dewpoint.value === 'number') {
@@ -1387,17 +1477,20 @@ async function maybeCheckForecast() {
     if (cfg.agg === 'hourly') { use = periods.slice(0, 6); when = 'the next 6 hours'; }
     else {
       const day = periods.find(p => p.isDaytime), night = periods.find(p => !p.isDaytime);
-      if (cfg.metric === 'min') { use = night ? [night] : []; when = night ? night.name.toLowerCase() : ''; }
+      if (cfg.variable === 'gust') { use = periods.slice(0, 2); when = periods.slice(0, 2).map(p => p.name.toLowerCase()).join(' and '); }
+      else if (cfg.metric === 'min') { use = night ? [night] : []; when = night ? night.name.toLowerCase() : ''; }
       else if (cfg.metric === 'max') { use = day ? [day] : []; when = day ? day.name.toLowerCase() : ''; }
       else { use = periods.slice(0, 2); when = periods.slice(0, 2).map(p => p.name.toLowerCase()).join(' and '); }
     }
     const vals = use.map(pv).filter(v => v != null);
     if (!vals.length) throw new Error('novals');
     // Daily mean from a day/night pair: average them.
-    const tested = cfg.agg === 'daily' && cfg.metric === 'mean' ? [vals.reduce((a, b) => a + b, 0) / vals.length] : vals;
+    const tested = cfg.variable === 'gust' ? [Math.max(...vals)]
+      : cfg.agg === 'daily' && cfg.metric === 'mean' ? [vals.reduce((a, b) => a + b, 0) / vals.length] : vals;
     const all = tested.every(v => qualifies(v, cfg)), any = tested.some(v => qualifies(v, cfg));
     const V = VARIABLES[cfg.variable];
-    const shown = [...new Set(vals.map(v => cfg.variable === 'cloud' ? Math.round(v) : Math.round(v)))].join('–') + V.unit;
+    const shown = cfg.variable === 'gust' && tested[0] === 0 ? 'no gusts mentioned'
+      : [...new Set(vals.filter(v => cfg.variable !== 'gust' || v > 0).map(v => Math.round(v)))].join('–') + V.unit;
     const verdict = all ? 'likely to continue' : !any ? 'likely to end' : 'close call';
     el.innerHTML = `<strong>Forecast: ${verdict}.</strong> NWS ${when}: ${shown}${cfg.variable === 'cloud' ? ' (from forecast wording)' : ''}.`;
   } catch (e) {
@@ -1801,7 +1894,11 @@ function syncCustomPanel() {
   $('seg-op').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.op === draft.op));
   $('metric-field').style.display = draft.agg === 'daily' ? '' : 'none';
   $('metric-select').value = draft.metric;
-  $('custom-value-label').textContent = `Value (${V.unit})`;
+  $('custom-value-label').textContent = `Value (${V.unit.trim()})`;
+  // Gusts: daily peak, at/above only.
+  $('agg-field').style.display = V.dailyOnly ? 'none' : '';
+  $('op-field').style.display = V.gteOnly ? 'none' : '';
+  if (V.dailyOnly) $('metric-field').style.display = 'none';
   for (const id of ['custom-num', 'custom-range']) { const e = $(id); e.min = V.rangeMin; e.max = V.rangeMax; e.step = V.step; e.value = draft.value; }
 }
 function initCustomPanel() {
@@ -1826,7 +1923,7 @@ function applyCustom() {
   const V = VARIABLES[draft.variable];
   const v = Math.min(V.rangeMax, Math.max(V.rangeMin, parseFloat(draft.value)));
   if (isNaN(v)) return;
-  const d = { variable: draft.variable, agg: draft.agg, metric: draft.agg === 'daily' ? draft.metric : 'max', op: draft.op, value: v };
+  const d = { variable: draft.variable, agg: V.dailyOnly ? 'daily' : draft.agg, metric: V.dailyOnly ? 'max' : (draft.agg === 'daily' ? draft.metric : 'max'), op: V.gteOnly ? 'gte' : draft.op, value: v };
   // If the draft matches a preset exactly, select the preset instead.
   const match = PRESETS.find(p => p.variable === d.variable && p.agg === d.agg && p.op === d.op && p.value === d.value && (d.agg === 'hourly' || p.metric === d.metric));
   if (match) { app.custom = null; app.presetId = match.id; }
