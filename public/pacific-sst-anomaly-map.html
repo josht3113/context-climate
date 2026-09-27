@@ -116,7 +116,40 @@ input[type="range"].t-sl:focus-visible { outline: 2px solid var(--tool-accent); 
 
 /* ── Legend ───────────────────────────────────────────────────────────── */
 .leg-card { padding: 10px 18px 8px; }
-#legend { display: block; width: 100%; }
+#legend, #legend-sec { display: block; width: 100%; }
+#legend-sec { margin-top: 6px; }
+
+/* ── Subsurface section ─────────────────────────────────────────────────── */
+.sec-card { overflow: hidden; }
+.sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 22px;
+  padding: 10px 16px 4px;
+}
+.sec-title {
+  font: 700 13px/1.2 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.sec-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 13px/1.2 var(--font-mono);
+  color: var(--color-text-secondary);
+}
+.sec-key svg + svg { margin-left: 12px; }
+.sec-date {
+  margin-left: auto;
+  font: 700 15px/1.2 var(--font-mono);
+  color: var(--tool-accent);
+}
+.sec-wrap { position: relative; }
+#sec, #sec-hover { display: block; width: 100%; }
+#sec-hover { position: absolute; left: 0; top: 0; cursor: crosshair; }
 
 /* ── Niño chips ───────────────────────────────────────────────────────── */
 .nino-row {
@@ -206,7 +239,28 @@ input[type="range"].t-sl:focus-visible { outline: 2px solid var(--tool-accent); 
   </div>
 
   <!-- Legend -->
-  <div class="card leg-card"><canvas id="legend" aria-hidden="true"></canvas></div>
+  <!-- Equatorial subsurface section -->
+  <div class="card sec-card">
+    <div class="sec-head">
+      <span class="sec-title">Equatorial subsurface · 2°S–2°N · 0–400 m</span>
+      <span class="sec-key" aria-hidden="true">
+        <svg width="28" height="8"><line x1="1" y1="4" x2="27" y2="4" stroke="#E8E4D9" stroke-width="2.2"/></svg>20 °C isotherm
+        <svg width="28" height="8"><line x1="1" y1="4" x2="27" y2="4" stroke="#E8E4D9" stroke-width="1.6" stroke-dasharray="6 4"/></svg>1991–2020
+      </span>
+      <span class="sec-date" id="sec-date">—</span>
+    </div>
+    <div class="sec-wrap">
+      <canvas id="sec" role="img" aria-label="Equatorial subsurface temperature anomaly section"></canvas>
+      <canvas id="sec-hover" aria-hidden="true"></canvas>
+      <div class="map-overlay hidden" id="sec-overlay"></div>
+    </div>
+  </div>
+
+  <!-- Legends -->
+  <div class="card leg-card">
+    <canvas id="legend" aria-hidden="true"></canvas>
+    <canvas id="legend-sec" aria-hidden="true"></canvas>
+  </div>
 
   <!-- Niño regions -->
   <div class="nino-row">
@@ -477,9 +531,12 @@ function smoothField(src) {
 
 // Returns [{level, lines:[[[col,row],...],...]}]; points in fractional grid coords.
 function computeContours() {
-  const f = smoothField(disp), nlon = G.nlon, nlat = G.nlat;
+  return marchingSquares(smoothField(disp), G.nlon, G.nlat, CONTOUR_LEVELS, 10);
+}
+// f[row * nlon + col]; returns [{level, lines:[[[col,row],...],...]}] in fractional index coords
+function marchingSquares(f, nlon, nlat, levels, minPts) {
   const out = [];
-  for (const L of CONTOUR_LEVELS) {
+  for (const L of levels) {
     const pts = new Map();                                     // edgeId → [col,row]
     const segs = [];
     const edgePt = (id) => {
@@ -536,7 +593,7 @@ function computeContours() {
       const other = (adj.get(segs[k][0]) || []).find(x => !used[x]);
       const back = other === undefined ? [segs[k][0]] : walk(segs[k][0], other);
       const ids = back.reverse().concat(fwd.slice(1));
-      if (ids.length >= 10) lines.push(ids.map(id => pts.get(id)));
+      if (ids.length >= minPts) lines.push(ids.map(id => pts.get(id)));
     }
     out.push({ level: L, lines });
   }
@@ -698,39 +755,320 @@ function drawWind(ctx, X, Y) {
 function legendCaption() {
   return state.base === 'rel' ? 'SST anomaly minus tropical mean (°C)' : 'SST anomaly vs 1991–2020 (°C)';
 }
-function drawLegend(ctx, ox, oy, W) {
+// step = °C per colour bin (16 bins each side, open-ended last bin)
+function drawLegend(ctx, ox, oy, W, step = 0.25, caption = legendCaption(), tickStep = 1) {
   const x0 = ox + 8, x1 = ox + W - 8, bw = x1 - x0, barY = oy + 26, bh = 12;
-  const X = v => x0 + (v + 4.25) / 8.5 * bw;
+  const span = 17 * step, X = v => x0 + (v + span) / (2 * span) * bw;
   ctx.save();
   ctx.fillStyle = 'rgba(232,228,217,0.75)';
   ctx.font = '13px "Public Sans", sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(legendCaption(), x0, oy + 14);
-  // bins
+  ctx.fillText(caption, x0, oy + 14);
   const seg = (a, b, rgb) => { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.fillRect(X(a), barY, X(b) - X(a) + 0.6, bh); };
-  seg(-0.25, 0.25, RGB_NEUTRAL);
+  seg(-step, step, RGB_NEUTRAL);
   for (let k = 1; k <= 15; k++) {
-    seg(0.25 * k, 0.25 * k + 0.25, RGB_WARM[k - 1]);
-    seg(-0.25 * k - 0.25, -0.25 * k, RGB_COOL[k - 1]);
+    seg(step * k, step * (k + 1), RGB_WARM[k - 1]);
+    seg(-step * (k + 1), -step * k, RGB_COOL[k - 1]);
   }
   const tri = (xa, xb, rgb) => {
     ctx.fillStyle = `rgb(${rgb.join(',')})`;
     ctx.beginPath(); ctx.moveTo(xa, barY); ctx.lineTo(xb, barY + bh / 2); ctx.lineTo(xa, barY + bh); ctx.closePath(); ctx.fill();
   };
-  tri(X(4.0), X(4.25) + 4, RGB_WARM[15]);
-  tri(X(-4.0), X(-4.25) - 4, RGB_COOL[15]);
+  tri(X(16 * step), X(span) + 4, RGB_WARM[15]);
+  tri(X(-16 * step), X(-span) - 4, RGB_COOL[15]);
   ctx.strokeStyle = 'rgba(232,228,217,0.25)'; ctx.lineWidth = 1;
-  ctx.strokeRect(X(-4.0) + 0.5, barY + 0.5, X(4.0) - X(-4.0) - 1, bh - 1);
-  // ticks
+  ctx.strokeRect(X(-16 * step) + 0.5, barY + 0.5, X(16 * step) - X(-16 * step) - 1, bh - 1);
   ctx.font = '13px "Courier Prime", monospace'; ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(232,228,217,0.7)'; ctx.strokeStyle = 'rgba(232,228,217,0.45)';
-  for (let v = -4; v <= 4; v++) {
+  const lim = 16 * step;
+  for (let v = -lim; v <= lim + 1e-9; v += tickStep) {
     ctx.beginPath(); ctx.moveTo(X(v), barY + bh); ctx.lineTo(X(v), barY + bh + 4); ctx.stroke();
-    ctx.fillText(v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v), X(v), barY + bh + 18);
+    ctx.fillText(Math.abs(v) < 1e-9 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v), X(v), barY + bh + 18);
   }
   ctx.restore();
   return 58;
 }
+
+// ── SUBSURFACE SECTION (GODAS) ───────────────────────────────────────────────
+const GODAS_DIR    = './godas/';
+const SEC_DEPTH    = 400;                         // m at the bottom of the panel
+const SEC_STEP     = 0.5;                         // °C per colour bin (map uses 0.25)
+const SEC_CONTOURS = [-6, -4, -2, 2, 4, 6];
+const ISO_T        = 20;                          // °C isotherm (thermocline proxy)
+let GIDX = null, GG = null;                       // godas index.json and its grid
+let sec = null;                                   // {temp, clim, anom, kind, key}
+let secContours = null, secToken = 0, secGeom = null;
+const secCache = new Map();
+
+// 0.5 °C bins → the map palette's 16 steps per side
+const SLUT_STEP = 0.01, SLUT_MAX = 14, SLUT_N = Math.round(2 * SLUT_MAX / SLUT_STEP) + 1;
+const SLUT = new Uint8Array(SLUT_N * 3);
+for (let i = 0; i < SLUT_N; i++) SLUT.set(rgbOfBin(binOf((-SLUT_MAX + i * SLUT_STEP) * 0.25 / SEC_STEP)), i * 3);
+
+function getSecFrame(kind, key) {
+  const k = kind + '/' + key;
+  if (secCache.has(k)) return secCache.get(k);
+  const p = (async () => {
+    const r = await fetch(`${GODAS_DIR}${kind}/${key}.bin.gz?v=${GIDX.version}`);
+    if (!r.ok) throw new Error(`GODAS ${kind} ${key}: HTTP ${r.status}`);
+    const u8 = await gunzipMaybe(await r.arrayBuffer());
+    const nd = GG.depths.length, nl = GG.lons.length, n = nd * nl;
+    if (u8.length !== 4 * n) throw new Error(`GODAS ${kind} ${key}: ${u8.length} bytes`);
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.length);
+    const temp = new Float32Array(n), clim = new Float32Array(n), anom = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = dv.getInt16(2 * i, true), b = dv.getInt16(2 * (n + i), true);
+      temp[i] = a === GG.missing ? NaN : a * GG.scale;
+      clim[i] = b === GG.missing ? NaN : b * GG.scale;
+      anom[i] = temp[i] - clim[i];
+    }
+    return { temp, clim, anom, kind, key };
+  })();
+  p.catch(() => secCache.delete(k));
+  secCache.set(k, p);
+  if (secCache.size > 40) secCache.delete(secCache.keys().next().value);
+  return p;
+}
+
+// Latest section frame dated on or before the map's date.
+function secKeyFor(f) {
+  if (!GIDX || !f) return null;
+  const latestLE = (arr, k) => { let best = null; for (const x of arr) if (x <= k) best = x; return best; };
+  const P = GIDX.pentads.map(e => e.d), Mo = GIDX.monthly.map(e => e.m);
+  if (f.cadence !== 'mo' && P.length && f.key >= P[0]) {
+    const p = latestLE(P, f.key);
+    if (p) return { kind: 'pentad', key: p };
+  }
+  const m = latestLE(Mo, f.key.slice(0, 7));
+  return m ? { kind: 'monthly', key: m } : null;
+}
+function secLabel(sf) {
+  if (sf.kind === 'pentad') return `GODAS pentad ending ${fmtDay(sf.key)}`;
+  const [y, m] = sf.key.split('-').map(Number);
+  return `GODAS monthly · ${MONTHS[m - 1]} ${y}`;
+}
+
+function secGeomFor(W) {
+  const PW = W - M.l - M.r;
+  const SH = Math.max(150, Math.min(260, Math.round(PW * 0.2)));
+  return { W, PW, SH, H: M.t + SH + M.b };
+}
+const depthAtRow = r => {                                  // fractional level index → m
+  const d = GG.depths, k = Math.max(0, Math.min(d.length - 2, Math.floor(r)));
+  return d[k] + (r - k) * (d[k + 1] - d[k]);
+};
+function rowAtDepth(z) {                                   // m → fractional level index
+  const d = GG.depths;
+  if (z <= d[0]) return 0;
+  for (let k = 0; k < d.length - 1; k++) if (z < d[k + 1]) return k + (z - d[k]) / (d[k + 1] - d[k]);
+  return d.length - 1;
+}
+function isoDepth(arr, col) {
+  const d = GG.depths, nl = GG.lons.length;
+  for (let k = 0; k < d.length - 1; k++) {
+    const a = arr[k * nl + col], b = arr[(k + 1) * nl + col];
+    if (a !== a || b !== b) return NaN;
+    if (a >= ISO_T && b < ISO_T) return d[k] + (a - ISO_T) / (a - b) * (d[k + 1] - d[k]);
+  }
+  return NaN;
+}
+
+function drawSection(ctx, ox, oy, W, scale) {
+  const g = secGeomFor(W);
+  const px0 = ox + M.l, py0 = oy + M.t;
+  const X = lon => px0 + (lon - LON_MIN) / (LON_MAX - LON_MIN) * g.PW;
+  const Y = z => py0 + z / SEC_DEPTH * g.SH;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(px0, py0, g.PW, g.SH); ctx.clip();
+  ctx.fillStyle = CLR_LAND; ctx.fillRect(px0, py0, g.PW, g.SH);
+
+  if (sec) {
+    const nl = GG.lons.length, nd = GG.depths.length, A = sec.anom;
+    const w = Math.max(1, Math.round(g.PW * scale)), h = Math.max(1, Math.round(g.SH * scale));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const cx = cv.getContext('2d'), img = cx.createImageData(w, h), px = img.data;
+    const lon0 = GG.lons[0], dlon = GG.lons[1] - GG.lons[0];
+    const x0 = new Int32Array(w), fx = new Float32Array(w);
+    for (let i = 0; i < w; i++) {
+      const gx = Math.min(nl - 1, Math.max(0, (LON_MIN + (i + 0.5) / w * (LON_MAX - LON_MIN) - lon0) / dlon));
+      x0[i] = Math.min(nl - 2, Math.floor(gx)); fx[i] = gx - x0[i];
+    }
+    let p = 0;
+    for (let j = 0; j < h; j++) {
+      const gy = Math.min(nd - 1, rowAtDepth((j + 0.5) / h * SEC_DEPTH));
+      const k = Math.min(nd - 2, Math.floor(gy)), wy = gy - k, r0 = k * nl, r1 = r0 + nl;
+      for (let i = 0; i < w; i++, p += 4) {
+        const c = x0[i], wx = fx[i];
+        const a = A[r0 + c], b = A[r0 + c + 1], e = A[r1 + c], f = A[r1 + c + 1];
+        const wa = (1 - wx) * (1 - wy), wb = wx * (1 - wy), we = (1 - wx) * wy, wf = wx * wy;
+        let s = 0, ws = 0;
+        if (a === a) { s += a * wa; ws += wa; }
+        if (b === b) { s += b * wb; ws += wb; }
+        if (e === e) { s += e * we; ws += we; }
+        if (f === f) { s += f * wf; ws += wf; }
+        if (ws < 0.3) { px[p] = RGB_LAND[0]; px[p + 1] = RGB_LAND[1]; px[p + 2] = RGB_LAND[2]; px[p + 3] = 255; continue; }
+        let v = s / ws; v = v < -SLUT_MAX ? -SLUT_MAX : v > SLUT_MAX ? SLUT_MAX : v;
+        const q = Math.round((v + SLUT_MAX) / SLUT_STEP) * 3;
+        px[p] = SLUT[q]; px[p + 1] = SLUT[q + 1]; px[p + 2] = SLUT[q + 2]; px[p + 3] = 255;
+      }
+    }
+    cx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(cv, px0, py0, g.PW, g.SH);
+  }
+
+  // graticule
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(232,228,217,0.09)';
+  for (let lon = 120; lon < LON_MAX; lon += 20) { ctx.beginPath(); ctx.moveTo(X(lon), py0); ctx.lineTo(X(lon), py0 + g.SH); ctx.stroke(); }
+  for (let z = 100; z < SEC_DEPTH; z += 100) { ctx.beginPath(); ctx.moveTo(px0, Y(z)); ctx.lineTo(px0 + g.PW, Y(z)); ctx.stroke(); }
+
+  if (sec) {
+    const lon0 = GG.lons[0], dlon = GG.lons[1] - GG.lons[0], nl = GG.lons.length;
+    const gx = c => X(lon0 + c * dlon), gy = r => Y(depthAtRow(r));
+    // contours
+    if (!secContours) secContours = marchingSquares(sec.anom, nl, GG.depths.length, SEC_CONTOURS, 3);
+    ctx.strokeStyle = CLR_INK; ctx.lineWidth = 1.2; ctx.lineJoin = 'round';
+    const labels = [];
+    for (const { level, lines } of secContours) {
+      ctx.setLineDash(level < 0 ? [5, 3] : []);
+      for (const ln of lines) {
+        ctx.beginPath();
+        ln.forEach(([c, r], k) => k ? ctx.lineTo(gx(c), gy(r)) : ctx.moveTo(gx(c), gy(r)));
+        ctx.stroke();
+        if (ln.length >= 8) {
+          const [c, r] = ln[Math.floor(ln.length / 2)];
+          labels.push({ x: gx(c), y: gy(r), t: (level > 0 ? '+' : '−') + Math.abs(level), n: ln.length });
+        }
+      }
+    }
+    ctx.setLineDash([]);
+    // 20 °C isotherm: climatology dashed, current solid
+    const iso = (arr, dash, width) => {
+      ctx.setLineDash(dash);
+      for (const pass of [0, 1]) {
+        ctx.strokeStyle = pass ? '#E8E4D9' : 'rgba(10,12,11,0.7)';
+        ctx.lineWidth = pass ? width : width + 2.5;
+        ctx.beginPath();
+        let pen = false;
+        for (let c = 0; c < nl; c++) {
+          const z = isoDepth(arr, c);
+          if (z !== z || z > SEC_DEPTH) { pen = false; continue; }
+          pen ? ctx.lineTo(gx(c), Y(z)) : ctx.moveTo(gx(c), Y(z));
+          pen = true;
+        }
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    };
+    iso(sec.clim, [6, 4], 1.6);
+    iso(sec.temp, [], 2.2);
+    // contour labels on top
+    labels.sort((a, b) => b.n - a.n);
+    const placed = [];
+    ctx.font = '700 12px "Courier Prime", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const lb of labels) {
+      if (lb.x < px0 + 18 || lb.x > px0 + g.PW - 18 || lb.y < py0 + 10 || lb.y > py0 + g.SH - 10) continue;
+      if (placed.some(q => Math.hypot(q.x - lb.x, q.y - lb.y) < 80)) continue;
+      placed.push(lb);
+      ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(10,12,11,0.75)'; ctx.strokeText(lb.t, lb.x, lb.y);
+      ctx.fillStyle = '#E8E4D9'; ctx.fillText(lb.t, lb.x, lb.y);
+    }
+    ctx.textBaseline = 'alphabetic';
+  }
+  ctx.restore();
+
+  // frame + axes
+  ctx.save();
+  ctx.strokeStyle = 'rgba(232,228,217,0.28)'; ctx.lineWidth = 1;
+  ctx.strokeRect(px0 + 0.5, py0 + 0.5, g.PW - 1, g.SH - 1);
+  ctx.fillStyle = 'rgba(232,228,217,0.62)'; ctx.font = '13px "Courier Prime", monospace';
+  ctx.textAlign = 'center';
+  for (let lon = 120; lon < LON_MAX; lon += 20) {
+    const lbl = lon === 180 ? '180°' : lon < 180 ? `${lon}°E` : `${360 - lon}°W`;
+    ctx.fillText(lbl, X(lon), py0 + g.SH + 19);
+    ctx.beginPath(); ctx.moveTo(X(lon), py0 + g.SH); ctx.lineTo(X(lon), py0 + g.SH + 5); ctx.stroke();
+  }
+  ctx.textAlign = 'right';
+  for (let z = 0; z <= SEC_DEPTH; z += 100) {
+    ctx.fillText(z === SEC_DEPTH ? `${z} m` : String(z), px0 - 8, Math.min(Y(z) + 4, py0 + g.SH + 4));
+    ctx.beginPath(); ctx.moveTo(px0 - 4, Y(z)); ctx.lineTo(px0, Y(z)); ctx.stroke();
+  }
+  ctx.restore();
+  return g;
+}
+
+const secCv = document.getElementById('sec'), secHovCv = document.getElementById('sec-hover');
+function renderSection() {
+  const dpr = window.devicePixelRatio || 1, W = secCv.parentElement.clientWidth, g = secGeomFor(W);
+  for (const cv of [secCv, secHovCv]) {
+    cv.width = Math.round(W * dpr); cv.height = Math.round(g.H * dpr); cv.style.height = g.H + 'px';
+  }
+  const c = secCv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, g.H);
+  secGeom = GG ? drawSection(c, 0, 0, W, dpr) : null;
+  drawSecHover();
+}
+function setSecOverlay(msg) {
+  const el = document.getElementById('sec-overlay');
+  el.textContent = msg || ''; el.classList.toggle('hidden', !msg); el.classList.toggle('error', !!msg);
+}
+async function updateSection() {
+  const my = ++secToken, el = document.getElementById('sec-date');
+  if (!GIDX) { renderSection(); return; }
+  const sk = secKeyFor(field);
+  if (!sk) { sec = null; secContours = null; el.textContent = '—'; setSecOverlay('NO SUBSURFACE DATA FOR THIS DATE'); renderSection(); return; }
+  if (!(sec && sec.kind === sk.kind && sec.key === sk.key)) {
+    try {
+      const fr = await getSecFrame(sk.kind, sk.key);
+      if (my !== secToken) return;
+      sec = fr; secContours = null;
+    } catch (e) {
+      if (my !== secToken) return;
+      console.error(e); sec = null; setSecOverlay('SUBSURFACE FRAME UNAVAILABLE'); renderSection(); return;
+    }
+  }
+  el.textContent = secLabel(sec);
+  setSecOverlay(null);
+  renderSection();
+  secCv.setAttribute('aria-label', `Equatorial subsurface temperature anomaly, ${secLabel(sec)}`);
+}
+
+function drawSecHover() {
+  const dpr = window.devicePixelRatio || 1, c = secHovCv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, secHovCv.width, secHovCv.height);
+  if (!hoverPos || !secGeom) return;
+  const g = secGeom, { x, y } = hoverPos, px0 = M.l, py0 = M.t;
+  if (x < px0 || x > px0 + g.PW) return;
+  c.strokeStyle = 'rgba(232,228,217,0.35)'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(x + 0.5, py0); c.lineTo(x + 0.5, py0 + g.SH); c.stroke();
+  if (hoverPos.src !== 'sec' || !sec || y < py0 || y > py0 + g.SH) return;
+  c.beginPath(); c.moveTo(px0, y + 0.5); c.lineTo(px0 + g.PW, y + 0.5); c.stroke();
+  const lon = LON_MIN + (x - px0) / g.PW * (LON_MAX - LON_MIN), z = (y - py0) / g.SH * SEC_DEPTH;
+  const nl = GG.lons.length, col = Math.round((lon - GG.lons[0]) / (GG.lons[1] - GG.lons[0]));
+  const row = Math.round(rowAtDepth(z));
+  const ok = col >= 0 && col < nl;
+  const a = ok ? sec.anom[row * nl + col] : NaN, t = ok ? sec.temp[row * nl + col] : NaN;
+  const lonTxt = lon <= 180 ? `${lon.toFixed(1)}°E` : `${(360 - lon).toFixed(1)}°W`;
+  const l1 = `${Math.round(z)} m  ${lonTxt}`;
+  const l2 = a === a ? fmt(a) : 'land';
+  const l3 = t === t ? `${t.toFixed(2)}°C` : '';
+  c.font = '700 14px "Courier Prime", monospace';
+  const bw = Math.max(c.measureText(l1).width, c.measureText(l2).width, c.measureText(l3).width) + 20, bh = l3 ? 64 : 46;
+  let bx = x + 14, by = y + 14;
+  if (bx + bw > px0 + g.PW) bx = x - 14 - bw;
+  if (by + bh > py0 + g.SH) by = y - 14 - bh;
+  c.fillStyle = 'rgba(30,35,32,0.92)'; c.strokeStyle = 'rgba(232,228,217,0.3)';
+  c.fillRect(bx, by, bw, bh); c.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+  c.textAlign = 'left';
+  c.fillStyle = 'rgba(232,228,217,0.75)'; c.font = '13px "Courier Prime", monospace'; c.fillText(l1, bx + 10, by + 18);
+  c.fillStyle = a === a ? valColor(a) : 'rgba(232,228,217,0.6)'; c.font = '700 16px "Courier Prime", monospace'; c.fillText(l2, bx + 10, by + 37);
+  if (l3) { c.fillStyle = 'rgba(232,228,217,0.75)'; c.font = '13px "Courier Prime", monospace'; c.fillText(l3, bx + 10, by + 55); }
+}
+secHovCv.addEventListener('mousemove', e => {
+  const r = secHovCv.getBoundingClientRect();
+  hoverPos = { src: 'sec', x: e.clientX - r.left, y: e.clientY - r.top };
+  requestAnimationFrame(() => { drawHover(); drawSecHover(); });
+});
+secHovCv.addEventListener('mouseleave', () => { hoverPos = null; drawHover(); drawSecHover(); });
 
 // ── STATS ────────────────────────────────────────────────────────────────────
 let ninoCells = null;
@@ -795,7 +1133,8 @@ function contextLine(f) {
 
 // ── SCREEN RENDER ────────────────────────────────────────────────────────────
 const mapCv = document.getElementById('map'), hovCv = document.getElementById('hover');
-const legCv = document.getElementById('legend');
+const legCv = document.getElementById('legend'), legSecCv = document.getElementById('legend-sec');
+const SEC_CAPTION = 'Subsurface temperature anomaly vs 1991–2020 (°C)';
 let screenGeom = null;
 
 function renderScreen() {
@@ -815,9 +1154,11 @@ function renderScreen() {
 }
 function renderLegend() {
   const dpr = window.devicePixelRatio || 1, W = legCv.parentElement.clientWidth - 36, H = 58;
-  legCv.width = Math.round(W * dpr); legCv.height = Math.round(H * dpr); legCv.style.height = H + 'px';
-  const c = legCv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
-  drawLegend(c, 0, 0, W);
+  for (const [cv, args] of [[legCv, []], [legSecCv, [SEC_STEP, SEC_CAPTION, 2]]]) {
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.height = H + 'px';
+    const c = cv.getContext('2d'); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, H);
+    drawLegend(c, 0, 0, W, ...args);
+  }
 }
 
 // ── HOVER ────────────────────────────────────────────────────────────────────
@@ -829,6 +1170,12 @@ function drawHover() {
   if (!hoverPos || !screenGeom || !disp) return;
   const g = screenGeom, { x, y } = hoverPos;
   const px0 = M.l, py0 = M.t;
+  if (hoverPos.src === 'sec') {
+    if (x < px0 || x > px0 + g.PW) return;
+    c.strokeStyle = 'rgba(232,228,217,0.35)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x + 0.5, py0); c.lineTo(x + 0.5, py0 + g.PH); c.stroke();
+    return;
+  }
   if (x < px0 || x > px0 + g.PW || y < py0 || y > py0 + g.PH) return;
   const lon = LON_MIN + (x - px0) / g.PW * (LON_MAX - LON_MIN);
   const lat = LAT_MAX - (y - py0) / g.PH * (LAT_MAX - LAT_MIN);
@@ -853,10 +1200,10 @@ function drawHover() {
 }
 hovCv.addEventListener('mousemove', e => {
   const r = hovCv.getBoundingClientRect();
-  hoverPos = { x: e.clientX - r.left, y: e.clientY - r.top };
-  requestAnimationFrame(drawHover);
+  hoverPos = { src: 'map', x: e.clientX - r.left, y: e.clientY - r.top };
+  requestAnimationFrame(() => { drawHover(); drawSecHover(); });
 });
-hovCv.addEventListener('mouseleave', () => { hoverPos = null; drawHover(); });
+hovCv.addEventListener('mouseleave', () => { hoverPos = null; drawHover(); drawSecHover(); });
 
 // ── OVERLAY ──────────────────────────────────────────────────────────────────
 let ovTimer = null, ovDelay = null;
@@ -960,6 +1307,7 @@ async function show() {
   const m = updateChips();
   mapCv.setAttribute('aria-label',
     `Sea surface temperature anomaly, ${dateLabel(field)}, ${contextLine(field)}. Niño 3.4 ${fmt(m.n34)}.`);
+  updateSection();
   prefetchNeighbors();
 }
 
@@ -1004,7 +1352,7 @@ document.addEventListener('keydown', e => {
   step(e.key === 'ArrowLeft' ? -big : big);
 });
 let rzT = null;
-window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { if (field) renderScreen(); buildTicks(); }, 120); });
+window.addEventListener('resize', () => { clearTimeout(rzT); rzT = setTimeout(() => { if (field) renderScreen(); renderSection(); buildTicks(); }, 120); });
 document.getElementById('btn-png').addEventListener('click', exportPNG);
 
 // ── PNG EXPORT ───────────────────────────────────────────────────────────────
@@ -1014,8 +1362,10 @@ function exportPNG() {
   if (!field) return;
   const S = EXPORT_SCALE, W = EXPORT_W, PAD = 28, HDR = 100;
   const mapW = W - PAD * 2, g = geom(mapW);
-  const LEG = 64, CH = 86, FOOT = 46;
-  const H = HDR + g.H + 10 + LEG + CH + FOOT;
+  const hasSec = !!(GG && sec), sg = secGeomFor(mapW), SECHDR = 30;
+  const LEG = 64, CH = 86, FOOT = 64;
+  const secBlock = hasSec ? 6 + SECHDR + sg.H : 0;
+  const H = HDR + g.H + secBlock + 10 + LEG * (hasSec ? 2 : 1) + CH + FOOT;
   const off = document.createElement('canvas');
   off.width = W * S; off.height = H * S;
   const c = off.getContext('2d');
@@ -1039,11 +1389,34 @@ function exportPNG() {
   c.fillText(contextLine(field), W - PAD, 74);
 
   drawMap(c, PAD, HDR, mapW, S);
-  drawLegend(c, PAD + M.l, HDR + g.H + 10, g.PW);
+  let yy = HDR + g.H;
+  if (hasSec) {
+    yy += 6;
+    const hy = yy + 20;
+    c.textAlign = 'left'; c.fillStyle = '#948F82'; c.font = "700 13px 'Courier Prime', monospace";
+    c.fillText('EQUATORIAL SUBSURFACE · 2°S–2°N · 0–400 M', PAD + M.l, hy);
+    // isotherm key
+    let kx = PAD + M.l + c.measureText('EQUATORIAL SUBSURFACE · 2°S–2°N · 0–400 M').width + 26;
+    c.font = "13px 'Courier Prime', monospace"; c.fillStyle = '#A6A499';
+    for (const [dash, wdt, lbl] of [[[], 2.2, '20 °C isotherm'], [[6, 4], 1.6, '1991–2020']]) {
+      c.save(); c.strokeStyle = '#E8E4D9'; c.lineWidth = wdt; c.setLineDash(dash);
+      c.beginPath(); c.moveTo(kx, hy - 4); c.lineTo(kx + 26, hy - 4); c.stroke(); c.restore();
+      c.fillText(lbl, kx + 32, hy); kx += 32 + c.measureText(lbl).width + 20;
+    }
+    c.textAlign = 'right'; c.fillStyle = '#A08CC6'; c.font = "700 15px 'Courier Prime', monospace";
+    c.fillText(secLabel(sec), W - PAD - M.r, hy);
+    yy += SECHDR;
+    drawSection(c, PAD, yy, mapW, S);
+    yy += sg.H;
+  }
+  yy += 10;
+  drawLegend(c, PAD + M.l, yy, g.PW);
+  yy += LEG;
+  if (hasSec) { drawLegend(c, PAD + M.l, yy, g.PW, SEC_STEP, SEC_CAPTION, 2); yy += LEG; }
 
   const m = ninoMeans();
   const chips = [['NIÑO 4', m.n4], ['NIÑO 3.4', m.n34], ['NIÑO 3', m.n3], ['NIÑO 1+2', m.n12], ['TROPICAL MEAN', field.tmean]];
-  const cy = HDR + g.H + 10 + LEG, cw = (W - PAD * 2) / chips.length;
+  const cy = yy, cw = (W - PAD * 2) / chips.length;
   chips.forEach(([lbl, v], i) => {
     const x = PAD + i * cw;
     c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1;
@@ -1056,7 +1429,8 @@ function exportPNG() {
   c.textAlign = 'left'; c.fillStyle = '#948F82'; c.font = "13px 'Public Sans', sans-serif";
   c.fillText('SST: NOAA OISST v2.1, 0.25° · anomalies vs 1991–2020 · Relative: minus 20°S–20°N ocean mean'
     + (state.wind && field.cadence === 'mo' && windData ? ' · 850 hPa wind: NCEP/NCAR R1' : '')
-    + ' · Coastlines: Natural Earth', PAD, H - 20);
+    + ' · Coastlines: Natural Earth', PAD, H - (hasSec ? 38 : 20));
+  if (hasSec) c.fillText('Subsurface: NCEP GODAS potential temperature, 2°S–2°N mean (CPC pentads, PSL monthly) · anomalies vs 1991–2020', PAD, H - 20);
   c.textAlign = 'right'; c.fillStyle = '#A08CC6'; c.font = "700 13px 'Courier Prime', monospace";
   c.fillText('contextclimate.io', W - PAD, H - 20);
 
@@ -1085,12 +1459,19 @@ async function init() {
   }
   buildLists();
   buildNinoCells();
-  const [land, wind] = await Promise.allSettled([
+  const [land, wind, godas] = await Promise.allSettled([
     fetch(LAND_URL).then(r => r.ok ? r.json() : null),
     fetch(WIND_URL).then(r => r.ok ? r.json() : null),
+    fetch(GODAS_DIR + 'index.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null),
   ]);
   landGeo = land.status === 'fulfilled' ? land.value : null;
   windData = wind.status === 'fulfilled' ? wind.value : null;
+  GIDX = godas.status === 'fulfilled' ? godas.value : null;
+  GG = GIDX && GIDX.grid;
+  if (!GG || !Array.isArray(GG.lons) || !Array.isArray(GG.depths)) {
+    GIDX = GG = null;
+    setSecOverlay('SUBSURFACE DATA UNAVAILABLE');
+  }
 
   if (!lists.d7.length) state.cadence = lists.d1.length ? 'd1' : 'mo';
   state.anchor = resolveAnchor(state.cadence, null);
@@ -1100,7 +1481,8 @@ async function init() {
   document.getElementById('footer-note').textContent =
     'SST: NOAA OISST v2.1, 0.25° · anomalies vs 1991–2020 daily climatology · ' +
     'Relative: minus the 20°S–20°N ocean mean · 850 hPa wind: NCEP/NCAR Reanalysis 1, monthly · ' +
-    'Coastlines: Natural Earth 1:50m · Data through ' + thru;
+    'Subsurface: NCEP GODAS potential temperature, 2°S–2°N mean (CPC pentads, PSL monthly), ' +
+    'anomalies vs 1991–2020 · Coastlines: Natural Earth 1:50m · Data through ' + thru;
 
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
   buildTicks();
