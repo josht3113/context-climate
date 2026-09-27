@@ -6,15 +6,16 @@
 <title>Streak Tracker | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script src="station-roster.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; }
 
 :root {
   --tool-accent: var(--accent-hourly);
-  --streak-warm: #E0824A;   /* threshold crossed from ABOVE (>=) — content-encoded, not remapped */
-  --streak-cool: #5B9BD8;   /* threshold crossed from BELOW (<=) — content-encoded, not remapped */
-  --streak-record: #D9A94F; /* record-streak highlight */
-  --streak-current: #F1EEE4;/* current-streak highlight */
+  --streak-warm: #E0824A;    /* at/above threshold — content-encoded */
+  --streak-cool: #5B9BD8;    /* at/below threshold — content-encoded */
+  --streak-record: #D9A94F;
+  --streak-current: #F1EEE4;
 }
 
 body { padding: 20px 0 48px; }
@@ -22,106 +23,135 @@ body { padding: 20px 0 48px; }
 
 /* ── Header ── */
 .page-eyebrow { margin-bottom: 6px; }
-.page-title { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .title-sep { color: var(--color-text-muted); font-weight: 400; }
-.page-subtitle { margin-bottom: 16px; max-width: 900px; }
 
-/* ── Station bar (reused pattern from current-conditions.html) ── */
-.station-bar { padding: 14px 0; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--color-border); margin-bottom: 16px; flex-wrap: wrap; }
-.search-wrap { position: relative; flex: 0 0 340px; }
-.search-input { width: 100%; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 9px 12px 9px 34px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; outline: none; transition: border-color .15s; }
-.search-input:focus { border-color: var(--tool-accent); }
-.search-input::placeholder { color: var(--color-text-muted); }
-.search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--color-text-muted); font-size: 17px; pointer-events: none; }
-.dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 272px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 10px 32px rgba(0,0,0,.6); }
+/* ── Station bar ── */
+.station-bar { padding: 12px 0 14px; display: flex; align-items: center; gap: 18px; border-bottom: 1px solid var(--color-border); margin-bottom: 14px; flex-wrap: wrap; }
+.finder-group { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); transition: border-color .15s; }
+.finder-group:focus-within { border-color: var(--tool-accent); }
+.finder-group .search-icon { display: flex; align-items: center; padding-left: 12px; color: var(--color-text-muted); font-size: 17px; pointer-events: none; }
+.finder-group .search-input { width: 260px; background: transparent; border: none; padding: 9px 10px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; outline: none; }
+.finder-group .search-input::placeholder { color: var(--color-text-muted); }
+.finder-sep { width: 1px; align-self: stretch; margin: 7px 0; background: var(--color-border); }
+.finder-group .locate-btn { border: none; border-radius: 0; background: transparent; white-space: nowrap; font-size: 14px; }
+.locate-btn.loading { opacity: .5; pointer-events: none; }
+.dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 360px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 288px; overflow-y: auto; z-index: 300; display: none; box-shadow: 0 10px 32px rgba(0,0,0,.6); }
 .dropdown.open { display: block; }
-.d-item { padding: 8px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 14px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); transition: background .1s; }
+.d-item { padding: 9px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 15px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); transition: background .1s; }
 .d-item:last-child { border-bottom: none; }
 .d-item:hover, .d-item.hi { background: rgba(109,150,216,.18); }
-.d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 46px; flex-shrink: 0; }
+.d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 50px; flex-shrink: 0; }
 .d-item .d-name { color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.d-item .d-st { color: var(--color-text-muted); font-size: 13px; width: 22px; text-align: right; }
-.stn-info { flex: 1; min-width: 160px; }
-.stn-name { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
-.stn-meta { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); letter-spacing: .04em; margin-top: 2px; }
-.meta-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.ts-label { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
+.d-item .d-st { color: var(--color-text-muted); font-size: 14px; width: 24px; text-align: right; }
+.d-item .d-dist { color: var(--tool-accent); font-size: 13px; width: 50px; flex-shrink: 0; text-align: right; }
+.stn-info { flex: 1; min-width: 200px; }
+.stn-name { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--color-text-primary); }
+.stn-meta { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); letter-spacing: .03em; margin-top: 2px; }
+.meta-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.load-status { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; min-width: 200px; }
+.load-text { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); white-space: nowrap; }
+.load-bar { width: 200px; height: 3px; border-radius: 2px; background: var(--color-surface-2); overflow: hidden; visibility: hidden; }
+.load-bar.on { visibility: visible; }
+.load-bar::after { content: ''; display: block; width: 36%; height: 100%; background: var(--tool-accent); animation: loadslide 1.3s ease-in-out infinite; }
+@keyframes loadslide { 0% { transform: translateX(-110%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .load-bar::after { animation: none; width: 100%; opacity: .5; } }
+.load-notice { display: none; align-items: center; gap: 12px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 14px; color: #E3A26B; margin: -4px 0 12px; }
+.load-notice.show { display: flex; }
 
 /* ── Controls ── */
-.controls-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 16px; }
-.ctrl-row { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
-.ctrl-row:last-child { margin-bottom: 0; }
-.ctrl-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); white-space: nowrap; }
-.preset-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.preset-group { display: flex; align-items: center; gap: 6px; padding-right: 12px; margin-right: 4px; border-right: 1px solid var(--color-border); }
-.preset-group:last-child { border-right: none; }
-.preset-group-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin-right: 2px; }
-.custom-toggle-row { display: flex; align-items: center; gap: 10px; }
-.custom-panel { display: none; grid-template-columns: repeat(4, auto) 1fr; gap: 10px 16px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-border); }
+.controls-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 16px 18px; margin-bottom: 14px; }
+.ctrl-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.ctrl-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); white-space: nowrap; }
+.cc-segmented-btn { font-size: 14px; }
+.preset-row { display: flex; align-items: center; gap: 8px 6px; flex-wrap: wrap; }
+#preset-row { margin-top: 12px; }
+.preset-group { display: flex; align-items: center; gap: 6px; margin-right: 18px; flex-wrap: wrap; }
+.preset-group-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); margin-right: 2px; }
+.preset-btn { font-size: 14px; color: var(--color-text-primary); }
+.summary-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.threshold-summary { font-family: var(--font-mono); font-size: 15px; color: var(--tool-accent); letter-spacing: .02em; }
+.custom-panel { display: none; grid-template-columns: repeat(6, auto) 1fr; gap: 10px 18px; align-items: end; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--color-border); }
 .custom-panel.open { display: grid; }
-.custom-field { display: flex; flex-direction: column; gap: 4px; }
-.custom-field label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
-.num-input { width: 76px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-primary); font-family: var(--font-mono); font-size: 15px; padding: 6px 8px; }
-.range-input { width: 140px; accent-color: var(--tool-accent); }
-.threshold-summary { font-family: var(--font-mono); font-size: 13px; color: var(--tool-accent); letter-spacing: .02em; margin-top: 2px; }
-.hourly-temp-note { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); font-style: italic; margin-top: 8px; display: none; }
-.hourly-temp-note.show { display: block; }
-.season-row { border-top: 1px dashed var(--color-border); padding-top: 12px; margin-top: 4px; }
-.month-grid { display: none; grid-template-columns: repeat(6, auto); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-border); }
+.custom-field { display: flex; flex-direction: column; gap: 5px; }
+.custom-field > label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.num-input { width: 84px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); color: var(--color-text-primary); font-family: var(--font-mono); font-size: 16px; padding: 6px 8px; }
+.range-input { width: 150px; accent-color: var(--tool-accent); }
+.season-row { border-top: 1px dashed var(--color-border); padding-top: 12px; margin-top: 12px; }
+.record-group { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.record-group .cc-segmented-btn { font-size: 13px; padding-top: 6px; padding-bottom: 6px; }
+.month-grid { display: none; grid-template-columns: repeat(12, auto); justify-content: start; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-border); }
 .month-grid.open { display: grid; }
-.month-btn { min-width: 46px; text-align: center; }
+.month-btn { min-width: 50px; text-align: center; font-size: 14px; }
 
-/* ── Headline panel ── */
-.headline-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 16px; }
-.headline-top { display: flex; align-items: flex-start; gap: 22px; flex-wrap: wrap; margin-bottom: 14px; }
-.headline-main { flex: 1; min-width: 260px; }
-.headline-value { font-family: var(--font-display); font-weight: 700; font-size: 52px; line-height: 1; color: var(--color-text-primary); display: flex; align-items: baseline; gap: 10px; }
-.headline-value .unit { font-size: 20px; font-weight: 400; color: var(--color-text-secondary); }
-.headline-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-text-muted); margin-top: 6px; }
-.headline-note { font-family: var(--font-body); font-size: 15px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.55; max-width: 560px; }
-.headline-note strong { color: var(--color-text-primary); }
-.jeopardy-line { font-family: var(--font-body); font-size: 14px; color: var(--color-text-secondary); margin-top: 8px; }
+/* ── View tabs ── */
+.view-tabs { margin-bottom: 14px; }
+.view-tabs .cc-tab { font-size: 15px; }
+
+/* ── Headline ── */
+.headline-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 14px; }
+.headline-top { display: flex; align-items: flex-start; gap: 22px; flex-wrap: wrap; }
+.headline-main { flex: 1; min-width: 280px; }
+.headline-value { font-family: var(--font-display); font-weight: 700; font-size: 56px; line-height: 1; color: var(--color-text-primary); display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.headline-value .unit { font-size: 22px; font-weight: 400; color: var(--color-text-secondary); }
+.headline-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); margin-top: 8px; }
+.headline-note { font-family: var(--font-body); font-size: 16px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; max-width: 600px; }
+.headline-note strong { color: var(--color-text-primary); font-weight: 600; }
+.jeopardy-line { font-family: var(--font-body); font-size: 15px; color: var(--color-text-secondary); margin-top: 8px; }
 .jeopardy-line strong { color: var(--tool-accent); }
-.rarity-line { font-family: var(--font-body); font-size: 14px; color: var(--color-text-secondary); margin-top: 4px; }
 .badge-active { background: rgba(224,130,74,.18); color: var(--streak-warm); border: 1px solid rgba(224,130,74,.4); }
 .badge-active.cool { background: rgba(91,155,216,.18); color: var(--streak-cool); border-color: rgba(91,155,216,.4); }
 .badge-ended { background: var(--color-surface-2); color: var(--color-text-muted); border: 1px solid var(--color-border); }
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, auto)); gap: 10px; align-self: flex-start; }
+.stat-grid .cc-stat-chip { background: var(--color-surface-2); min-width: 150px; }
+.stat-grid .cc-stat-value { font-size: 26px; white-space: nowrap; }
+.stat-grid .cc-stat-value.dim { color: var(--color-text-muted); }
 
-/* ── Year strip ── */
-.strip-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 16px; }
-.strip-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
-.strip-title { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+/* ── Calendar ── */
+.strip-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 14px; }
+.strip-hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 10px; }
+.panel-title { font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+.cc-legend-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.cc-legend-chip { font-size: 13px; }
+.legend-sq { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+.legend-grad { width: 42px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 .strip-wrap { position: relative; }
 #strip-canvas { display: block; width: 100%; cursor: crosshair; }
-.strip-tooltip { position: absolute; pointer-events: none; background: var(--color-surface-2); border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); padding: 8px 12px; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; z-index: 20; white-space: nowrap; }
+.strip-tooltip { position: absolute; pointer-events: none; background: var(--color-surface-2); border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); padding: 8px 12px; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; color: var(--color-text-primary); box-shadow: 0 8px 24px rgba(0,0,0,.5); display: none; z-index: 20; white-space: nowrap; }
+.strip-tooltip .tt-sub { color: var(--color-text-secondary); }
+.strip-empty { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); padding: 24px 0; text-align: center; }
 
-/* ── Ranked section ── */
-.ranked-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 16px; }
-.ranked-hdr { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 10px; }
+/* ── Ranked / totals ── */
+.ranked-panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); padding: 18px 20px; margin-bottom: 14px; }
+.ranked-hdr { margin-bottom: 12px; }
 .ranked-grid { display: flex; gap: 22px; flex-wrap: wrap; }
-.ranked-chart-box { flex: 1 1 480px; min-width: 320px; height: 380px; }
-.ranked-table-box { flex: 1 1 380px; min-width: 300px; max-height: 380px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
+.ranked-chart-box { flex: 1 1 480px; min-width: 320px; height: 420px; }
+.ranked-table-box { flex: 1 1 400px; min-width: 320px; max-height: 420px; overflow-y: auto; border: 1px solid var(--color-border); border-radius: var(--radius-md); }
 .ranked-table { width: 100%; border-collapse: collapse; }
-.ranked-table th { position: sticky; top: 0; background: var(--color-surface-2); padding: 7px 10px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); text-align: left; border-bottom: 1px solid var(--color-border-hover); }
+.ranked-table th { position: sticky; top: 0; background: var(--color-surface-2); padding: 8px 12px; font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); text-align: left; border-bottom: 1px solid var(--color-border); z-index: 1; }
 .ranked-table th.r, .ranked-table td.r { text-align: right; }
-.ranked-table td { padding: 6px 10px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; }
+.ranked-table td { padding: 7px 12px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 15px; color: var(--color-text-secondary); white-space: nowrap; }
 .ranked-table tr:last-child td { border-bottom: none; }
+.ranked-table tbody tr.clickable { cursor: pointer; }
+.ranked-table tbody tr.clickable:hover td { background: rgba(109,150,216,.10); color: var(--color-text-primary); }
 .ranked-table tr.is-current td { background: rgba(241,238,228,.06); color: var(--color-text-primary); }
 .ranked-table tr.is-record td { color: var(--streak-record); }
-.rank-tag { font-family: var(--font-mono); font-size: 10px; padding: 2px 6px; border-radius: var(--radius-sm); letter-spacing: .06em; text-transform: uppercase; }
+.ranked-table td.empty { text-align: center; padding: 22px; color: var(--color-text-muted); }
+.rank-tag { font-family: var(--font-mono); font-size: 12px; padding: 2px 7px; border-radius: var(--radius-sm); letter-spacing: .06em; text-transform: uppercase; }
+.tag-active { background: rgba(241,238,228,.14); color: var(--streak-current); }
+.tag-record { background: rgba(217,169,79,.18); color: var(--streak-record); }
+.muted { color: var(--color-text-muted); }
 
 /* ── Footer ── */
-.footer-row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; flex-wrap: wrap; gap: 8px; }
-.footer-note { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
+.footer-note { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); line-height: 1.6; margin-top: 4px; }
 
-/* ── Loading overlay ── */
-.loading-overlay { position: fixed; inset: 0; background: rgba(30,35,32,.88); display: none; align-items: center; justify-content: center; z-index: 500; flex-direction: column; gap: 12px; }
-.loading-overlay.show { display: flex; }
-.loading-text { font-family: var(--font-mono); font-size: 14px; letter-spacing: .08em; color: var(--color-text-secondary); }
-.spinner { width: 34px; height: 34px; border: 3px solid var(--color-border); border-top-color: var(--tool-accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+::-webkit-scrollbar { width: 6px; height: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(232,228,217,.15); border-radius: 3px; }
 
-::-webkit-scrollbar { width: 5px; height: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(232,228,217,.15); border-radius: 3px; }
+@media (max-width: 900px) {
+  .stat-grid { grid-template-columns: repeat(2, minmax(140px, auto)); }
+  .record-group { margin-left: 0; }
+  .custom-panel { grid-template-columns: repeat(2, auto); }
+}
 </style>
 </head>
 <body>
@@ -129,62 +159,72 @@ body { padding: 20px 0 48px; }
 
   <p class="cc-eyebrow page-eyebrow">Hourly Data</p>
   <div class="page-title">
-    <span id="title-station">Islip, NY</span>
+    <span id="title-station">&ndash;</span>
     <span class="title-sep">|</span>
     <span>Streak Tracker</span>
-    <button class="cc-btn cc-btn-sm" onclick="exportPNG()" title="Download PNG">&darr; PNG</button>
+    <button class="cc-btn cc-btn-sm" id="png-btn" title="Download PNG">&darr; PNG</button>
   </div>
-  <p class="cc-subtitle page-subtitle">How long has this place been running hot, cold, muggy, dry, or overcast — right now, and ever? Pick a station, a variable, and a threshold to see the current streak, how it stacks up against history, and whether the forecast keeps it alive. Optionally restrict the whole analysis to a single season.</p>
 
   <!-- STATION BAR -->
   <div class="station-bar">
-    <div class="search-wrap" id="sw">
+    <div class="finder-group" id="sw">
       <span class="search-icon">&#9906;</span>
       <input type="text" class="search-input" id="si" placeholder="Search station ID or city..." autocomplete="off" spellcheck="false">
       <div class="dropdown" id="dd"></div>
+      <div class="finder-sep"></div>
+      <button class="cc-btn cc-btn-sm locate-btn" id="locate-btn" title="Find the nearest station">&#128205; Near Me</button>
     </div>
     <div class="stn-info">
-      <div class="stn-name" id="stn-name">Islip MacArthur Airport</div>
-      <div class="stn-meta" id="stn-meta">KISP &middot; Islip, NY &middot; Record: &ndash;</div>
+      <div class="stn-name" id="stn-name">&ndash;</div>
+      <div class="stn-meta" id="stn-meta">&ndash;</div>
     </div>
     <div class="meta-right">
-      <div class="ts-label" id="ts-lbl">Loading...</div>
-      <button class="cc-btn cc-btn-sm" onclick="refreshData()">&#8635; Refresh</button>
+      <div class="load-status">
+        <span class="load-text" id="load-text">&ndash;</span>
+        <div class="load-bar" id="load-bar"></div>
+      </div>
+      <button class="cc-btn cc-btn-sm" id="refresh-btn">&#8635; Refresh</button>
     </div>
   </div>
+  <div class="load-notice" id="load-notice"><span id="load-notice-text"></span><button class="cc-btn cc-btn-sm" id="retry-btn">Retry</button></div>
 
   <!-- CONTROLS -->
   <div class="controls-panel">
     <div class="ctrl-row">
-      <span class="ctrl-label">Mode</span>
-      <div class="cc-segmented" id="seg-mode">
-        <button class="cc-segmented-btn is-active" data-mode="streaks">Streaks</button>
-        <button class="cc-segmented-btn" data-mode="totals">Totals</button>
-      </div>
+      <span class="ctrl-label">Streak</span>
+      <div class="cc-segmented" id="seg-family"></div>
     </div>
-    <div class="ctrl-row">
-      <span class="ctrl-label">Variable</span>
-      <div class="cc-segmented" id="seg-variable">
-        <button class="cc-segmented-btn is-active" data-variable="dewpoint">Dewpoint</button>
-        <button class="cc-segmented-btn" data-variable="temp">Temperature</button>
-        <button class="cc-segmented-btn" data-variable="cloud">Cloud Cover</button>
-      </div>
-      <span class="ctrl-label">Track By</span>
-      <div class="cc-segmented" id="seg-agg">
-        <button class="cc-segmented-btn is-active" data-agg="hourly">Hourly</button>
-        <button class="cc-segmented-btn" data-agg="daily">Daily</button>
-      </div>
-    </div>
-    <div class="ctrl-row">
-      <span class="ctrl-label">Threshold</span>
-      <div class="preset-row" id="preset-row"></div>
-      <div class="custom-toggle-row">
-        <button class="cc-btn cc-btn-sm" id="custom-toggle-btn" onclick="toggleCustomPanel()">Custom &#9662;</button>
+    <div class="preset-row" id="preset-row"></div>
+    <div class="summary-row">
+      <span class="threshold-summary" id="threshold-summary">&ndash;</span>
+      <button class="cc-btn cc-btn-sm" id="custom-toggle-btn">Custom &#9662;</button>
+      <div class="record-group">
+        <span class="ctrl-label">Record</span>
+        <div class="cc-segmented" id="seg-record">
+          <button class="cc-segmented-btn" data-rec="full">Full record</button>
+          <button class="cc-segmented-btn" data-rec="1991">Since 1991</button>
+          <button class="cc-segmented-btn" data-rec="30">Last 30 yrs</button>
+        </div>
       </div>
     </div>
     <div class="custom-panel" id="custom-panel">
+      <div class="custom-field">
+        <label for="custom-variable">Variable</label>
+        <select class="cc-select" id="custom-variable">
+          <option value="temp">Temperature</option>
+          <option value="dewpoint">Dewpoint</option>
+          <option value="cloud">Cloud cover</option>
+        </select>
+      </div>
+      <div class="custom-field">
+        <label>Track by</label>
+        <div class="cc-segmented" id="seg-agg">
+          <button class="cc-segmented-btn" data-agg="hourly">Hourly</button>
+          <button class="cc-segmented-btn" data-agg="daily">Daily</button>
+        </div>
+      </div>
       <div class="custom-field" id="metric-field">
-        <label>Daily Metric</label>
+        <label for="metric-select">Daily value</label>
         <select class="cc-select" id="metric-select">
           <option value="max">Max</option>
           <option value="min">Min</option>
@@ -194,1301 +234,1808 @@ body { padding: 20px 0 48px; }
       <div class="custom-field">
         <label>Direction</label>
         <div class="cc-segmented" id="seg-op">
-          <button class="cc-segmented-btn is-active" data-op="gte">&ge; At/Above</button>
+          <button class="cc-segmented-btn" data-op="gte">&ge; At/Above</button>
           <button class="cc-segmented-btn" data-op="lte">&le; At/Below</button>
         </div>
       </div>
       <div class="custom-field">
-        <label id="custom-value-label">Value (&deg;F)</label>
-        <input type="number" class="num-input" id="custom-num" value="65">
+        <label for="custom-num" id="custom-value-label">Value</label>
+        <input type="number" class="num-input" id="custom-num">
       </div>
       <div class="custom-field">
         <label>&nbsp;</label>
-        <input type="range" class="range-input" id="custom-range" min="-30" max="110" value="65">
+        <input type="range" class="range-input" id="custom-range" aria-label="Threshold value">
       </div>
       <div class="custom-field">
         <label>&nbsp;</label>
-        <button class="cc-btn cc-btn-sm primary" onclick="applyCustom()">Apply</button>
+        <button class="cc-btn cc-btn-sm primary" id="custom-apply">Apply</button>
       </div>
     </div>
-    <div class="threshold-summary" id="threshold-summary">Dewpoint &ge; 65&deg;F, hourly</div>
-    <div class="hourly-temp-note" id="hourly-temp-note">Note: hourly temperature streaks are naturally short — the daily heating/cooling cycle usually breaks them by evening. Daily max/min streaks are typically more meaningful for temperature; dewpoint is the more interesting hourly signal since humidity swings far less through the day.</div>
-    <div class="hourly-temp-note" id="cloud-note">Note: cloud cover is estimated from METAR sky condition codes (CLR/FEW/SCT/BKN/OVC) converted to an eighths-of-sky-covered ("oktas") scale — FEW&asymp;1&ndash;2, SCT&asymp;3&ndash;4, BKN&asymp;5&ndash;7, OVC=8. An indefinite ceiling (fog or heavy precipitation obscuring the sky) also counts as 8. Each hour uses the single greatest layer reported.</div>
     <div class="ctrl-row season-row">
       <span class="ctrl-label">Season</span>
       <div class="preset-row" id="season-preset-row"></div>
-      <div class="custom-toggle-row">
-        <button class="cc-btn cc-btn-sm" id="season-custom-toggle-btn" onclick="toggleMonthGrid()">Custom Months &#9662;</button>
-      </div>
+      <button class="cc-btn cc-btn-sm" id="season-custom-toggle-btn">Custom months &#9662;</button>
     </div>
     <div class="month-grid" id="month-grid"></div>
   </div>
 
+  <div class="cc-tab-bar view-tabs" id="view-tabs">
+    <button class="cc-tab is-active" data-view="streaks">Streaks</button>
+    <button class="cc-tab" data-view="totals">Totals</button>
+  </div>
+
   <div id="streaks-view">
-
-  <!-- HEADLINE -->
-  <div class="headline-panel">
-    <div class="headline-top">
-      <div class="headline-main">
-        <div class="headline-value"><span id="hl-value">&ndash;</span><span class="unit" id="hl-unit"></span><span class="cc-badge badge-ended" id="hl-badge">&ndash;</span></div>
-        <div class="headline-label" id="hl-label">Current Streak</div>
-        <div class="headline-note" id="hl-note">Load a station to see current conditions.</div>
-        <div class="jeopardy-line" id="jeopardy-line"></div>
-        <div class="rarity-line" id="rarity-line"></div>
-      </div>
-      <div class="cc-stat-row" id="stat-chip-row" style="align-self: flex-start;">
-        <div class="cc-stat-chip"><span class="cc-stat-label">Record</span><span class="cc-stat-value" id="sv-record">&ndash;</span></div>
-        <div class="cc-stat-chip"><span class="cc-stat-label">Total Streaks</span><span class="cc-stat-value" id="sv-total">&ndash;</span></div>
-        <div class="cc-stat-chip"><span class="cc-stat-label">Avg Length</span><span class="cc-stat-value" id="sv-avg">&ndash;</span></div>
-        <div class="cc-stat-chip"><span class="cc-stat-label" id="sl-thisyear">This Year</span><span class="cc-stat-value" id="sv-thisyear">&ndash;</span></div>
-        <div class="cc-stat-chip"><span class="cc-stat-label">Period of Record</span><span class="cc-stat-value" id="sv-period">&ndash;</span></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- YEAR STRIP -->
-  <div class="strip-panel">
-    <div class="strip-hdr">
-      <span class="strip-title">Year-by-Year Calendar &middot; <span id="strip-mode-note">any qualifying hour per day</span></span>
-      <div class="cc-legend-row">
-        <span class="cc-legend-chip"><span class="cc-legend-dot" id="leg-dot-qual" style="background:var(--streak-warm)"></span>Qualifying day</span>
-        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-record)"></span>Record streak</span>
-        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--streak-current)"></span>Current streak</span>
-        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:var(--color-surface-2)"></span>No data</span>
-        <span class="cc-legend-chip"><span class="cc-legend-dot" style="background:rgba(166,164,153,0.5)"></span>Outside season</span>
+    <div class="headline-panel">
+      <div class="headline-top">
+        <div class="headline-main">
+          <div class="headline-value"><span id="hl-value">&ndash;</span><span class="unit" id="hl-unit"></span><span class="cc-badge badge-ended" id="hl-badge">&ndash;</span></div>
+          <div class="headline-label" id="hl-label">Current streak</div>
+          <div class="headline-note" id="hl-note"></div>
+          <div class="jeopardy-line" id="jeopardy-line"></div>
+        </div>
+        <div class="stat-grid">
+          <div class="cc-stat-chip"><span class="cc-stat-label">Return period</span><span class="cc-stat-value" id="sv-rp">&ndash;</span></div>
+          <div class="cc-stat-chip"><span class="cc-stat-label">Record</span><span class="cc-stat-value" id="sv-record">&ndash;</span></div>
+          <div class="cc-stat-chip"><span class="cc-stat-label" id="sl-season">Longest this year</span><span class="cc-stat-value" id="sv-season">&ndash;</span></div>
+          <div class="cc-stat-chip"><span class="cc-stat-label">Streaks on record</span><span class="cc-stat-value" id="sv-total">&ndash;</span></div>
+          <div class="cc-stat-chip"><span class="cc-stat-label">Avg length</span><span class="cc-stat-value" id="sv-avg">&ndash;</span></div>
+          <div class="cc-stat-chip"><span class="cc-stat-label">Years</span><span class="cc-stat-value" id="sv-period">&ndash;</span></div>
+        </div>
       </div>
     </div>
-    <div class="strip-wrap" id="strip-wrap">
-      <canvas id="strip-canvas" class="cc-canvas-frame"></canvas>
-      <div class="strip-tooltip" id="strip-tooltip"></div>
-    </div>
-  </div>
 
-  <!-- RANKED -->
-  <div class="ranked-panel">
-    <div class="ranked-hdr">Longest Streaks on Record</div>
-    <div class="ranked-grid">
-      <div class="ranked-chart-box" id="ranked-chart"></div>
-      <div class="ranked-table-box">
-        <table class="ranked-table">
-          <thead><tr><th>Rank</th><th>Dates</th><th class="r">Length</th><th></th></tr></thead>
-          <tbody id="ranked-tbody"><tr><td colspan="4" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see records</td></tr></tbody>
-        </table>
+    <div class="strip-panel">
+      <div class="strip-hdr">
+        <span class="panel-title" id="strip-title">Calendar</span>
+        <div class="cc-legend-row" id="strip-legend"></div>
+      </div>
+      <div class="strip-wrap" id="strip-wrap">
+        <canvas id="strip-canvas" class="cc-canvas-frame"></canvas>
+        <div class="strip-tooltip" id="strip-tooltip"></div>
+      </div>
+    </div>
+
+    <div class="ranked-panel">
+      <div class="panel-title ranked-hdr">Longest streaks</div>
+      <div class="ranked-grid">
+        <div class="ranked-chart-box" id="ranked-chart"></div>
+        <div class="ranked-table-box">
+          <table class="ranked-table">
+            <thead><tr><th>Rank</th><th>Dates</th><th class="r">Length</th><th></th></tr></thead>
+            <tbody id="ranked-tbody"><tr><td colspan="4" class="empty">&ndash;</td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
-  </div>
-  <!-- /streaks-view -->
-
-  <!-- TOTALS -->
   <div id="totals-view" style="display:none">
     <div class="ranked-panel">
       <div class="ranked-hdr" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <span id="totals-hdr-label">Total Time Above Threshold</span>
+        <span class="panel-title" id="totals-hdr-label">Total time at/above threshold</span>
         <div class="cc-segmented" id="seg-totals-group">
-          <button class="cc-segmented-btn is-active" data-group="year">By Year</button>
-          <button class="cc-segmented-btn" data-group="month">By Month (Avg)</button>
+          <button class="cc-segmented-btn is-active" data-group="year">By year</button>
+          <button class="cc-segmented-btn" data-group="month">By month (avg)</button>
         </div>
       </div>
-      <div id="totals-chart" style="height:360px;margin-top:6px;"></div>
-      <div class="ranked-table-box" style="max-height:320px;margin-top:14px;width:100%;">
+      <div id="totals-chart" style="height:380px;"></div>
+      <div class="ranked-table-box" style="max-height:340px;margin-top:14px;width:100%;">
         <table class="ranked-table">
           <thead id="totals-thead"><tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr></thead>
-          <tbody id="totals-tbody"><tr><td colspan="3" style="text-align:center;padding:20px;color:var(--color-text-muted)">Load a station to see totals</td></tr></tbody>
+          <tbody id="totals-tbody"><tr><td colspan="3" class="empty">&ndash;</td></tr></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <div class="footer-row">
-    <span class="cc-tag" id="footer-tag">Data: IEM ASOS &middot; contextclimate.io</span>
-  </div>
-
-</div>
-
-<div class="loading-overlay" id="loading-overlay">
-  <div class="spinner"></div>
-  <div class="loading-text" id="loading-text">Fetching station history&hellip;</div>
+  <div class="footer-note" id="provenance"></div>
 </div>
 
 <script>
+'use strict';
 // ================================================================
-// STATION DATA  [ICAO, "Name", "ST", lat, lon, "TZ"]
+// CONSTANTS
 // ================================================================
-const STATIONS=[
-["KBHM","Birmingham Intl","AL",33.563,-86.735,"CT"],["KMGM","Montgomery Dannelly","AL",32.300,-86.394,"CT"],
-["KHSV","Huntsville Intl","AL",34.641,-86.775,"CT"],["KMOB","Mobile Regional","AL",30.692,-88.247,"CT"],
-["PANC","Anchorage Intl","AK",61.174,-149.996,"AK"],["PAFA","Fairbanks Intl","AK",64.815,-147.876,"AK"],
-["PAJN","Juneau Intl","AK",58.355,-134.576,"AK"],["PAKT","Ketchikan Intl","AK",55.356,-131.714,"AK"],["PADQ","Kodiak Airport","AK",57.749,-152.494,"AK"],
-["KPHX","Phoenix Sky Harbor","AZ",33.437,-112.008,"AZ"],["KTUS","Tucson Intl","AZ",32.116,-110.941,"AZ"],
-["KFLG","Flagstaff Pulliam","AZ",35.138,-111.670,"AZ"],["KYUM","Yuma Intl","AZ",32.657,-114.605,"AZ"],["KPRC","Prescott Municipal","AZ",34.648,-112.420,"AZ"],
-["KLIT","Little Rock Clinton","AR",34.729,-92.224,"CT"],["KFSM","Fort Smith Regional","AR",35.337,-94.368,"CT"],["KFYV","Fayetteville Drake Field","AR",36.004,-94.170,"CT"],
-["KLAX","Los Angeles Intl","CA",33.942,-118.408,"PT"],["KSFO","San Francisco Intl","CA",37.619,-122.375,"PT"],
-["KSAN","San Diego Intl","CA",32.733,-117.190,"PT"],["KSMF","Sacramento Intl","CA",38.696,-121.591,"PT"],
-["KFAT","Fresno Yosemite Intl","CA",36.777,-119.719,"PT"],["KSJC","San Jose Intl","CA",37.362,-121.929,"PT"],
-["KOAK","Oakland Intl","CA",37.721,-122.221,"PT"],["KBFL","Bakersfield Meadows","CA",35.434,-119.057,"PT"],
-["KRDD","Redding Municipal","CA",40.509,-122.294,"PT"],["KBUR","Burbank Hollywood","CA",34.201,-118.359,"PT"],
-["KLGB","Long Beach Airport","CA",33.818,-118.152,"PT"],["KSNA","John Wayne Orange County","CA",33.676,-117.868,"PT"],
-["KMRY","Monterey Regional","CA",36.587,-121.843,"PT"],["KSTS","Santa Rosa","CA",38.509,-122.813,"PT"],["KSBA","Santa Barbara Municipal","CA",34.426,-119.840,"PT"],
-["KDEN","Denver Intl","CO",39.859,-104.668,"MT"],["KCOS","Colorado Springs","CO",38.806,-104.701,"MT"],
-["KGJT","Grand Junction Walker Field","CO",39.122,-108.527,"MT"],["KPUB","Pueblo Memorial","CO",38.289,-104.497,"MT"],["KEGE","Eagle County Regional","CO",39.643,-106.918,"MT"],
-["KBDL","Bradley Intl","CT",41.939,-72.683,"ET"],["KHVN","Tweed New Haven","CT",41.265,-72.887,"ET"],["KGON","Groton New London","CT",41.330,-71.995,"ET"],["KBDR","Bridgeport Sikorsky","CT",41.163,-73.127,"ET"],
-["KILG","Wilmington Airport","DE",39.679,-75.607,"ET"],
-["KMIA","Miami Intl","FL",25.796,-80.287,"ET"],["KTPA","Tampa Intl","FL",27.976,-82.534,"ET"],
-["KMCO","Orlando Intl","FL",28.429,-81.309,"ET"],["KJAX","Jacksonville Intl","FL",30.494,-81.688,"ET"],
-["KFLL","Fort Lauderdale Intl","FL",26.073,-80.153,"ET"],["KRSW","SW Florida Intl","FL",26.536,-81.755,"ET"],
-["KTLH","Tallahassee Intl","FL",30.397,-84.347,"ET"],["KPNS","Pensacola Intl","FL",30.473,-87.189,"CT"],
-["KGNV","Gainesville Regional","FL",29.691,-82.271,"ET"],["KEYW","Key West Intl","FL",24.556,-81.759,"ET"],
-["KATL","Atlanta Hartsfield-Jackson","GA",33.641,-84.427,"ET"],["KSAV","Savannah Hilton Head Intl","GA",32.128,-81.202,"ET"],
-["KAGS","Augusta Regional","GA",33.370,-81.965,"ET"],["KCSG","Columbus Airport","GA",32.519,-84.941,"ET"],["KVLD","Valdosta Regional","GA",30.782,-83.277,"ET"],
-["PHNL","Honolulu Intl","HI",21.332,-157.921,"HI"],["PHOG","Kahului Airport Maui","HI",20.898,-156.430,"HI"],["PHKO","Kona Intl","HI",19.739,-156.046,"HI"],["PHTO","Hilo Intl","HI",19.720,-155.048,"HI"],
-["KBOI","Boise Airport","ID",43.564,-116.223,"MT"],["KTWF","Twin Falls Magic Valley","ID",42.482,-114.488,"MT"],["KLWS","Lewiston Nez Perce County","ID",46.375,-117.015,"PT"],["KPIH","Pocatello Regional","ID",42.910,-112.596,"MT"],
-["KORD","Chicago O'Hare Intl","IL",41.978,-87.908,"CT"],["KMDW","Chicago Midway","IL",41.786,-87.752,"CT"],
-["KSPI","Springfield Abraham Lincoln","IL",39.844,-89.678,"CT"],["KMLI","Quad City Intl","IL",41.448,-90.513,"CT"],
-["KPIA","Greater Peoria Regional","IL",40.664,-89.693,"CT"],["KRFD","Chicago Rockford Intl","IL",42.195,-89.097,"CT"],["KCMI","Champaign Willard","IL",40.040,-88.278,"CT"],
-["KIND","Indianapolis Intl","IN",39.717,-86.295,"ET"],["KSBN","South Bend Intl","IN",41.708,-86.316,"CT"],["KFWA","Fort Wayne Intl","IN",40.978,-85.196,"ET"],["KEVV","Evansville Regional","IN",37.999,-87.531,"CT"],
-["KDSM","Des Moines Intl","IA",41.534,-93.663,"CT"],["KCID","Cedar Rapids CRB","IA",41.885,-91.711,"CT"],["KDVN","Davenport Airport","IA",41.612,-90.588,"CT"],["KSUX","Sioux Gateway","IA",42.402,-96.384,"CT"],
-["KICT","Wichita Dwight D. Eisenhower","KS",37.650,-97.433,"CT"],["KMHK","Manhattan Regional","KS",39.141,-96.671,"CT"],["KTOP","Topeka Forbes Field","KS",39.068,-95.622,"CT"],["KGCK","Garden City Regional","KS",37.928,-100.725,"CT"],
-["KSDF","Louisville Intl","KY",38.174,-85.736,"ET"],["KCVG","Cincinnati Northern Kentucky","KY",39.046,-84.668,"ET"],["KLEX","Lexington Blue Grass","KY",38.036,-84.606,"ET"],["KPAH","Barkley Regional","KY",37.061,-88.774,"CT"],
-["KMSY","New Orleans Louis Armstrong","LA",29.994,-90.258,"CT"],["KBTR","Baton Rouge Metro","LA",30.533,-91.150,"CT"],["KSHV","Shreveport Regional","LA",32.447,-93.826,"CT"],["KLFT","Lafayette Regional","LA",30.205,-91.988,"CT"],["KLCH","Lake Charles Regional","LA",30.126,-93.226,"CT"],
-["KPWM","Portland Intl Jetport","ME",43.645,-70.309,"ET"],["KBGR","Bangor Intl","ME",44.808,-68.828,"ET"],["KAUG","Augusta State Airport","ME",44.321,-69.797,"ET"],["KCAR","Caribou Municipal","ME",46.871,-68.019,"ET"],
-["KBWI","Baltimore Washington Intl","MD",39.178,-76.669,"ET"],["KSBY","Salisbury Ocean City Regional","MD",38.340,-75.513,"ET"],
-["KBOS","Boston Logan Intl","MA",42.363,-71.006,"ET"],["KORH","Worcester Regional","MA",42.268,-71.876,"ET"],["KACK","Nantucket Memorial","MA",41.253,-70.061,"ET"],["KBED","Hanscom Field","MA",42.470,-71.289,"ET"],["KHYA","Barnstable Municipal","MA",41.669,-70.280,"ET"],
-["KDTW","Detroit Metro Wayne County","MI",42.212,-83.353,"ET"],["KGRR","Gerald R. Ford Intl","MI",42.881,-85.523,"ET"],["KLAN","Lansing Capital City","MI",42.779,-84.588,"ET"],["KTVC","Cherry Capital Airport","MI",44.742,-85.582,"ET"],["KFNT","Flint Bishop Intl","MI",42.966,-83.744,"ET"],["KSAW","Sawyer Intl","MI",46.351,-87.399,"ET"],
-["KMSP","Minneapolis-St. Paul Intl","MN",44.883,-93.228,"CT"],["KDLH","Duluth Intl","MN",46.843,-92.194,"CT"],["KRST","Rochester Intl","MN",43.908,-92.500,"CT"],["KSTC","St. Cloud Regional","MN",45.547,-94.059,"CT"],["KHIB","Chisholm-Hibbing Airport","MN",47.386,-92.839,"CT"],
-["KJAN","Jackson-Medgar Wiley Evers","MS",32.311,-90.076,"CT"],["KGPT","Gulfport-Biloxi Intl","MS",30.408,-89.070,"CT"],["KTUP","Tupelo Regional","MS",34.268,-88.769,"CT"],["KMEI","Key Field Meridian","MS",32.332,-88.752,"CT"],
-["KSTL","St. Louis Lambert Intl","MO",38.749,-90.370,"CT"],["KMCI","Kansas City Intl","MO",39.297,-94.714,"CT"],["KSGF","Springfield-Branson National","MO",37.246,-93.389,"CT"],["KCOU","Columbia Regional","MO",38.818,-92.220,"CT"],
-["KBIL","Billings Logan Intl","MT",45.807,-108.543,"MT"],["KGTF","Great Falls Intl","MT",47.482,-111.371,"MT"],["KMSO","Missoula Montana","MT",46.916,-114.091,"MT"],["KBZN","Bozeman Yellowstone Intl","MT",45.778,-111.160,"MT"],["KHLN","Helena Regional","MT",46.607,-111.983,"MT"],["KGGW","Glasgow Intl","MT",48.212,-106.615,"MT"],
-["KOMA","Omaha Eppley Airfield","NE",41.303,-95.894,"CT"],["KLNK","Lincoln Airport","NE",40.851,-96.759,"CT"],["KGRI","Central Nebraska Regional","NE",40.967,-98.309,"CT"],["KEAR","Kearney Regional","NE",40.727,-99.007,"CT"],["KBFF","Western Nebraska Regional","NE",41.875,-103.597,"MT"],
-["KLAS","Las Vegas Harry Reid Intl","NV",36.080,-115.152,"PT"],["KRNO","Reno-Tahoe Intl","NV",39.499,-119.768,"PT"],["KELKO","Elko Regional","NV",40.825,-115.792,"PT"],
-["KMHT","Manchester Boston Regional","NH",42.933,-71.436,"ET"],["KCON","Concord Municipal","NH",43.202,-71.502,"ET"],["KLEB","Lebanon Municipal","NH",43.627,-72.304,"ET"],
-["KEWR","Newark Liberty Intl","NJ",40.693,-74.177,"ET"],["KTEB","Teterboro Airport","NJ",40.850,-74.061,"ET"],["KACY","Atlantic City Intl","NJ",39.458,-74.577,"ET"],
-["KABQ","Albuquerque Intl Sunport","NM",35.040,-106.610,"MT"],["KROW","Roswell Intl Air Center","NM",33.301,-104.531,"MT"],["KSAF","Santa Fe Municipal","NM",35.617,-106.088,"MT"],
-["KJFK","New York JFK Intl","NY",40.640,-73.779,"ET"],["KLGA","New York LaGuardia","NY",40.778,-73.877,"ET"],
-["KBUF","Buffalo Niagara Intl","NY",42.941,-78.733,"ET"],["KSYR","Syracuse Hancock Intl","NY",43.111,-76.107,"ET"],
-["KALB","Albany Intl","NY",42.748,-73.801,"ET"],["KISP","Islip MacArthur","NY",40.795,-73.100,"ET"],
-["KBGM","Binghamton Regional","NY",42.209,-75.980,"ET"],["KROC","Rochester Intl","NY",43.120,-77.672,"ET"],
-["KPOU","Hudson Valley Regional","NY",41.627,-73.884,"ET"],["KELM","Elmira Corning Regional","NY",42.160,-76.892,"ET"],["KSWF","Stewart Intl","NY",41.504,-74.105,"ET"],
-["KRDU","Raleigh-Durham Intl","NC",35.878,-78.787,"ET"],["KCLT","Charlotte Douglas Intl","NC",35.214,-80.941,"ET"],["KAVL","Asheville Regional","NC",35.436,-82.542,"ET"],["KILM","Wilmington Intl","NC",34.271,-77.903,"ET"],["KGSO","Piedmont Triad Intl","NC",36.098,-79.937,"ET"],["KEWN","Coastal Carolina Regional","NC",35.073,-77.044,"ET"],
-["KBIS","Bismarck Municipal","ND",46.773,-100.747,"CT"],["KFAR","Hector Intl Fargo","ND",46.921,-96.815,"CT"],["KGFK","Grand Forks Intl","ND",47.950,-97.176,"CT"],["KMIN","Minot Intl","ND",48.414,-101.358,"CT"],
-["KCLE","Cleveland Hopkins Intl","OH",41.413,-81.855,"ET"],["KCMH","Columbus John Glenn Intl","OH",39.999,-82.887,"ET"],["KDAY","Dayton Intl","OH",39.902,-84.219,"ET"],["KTOL","Toledo Express","OH",41.587,-83.808,"ET"],["KYNG","Youngstown-Warren Regional","OH",41.261,-80.679,"ET"],["KCAK","Akron-Canton Regional","OH",40.917,-81.442,"ET"],
-["KOKC","Will Rogers World OKC","OK",35.394,-97.601,"CT"],["KTUL","Tulsa Intl","OK",36.198,-95.888,"CT"],["KLAW","Lawton-Fort Sill Regional","OK",34.567,-98.416,"CT"],["KWDG","Woodward Airport","OK",36.380,-97.791,"CT"],
-["KPDX","Portland Intl","OR",45.589,-122.598,"PT"],["KEUG","Eugene Airport","OR",44.125,-123.219,"PT"],["KMFR","Medford Rogue Valley Intl","OR",42.374,-122.873,"PT"],["KRDM","Roberts Field Redmond","OR",44.254,-121.150,"PT"],["KAST","Astoria Regional","OR",46.158,-123.879,"PT"],["KOTH","North Bend Municipal","OR",43.417,-124.246,"PT"],
-["KPHL","Philadelphia Intl","PA",39.872,-75.241,"ET"],["KPIT","Pittsburgh Intl","PA",40.491,-80.233,"ET"],["KABE","Lehigh Valley Intl","PA",40.652,-75.441,"ET"],["KAOO","Johnstown Airport","PA",40.296,-78.319,"ET"],["KIPT","Williamsport Regional","PA",41.242,-76.921,"ET"],["KERI","Erie Intl","PA",42.083,-80.174,"ET"],["KAVP","Scranton Wilkes-Barre Intl","PA",41.338,-75.724,"ET"],
-["KPVD","Providence T.F. Green Intl","RI",41.724,-71.434,"ET"],
-["KCHS","Charleston Intl","SC",32.899,-80.041,"ET"],["KCAE","Columbia Metropolitan","SC",33.939,-81.120,"ET"],["KGSP","Greenville-Spartanburg Intl","SC",34.896,-82.219,"ET"],["KMYR","Myrtle Beach Intl","SC",33.680,-78.928,"ET"],
-["KRAP","Rapid City Regional","SD",44.045,-103.057,"MT"],["KFSD","Sioux Falls Regional","SD",43.582,-96.742,"CT"],["KABR","Aberdeen Regional","SD",45.449,-98.421,"CT"],
-["KBNA","Nashville Intl","TN",36.126,-86.679,"CT"],["KMEM","Memphis Intl","TN",35.042,-89.977,"CT"],["KTYS","McGhee Tyson Knoxville","TN",35.812,-83.994,"ET"],["KCHA","Chattanooga Metropolitan","TN",35.035,-85.203,"ET"],
-["KIAH","Houston George Bush Intl","TX",29.980,-95.338,"CT"],["KHOU","Houston William Hobby","TX",29.645,-95.279,"CT"],["KDFW","Dallas-Fort Worth Intl","TX",32.896,-97.038,"CT"],["KDAL","Dallas Love Field","TX",32.847,-96.851,"CT"],["KSAT","San Antonio Intl","TX",29.533,-98.470,"CT"],["KAUS","Austin-Bergstrom Intl","TX",30.194,-97.670,"CT"],["KELP","El Paso Intl","TX",31.807,-106.378,"MT"],["KAMA","Amarillo Rick Husband Intl","TX",35.220,-101.706,"CT"],["KABI","Abilene Regional","TX",32.411,-99.682,"CT"],["KMAF","Midland Intl Air and Space","TX",31.943,-102.202,"CT"],["KBRO","Brownsville South Padre Island","TX",25.906,-97.426,"CT"],["KCRP","Corpus Christi Intl","TX",27.770,-97.502,"CT"],["KGGG","East Texas Regional","TX",32.384,-94.712,"CT"],["KLRD","Laredo Intl","TX",27.544,-99.462,"CT"],["KACT","Waco Regional","TX",31.611,-97.229,"CT"],["KSPS","Wichita Falls Regional","TX",33.989,-98.492,"CT"],
-["KSLC","Salt Lake City Intl","UT",40.788,-111.979,"MT"],["KOGD","Ogden Hinckley","UT",41.196,-112.012,"MT"],["KCDC","Cedar City Regional","UT",37.701,-113.099,"MT"],["KPVU","Provo Municipal","UT",40.219,-111.726,"MT"],
-["KBTV","Burlington Intl","VT",44.472,-73.153,"ET"],["KMPV","Montpelier Edward F. Knapp","VT",44.204,-72.562,"ET"],
-["KIAD","Washington Dulles Intl","VA",38.944,-77.456,"ET"],["KRIC","Richmond Intl","VA",37.505,-77.320,"ET"],["KROA","Roanoke-Blacksburg Regional","VA",37.325,-79.975,"ET"],["KCHO","Charlottesville-Albemarle","VA",38.139,-78.453,"ET"],["KORF","Norfolk Intl","VA",36.898,-76.013,"ET"],["KPHF","Newport News Williamsburg","VA",37.132,-76.493,"ET"],
-["KSEA","Seattle-Tacoma Intl","WA",47.449,-122.309,"PT"],["KGEG","Spokane Intl","WA",47.620,-117.534,"PT"],["KOLM","Olympia Regional","WA",46.974,-122.903,"PT"],["KPAE","Paine Field Everett","WA",47.906,-122.281,"PT"],["KYKM","Yakima Air Terminal","WA",46.568,-120.544,"PT"],["KEAT","Pangborn Memorial Wenatchee","WA",47.399,-120.207,"PT"],["KBLI","Bellingham Intl","WA",48.793,-122.538,"PT"],
-["KCRW","Yeager Airport Charleston","WV",38.374,-81.593,"ET"],["KHTS","Tri-State Airport","WV",38.365,-82.558,"ET"],["KCKB","North Central WV Airport","WV",39.296,-80.228,"ET"],
-["KMKE","Milwaukee Mitchell Intl","WI",42.947,-87.897,"CT"],["KMSN","Dane County Regional","WI",43.140,-89.338,"CT"],["KGRB","Green Bay Austin Straubel","WI",44.485,-88.130,"CT"],["KLSE","La Crosse Regional","WI",43.879,-91.257,"CT"],["KEAU","Eau Claire Chippewa Valley","WI",44.865,-91.483,"CT"],["KRHI","Rhinelander-Oneida County","WI",45.631,-89.467,"CT"],
-["KCYS","Cheyenne Regional","WY",41.156,-104.812,"MT"],["KLAR","Laramie Regional","WY",41.311,-105.675,"MT"],["KRKS","Rock Springs Sweetwater County","WY",41.595,-109.065,"MT"],["KCOD","Yellowstone Regional Cody","WY",44.520,-109.024,"MT"],
-["KDCA","Ronald Reagan Washington National","DC",38.851,-77.037,"ET"],
-["TJSJ","Luis Munoz Marin Intl","PR",18.440,-66.005,"ET"]
+const HOUR = 3600000, DAY = 86400000;
+const MIN_HOURS_COMPLETE = 18;     // hours of the variable needed for a day to count
+const COVERAGE_MIN = 0.9;          // share of in-season units a year needs to enter the rarity distribution
+const RP_MIN_YEARS = 10;           // fewer qualifying years than this -> no return period
+const FETCH_RETRIES = 3, FETCH_BACKOFF_MS = 1200, FETCH_GAP_MS = 400;
+const SPLIT_MAX_DEPTH = 4, MAX_INFLIGHT = 2;
+const EMPTY_STOP = 12;             // consecutive empty years that end the backward walk
+const POR_FLOOR = 1900;
+const ROUTINE_MIN_OBS = 200;
+const CACHE_VER = 1;
+const EXPORT_SCALE = 3;
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const TEMPLATE_LEN = [31,29,31,30,31,30,31,31,30,31,30,31];
+
+// ================================================================
+// VARIABLES, FAMILIES, PRESETS
+// ================================================================
+const VARIABLES = {
+  temp:     { label:'Temperature', unit:'°F', group:'tmpf', dailySource:'acis', rangeMin:-30, rangeMax:120, step:1,
+              metricLabel:{ max:'daily high', min:'daily low', mean:'daily mean' },
+              fmt: v => `${Math.round(v)}°F` },
+  dewpoint: { label:'Dewpoint', unit:'°F', group:'dwpf', dailySource:'iem', rangeMin:-30, rangeMax:90, step:1,
+              metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
+              fmt: v => `${Math.round(v)}°F` },
+  cloud:    { label:'Cloud cover', unit:'/8', group:'sky', dailySource:'iem', rangeMin:0, rangeMax:8, step:0.5,
+              metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
+              fmt: v => `${Math.round(v*2)/2}/8` }
+};
+const GROUPS = {
+  tmpf: { fields:['tmpf'], chunk:10, label:'temperature' },
+  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint' },
+  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover' }
+};
+const FAMILIES = [
+  { id:'temp',  label:'Temperature' },
+  { id:'moist', label:'Moisture' },
+  { id:'sky',   label:'Sky' }
 ];
-const TZ_IANA={ET:'America/New_York',CT:'America/Chicago',MT:'America/Denver',PT:'America/Los_Angeles',AK:'America/Anchorage',HI:'Pacific/Honolulu',AZ:'America/Phoenix'};
+// ys = first month of the counting year (7 = Jul–Jun, so winter isn't split at New Year's)
+const PRESETS = [
+  { id:'t-hot90',       fam:'temp',  grp:'Heat',   label:'Hot days ≥90°',           variable:'temp', agg:'daily', metric:'max', op:'gte', value:90 },
+  { id:'t-hot100',      fam:'temp',  grp:'Heat',   label:'Extreme heat ≥100°',      variable:'temp', agg:'daily', metric:'max', op:'gte', value:100 },
+  { id:'t-warmnight70', fam:'temp',  grp:'Heat',   label:'Warm nights ≥70°',        variable:'temp', agg:'daily', metric:'min', op:'gte', value:70 },
+  { id:'t-warmnight',   fam:'temp',  grp:'Heat',   label:'Very warm nights ≥75°',   variable:'temp', agg:'daily', metric:'min', op:'gte', value:75 },
+  { id:'t-freefree',    fam:'temp',  grp:'Growing season', label:'Freeze-free ≥33°', variable:'temp', agg:'daily', metric:'min', op:'gte', value:33 },
+  { id:'t-frz32',       fam:'temp',  grp:'Cold',   label:'Freezing nights ≤32°',    variable:'temp', agg:'daily', metric:'min', op:'lte', value:32, ys:7 },
+  { id:'t-ice32',       fam:'temp',  grp:'Cold',   label:'Ice days ≤32°',           variable:'temp', agg:'daily', metric:'max', op:'lte', value:32, ys:7 },
+  { id:'t-frz20',       fam:'temp',  grp:'Cold',   label:'Hard freeze ≤20°',        variable:'temp', agg:'daily', metric:'min', op:'lte', value:20, ys:7 },
+  { id:'t-zero',        fam:'temp',  grp:'Cold',   label:'Below-zero nights ≤0°',   variable:'temp', agg:'daily', metric:'min', op:'lte', value:0, ys:7 },
+  { id:'d-muggy65',     fam:'moist', grp:'Humid',  label:'Muggy hours ≥65°',        variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:65 },
+  { id:'d-humid70',     fam:'moist', grp:'Humid',  label:'Humid hours ≥70°',        variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:70 },
+  { id:'d-trop75',      fam:'moist', grp:'Humid',  label:'Oppressive hours ≥75°',   variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:75 },
+  { id:'d-muggyday',    fam:'moist', grp:'No relief', label:'Muggy all day ≥65°',   variable:'dewpoint', agg:'daily', metric:'min', op:'gte', value:65 },
+  { id:'d-muggynight',  fam:'moist', grp:'No relief', label:'Humid all day ≥70°',   variable:'dewpoint', agg:'daily', metric:'min', op:'gte', value:70 },
+  { id:'d-dry32',       fam:'moist', grp:'Dry',    label:'Dry all day ≤32°',        variable:'dewpoint', agg:'daily', metric:'max', op:'lte', value:32, ys:7 },
+  { id:'d-bonedry20',   fam:'moist', grp:'Dry',    label:'Bone-dry all day ≤20°',   variable:'dewpoint', agg:'daily', metric:'max', op:'lte', value:20, ys:7 },
+  { id:'c-overcast',    fam:'sky',   grp:'Cloudy', label:'Overcast hours 8/8',      variable:'cloud', agg:'hourly', metric:'max', op:'gte', value:8 },
+  { id:'c-mostlycloudy',fam:'sky',   grp:'Cloudy', label:'Mostly cloudy hours ≥6/8',variable:'cloud', agg:'hourly', metric:'max', op:'gte', value:6 },
+  { id:'c-grayday',     fam:'sky',   grp:'Cloudy', label:'Gray days (mean ≥7/8)',   variable:'cloud', agg:'daily', metric:'mean', op:'gte', value:7 },
+  { id:'c-clear',       fam:'sky',   grp:'Clear',  label:'Clear hours 0/8',         variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:0 },
+  { id:'c-fewclouds',   fam:'sky',   grp:'Clear',  label:'Mostly clear hours ≤3/8', variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:3 },
+  { id:'c-clearday',    fam:'sky',   grp:'Clear',  label:'Clear days (≤2/8 all day)', variable:'cloud', agg:'daily', metric:'max', op:'lte', value:2 }
+];
+const PRESET_BY_ID = Object.fromEntries(PRESETS.map(p => [p.id, p]));
+const FAMILY_OF_VARIABLE = { temp:'temp', dewpoint:'moist', cloud:'sky' };
 
-// ================================================================
-// THRESHOLD PRESETS
-// ================================================================
-const PRESETS = {
-  temp: [
-    {id:'t-hot90',  label:'Hot Days &ge;90&deg;',   group:'Heat',      metric:'max', op:'gte', value:90},
-    {id:'t-hot100', label:'Extreme Heat &ge;100&deg;', group:'Heat',   metric:'max', op:'gte', value:100},
-    {id:'t-ice32',  label:'Ice Days &le;32&deg;',   group:'Cold',      metric:'max', op:'lte', value:32},
-    {id:'t-frz20',  label:'Hard Freeze &le;20&deg;', group:'Cold',     metric:'min', op:'lte', value:20},
-    {id:'t-warmnight', label:'Warm Nights &ge;75&deg;', group:'No Relief', metric:'min', op:'gte', value:75},
-    {id:'t-freefree', label:'Freeze-Free &ge;33&deg;', group:'Growing Season', metric:'min', op:'gte', value:33}
-  ],
-  dewpoint: [
-    {id:'d-muggy65', label:'Muggy &ge;65&deg;',   group:'Humid', metric:'max', op:'gte', value:65},
-    {id:'d-humid70', label:'Humid &ge;70&deg;',   group:'Humid', metric:'max', op:'gte', value:70},
-    {id:'d-trop75',  label:'Oppressive &ge;75&deg;', group:'Humid', metric:'max', op:'gte', value:75},
-    {id:'d-dry32',   label:'Dry &le;32&deg;',     group:'Dry',   metric:'max', op:'lte', value:32},
-    {id:'d-bonedry20', label:'Bone-Dry &le;20&deg;', group:'Dry', metric:'max', op:'lte', value:20},
-    {id:'d-muggynight', label:'Muggy Nights &ge;70&deg;', group:'No Relief', metric:'min', op:'gte', value:70}
-  ],
-  cloud: [
-    {id:'c-overcast',     label:'Overcast &ge;8/8',      group:'Overcast', metric:'max', op:'gte', value:8},
-    {id:'c-mostlycloudy', label:'Mostly Cloudy &ge;6/8', group:'Overcast', metric:'max', op:'gte', value:6},
-    {id:'c-clear',        label:'Clear &le;1/8',         group:'Clear',    metric:'max', op:'lte', value:1},
-    {id:'c-fewclouds',    label:'Mostly Clear &le;3/8',  group:'Clear',    metric:'max', op:'lte', value:3}
-  ]
-};
-const DEFAULT_AGG = {temp:'daily', dewpoint:'hourly', cloud:'hourly'};
-
-// ================================================================
-// PER-VARIABLE METADATA (label, unit, custom-panel range) -- keeps the
-// custom threshold controls generic instead of hardcoding °F everywhere.
-// ================================================================
-const VARIABLE_META = {
-  temp:     {label:'Temperature', unit:'&deg;F', plainUnit:'°F', rangeMin:-30, rangeMax:120, step:1,   valueLabel:'Value (&deg;F)'},
-  dewpoint: {label:'Dewpoint',    unit:'&deg;F', plainUnit:'°F', rangeMin:-30, rangeMax:110, step:1,   valueLabel:'Value (&deg;F)'},
-  cloud:    {label:'Cloud Cover', unit:'/8',     plainUnit:'/8',      rangeMin:0,   rangeMax:8,   step:0.5, valueLabel:'Value (oktas, 0&ndash;8)'}
-};
-
-// ================================================================
-// SEASON / MONTH-RESTRICTION PRESETS
-// ================================================================
 const SEASON_PRESETS = [
-  {id:'all', label:'All Months',        months:[1,2,3,4,5,6,7,8,9,10,11,12]},
-  {id:'djf', label:'Winter (Dec–Feb)', months:[12,1,2]},
-  {id:'mam', label:'Spring (Mar–May)', months:[3,4,5]},
-  {id:'jja', label:'Summer (Jun–Aug)', months:[6,7,8]},
-  {id:'son', label:'Fall (Sep–Nov)',   months:[9,10,11]}
+  { id:'all', label:'All months',        months:[1,2,3,4,5,6,7,8,9,10,11,12] },
+  { id:'djf', label:'Winter (Dec–Feb)',  months:[12,1,2] },
+  { id:'mam', label:'Spring (Mar–May)',  months:[3,4,5] },
+  { id:'jja', label:'Summer (Jun–Aug)',  months:[6,7,8] },
+  { id:'son', label:'Fall (Sep–Nov)',    months:[9,10,11] }
 ];
-const MONTH_NAMES=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ================================================================
-// STATE
+// STATIONS (shared roster)
 // ================================================================
-let curStation=null, rawHourly=[], hourlyMap=new Map(), dailyMap=new Map(), sortedDates=[];
-let state = {
-  variable:'dewpoint', aggregation:'hourly', metric:'max', op:'gte', value:65, activePreset:'d-muggy65',
-  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]), seasonId:'all', seasonLabel:'All Months',
-  mode:'streaks', totalsGroupBy:'year'
-};
-let lastGrid=null, lastStreaks=null, lastStats=null;
-let stripDPR = window.devicePixelRatio || 1;
-
-function pad2(n){return String(n).padStart(2,'0');}
-
-// ================================================================
-// SEARCH / AUTOCOMPLETE  (reused pattern from current-conditions.html)
-// ================================================================
-let ddIdx=-1;
-function initSearch(){
-  const inp=document.getElementById('si'),dd=document.getElementById('dd');
-  inp.addEventListener('input',()=>{
-    ddIdx=-1;const q=inp.value.trim().toLowerCase();
-    if(!q){dd.classList.remove('open');return;}
-    const matches=STATIONS.filter(s=>s[0].toLowerCase().startsWith(q)||s[0].slice(1).toLowerCase().startsWith(q)||s[1].toLowerCase().includes(q)||(s[2]&&s[2].toLowerCase()===q)).slice(0,18);
-    renderDD(matches);
-  });
-  inp.addEventListener('keydown',e=>{
-    const items=dd.querySelectorAll('.d-item');
-    if(e.key==='ArrowDown'){e.preventDefault();ddIdx=Math.min(ddIdx+1,items.length-1);highlightDD(items);}
-    else if(e.key==='ArrowUp'){e.preventDefault();ddIdx=Math.max(ddIdx-1,0);highlightDD(items);}
-    else if(e.key==='Enter'){e.preventDefault();if(ddIdx>=0&&items[ddIdx])items[ddIdx].click();}
-    else if(e.key==='Escape'){dd.classList.remove('open');}
-  });
-  document.addEventListener('click',e=>{if(!document.getElementById('sw').contains(e.target))dd.classList.remove('open');});
-}
-function highlightDD(items){items.forEach((el,i)=>{el.classList.toggle('hi',i===ddIdx);if(i===ddIdx)el.scrollIntoView({block:'nearest'});});}
-function renderDD(matches){
-  const dd=document.getElementById('dd');
-  if(!matches.length){dd.classList.remove('open');return;}
-  dd.innerHTML=matches.map((s,i)=>`<div class="d-item" data-idx="${i}"><span class="d-id">${s[0]}</span><span class="d-name">${s[1]}</span><span class="d-st">${s[2]}</span></div>`).join('');
-  dd.querySelectorAll('.d-item').forEach((el,i)=>el.addEventListener('click',()=>{document.getElementById('si').value='';dd.classList.remove('open');loadStation(matches[i]);}));
-  dd.classList.add('open');
+const STATIONS = {};
+for (const r of STATION_ROSTER) {
+  const [id, name, st, lat, lon, tz] = r;
+  STATIONS[id] = { id, name, st, lat, lon, tz, iana: stationIANA(id, tz) };
 }
 
 // ================================================================
-// IEM ASOS FETCH + PARSE
+// TIME — everything is binned in local standard time (LST), the NWS
+// climate day. LST instants are stored as "fake UTC" milliseconds so
+// Date.UTC / getUTC* do the calendar arithmetic with no DST at all.
 // ================================================================
-function buildIEMUrl(icao, tzIana, y1, y2){
-  // _ts is a pure cache-buster: some intermediary/browser caches will otherwise
-  // treat "the same" station+range request as reusable across days, which is
-  // exactly wrong for a tool whose whole point is "as of right now."
-  return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${icao}&data=tmpf&data=dwpf&data=skyc1&data=skyc2&data=skyc3&data=skyc4` +
-    `&year1=${y1}&month1=1&day1=1&year2=${y2}&month2=12&day2=31` +
-    `&tz=${encodeURIComponent(tzIana)}&format=comma&latlon=no&missing=M&trace=T&direct=no&_ts=${Date.now()}`;
+const offsetCache = new Map(), fmtCache = new Map();
+function offsetAtMin(iana, ms) {
+  let f = fmtCache.get(iana);
+  if (!f) { f = new Intl.DateTimeFormat('en-US', { timeZone: iana, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }); fmtCache.set(iana, f); }
+  const parts = f.formatToParts(new Date(ms));
+  const g = t => parseInt(parts.find(p => p.type === t).value, 10);
+  return Math.round((Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute')) - ms) / 60000);
+}
+// Standard offset for a year = the smallest offset seen across it. Reading
+// January alone fails in 1974, when the US kept daylight time all winter.
+function stdOffsetMin(iana, year) {
+  const key = iana + '|' + year;
+  let v = offsetCache.get(key);
+  if (v !== undefined) return v;
+  try {
+    v = Infinity;
+    for (let m = 0; m < 12; m++) v = Math.min(v, offsetAtMin(iana, Date.UTC(year, m, 15, 12)));
+  } catch (e) { v = -300; }
+  offsetCache.set(key, v);
+  return v;
+}
+function nowLST(st) {
+  const real = Date.now();
+  const off = stdOffsetMin(st.iana, new Date(real).getUTCFullYear());
+  const ms = real + off * 60000;
+  const d = new Date(ms);
+  return { ms, y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, day: Math.floor(ms / DAY) };
+}
+const ymdToDay = (y, m, d) => Date.UTC(y, m - 1, d) / DAY;
+function dayToYMD(day) { const d = new Date(day * DAY); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate() }; }
+const isLeap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+const daysInMonth = (y, m) => m === 2 ? (isLeap(y) ? 29 : 28) : TEMPLATE_LEN[m - 1];
+const syOf = (y, m, ys) => ys === 1 ? y : (m >= ys ? y : y - 1);
+const syStartDay = (sy, ys) => ymdToDay(sy, ys, 1);
+const syEndDay = (sy, ys) => ymdToDay(sy + 1, ys, 1) - 1;
+const syLabel = (sy, ys) => ys === 1 ? String(sy) : `${sy}–${String((sy + 1) % 100).padStart(2, '0')}`;
+function fmtDay(day, withYear = true) { const t = dayToYMD(day); return withYear ? `${MONTH_NAMES[t.m-1]} ${t.d}, ${t.y}` : `${MONTH_NAMES[t.m-1]} ${t.d}`; }
+function fmtHourOfMs(ms) { const h = new Date(ms).getUTCHours(); const h12 = h % 12 === 0 ? 12 : h % 12; return `${h12} ${h < 12 ? 'AM' : 'PM'}`; }
+function fmtDayRange(d0, d1) {
+  const a = dayToYMD(d0), b = dayToYMD(d1);
+  if (d0 === d1) return fmtDay(d0);
+  if (a.y === b.y) return `${MONTH_NAMES[a.m-1]} ${a.d} – ${MONTH_NAMES[b.m-1]} ${b.d}, ${a.y}`;
+  return `${fmtDay(d0)} – ${fmtDay(d1)}`;
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ================================================================
+// FETCH RESILIENCE (same pattern as the heatmaps)
+// ================================================================
+function isTransientStatus(code) { return code === 408 || code === 425 || code === 429 || (code >= 500 && code <= 599); }
+function isTransientError(e) { return !!(e && (e.transient || e.name === 'TypeError')); }
+async function fetchWithRetry(label, doFetch) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= FETCH_RETRIES; attempt++) {
+    if (attempt > 0) await sleep(FETCH_BACKOFF_MS * Math.pow(2, attempt - 1));
+    try { return await doFetch(); }
+    catch (e) {
+      lastErr = e;
+      if (!isTransientError(e)) throw e;
+      console.warn(`${label}: attempt ${attempt + 1} failed (${e.message}); retrying`);
+    }
+  }
+  throw lastErr;
 }
 
-// Sky condition code -> "oktas" (eighths of sky covered). METAR layer codes are
-// bands, not exact counts, so single-layer codes are mapped to the midpoint of
-// their band. VV (indefinite ceiling -- fog/heavy precip obscuring the sky) is
-// treated as fully overcast since the sky is, functionally, not visible.
-function skyCodeToOktas(code){
-  switch((code||'').trim().toUpperCase()){
-    case 'SKC': case 'CLR': case 'CAVOK': return 0;
+// ================================================================
+// IEM ASOS — requested in UTC, one routine ob per LST hour
+// ================================================================
+function buildIEMUrl(stId, group, y1, y2) {
+  // Pad a day either side: LST year Y starts a few hours into UTC Jan 1
+  // and ends a few hours into UTC Jan 1 of Y+1. day2 is exclusive.
+  const data = GROUPS[group].fields.map(f => `data=${f}`).join('&');
+  return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${stId}&${data}` +
+    `&year1=${y1 - 1}&month1=12&day1=31&year2=${y2 + 1}&month2=1&day2=2` +
+    `&tz=Etc%2FUTC&format=comma&latlon=no&elev=no&missing=M&trace=T&direct=no`;
+}
+async function fetchIEMOnce(stId, group, y1, y2) {
+  let resp;
+  resp = await fetch(buildIEMUrl(stId, group, y1, y2), { cache: 'no-store' });
+  if (!resp.ok) {
+    const err = new Error(`IEM HTTP ${resp.status}`);
+    err.transient = isTransientStatus(resp.status); err.status = resp.status;
+    throw err;
+  }
+  return resp.text();
+}
+
+// METAR sky layer -> oktas (band midpoints). VV = sky obscured -> 8.
+function skyCodeToOktas(code) {
+  switch (code) {
+    case 'CLR': case 'SKC': case 'NSC': case 'NCD': return 0;
     case 'FEW': return 1.5;
     case 'SCT': return 3.5;
     case 'BKN': return 6.5;
-    case 'OVC': return 8;
-    case 'VV':  return 8;
+    case 'OVC': case 'VV': return 8;
     default: return null;
   }
 }
+function modeOfHist(hist) { let best = -1, bestN = 0; for (let m = 0; m < 60; m++) if (hist[m] > bestN) { bestN = hist[m]; best = m; } return best; }
 
-function parseIEM(text){
-  const lines=text.split('\n');
-  let tIdx=-1, dIdx=-1, vIdx=1, s1Idx=-1, s2Idx=-1, s3Idx=-1, s4Idx=-1, inData=false;
-  const out=[];
-  for(const raw of lines){
-    const l=raw.trim(); if(!l) continue;
-    if(l.startsWith('station,')){
-      const h=l.split(',');
-      tIdx=h.indexOf('tmpf'); dIdx=h.indexOf('dwpf'); vIdx=h.indexOf('valid');
-      s1Idx=h.indexOf('skyc1'); s2Idx=h.indexOf('skyc2'); s3Idx=h.indexOf('skyc3'); s4Idx=h.indexOf('skyc4');
-      inData=true; continue;
+// Parse one IEM chunk into Map(LST year -> Float32Array of hourly values | null).
+// Cell window: obs at :45 or later belong to the next hour. Within a cell the
+// routine ob wins; a special fills the cell only when the routine value is
+// missing, and then it is the special nearest the routine minute.
+function parseChunk(text, group, y1, y2, st) {
+  const lines = text.split('\n');
+  let hdr = -1;
+  for (let i = 0; i < lines.length; i++) if (lines[i].startsWith('station,')) { hdr = i; break; }
+  const out = new Map();
+  for (let Y = y1; Y <= y2; Y++) out.set(Y, null);
+  if (hdr < 0) return out;
+  const h = lines[hdr].split(',');
+  const vI = h.indexOf('valid');
+  const fI = GROUPS[group].fields.map(f => h.indexOf(f));
+  const isSky = group === 'sky';
+
+  // Pass 1: parse rows once, histogram of LST minutes per LST year.
+  const rows = [];
+  const histByYear = new Map(), histAll = new Int32Array(60);
+  for (let i = hdr + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    const parts = line.split(',');
+    const valid = parts[vI];
+    if (!valid || valid.length < 16) continue;
+    const uy = +valid.substr(0, 4), um = +valid.substr(5, 2), ud = +valid.substr(8, 2), uh = +valid.substr(11, 2), umi = +valid.substr(14, 2);
+    if (!(uy > 0) || isNaN(um) || isNaN(ud) || isNaN(uh) || isNaN(umi)) continue;
+    const lst = Date.UTC(uy, um - 1, ud, uh, umi) + stdOffsetMin(st.iana, uy) * 60000;
+    const mi = new Date(lst).getUTCMinutes();
+    const ly = new Date(lst).getUTCFullYear();
+    let hist = histByYear.get(ly);
+    if (!hist) { hist = new Int32Array(60); histByYear.set(ly, hist); }
+    hist[mi]++; histAll[mi]++;
+    let v = null;
+    if (isSky) {
+      for (const idx of fI) {
+        if (idx < 0) continue;
+        const c = (parts[idx] || '').trim();
+        if (!c || c === 'M') continue;
+        const o = skyCodeToOktas(c);
+        if (o != null && (v === null || o > v)) v = o;
+      }
+    } else {
+      const s = (parts[fI[0]] || '').trim();
+      if (s && s !== 'M') { const f = parseFloat(s); if (!isNaN(f)) v = f; }
     }
-    if(!inData) continue;
-    const parts=l.split(',');
-    if(parts.length<=Math.max(tIdx,dIdx,vIdx)) continue;
-    const valid=(parts[vIdx]||'').trim();
-    const sp=valid.indexOf(' '); if(sp<1) continue;
-    const dpart=valid.substring(0,sp);
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(dpart)) continue;
-    const hh=parseInt(valid.substring(sp+1,sp+3),10);
-    if(isNaN(hh)||hh<0||hh>23) continue;
-    const tStr=(parts[tIdx]||'').trim(), dStr=(parts[dIdx]||'').trim();
-    const t=(tStr&&tStr!=='M')?parseFloat(tStr):null;
-    const dp=(dStr&&dStr!=='M')?parseFloat(dStr):null;
-    // Overall cloud cover for the hour = the greatest coverage among all reported
-    // layers (METARs report layers bottom-up; the highest coverage value present
-    // is the standard single-number summary of "how covered was the sky").
-    let cld=null;
-    for(const idx of [s1Idx,s2Idx,s3Idx,s4Idx]){
-      if(idx<0) continue;
-      const rawCode=(parts[idx]||'').trim();
-      if(!rawCode || rawCode==='M') continue;
-      const v=skyCodeToOktas(rawCode);
-      if(v!=null && (cld===null || v>cld)) cld=v;
+    rows.push(lst, mi, v === null ? NaN : v);
+  }
+  const globalR = modeOfHist(histAll);
+  const routineOf = new Map();
+  for (const [yr, hist] of histByYear) {
+    let n = 0; for (let m = 0; m < 60; m++) n += hist[m];
+    routineOf.set(yr, n >= ROUTINE_MIN_OBS ? modeOfHist(hist) : globalR);
+  }
+
+  // Pass 2: fill cells.
+  const bufs = new Map();  // Y -> {vals, dist, any}
+  for (let k = 0; k < rows.length; k += 3) {
+    const lst = rows[k], mi = rows[k + 1], v = rows[k + 2];
+    const cell = Math.floor((lst + 15 * 60000) / HOUR) * HOUR;
+    const Y = new Date(cell).getUTCFullYear();
+    if (Y < y1 || Y > y2) continue;
+    let b = bufs.get(Y);
+    if (!b) {
+      const n = (Date.UTC(Y + 1, 0, 1) - Date.UTC(Y, 0, 1)) / HOUR;
+      b = { vals: new Float32Array(n).fill(NaN), dist: new Uint8Array(n).fill(255) };
+      bufs.set(Y, b);
     }
-    out.push({d:dpart, h:hh, t:(t==null||isNaN(t))?null:t, dp:(dp==null||isNaN(dp))?null:dp, cld});
+    if (isNaN(v)) continue;
+    const idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
+    const R = routineOf.get(new Date(lst).getUTCFullYear()) ?? globalR;
+    const dd = Math.abs(mi - R), d = Math.min(dd, 60 - dd);
+    if (d < b.dist[idx]) { b.dist[idx] = d; b.vals[idx] = v; }
+  }
+  for (const [Y, b] of bufs) out.set(Y, b.vals);
+  return out;
+}
+
+// ================================================================
+// INDEXEDDB CACHE — completed years only
+// ================================================================
+const idb = (() => {
+  let dbp = null;
+  function open() {
+    if (dbp) return dbp;
+    dbp = new Promise(res => {
+      try {
+        const r = indexedDB.open('cc-streak-tracker', 1);
+        r.onupgradeneeded = () => { r.result.createObjectStore('years'); };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+        r.onblocked = () => res(null);
+      } catch (e) { res(null); }
+    });
+    return dbp;
+  }
+  async function get(key) {
+    const db = await open(); if (!db) return undefined;
+    return new Promise(res => {
+      try { const q = db.transaction('years', 'readonly').objectStore('years').get(key); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }
+      catch (e) { res(undefined); }
+    });
+  }
+  async function put(key, val) {
+    const db = await open(); if (!db) return;
+    return new Promise(res => {
+      try { const tx = db.transaction('years', 'readwrite'); tx.objectStore('years').put(val, key); tx.oncomplete = () => res(); tx.onerror = () => res(); }
+      catch (e) { res(); }
+    });
+  }
+  return { get, put };
+})();
+const cacheKey = (stId, group, Y) => `${stId}|${group}|${Y}`;
+function yearCacheable(st, Y) { return nowLST(st).ms >= Date.UTC(Y + 1, 0, 10); }
+async function cacheGetYear(stId, group, Y) {
+  const rec = await idb.get(cacheKey(stId, group, Y));
+  if (!rec || rec.v !== CACHE_VER) return undefined;
+  return rec.empty ? null : rec.vals;
+}
+function cachePutYear(stId, group, Y, vals) {
+  idb.put(cacheKey(stId, group, Y), vals ? { v: CACHE_VER, vals } : { v: CACHE_VER, empty: true });
+}
+
+// ================================================================
+// STATION DATA STORE
+// ================================================================
+let store = null;   // { st, token, groups:{}, acis:{} }
+let storeToken = 0;
+function newStore(st) {
+  storeToken++;
+  return { st, token: storeToken, groups: {}, acis: { status: 'idle' } };
+}
+const storeAlive = tok => store && store.token === tok;
+function groupState(g) {
+  if (!store.groups[g]) store.groups[g] = { years: new Map(), failed: new Map(), status: 'idle', ver: 0, merged: null, mergedVer: -1, daily: null, dailyVer: -1, oldestTried: null };
+  return store.groups[g];
+}
+function applyYear(gs, Y, vals) { gs.years.set(Y, vals); gs.failed.delete(Y); gs.ver++; }
+
+// Adaptive range fetch: a multi-year range that fails transiently is halved
+// (newer half first) rather than retried unchanged; a single year gets the
+// backoff retries. Each half's outcome is independent.
+async function fetchRange(st, group, y1, y2, depth = 0) {
+  const out = { years: new Map(), failed: new Map() };
+  try {
+    const text = y1 === y2
+      ? await fetchWithRetry(`IEM ${group} ${y1}`, () => fetchIEMOnce(st.id, group, y1, y2))
+      : await fetchIEMOnce(st.id, group, y1, y2);
+    for (const [Y, v] of parseChunk(text, group, y1, y2, st)) out.years.set(Y, v);
+  } catch (e) {
+    if (y1 < y2 && isTransientError(e) && depth < SPLIT_MAX_DEPTH) {
+      const mid = Math.floor((y1 + y2) / 2);
+      const a = await fetchRange(st, group, mid + 1, y2, depth + 1);
+      await sleep(FETCH_GAP_MS);
+      const b = await fetchRange(st, group, y1, mid, depth + 1);
+      for (const r of [a, b]) { for (const [Y, v] of r.years) out.years.set(Y, v); for (const [Y, m] of r.failed) out.failed.set(Y, m); }
+    } else {
+      for (let Y = y1; Y <= y2; Y++) out.failed.set(Y, e.message || 'request failed');
+    }
   }
   return out;
 }
 
-function buildMaps(hourlyArr){
-  const hMap=new Map(), dMap=new Map();
-  for(const r of hourlyArr){
-    const key=`${r.d} ${pad2(r.h)}`;
-    hMap.set(key,{t:r.t,dp:r.dp,cld:r.cld});
-    let day=dMap.get(r.d);
-    if(!day){day={maxT:-Infinity,minT:Infinity,sumT:0,cntT:0,maxD:-Infinity,minD:Infinity,sumD:0,cntD:0,maxCld:-Infinity,minCld:Infinity,sumCld:0,cntCld:0,hours:new Set()};dMap.set(r.d,day);}
-    day.hours.add(r.h);
-    if(r.t!=null){day.maxT=Math.max(day.maxT,r.t);day.minT=Math.min(day.minT,r.t);day.sumT+=r.t;day.cntT++;}
-    if(r.dp!=null){day.maxD=Math.max(day.maxD,r.dp);day.minD=Math.min(day.minD,r.dp);day.sumD+=r.dp;day.cntD++;}
-    if(r.cld!=null){day.maxCld=Math.max(day.maxCld,r.cld);day.minCld=Math.min(day.minCld,r.cld);day.sumCld+=r.cld;day.cntCld++;}
+// Loads one field group for the current station: current + previous year
+// first, then walks backward through history in chunks until EMPTY_STOP
+// consecutive empty years (or POR_FLOOR). Completed years are cached.
+async function loadGroup(group) {
+  const gs = groupState(group);
+  if (gs.status === 'loading') return;
+  const st = store.st, tok = store.token;
+  const wanted = () => storeAlive(tok) && activeGroupNeeded() === group;
+  gs.status = 'loading';
+  onLoadProgress();
+  const curY = nowLST(st).y;
+
+  function ingest(res) {
+    if (res.years.has(curY)) gs.curAt = Date.now();
+    for (const [Y, v] of res.years) {
+      applyYear(gs, Y, v);
+      if (yearCacheable(st, Y)) cachePutYear(st.id, group, Y, v);
+    }
+    for (const [Y, m] of res.failed) { if (!gs.years.has(Y)) gs.failed.set(Y, m); }
   }
-  for(const day of dMap.values()){
-    day.hourCount=day.hours.size;
-    day.meanT=day.cntT?day.sumT/day.cntT:null;
-    day.meanD=day.cntD?day.sumD/day.cntD:null;
-    day.meanCld=day.cntCld?day.sumCld/day.cntCld:null;
-    if(day.cntT===0){day.maxT=null;day.minT=null;}
-    if(day.cntD===0){day.maxD=null;day.minD=null;}
-    if(day.cntCld===0){day.maxCld=null;day.minCld=null;}
+
+  // Step 1: recent years (current always fresh).
+  const recent = [];
+  for (const Y of [curY - 1, curY]) {
+    if (gs.years.has(Y) && (Y !== curY || Date.now() - (gs.curAt || 0) < 600000)) continue;
+    if (Y !== curY && yearCacheable(st, Y)) {
+      const c = await cacheGetYear(st.id, group, Y);
+      if (!storeAlive(tok)) return;
+      if (c !== undefined) { applyYear(gs, Y, c); continue; }
+    }
+    recent.push(Y);
   }
-  return {hMap,dMap};
-}
+  if (recent.length) {
+    const res = await fetchRange(st, group, recent[0], recent[recent.length - 1]);
+    if (!storeAlive(tok)) return;
+    ingest(res);
+  }
+  onLoadProgress(true);
 
-// ================================================================
-// DATE HELPERS
-// ================================================================
-function ymdToUTC(ymd){const[y,m,d]=ymd.split('-').map(Number);return Date.UTC(y,m-1,d);}
-function utcToYmd(ms){const dt=new Date(ms);return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth()+1)}-${pad2(dt.getUTCDate())}`;}
-function addDaysYmd(ymd,n){return utcToYmd(ymdToUTC(ymd)+n*86400000);}
-function dayOfYear(ymd){const[y,m,d]=ymd.split('-').map(Number);return Math.floor((Date.UTC(y,m-1,d)-Date.UTC(y,0,0))/86400000);}
-function yearOf(ymd){return parseInt(ymd.slice(0,4),10);}
-function monthOf(ymd){return parseInt(ymd.slice(5,7),10);}
-function isLeap(y){return (y%4===0&&y%100!==0)||y%400===0;}
-function fmtDateLong(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}, ${y}`;}
-function fmtDateShort(ymd){const[y,m,d]=ymd.split('-').map(Number);const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return `${MN[m-1]} ${d}`;}
-
-// ================================================================
-// GRID BUILDERS
-// ================================================================
-const MIN_HOURS_COMPLETE = 18;
-
-function activeCfg(){
-  return {variable:state.variable, aggregation:state.aggregation, metric:state.metric, op:state.op, value:state.value, months:state.months};
-}
-
-function metricValue(day, cfg){
-  if(cfg.variable==='temp') return cfg.metric==='max'?day.maxT:cfg.metric==='min'?day.minT:day.meanT;
-  if(cfg.variable==='cloud') return cfg.metric==='max'?day.maxCld:cfg.metric==='min'?day.minCld:day.meanCld;
-  return cfg.metric==='max'?day.maxD:cfg.metric==='min'?day.minD:day.meanD;
-}
-
-// Hourly (unaggregated) value for whichever variable is active.
-function hourlyValue(rec, cfg){
-  if(cfg.variable==='temp') return rec.t;
-  if(cfg.variable==='dewpoint') return rec.dp;
-  return rec.cld;
-}
-
-function buildDailyGrid(cfg){
-  if(!sortedDates.length) return [];
-  const start=sortedDates[0], end=sortedDates[sortedDates.length-1];
-  const grid=[]; let cur=start;
-  while(true){
-    const inSeason = cfg.months.has(monthOf(cur));
-    const day = inSeason ? dailyMap.get(cur) : null;
-    const isLast=(cur===end);
-    let ok=false, missing=true;
-    if(day){
-      const cnt=cfg.variable==='temp'?day.cntT:cfg.variable==='cloud'?day.cntCld:day.cntD;
-      const complete=(day.hourCount>=MIN_HOURS_COMPLETE)||isLast;
-      if(complete && cnt>0){
-        const val=metricValue(day,cfg);
-        if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
+  // Step 2: walk backward.
+  let nextY = curY - 2, stop = false, inflight = 0, failStreak = 0;
+  // Stop once any 12 consecutive years below the recent chunk are known to be
+  // empty. Completions arrive out of order (a year stuck in retries must not
+  // hold the walk open), so this scans known years rather than a frontier.
+  function advanceFrontier() {
+    let run = 0;
+    for (let Y = curY - 2; Y > nextY; Y--) {
+      if (gs.years.has(Y) && gs.years.get(Y) === null) { if (++run >= EMPTY_STOP) { stop = true; return; } }
+      else run = 0;
+    }
+    if (nextY < POR_FLOOR) stop = true;
+  }
+  await new Promise(resolve => {
+    let pumping = false, again = false, finished = false;
+    const finish = () => { if (!finished) { finished = true; resolve(); } };
+    const exhausted = () => stop || nextY < POR_FLOOR;
+    async function pumpOnce() {
+      if (!storeAlive(tok)) return;
+      advanceFrontier();
+      while (wanted() && !exhausted() && inflight < MAX_INFLIGHT) {
+        while (nextY >= POR_FLOOR && gs.years.has(nextY)) nextY--;
+        if (nextY < POR_FLOOR) break;
+        const c = await cacheGetYear(st.id, group, nextY);
+        if (!storeAlive(tok)) return;
+        if (c !== undefined) { applyYear(gs, nextY, c); nextY--; advanceFrontier(); onLoadProgress(); continue; }
+        // A chunk of consecutive uncached years, newest first.
+        const hi = nextY;
+        let lo = hi;
+        while (lo - 1 >= POR_FLOOR && hi - (lo - 1) < GROUPS[group].chunk && !gs.years.has(lo - 1)) {
+          if ((await cacheGetYear(st.id, group, lo - 1)) !== undefined) break;
+          lo--;
+        }
+        if (!storeAlive(tok)) return;
+        nextY = lo - 1;
+        inflight++;
+        const stagger = FETCH_GAP_MS * (inflight - 1);
+        (async () => {
+          if (stagger) await sleep(stagger);
+          const res = await fetchRange(st, group, lo, hi);
+          inflight--;
+          if (!storeAlive(tok)) { finish(); return; }
+          ingest(res);
+          failStreak = res.years.size === 0 ? failStreak + 1 : 0;
+          if (failStreak >= 3) stop = true;
+          onLoadProgress();
+          pump();
+        })();
       }
     }
-    grid.push({key:cur,date:cur,qualifies:ok,missing,excluded:!inSeason});
-    if(cur===end) break;
-    cur=addDaysYmd(cur,1);
-  }
-  return grid;
-}
-
-function buildHourlyGrid(cfg){
-  if(!rawHourly.length) return [];
-  const first=rawHourly[0], last=rawHourly[rawHourly.length-1];
-  const grid=[]; let curDate=first.d, curHour=first.h;
-  const endDate=last.d, endHour=last.h;
-  // BUG FIX: this loop used to be capped at a hardcoded `guard<400000` iterations
-  // as a runaway-loop safety net. 400,000 hours is only ~45.6 years, so any
-  // station with a longer period of record (this app requests back to 1900, and
-  // even an ordinary decades-old station already exceeds 45.6 years) had its
-  // hourly grid -- and therefore every hourly streak/stat computed from it --
-  // silently cut off decades before the present, while the station-metadata line
-  // (built straight from the same raw data, with no such cap) correctly showed
-  // the full period of record. That mismatch is exactly what made the tool look
-  // like it "thought" it was simultaneously some old year (streaks/stats) and
-  // the real current year (header, forecast, "Loaded" timestamp). Fix: compute
-  // the exact number of hours between the first and last observation up front,
-  // so the safety cap is sized to the real data and can never truncate it --
-  // it now only fires (and warns) if something is actually wrong with the feed.
-  const totalHours = Math.round((ymdToUTC(endDate)-ymdToUTC(first.d))/3600000) + (endHour-first.h) + 1;
-  const guardMax = Math.max(totalHours + 24, 1);
-  let guard=0;
-  while(guard<guardMax){
-    guard++;
-    const key=`${curDate} ${pad2(curHour)}`;
-    const inSeason = cfg.months.has(monthOf(curDate));
-    const rec = inSeason ? hourlyMap.get(key) : null;
-    let ok=false, missing=true;
-    if(rec){
-      const val=hourlyValue(rec,cfg);
-      if(val!=null){missing=false;ok=cfg.op==='gte'?val>=cfg.value:val<=cfg.value;}
+    async function pump() {
+      if (pumping) { again = true; return; }
+      pumping = true;
+      do { again = false; await pumpOnce(); } while (again);
+      pumping = false;
+      if (!storeAlive(tok)) { finish(); return; }
+      if (inflight === 0 && (!wanted() || exhausted())) { advanceFrontier(); finish(); }
     }
-    grid.push({key,date:curDate,hour:curHour,qualifies:ok,missing,excluded:!inSeason});
-    if(curDate===endDate && curHour===endHour) break;
-    curHour++; if(curHour>23){curHour=0;curDate=addDaysYmd(curDate,1);}
-  }
-  if(guard>=guardMax) console.warn('buildHourlyGrid: loop safety cap reached before reaching the last observed hour — check rawHourly for out-of-order or corrupt timestamps.');
-  return grid;
+    pump();
+  });
+  if (!storeAlive(tok)) return;
+  advanceFrontier();
+  gs.status = stop ? 'done' : 'idle';
+  onLoadProgress(true);
 }
 
-function buildGrid(cfg){
-  return cfg.aggregation==='daily' ? buildDailyGrid(cfg) : buildHourlyGrid(cfg);
+function mergedFor(group) {
+  const gs = store && store.groups[group];
+  if (!gs) return null;
+  if (gs.merged && gs.mergedVer === gs.ver) return gs.merged;
+  let minY = Infinity, maxY = -Infinity;
+  for (const [Y, v] of gs.years) if (v) { if (Y < minY) minY = Y; if (Y > maxY) maxY = Y; }
+  if (minY === Infinity) { gs.merged = null; gs.mergedVer = gs.ver; return null; }
+  const startMs = Date.UTC(minY, 0, 1);
+  const vals = new Float32Array((Date.UTC(maxY + 1, 0, 1) - startMs) / HOUR).fill(NaN);
+  for (let Y = minY; Y <= maxY; Y++) { const v = gs.years.get(Y); if (v) vals.set(v, (Date.UTC(Y, 0, 1) - startMs) / HOUR); }
+  gs.merged = { startMs, startDay: startMs / DAY, vals, minY, maxY };
+  gs.mergedVer = gs.ver;
+  return gs.merged;
+}
+
+// Per-LST-day aggregates of an hourly group.
+function dailyFor(group) {
+  const gs = store && store.groups[group];
+  const m = mergedFor(group);
+  if (!m) return null;
+  if (gs.daily && gs.dailyVer === gs.ver) return gs.daily;
+  const nDays = m.vals.length / 24;
+  const max = new Float32Array(nDays).fill(NaN), min = new Float32Array(nDays).fill(NaN), mean = new Float32Array(nDays).fill(NaN), cnt = new Uint8Array(nDays);
+  for (let d = 0; d < nDays; d++) {
+    let c = 0, s = 0, hi = -Infinity, lo = Infinity;
+    for (let h = d * 24, e = h + 24; h < e; h++) {
+      const v = m.vals[h];
+      if (v === v) { c++; s += v; if (v > hi) hi = v; if (v < lo) lo = v; }
+    }
+    cnt[d] = c;
+    if (c >= MIN_HOURS_COMPLETE) { max[d] = hi; min[d] = lo; mean[d] = s / c; }
+  }
+  gs.daily = { startDay: m.startDay, max, min, mean, cnt };
+  gs.dailyVer = gs.ver;
+  return gs.daily;
 }
 
 // ================================================================
-// STREAK EXTRACTION + STATS
+// ACIS — official daily high/low
 // ================================================================
-function extractStreaks(grid){
-  const streaks=[]; let curStart=null;
-  for(let i=0;i<grid.length;i++){
-    if(grid[i].qualifies && !grid[i].missing){
-      if(curStart===null) curStart=i;
-    } else {
-      if(curStart!==null){streaks.push({startIdx:curStart,endIdx:i-1,length:i-curStart});curStart=null;}
+async function loadACIS() {
+  const a = store.acis;
+  if (a.status === 'loading' || a.status === 'ok' || a.status === 'fail') return;
+  const st = store.st, tok = store.token;
+  a.status = 'loading';
+  onLoadProgress();
+  const sid = /^K[A-Z0-9]{3}$/.test(st.id) ? st.id.slice(1) : st.id;
+  try {
+    const json = await fetchWithRetry(`ACIS ${sid}`, async () => {
+      const resp = await fetch('https://data.rcc-acis.org/StnData', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sid, sdate: 'por', edate: 'por', elems: ['maxt', 'mint'] })
+      });
+      if (!resp.ok) { const err = new Error(`ACIS HTTP ${resp.status}`); err.transient = isTransientStatus(resp.status); throw err; }
+      return resp.json();
+    });
+    if (!storeAlive(tok)) return;
+    if (!json || json.error || !Array.isArray(json.data) || !json.data.length) throw new Error(json && json.error ? json.error : 'no ACIS data');
+    const rows = json.data;
+    const p0 = rows[0][0].split('-').map(Number);
+    const startDay = ymdToDay(p0[0], p0[1], p0[2]);
+    const p1 = rows[rows.length - 1][0].split('-').map(Number);
+    const n = ymdToDay(p1[0], p1[1], p1[2]) - startDay + 1;
+    const maxt = new Float32Array(n).fill(NaN), mint = new Float32Array(n).fill(NaN);
+    const pv = s => { if (s == null) return NaN; const f = parseFloat(s); return isNaN(f) ? NaN : f; };
+    for (const r of rows) {
+      const p = r[0].split('-').map(Number);
+      const i = ymdToDay(p[0], p[1], p[2]) - startDay;
+      if (i < 0 || i >= n) continue;
+      maxt[i] = pv(r[1]); mint[i] = pv(r[2]);
     }
+    let any = false; for (let i = 0; i < n; i++) if (maxt[i] === maxt[i] || mint[i] === mint[i]) { any = true; break; }
+    if (!any) throw new Error('no ACIS values');
+    Object.assign(a, { status: 'ok', startDay, maxt, mint });
+  } catch (e) {
+    if (!storeAlive(tok)) return;
+    a.status = 'fail'; a.error = e.message;
+    console.warn('ACIS unavailable, falling back to IEM hourly-derived daily values:', e.message);
   }
-  if(curStart!==null) streaks.push({startIdx:curStart,endIdx:grid.length-1,length:grid.length-curStart});
-  return streaks;
+  onLoadProgress(true);
 }
 
-function computeStats(grid, streaks, cfg){
-  const n=grid.length;
-  const stats={};
-  stats.currentStreak = (streaks.length && streaks[streaks.length-1].endIdx===n-1) ? streaks[streaks.length-1] : null;
-  stats.lastEndedStreak = (!stats.currentStreak && streaks.length) ? streaks[streaks.length-1] : null;
-  stats.recordStreak = streaks.reduce((best,s)=> (!best||s.length>best.length)?s:best, null);
-  stats.recordTies = stats.recordStreak ? streaks.filter(s=>s.length===stats.recordStreak.length).length : 0;
-  stats.totalStreaks = streaks.length;
-  stats.avgLength = streaks.length ? streaks.reduce((a,s)=>a+s.length,0)/streaks.length : 0;
+// ================================================================
+// CONFIG
+// ================================================================
+const app = {
+  station: null,
+  presetId: 'd-muggy65',
+  custom: null,               // {variable, agg, metric, op, value} when a custom threshold is applied
+  family: 'moist',
+  months: new Set([1,2,3,4,5,6,7,8,9,10,11,12]),
+  seasonId: 'all', seasonLabel: 'All months',
+  record: 'full',
+  view: 'streaks',
+  totalsGroupBy: 'year'
+};
+function defaultYearStart(variable, op) { return (variable !== 'cloud' && op === 'lte') ? 7 : 1; }
+function activeCfg() {
+  const base = app.custom || PRESET_BY_ID[app.presetId] || PRESETS[0];
+  const cfg = { variable: base.variable, agg: base.agg, metric: base.metric, op: base.op, value: base.value };
+  cfg.ys = (!app.custom && base.ys) ? base.ys : defaultYearStart(cfg.variable, cfg.op);
+  // A season that runs across New Year's (e.g. Dec–Feb) needs Jul–Jun years to stay in one row.
+  if (app.months.size < 12 && app.months.has(12) && app.months.has(1)) cfg.ys = 7;
+  cfg.months = app.months; cfg.seasonLabel = app.seasonLabel; cfg.record = app.record;
+  cfg.presetId = app.custom ? null : app.presetId;
+  return cfg;
+}
+// Which data the active config reads: 'acis' or an IEM group name.
+function sourceFor(cfg) {
+  if (cfg.agg === 'daily' && VARIABLES[cfg.variable].dailySource === 'acis') {
+    if (!store || store.acis.status !== 'fail') return 'acis';
+  }
+  return VARIABLES[cfg.variable].group;
+}
+function activeGroupNeeded() {
+  if (!store) return null;
+  const s = sourceFor(activeCfg());
+  return s === 'acis' ? null : s;
+}
+const qualifies = (v, cfg) => cfg.op === 'gte' ? v >= cfg.value : v <= cfg.value;
 
-  const startYear = yearOf(grid[0].date);
-  const endYear = yearOf(grid[n-1].date);
+// ================================================================
+// SERIES — one unit per hour or per day, starting on an LST day boundary.
+// state: 0 = present, not qualifying · 1 = qualifying · 2 = missing · 3 = out of season
+// ================================================================
+function recordStartDay(cfg, st) {
+  if (cfg.record === 'full') return -Infinity;
+  if (cfg.record === '1991') return syStartDay(1991, cfg.ys);
+  const t = nowLST(st);
+  return syStartDay(syOf(t.y, t.m, cfg.ys) - 29, cfg.ys);
+}
+
+function finalizeSeries(unit, startDay, vals, cfg, st, source) {
+  const upd = unit === 'hour' ? 24 : 1;
+  const now = nowLST(st);
+  const L = vals.length;
+  // Last unit allowed: yesterday for daily (today is still in progress), now for hourly.
+  const maxIdx = unit === 'day' ? (now.day - 1) - startDay : Math.floor((now.ms - startDay * DAY) / HOUR);
+  let end = Math.min(L - 1, maxIdx);
+  while (end >= 0 && !(vals[end] === vals[end])) end--;          // trailing missing = not yet reported
+  if (end < 0) return null;
+  let start = 0;
+  const rsd = recordStartDay(cfg, st);
+  if (rsd > startDay) start = (rsd - startDay) * upd;
+  while (start <= end && !(vals[start] === vals[start])) start++;
+  start -= start % upd;                                           // align to the day
+  if (start > end) return null;
+  const n = end - start + 1;
+  const sd = startDay + start / upd;
+  const nDays = Math.floor((n - 1) / upd) + 1;
+  const dayMonth = new Uint8Array(nDays), dayYear = new Int16Array(nDays), daySY = new Int16Array(nDays), dayDom = new Uint8Array(nDays);
+  for (let d = 0; d < nDays; d++) {
+    const t = dayToYMD(sd + d);
+    dayMonth[d] = t.m; dayYear[d] = t.y; dayDom[d] = t.d; daySY[d] = syOf(t.y, t.m, cfg.ys);
+  }
+  const val = vals.subarray(start, end + 1);
+  const state = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const d = upd === 1 ? i : (i / 24) | 0;
+    if (!cfg.months.has(dayMonth[d])) { state[i] = 3; continue; }
+    const v = val[i];
+    state[i] = v === v ? (qualifies(v, cfg) ? 1 : 0) : 2;
+  }
+  return { unit, upd, startDay: sd, n, nDays, val, state, dayMonth, dayYear, daySY, dayDom, source,
+           lastMs: (sd * DAY) + (n - 1) * (unit === 'hour' ? HOUR : DAY) };
+}
+
+function buildSeries(cfg) {
+  if (!store) return null;
+  const st = store.st;
+  const src = sourceFor(cfg);
+  if (src === 'acis') {
+    const a = store.acis;
+    if (a.status !== 'ok') return null;
+    const n = a.maxt.length, vals = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const hi = a.maxt[i], lo = a.mint[i];
+      vals[i] = cfg.metric === 'max' ? hi : cfg.metric === 'min' ? lo : ((hi === hi && lo === lo) ? (hi + lo) / 2 : NaN);
+    }
+    return finalizeSeries('day', a.startDay, vals, cfg, st, 'acis');
+  }
+  if (cfg.agg === 'hourly') {
+    const m = mergedFor(src);
+    if (!m) return null;
+    return finalizeSeries('hour', m.startDay, m.vals, cfg, st, 'iem');
+  }
+  const dly = dailyFor(src);
+  if (!dly) return null;
+  return finalizeSeries('day', dly.startDay, dly[cfg.metric], cfg, st, cfg.variable === 'temp' ? 'iem-derived' : 'iem');
+}
+
+// ================================================================
+// STREAKS + STATS
+// ================================================================
+function extractStreaks(S) {
+  const s = [], l = [];
+  let cs = -1;
+  const st = S.state;
+  for (let i = 0; i < S.n; i++) {
+    if (st[i] === 1) { if (cs < 0) cs = i; }
+    else if (cs >= 0) { s.push(cs); l.push(i - cs); cs = -1; }
+  }
+  if (cs >= 0) { s.push(cs); l.push(S.n - cs); }
+  return { s, l };
+}
+const dayOfUnit = (S, i) => S.upd === 1 ? i : (i / 24) | 0;
+
+function inSeasonUnits(sy, cfg, upd) {
+  // Theoretical in-season units in a counting year (independent of data).
+  let n = 0;
+  for (let k = 0; k < 12; k++) {
+    const m = ((cfg.ys - 1 + k) % 12) + 1;
+    const y = (cfg.ys !== 1 && m < cfg.ys) ? sy + 1 : sy;
+    if (cfg.months.has(m)) n += daysInMonth(y, m);
+  }
+  return n * upd;
+}
+
+function computeStats(S, streaks, cfg) {
+  const st = {};
+  const { s, l } = streaks;
+  const K = l.length;
+  st.total = K;
+  st.avg = K ? l.reduce((a, b) => a + b, 0) / K : 0;
+  let rec = 0; for (const x of l) if (x > rec) rec = x;
+  st.record = rec;
+  st.recordTies = rec ? l.filter(x => x === rec).length : 0;
+  st.current = (K && s[K - 1] + l[K - 1] === S.n) ? K - 1 : -1;
+  st.lastEnded = st.current < 0 && K ? K - 1 : (K > 1 ? K - 2 : -1);
+  if (st.current >= 0) {
+    const L = l[st.current];
+    st.rank = 1 + l.filter(x => x > L).length;
+    st.rankTies = l.filter(x => x === L).length;
+  }
+
+  // Counting years: coverage and each year's longest streak.
+  const lastDay = S.nDays - 1;
+  st.syFirst = S.daySY[0]; st.syLast = S.daySY[lastDay]; st.currentSY = st.syLast;
+  const present = new Map();
+  for (let i = 0; i < S.n; i++) {
+    const v = S.state[i];
+    if (v === 0 || v === 1) { const sy = S.daySY[dayOfUnit(S, i)]; present.set(sy, (present.get(sy) || 0) + 1); }
+  }
   const yearlyMax = new Map();
-  for(let y=startYear;y<=endYear;y++) yearlyMax.set(y,0);
-  for(const s of streaks){
-    const y=yearOf(grid[s.startIdx].date);
-    yearlyMax.set(y, Math.max(yearlyMax.get(y)||0, s.length));
+  for (let k = 0; k < K; k++) {
+    const syA = S.daySY[dayOfUnit(S, s[k])], syB = S.daySY[dayOfUnit(S, s[k] + l[k] - 1)];
+    for (let sy = syA; sy <= syB; sy++) if (!(yearlyMax.get(sy) >= l[k])) yearlyMax.set(sy, l[k]);
   }
-  stats.yearlyMax = yearlyMax;
-  stats.startYear = startYear; stats.endYear = endYear;
+  const years = [];
+  for (let sy = st.syFirst; sy <= st.syLast; sy++) {
+    const theo = inSeasonUnits(sy, cfg, S.upd);
+    const cov = theo ? (present.get(sy) || 0) / theo : 0;
+    years.push({ sy, theo, present: present.get(sy) || 0, cov, max: yearlyMax.get(sy) || 0 });
+  }
+  st.years = years;
+  st.seasonMax = yearlyMax.get(st.currentSY) || 0;
+  const dist = years.filter(y => y.sy !== st.currentSY && y.cov >= COVERAGE_MIN);
+  st.dist = dist;
+  st.nQualYears = dist.length;
 
-  const curYear = endYear;
-  stats.thisYearQualifying = grid.filter(g=>g.qualifies && !g.missing && yearOf(g.date)===curYear).length;
+  // A condition that normally holds through the whole season has no meaningful return period.
+  if (dist.length) {
+    const fr = dist.map(y => y.max / y.theo).sort((a, b) => a - b);
+    st.persistent = fr[Math.floor(fr.length / 2)] >= 0.9;
+  } else st.persistent = false;
 
-  const sortedDesc = streaks.slice().sort((a,b)=>b.length-a.length);
-  stats.sortedDesc = sortedDesc;
-  stats.currentRank = stats.currentStreak ? sortedDesc.indexOf(stats.currentStreak)+1 : null;
-
-  stats.effectiveStart = grid[0].date;
-  stats.effectiveEnd = grid[n-1].date;
-  return stats;
+  if (st.current >= 0 && dist.length >= RP_MIN_YEARS && !st.persistent) {
+    const L = l[st.current];
+    const k = dist.filter(y => y.max >= L).length;
+    st.rpK = k; st.rpN = dist.length;
+  }
+  return st;
 }
 
-function rarityMessage(length, yearlyMax, seasonLabel){
-  const vals=[...yearlyMax.values()];
-  const fewer = vals.filter(v=>v<length).length;
-  const total = vals.length;
-  if(total===0) return '';
-  const noun = (!seasonLabel || seasonLabel==='All Months') ? 'years' : `${seasonLabel} seasons`;
-  return `Longer than ${fewer} of the last ${total} ${noun}' single longest streak at this threshold.`;
-}
-
-// ================================================================
-// FORMAT HELPERS
-// ================================================================
-function formatLength(n, cfg){
-  if(cfg.aggregation==='daily') return `${n} day${n===1?'':'s'}`;
-  const days=(n/24);
-  if(n>=24) return `${n} hrs (${days.toFixed(1)}d)`;
-  return `${n} hr${n===1?'':'s'}`;
-}
-function thresholdDescription(cfg){
-  const meta = VARIABLE_META[cfg.variable];
-  const opLabel = cfg.op==='gte'?'&ge;':'&le;';
-  const metricLabel = cfg.aggregation==='daily' ? ` (daily ${cfg.metric})` : ' (hourly)';
-  return `${meta.label} ${opLabel} ${cfg.value}${meta.unit}${metricLabel}`;
+function returnPeriodText(stats) {
+  if (stats.persistent) return 'Persistent';
+  if (stats.rpN == null) return '–';
+  const { rpK: k, rpN: N } = stats;
+  if (k === 0) return `> ${N} yrs`;
+  if (k === N) return 'Every year';
+  const rp = N / k;
+  return `1 in ${rp < 10 ? (Math.round(rp * 10) / 10) : Math.round(rp)} yrs`;
 }
 
 // ================================================================
-// RENDER: HEADLINE
+// TOTALS
 // ================================================================
-// ================================================================
-// SHARED: THRESHOLD SUMMARY (updates regardless of active mode)
-// ================================================================
-function updateThresholdSummary(cfg){
-  const seasonSuffix = state.seasonLabel==='All Months' ? '' : ` &middot; ${state.seasonLabel}`;
-  document.getElementById('threshold-summary').innerHTML = thresholdDescription(cfg) + seasonSuffix;
-  document.getElementById('hourly-temp-note').classList.toggle('show', cfg.variable==='temp' && cfg.aggregation==='hourly');
-  document.getElementById('cloud-note').classList.toggle('show', cfg.variable==='cloud');
+function computeYearTotals(S, stats) {
+  const qual = new Map();
+  for (let i = 0; i < S.n; i++) if (S.state[i] === 1) { const sy = S.daySY[dayOfUnit(S, i)]; qual.set(sy, (qual.get(sy) || 0) + 1); }
+  return stats.years.map(y => ({
+    key: y.sy, qual: qual.get(y.sy) || 0, present: y.present, theo: y.theo, cov: y.cov,
+    partial: y.sy === stats.currentSY || y.cov < COVERAGE_MIN
+  }));
 }
-
-function renderHeadline(grid, streaks, stats, cfg){
-  const isWarmDir = cfg.op==='gte';
-  const badge=document.getElementById('hl-badge');
-  const hlValue=document.getElementById('hl-value');
-  const hlUnit=document.getElementById('hl-unit');
-  const hlLabel=document.getElementById('hl-label');
-  const hlNote=document.getElementById('hl-note');
-  const rarityLine=document.getElementById('rarity-line');
-
-  if(stats.currentStreak){
-    const s=stats.currentStreak;
-    const startDate=grid[s.startIdx].date;
-    hlValue.textContent = cfg.aggregation==='daily' ? s.length : s.length;
-    hlUnit.textContent = cfg.aggregation==='daily' ? (s.length===1?'day':'days') : (s.length===1?'hour':'hours');
-    hlLabel.textContent = 'Current Streak — Active';
-    badge.textContent = 'ACTIVE';
-    badge.className = 'cc-badge badge-active' + (isWarmDir?'':' cool');
-    const rankNote = stats.currentRank ? ` This ranks #${stats.currentRank} of ${stats.totalStreaks} all-time.` : '';
-    hlNote.innerHTML = `<strong>${thresholdDescription(cfg)}</strong> has held continuously since <strong>${fmtDateLong(startDate)}</strong>.${rankNote}`;
-    if(stats.recordStreak && s.length===stats.recordStreak.length){
-      hlNote.innerHTML += ` This ties the all-time record${stats.recordTies>1?` (${stats.recordTies}-way tie)`:''}.`;
+function computeMonthTotals(S, cfg) {
+  const acc = new Map();   // y*12+m -> {qual, present, y, m}
+  for (let i = 0; i < S.n; i++) {
+    const v = S.state[i];
+    if (v !== 0 && v !== 1) continue;
+    const d = dayOfUnit(S, i);
+    const key = S.dayYear[d] * 12 + S.dayMonth[d];
+    let e = acc.get(key);
+    if (!e) { e = { qual: 0, present: 0, y: S.dayYear[d], m: S.dayMonth[d] }; acc.set(key, e); }
+    e.present++; if (v === 1) e.qual++;
+  }
+  const rows = [];
+  for (let m = 1; m <= 12; m++) {
+    if (!cfg.months.has(m)) continue;
+    let sum = 0, cnt = 0;
+    for (const e of acc.values()) {
+      if (e.m !== m) continue;
+      if (e.present / (daysInMonth(e.y, m) * S.upd) < COVERAGE_MIN) continue;
+      sum += e.qual; cnt++;
     }
-  } else if(stats.lastEndedStreak){
-    const s=stats.lastEndedStreak;
-    const startDate=grid[s.startIdx].date, endDate=grid[s.endIdx].date;
-    const daysSince = cfg.aggregation==='daily' ? (grid.length-1-s.endIdx) : Math.round((grid.length-1-s.endIdx)/24);
-    hlValue.textContent = '0';
-    hlUnit.textContent = cfg.aggregation==='daily'?'days':'hours';
-    hlLabel.textContent = 'Not Currently Active';
-    badge.textContent = 'ENDED';
+    rows.push({ m, avg: cnt ? sum / cnt : 0, years: cnt });
+  }
+  return rows;
+}
+
+// ================================================================
+// FORMATTING
+// ================================================================
+function formatLength(n, cfg) {
+  if (cfg.agg === 'daily') return `${n} day${n === 1 ? '' : 's'}`;
+  if (n >= 48) return `${n} hrs (${(n / 24).toFixed(1)} d)`;
+  return `${n} hr${n === 1 ? '' : 's'}`;
+}
+function formatLengthShort(n, cfg) {
+  if (cfg.agg === 'daily') return `${n} d`;
+  if (n >= 48) return `${(n / 24).toFixed(1)} d`;
+  return `${n} h`;
+}
+function thresholdText(cfg) {
+  const V = VARIABLES[cfg.variable];
+  const op = cfg.op === 'gte' ? '≥' : '≤';
+  const how = cfg.agg === 'daily' ? V.metricLabel[cfg.metric] : 'hourly';
+  return `${V.label} ${op} ${cfg.value}${V.unit}, ${how}`;
+}
+function recordText(cfg) { return cfg.record === 'full' ? 'Full record' : cfg.record === '1991' ? 'Since 1991' : 'Last 30 yrs'; }
+function summaryText(cfg) {
+  const parts = [thresholdText(cfg)];
+  if (cfg.seasonLabel !== 'All months') parts.push(cfg.seasonLabel);
+  if (cfg.record !== 'full') parts.push(recordText(cfg));
+  return parts.join(' · ');
+}
+function unitStartDay(S, i) { return S.startDay + dayOfUnit(S, i); }
+function unitMs(S, i) { return S.startDay * DAY + i * (S.unit === 'hour' ? HOUR : DAY); }
+function streakDateText(S, sIdx, len) {
+  return fmtDayRange(unitStartDay(S, sIdx), unitStartDay(S, sIdx + len - 1));
+}
+
+// ================================================================
+// RENDER STATE
+// ================================================================
+let last = { cfg: null, S: null, streaks: null, stats: null };
+const $ = id => document.getElementById(id);
+const COLORS = { warm: '#E0824A', cool: '#5B9BD8', record: '#D9A94F', current: '#F1EEE4',
+                 nonQual: 'rgba(166,164,153,0.16)', missing: '#1E2320', surface: '#262B27', label: '#A6A499', muted: '#948F82' };
+const baseColor = cfg => cfg.op === 'gte' ? COLORS.warm : COLORS.cool;
+function isFresh(S) {
+  if (!S || !store) return false;
+  const now = nowLST(store.st);
+  return S.unit === 'hour' ? (now.ms - S.lastMs) <= 3 * HOUR : (now.day - (S.startDay + S.nDays - 1)) <= 3;
+}
+function historyLoading() {
+  if (!store) return false;
+  const src = sourceFor(activeCfg());
+  if (src === 'acis') return store.acis.status === 'loading' || store.acis.status === 'idle';
+  const gs = store.groups[src];
+  return !gs || gs.status !== 'done';
+}
+
+// ================================================================
+// RECOMPUTE + RENDER
+// ================================================================
+function recomputeAndRender() {
+  const cfg = activeCfg();
+  const S = buildSeries(cfg);
+  last.cfg = cfg; last.S = S;
+  if (S) {
+    last.streaks = extractStreaks(S);
+    last.stats = computeStats(S, last.streaks, cfg);
+  } else { last.streaks = null; last.stats = null; }
+  renderSummary(cfg);
+  renderStationMeta();
+  renderProvenance(cfg);
+  if (app.view === 'streaks') { renderHeadline(); renderCalendar(); renderRanked(); }
+  else renderTotals();
+}
+let renderTimer = null, lastRenderAt = 0;
+function scheduleRender(now) {
+  if (now) { clearTimeout(renderTimer); renderTimer = null; lastRenderAt = Date.now(); recomputeAndRender(); return; }
+  if (renderTimer) return;
+  const wait = Math.max(0, 1200 - (Date.now() - lastRenderAt));
+  renderTimer = setTimeout(() => { renderTimer = null; lastRenderAt = Date.now(); recomputeAndRender(); }, wait);
+}
+
+// ================================================================
+// STATUS / META / PROVENANCE
+// ================================================================
+function onLoadProgress(immediate) {
+  renderStatus();
+  scheduleRender(!!immediate);
+  if (immediate && !historyLoading()) maybeCheckForecast();
+}
+function renderStatus() {
+  if (!store) return;
+  const cfg = activeCfg(), src = sourceFor(cfg);
+  const bar = $('load-bar'), txt = $('load-text');
+  let loading = false, msg = '';
+  if (src === 'acis') {
+    const a = store.acis;
+    loading = a.status === 'loading' || a.status === 'idle';
+    msg = loading ? 'Loading ACIS daily record…' : `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  } else {
+    const gs = store.groups[src];
+    const yrs = gs ? [...gs.years.entries()].filter(([, v]) => v).map(([Y]) => Y) : [];
+    loading = !gs || gs.status === 'loading' || gs.status === 'idle';
+    if (loading) msg = yrs.length ? `Loading ${GROUPS[src].label} history · back to ${Math.min(...yrs)}` : `Loading ${GROUPS[src].label}…`;
+    else msg = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  txt.textContent = msg;
+  bar.classList.toggle('on', loading);
+  renderNotice(src);
+}
+function yearRangesText(years) {
+  const ys = [...years].sort((a, b) => a - b), out = [];
+  for (let i = 0; i < ys.length; i++) {
+    let j = i; while (j + 1 < ys.length && ys[j + 1] === ys[j] + 1) j++;
+    out.push(i === j ? `${ys[i]}` : `${ys[i]}–${ys[j]}`); i = j;
+  }
+  return out.join(', ');
+}
+function renderNotice(src) {
+  const el = $('load-notice');
+  if (src === 'acis') {
+    el.classList.remove('show'); return;
+  }
+  const gs = store.groups[src];
+  if (!gs || !gs.failed.size || gs.status === 'loading') { el.classList.remove('show'); return; }
+  const msgs = [...new Set(gs.failed.values())];
+  $('load-notice-text').textContent = `${gs.failed.size} year${gs.failed.size === 1 ? '' : 's'} unavailable: ${yearRangesText(gs.failed.keys())} (${msgs[0]})`;
+  el.classList.add('show');
+}
+function renderStationMeta() {
+  if (!store) return;
+  const st = store.st, S = last.S;
+  let span = '–';
+  if (S) span = `${S.dayYear[0]}–${S.dayYear[S.nDays - 1]}${historyLoading() ? '…' : ''}`;
+  const src = S ? (S.source === 'acis' ? 'ACIS daily' : S.source === 'iem-derived' ? 'IEM hourly (ACIS unavailable)' : 'IEM ASOS') : '';
+  $('stn-meta').textContent = [st.id, st.st, span, src].filter(Boolean).join(' · ');
+}
+function renderSummary(cfg) { $('threshold-summary').textContent = summaryText(cfg); }
+function renderProvenance(cfg) {
+  const src = last.S ? last.S.source : sourceFor(cfg);
+  const bits = [];
+  if (src === 'acis') bits.push('Daily high/low: NOAA ACIS station record.');
+  else {
+    bits.push('Hourly observations: Iowa Environmental Mesonet ASOS archive, routine METAR per hour.');
+    if (src === 'iem-derived') bits.push('Daily high/low derived from hourly observations.');
+  }
+  if (cfg.variable === 'cloud') bits.push('Cloud cover: highest reported sky layer in oktas (ASOS ceilometer, to 12,000 ft).');
+  bits.push('Days in local standard time.');
+  if (cfg.ys !== 1) bits.push('Years run Jul–Jun.');
+  bits.push('Forecast: NWS.');
+  $('provenance').textContent = bits.join(' ');
+}
+
+// ================================================================
+// HEADLINE
+// ================================================================
+function renderHeadline() {
+  const { cfg, S, streaks, stats } = last;
+  const val = $('hl-value'), unit = $('hl-unit'), badge = $('hl-badge'), label = $('hl-label'), note = $('hl-note');
+  const unitWord = n => cfg.agg === 'daily' ? (n === 1 ? 'day' : 'days') : (n === 1 ? 'hour' : 'hours');
+  const setChip = (id, text, dim) => { const e = $(id); e.textContent = text; e.classList.toggle('dim', !!dim); };
+  if (!S) {
+    val.textContent = '–'; unit.textContent = ''; badge.textContent = '–'; badge.className = 'cc-badge badge-ended';
+    label.textContent = store && !historyLoading() ? 'No data for this selection' : 'Loading';
+    note.textContent = '';
+    ['sv-rp', 'sv-record', 'sv-season', 'sv-total', 'sv-avg', 'sv-period'].forEach(id => setChip(id, '–', true));
+    $('jeopardy-line').textContent = '';
+    return;
+  }
+  const loadingHist = historyLoading();
+  const { s, l } = streaks;
+  const throughText = S.unit === 'hour' ? `${fmtDay(S.startDay + S.nDays - 1, false)}, ${fmtHourOfMs(S.lastMs)} LST` : fmtDay(S.startDay + S.nDays - 1, false);
+  const fresh = isFresh(S);
+  const lastState = S.state[S.n - 1];
+
+  if (stats.current >= 0) {
+    const L = l[stats.current];
+    val.textContent = L.toLocaleString();
+    unit.textContent = unitWord(L);
+    badge.textContent = fresh ? 'Active' : `As of ${fmtDay(S.startDay + S.nDays - 1)}`;
+    badge.className = fresh ? 'cc-badge badge-active' + (cfg.op === 'gte' ? '' : ' cool') : 'cc-badge badge-ended';
+    label.textContent = `Current streak · through ${throughText}`;
+    const startTxt = S.unit === 'hour'
+      ? `${fmtDay(unitStartDay(S, s[stats.current]))}, ${fmtHourOfMs(unitMs(S, s[stats.current]))}`
+      : fmtDay(unitStartDay(S, s[stats.current]));
+    const rankTxt = stats.rankTies > 1 ? `tied #${stats.rank}` : `#${stats.rank}`;
+    let html = `Since <strong>${startTxt}</strong>. ${rankTxt} of ${stats.total.toLocaleString()} on record${loadingHist ? ' so far' : ''}.`;
+    if (L === stats.record) html += stats.recordTies > 1 ? ' Ties the record.' : ' <strong>New record.</strong>';
+    note.innerHTML = html;
+  } else {
+    // Not active: time since the last streak ended.
+    const k = stats.lastEnded;
     badge.className = 'cc-badge badge-ended';
-    const outOfSeasonNote = (state.seasonLabel!=='All Months' && grid[grid.length-1].excluded) ? ` The most recent data falls outside your selected season (${state.seasonLabel}).` : '';
-    hlNote.innerHTML = `Last streak ran ${fmtDateLong(startDate)}&ndash;${fmtDateLong(endDate)} (${formatLength(s.length,cfg)}), ending ${daysSince>0?`about ${daysSince} ${cfg.aggregation==='daily'?'day':'day'}${daysSince===1?'':'s'} before the most recent data`:'right at the most recent data'}.${outOfSeasonNote}`;
-  } else {
-    hlValue.textContent='0';
-    hlUnit.textContent='';
-    hlLabel.textContent='No Qualifying Streaks';
-    badge.textContent='N/A';
-    badge.className='cc-badge badge-ended';
-    hlNote.textContent = `${thresholdDescription(cfg).replace(/&ge;|&le;|&deg;/g,m=>({'&ge;':'≥','&le;':'≤','&deg;':'°'}[m]))} has never been met at this station in the period of record${state.seasonLabel!=='All Months'?` within ${state.seasonLabel}`:''}.`;
+    if (lastState === 3) {
+      val.textContent = '–'; unit.textContent = '';
+      badge.textContent = 'Out of season';
+      label.textContent = `Latest data ${throughText} · outside ${cfg.seasonLabel}`;
+    } else if (k >= 0) {
+      const endIdx = s[k] + l[k] - 1;
+      const gap = S.n - 1 - endIdx;
+      if (cfg.agg === 'hourly' && gap >= 48) { val.textContent = Math.floor(gap / 24).toLocaleString(); unit.textContent = 'days'; }
+      else { val.textContent = gap.toLocaleString(); unit.textContent = unitWord(gap); }
+      badge.textContent = 'Inactive';
+      label.textContent = `Since the last streak ended · through ${throughText}`;
+    } else {
+      val.textContent = '0'; unit.textContent = '';
+      badge.textContent = 'Never';
+      label.textContent = 'No qualifying streaks on record';
+    }
+    note.innerHTML = k >= 0 ? `Last streak: <strong>${streakDateText(S, s[k], l[k])}</strong>, ${formatLength(l[k], cfg)}.` : '';
   }
 
-  if(stats.recordStreak){
-    rarityLine.textContent = rarityMessage(stats.currentStreak?stats.currentStreak.length:(stats.lastEndedStreak?stats.lastEndedStreak.length:0), stats.yearlyMax, state.seasonLabel);
-  } else {
-    rarityLine.textContent='';
-  }
-
-  document.getElementById('sv-record').textContent = stats.recordStreak ? formatLength(stats.recordStreak.length,cfg) : '—';
-  document.getElementById('sv-total').textContent = stats.totalStreaks;
-  document.getElementById('sv-avg').textContent = stats.totalStreaks ? formatLength(Math.round(stats.avgLength*10)/10,cfg) : '—';
-  document.getElementById('sl-thisyear').textContent = `${stats.endYear} So Far`;
-  document.getElementById('sv-thisyear').textContent = formatLength(stats.thisYearQualifying,cfg);
-  document.getElementById('sv-period').textContent = `${stats.startYear}–${stats.endYear}`;
-
-  document.getElementById('strip-mode-note').textContent = (cfg.aggregation==='daily' ? 'daily condition met' : 'any qualifying hour per day') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel} only` : '');
-
-  checkJeopardy(curStation, cfg, stats, grid);
+  setChip('sv-rp', loadingHist && stats.current >= 0 ? '…' : returnPeriodText(stats), loadingHist || stats.current < 0 && !stats.persistent);
+  setChip('sv-record', stats.record ? formatLengthShort(stats.record, cfg) : '–', !stats.record);
+  $('sl-season').textContent = `Longest ${syLabel(stats.currentSY, cfg.ys)}`;
+  setChip('sv-season', stats.seasonMax ? formatLengthShort(stats.seasonMax, cfg) : '0', !stats.seasonMax);
+  setChip('sv-total', stats.total.toLocaleString());
+  setChip('sv-avg', stats.total ? formatLengthShort(Math.round(stats.avg * 10) / 10, cfg) : '–', !stats.total);
+  setChip('sv-period', `${stats.years.length}${loadingHist ? '…' : ''}`);
+  if (stats.current < 0) $('jeopardy-line').textContent = '';
 }
 
 // ================================================================
-// JEOPARDY / FORECAST CHECK
+// FORECAST CHECK (NWS)
 // ================================================================
-function tempFAndRHtoDewpointF(tempF, rhPct){
-  const tC=(tempF-32)*5/9;
-  const rh=Math.min(Math.max(rhPct,1),100);
-  const gamma=Math.log(rh/100)+(17.625*tC)/(243.04+tC);
-  const tdC=243.04*gamma/(17.625-gamma);
-  return tdC*9/5+32;
+const forecastCache = new Map();
+function tempFAndRHtoDewpointF(tF, rh) {
+  const tC = (tF - 32) * 5 / 9, a = 17.625, b = 243.04;
+  const g = Math.log(rh / 100) + a * tC / (b + tC);
+  return (b * g / (a - g)) * 9 / 5 + 32;
 }
-// NWS text forecasts don't expose a numeric sky-cover fraction (that only lives
-// in the gridpoint/forecastGridData API, a separate fetch), so cloud-cover
-// jeopardy is a best-effort read of the plain-language shortForecast string.
-// This is coarser than the temp/dewpoint checks (which use exact numeric
-// fields) — treat it as directional, not precise.
-function shortForecastToOktas(short){
-  if(!short) return null;
-  const s = short.toLowerCase();
-  if(s.includes('overcast')) return 8;
-  if(s.includes('mostly cloudy')) return 6.5;
-  if(s.includes('partly cloudy') || s.includes('partly sunny')) return 4;
-  if(s.includes('mostly sunny') || s.includes('mostly clear')) return 2;
-  if(s.includes('sunny') || s.includes('clear')) return 0;
-  if(s.includes('fog') || s.includes('cloudy')) return 7;
+function shortForecastToOktas(s) {
+  if (!s) return null;
+  const t = s.toLowerCase();
+  if (t.includes('overcast') || t.includes('cloudy') && !t.includes('partly') && !t.includes('mostly')) return 8;
+  if (t.includes('mostly cloudy')) return 6.5;
+  if (t.includes('partly')) return 4;
+  if (t.includes('mostly sunny') || t.includes('mostly clear')) return 2;
+  if (t.includes('sunny') || t.includes('clear')) return 0;
   return null;
 }
-async function checkJeopardy(station, cfg, stats, grid){
-  const el=document.getElementById('jeopardy-line');
-  if(!stats.currentStreak){el.textContent='';return;}
-  el.innerHTML='Checking NWS forecast&hellip;';
-  try{
-    const[icao,name,st,lat,lon,tz]=station;
-    const ptResp=await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
-    if(!ptResp.ok) throw new Error('pt');
-    const pt=await ptResp.json();
-    const fUrl = cfg.aggregation==='hourly' ? pt.properties.forecastHourly : pt.properties.forecast;
-    if(!fUrl) throw new Error('nourl');
-    const fResp=await fetch(fUrl,{headers:{'User-Agent':'ContextClimate/1.0 (contextclimate.io)'}});
-    if(!fResp.ok) throw new Error('f');
-    const fc=await fResp.json();
-    const periods=(fc.properties&&fc.properties.periods)||[];
-    function periodValue(p){
-      if(cfg.variable==='temp') return typeof p.temperature==='number'?p.temperature:null;
-      if(cfg.variable==='cloud') return shortForecastToOktas(p.shortForecast);
-      if(p.dewpoint && typeof p.dewpoint.value==='number'){
-        const v=p.dewpoint.value;
-        return (p.dewpoint.unitCode&&p.dewpoint.unitCode.indexOf('degC')>=0) ? v*9/5+32 : v;
+async function fetchForecast(st, hourly) {
+  const key = `${st.id}|${hourly ? 'h' : 'd'}`;
+  const hit = forecastCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60000) return hit.data;
+  const pt = await fetch(`https://api.weather.gov/points/${st.lat.toFixed(4)},${st.lon.toFixed(4)}`);
+  if (!pt.ok) throw new Error('points');
+  const pj = await pt.json();
+  const url = hourly ? pj.properties.forecastHourly : pj.properties.forecast;
+  if (!url) throw new Error('nourl');
+  const fr = await fetch(url);
+  if (!fr.ok) throw new Error('forecast');
+  const data = ((await fr.json()).properties || {}).periods || [];
+  forecastCache.set(key, { at: Date.now(), data });
+  return data;
+}
+let forecastSeq = 0;
+async function maybeCheckForecast() {
+  const el = $('jeopardy-line');
+  const { cfg, S, stats } = last;
+  const seq = ++forecastSeq;
+  if (!S || !stats || stats.current < 0 || !isFresh(S) || !store) { el.textContent = ''; return; }
+  el.textContent = 'Checking NWS forecast…';
+  try {
+    const periods = await fetchForecast(store.st, cfg.agg === 'hourly');
+    if (seq !== forecastSeq) return;
+    const pv = p => {
+      if (cfg.variable === 'temp') return typeof p.temperature === 'number' ? p.temperature : null;
+      if (cfg.variable === 'cloud') return shortForecastToOktas(p.shortForecast);
+      if (p.dewpoint && typeof p.dewpoint.value === 'number') {
+        const v = p.dewpoint.value; return (p.dewpoint.unitCode || '').includes('degC') ? v * 9 / 5 + 32 : v;
       }
-      if(p.relativeHumidity && typeof p.relativeHumidity.value==='number' && typeof p.temperature==='number'){
-        return tempFAndRHtoDewpointF(p.temperature,p.relativeHumidity.value);
-      }
+      if (p.relativeHumidity && typeof p.relativeHumidity.value === 'number' && typeof p.temperature === 'number') return tempFAndRHtoDewpointF(p.temperature, p.relativeHumidity.value);
       return null;
+    };
+    let use, when;
+    if (cfg.agg === 'hourly') { use = periods.slice(0, 6); when = 'the next 6 hours'; }
+    else {
+      const day = periods.find(p => p.isDaytime), night = periods.find(p => !p.isDaytime);
+      if (cfg.metric === 'min') { use = night ? [night] : []; when = night ? night.name.toLowerCase() : ''; }
+      else if (cfg.metric === 'max') { use = day ? [day] : []; when = day ? day.name.toLowerCase() : ''; }
+      else { use = periods.slice(0, 2); when = periods.slice(0, 2).map(p => p.name.toLowerCase()).join(' and '); }
     }
-    let checkPeriods, label;
-    if(cfg.aggregation==='hourly'){
-      checkPeriods=periods.slice(0,6); label='the next few hours';
-    } else {
-      if(cfg.metric==='min'){checkPeriods=periods.filter(p=>!p.isDaytime).slice(0,1); label='tonight';}
-      else {checkPeriods=periods.filter(p=>p.isDaytime).slice(0,1); label='tomorrow';}
-      if(!checkPeriods.length){checkPeriods=periods.slice(0,2);label='the next period';}
-    }
-    const vals=checkPeriods.map(periodValue).filter(v=>v!=null);
-    if(!vals.length) throw new Error('novals');
-    const allQualify = vals.every(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
-    const anyQualify = vals.some(v=>cfg.op==='gte'?v>=cfg.value:v<=cfg.value);
-    const roundedVals = vals.map(v=>Math.round(v)).join('–');
-    const unitSuffix = VARIABLE_META[cfg.variable].plainUnit;
-    const approxNote = cfg.variable==='cloud' ? ' (approximate, from forecast text)' : '';
-    if(allQualify){
-      el.innerHTML=`<strong>Forecast: likely to continue.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — still crossing the threshold.`;
-    } else if(!anyQualify){
-      el.innerHTML=`<strong>Forecast: likely to break.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — no longer crossing the threshold.`;
-    } else {
-      el.innerHTML=`<strong>Forecast: uncertain.</strong> NWS forecast for ${label}: ${roundedVals}${unitSuffix}${approxNote} — right around the threshold.`;
-    }
-  } catch(e){
-    el.textContent='Forecast unavailable for this location.';
+    const vals = use.map(pv).filter(v => v != null);
+    if (!vals.length) throw new Error('novals');
+    // Daily mean from a day/night pair: average them.
+    const tested = cfg.agg === 'daily' && cfg.metric === 'mean' ? [vals.reduce((a, b) => a + b, 0) / vals.length] : vals;
+    const all = tested.every(v => qualifies(v, cfg)), any = tested.some(v => qualifies(v, cfg));
+    const V = VARIABLES[cfg.variable];
+    const shown = [...new Set(vals.map(v => cfg.variable === 'cloud' ? Math.round(v) : Math.round(v)))].join('–') + V.unit;
+    const verdict = all ? 'likely to continue' : !any ? 'likely to end' : 'close call';
+    el.innerHTML = `<strong>Forecast: ${verdict}.</strong> NWS ${when}: ${shown}${cfg.variable === 'cloud' ? ' (from forecast wording)' : ''}.`;
+  } catch (e) {
+    if (seq === forecastSeq) el.textContent = 'Forecast unavailable.';
   }
 }
 
 // ================================================================
-// YEAR STRIP CANVAS
+// CALENDAR (one row per counting year, one cell per day)
 // ================================================================
-const stripCanvas=document.getElementById('strip-canvas');
-const stripCtx=stripCanvas.getContext('2d');
-const ROW_H=15, ROW_GAP=2, MONTH_HDR=18, LEFT_PAD=48, RIGHT_PAD=10;
+const stripCanvas = $('strip-canvas'), stripCtx = stripCanvas.getContext('2d');
+const CAL = { ROW_H: 14, ROW_GAP: 2, HDR: 24, LEFT: 70, RIGHT: 12 };
+let calFlash = null;   // {d0, d1, until}
+let calGeom = null;
 
-function setupStripCanvas(rows){
-  const wrap=document.getElementById('strip-wrap');
-  const W=wrap.clientWidth;
-  const H=MONTH_HDR + rows*(ROW_H+ROW_GAP);
-  stripDPR=window.devicePixelRatio||1;
-  stripCanvas.style.width=W+'px'; stripCanvas.style.height=H+'px';
-  stripCanvas.width=Math.round(W*stripDPR); stripCanvas.height=Math.round(H*stripDPR);
-  stripCtx.setTransform(stripDPR,0,0,stripDPR,0,0);
-  return {W,H};
+// Column layout: months in counting-year order, out-of-season months dropped.
+function templateOffsets(ys, months) {
+  const off = new Array(13).fill(-1);
+  let acc = 0;
+  for (let k = 0; k < 12; k++) {
+    const m = ((ys - 1 + k) % 12) + 1;
+    if (months && !months.has(m)) continue;
+    off[m] = acc; acc += TEMPLATE_LEN[m - 1];
+  }
+  return { off, total: acc };
 }
+// Per-day summary: qualifying units, present units, and the day's range of values.
+function daySummary(S) {
+  if (S._days) return S._days;
+  const q = new Uint8Array(S.nDays), p = new Uint8Array(S.nDays), ex = new Uint8Array(S.nDays);
+  for (let i = 0; i < S.n; i++) {
+    const d = dayOfUnit(S, i), v = S.state[i];
+    if (v === 3) ex[d] = 1;
+    else if (v !== 2) { p[d]++; if (v === 1) q[d]++; }
+  }
+  S._days = { q, p, ex };
+  return S._days;
+}
+function streakDayRange(S, sIdx, len) { return [dayOfUnit(S, sIdx), dayOfUnit(S, sIdx + len - 1)]; }
 
-function drawStrip(ctx, W, H, grid, streaks, stats, cfg, opts){
+function drawCalendar(ctx, W, opts) {
   opts = opts || {};
-  const bg = opts.bg || null;
-  if(bg){ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);}
-  const plotW = W-LEFT_PAD-RIGHT_PAD;
-  const cellW = plotW/366;
-  const startYear=stats.startYear, endYear=stats.endYear;
-  const years=[]; for(let y=startYear;y<=endYear;y++) years.push(y);
+  const { cfg, S, streaks, stats } = last;
+  const rows = stats.syLast - stats.syFirst + 1;
+  const H = CAL.HDR + rows * (CAL.ROW_H + CAL.ROW_GAP);
+  if (opts.bg) { ctx.fillStyle = opts.bg; ctx.fillRect(0, 0, W, H); }
+  const { off, total } = templateOffsets(cfg.ys, cfg.months);
+  const plotW = W - CAL.LEFT - CAL.RIGHT, cellW = plotW / total;
 
-  // month gridlines / labels
-  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const MSTART=[0,31,59,90,120,151,181,212,243,273,304,334];
-  ctx.font=(opts.small?'10px':'11px')+' "Courier Prime", monospace';
-  ctx.fillStyle='#948F82'; ctx.textAlign='center';
-  for(let m=0;m<12;m++){
-    const s=MSTART[m], e=(m<11?MSTART[m+1]:366);
-    const mid=(s+e-1)/2;
-    ctx.fillText(MONTHS[m], LEFT_PAD+mid*cellW, MONTH_HDR-5);
-  }
-  ctx.textAlign='left';
-
-  // record + current streak index lookup for highlighting
-  const recordIdx = stats.recordStreak ? new Set() : null;
-  if(stats.recordStreak) for(let i=stats.recordStreak.startIdx;i<=stats.recordStreak.endIdx;i++) recordIdx.add(i);
-  const currentIdx = stats.currentStreak ? new Set() : null;
-  if(stats.currentStreak) for(let i=stats.currentStreak.startIdx;i<=stats.currentStreak.endIdx;i++) currentIdx.add(i);
-
-  const warmColor = getComputedStyle(document.documentElement).getPropertyValue('--streak-warm').trim()||'#E0824A';
-  const coolColor = getComputedStyle(document.documentElement).getPropertyValue('--streak-cool').trim()||'#5B9BD8';
-  const baseColor = cfg.op==='gte'?warmColor:coolColor;
-  const noDataColor = '#2C322D';
-  const missColor = 'rgba(232,228,217,0.035)';
-  const excludedColor = 'rgba(166,164,153,0.12)';
-
-  // pre-compute per-year, per-doy status by scanning grid once
-  // build map date -> {qualifies, idx} using either daily grid directly, or OR-reduced hourly->daily
-  let dayStatus; // Map ymd -> {q:bool, idxSample:number, recordHit:bool, currentHit:bool, excl:bool}
-  if(cfg.aggregation==='daily'){
-    dayStatus=new Map();
-    grid.forEach((g,i)=>{dayStatus.set(g.date,{q:g.qualifies&&!g.missing, present:!g.missing, idx:i, rec:recordIdx&&recordIdx.has(i), cur:currentIdx&&currentIdx.has(i), excl:!!g.excluded});});
-  } else {
-    dayStatus=new Map();
-    grid.forEach((g,i)=>{
-      let e=dayStatus.get(g.date);
-      if(!e){e={q:false,present:false,idx:i,rec:false,cur:false,excl:false};dayStatus.set(g.date,e);}
-      if(!g.missing){e.present=true; if(g.qualifies) e.q=true;}
-      if(g.excluded) e.excl=true;
-      if(recordIdx&&recordIdx.has(i)) e.rec=true;
-      if(currentIdx&&currentIdx.has(i)) e.cur=true;
-    });
+  ctx.font = '12px "Courier Prime", monospace';
+  ctx.fillStyle = COLORS.muted; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  for (let m = 1; m <= 12; m++) if (off[m] >= 0) ctx.fillText(MONTH_NAMES[m - 1], CAL.LEFT + (off[m] + TEMPLATE_LEN[m - 1] / 2) * cellW, CAL.HDR - 8);
+  ctx.strokeStyle = 'rgba(232,228,217,0.07)'; ctx.lineWidth = 1;
+  for (let m = 1; m <= 12; m++) {
+    if (off[m] <= 0) continue;
+    const x = Math.round(CAL.LEFT + off[m] * cellW) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, CAL.HDR - 4); ctx.lineTo(x, H); ctx.stroke();
   }
 
-  years.forEach((y,ri)=>{
-    const rowY = MONTH_HDR + ri*(ROW_H+ROW_GAP);
-    for(let doy=0;doy<366;doy++){
-      if(doy===365 && !isLeap(y)) continue;
-      const md = doyToMD(y,doy);
-      const ymd = `${y}-${pad2(md.m)}-${pad2(md.d)}`;
-      const st = dayStatus.get(ymd);
-      let color = noDataColor;
-      if(st){
-        if(st.excl) color = excludedColor;
-        else color = st.present ? (st.q?baseColor:'rgba(166,164,153,0.10)') : missColor;
-      }
-      ctx.fillStyle=color;
-      ctx.fillRect(LEFT_PAD+doy*cellW, rowY, Math.max(cellW-0.4,0.6), ROW_H);
-      if(st && st.rec){
-        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--streak-record').trim()||'#D9A94F';
-        ctx.lineWidth=1;
-        ctx.strokeRect(LEFT_PAD+doy*cellW+0.5, rowY+0.5, Math.max(cellW-0.4,0.6), ROW_H-1);
-      }
-      if(st && st.cur){
-        ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--streak-current').trim()||'#F1EEE4';
-        ctx.lineWidth=1;
-        ctx.strokeRect(LEFT_PAD+doy*cellW+0.5, rowY+0.5, Math.max(cellW-0.4,0.6), ROW_H-1);
-      }
+  const ds = daySummary(S);
+  const base = baseColor(cfg);
+  const recDays = new Uint8Array(S.nDays);
+  const { s, l } = streaks;
+  const recRows = new Set(), curRows = new Set();
+  if (stats.record) for (let k = 0; k < l.length; k++) if (l[k] === stats.record) {
+    const [a, b] = streakDayRange(S, s[k], l[k]);
+    for (let d = a; d <= b; d++) { recDays[d] = 1; recRows.add(S.daySY[d]); }
+  }
+  if (stats.current >= 0) {
+    const [a, b] = streakDayRange(S, s[stats.current], l[stats.current]);
+    for (let d = a; d <= b; d++) { recDays[d] = 2; curRows.add(S.daySY[d]); }
+  }
+  const hourly = S.upd === 24;
+  const rgb = hexToRgb(base);
+  for (let d = 0; d < S.nDays; d++) {
+    const mo = S.dayMonth[d];
+    if (off[mo] < 0) continue;
+    const row = S.daySY[d] - stats.syFirst;
+    const y = CAL.HDR + row * (CAL.ROW_H + CAL.ROW_GAP);
+    const x = CAL.LEFT + (off[mo] + S.dayDom[d] - 1) * cellW;
+    // Non-leap Feb 28 also covers the empty Feb 29 column, so it doesn't read as a gap.
+    const wCells = (mo === 2 && S.dayDom[d] === 28 && !isLeap(S.dayYear[d])) ? 2 : 1;
+    let color;
+    if (ds.p[d] === 0) color = ds.ex[d] ? null : COLORS.missing;
+    else if (recDays[d] === 2) color = COLORS.current;
+    else if (recDays[d] === 1) color = COLORS.record;
+    else if (ds.q[d] === 0) color = COLORS.nonQual;
+    else if (!hourly) color = base;
+    else { const f = ds.q[d] / 24; color = `rgba(${rgb},${(0.22 + 0.78 * Math.min(1, f)).toFixed(3)})`; }
+    if (!color) continue;
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, Math.max(cellW * wCells - 0.4, 0.8), CAL.ROW_H);
+  }
+  // Row labels and gutter markers.
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.font = '12px "Courier Prime", monospace';
+  for (let r = 0; r < rows; r++) {
+    const sy = stats.syFirst + r, y = CAL.HDR + r * (CAL.ROW_H + CAL.ROW_GAP);
+    ctx.fillStyle = curRows.has(sy) ? COLORS.current : recRows.has(sy) ? COLORS.record : COLORS.label;
+    ctx.fillText(syLabel(sy, cfg.ys), CAL.LEFT - 12, y + CAL.ROW_H / 2 + 1);
+    if (curRows.has(sy) || recRows.has(sy)) { ctx.fillRect(CAL.LEFT - 7, y + 2, 3, CAL.ROW_H - 4); }
+  }
+  // Flash outline for a streak picked in the table.
+  if (!opts.export && calFlash && Date.now() < calFlash.until) {
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.5;
+    for (let d = calFlash.d0; d <= calFlash.d1; d++) {
+      if (off[S.dayMonth[d]] < 0) continue;
+      const row = S.daySY[d] - stats.syFirst, y = CAL.HDR + row * (CAL.ROW_H + CAL.ROW_GAP);
+      const x = CAL.LEFT + (off[S.dayMonth[d]] + S.dayDom[d] - 1) * cellW;
+      ctx.strokeRect(x - 1, y - 1.5, Math.max(cellW, 1) + 1.6, CAL.ROW_H + 3);
     }
-    ctx.fillStyle='#A6A499';
-    ctx.font=(opts.small?'9px':'10px')+' "Courier Prime", monospace';
-    ctx.fillText(String(y), 6, rowY+ROW_H-4);
+  }
+  return H;
+}
+function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; }
+
+function renderCalendar() {
+  const { cfg, S, stats } = last;
+  const wrap = $('strip-wrap');
+  renderLegend(cfg);
+  $('strip-title').textContent = S && S.upd === 24 ? 'Calendar · shade = hours qualifying' : 'Calendar';
+  if (!S) { stripCanvas.style.height = '0px'; stripCanvas.height = 0; calGeom = null; return; }
+  const W = wrap.clientWidth;
+  const rows = stats.syLast - stats.syFirst + 1;
+  const H = CAL.HDR + rows * (CAL.ROW_H + CAL.ROW_GAP);
+  const dpr = window.devicePixelRatio || 1;
+  stripCanvas.style.width = W + 'px'; stripCanvas.style.height = H + 'px';
+  stripCanvas.width = Math.round(W * dpr); stripCanvas.height = Math.round(H * dpr);
+  stripCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  stripCtx.clearRect(0, 0, W, H);
+  drawCalendar(stripCtx, W, {});
+  calGeom = { W, H };
+}
+function renderLegend(cfg) {
+  const base = baseColor(cfg), rgb = hexToRgb(base);
+  const hourly = cfg.agg === 'hourly';
+  const chip = (sw, text) => `<span class="cc-legend-chip">${sw}${text}</span>`;
+  const sq = c => `<span class="legend-sq" style="background:${c}"></span>`;
+  $('strip-legend').innerHTML = [
+    hourly ? chip(`<span class="legend-grad" style="background:linear-gradient(90deg,rgba(${rgb},0.25),rgba(${rgb},1))"></span>`, '1 → 24 hrs')
+           : chip(sq(base), 'Qualifying day'),
+    chip(sq(COLORS.record), 'Record'),
+    chip(sq(COLORS.current), 'Current'),
+    chip(sq(COLORS.nonQual), 'Not qualifying'),
+    chip(`<span class="legend-sq" style="background:${COLORS.missing};border:1px solid rgba(232,228,217,.18)"></span>`, 'No data'),
+    cfg.seasonLabel !== 'All months' ? chip(`<span class="legend-sq" style="border:1px solid rgba(232,228,217,.25)"></span>`, 'Outside season') : ''
+  ].join('');
+}
+function flashStreak(k) {
+  const { S, streaks } = last;
+  if (!S) return;
+  const [d0, d1] = streakDayRange(S, streaks.s[k], streaks.l[k]);
+  calFlash = { d0, d1, until: Date.now() + 1800 };
+  const row = S.daySY[d0] - last.stats.syFirst;
+  const rect = stripCanvas.getBoundingClientRect();
+  const y = rect.top + window.scrollY + CAL.HDR + row * (CAL.ROW_H + CAL.ROW_GAP);
+  window.scrollTo({ top: Math.max(0, y - window.innerHeight / 3), behavior: 'smooth' });
+  renderCalendar();
+  setTimeout(() => { if (calFlash && Date.now() >= calFlash.until) { calFlash = null; renderCalendar(); } }, 1900);
+}
+
+// Tooltip
+(function () {
+  const tt = $('strip-tooltip');
+  stripCanvas.addEventListener('mousemove', e => {
+    const { cfg, S, stats } = last;
+    if (!S || !calGeom) { tt.style.display = 'none'; return; }
+    const rect = stripCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const { off, total } = templateOffsets(cfg.ys, cfg.months);
+    const plotW = rect.width - CAL.LEFT - CAL.RIGHT, cellW = plotW / total;
+    const row = Math.floor((y - CAL.HDR) / (CAL.ROW_H + CAL.ROW_GAP));
+    const col = Math.floor((x - CAL.LEFT) / cellW);
+    if (x < CAL.LEFT || y < CAL.HDR || col < 0 || col >= total || row < 0) { tt.style.display = 'none'; return; }
+    const sy = stats.syFirst + row;
+    if (sy > stats.syLast) { tt.style.display = 'none'; return; }
+    let m = -1; for (let mm = 1; mm <= 12; mm++) if (off[mm] >= 0 && col >= off[mm] && col < off[mm] + TEMPLATE_LEN[mm - 1]) m = mm;
+    if (m < 0) { tt.style.display = 'none'; return; }
+    const yr = (cfg.ys !== 1 && m < cfg.ys) ? sy + 1 : sy;
+    const dom = Math.min(col - off[m] + 1, daysInMonth(yr, m));
+    const d = ymdToDay(yr, m, dom) - S.startDay;
+    let html = `${MONTH_NAMES[m - 1]} ${dom}, ${yr}`;
+    if (d < 0 || d >= S.nDays) html += `<div class="tt-sub">No data</div>`;
+    else {
+      const ds = daySummary(S), V = VARIABLES[cfg.variable];
+      if (ds.ex[d] && ds.p[d] === 0) html += `<div class="tt-sub">Outside season</div>`;
+      else if (ds.p[d] === 0) html += `<div class="tt-sub">No data</div>`;
+      else if (S.upd === 24) html += `<div class="tt-sub">${ds.q[d]} of ${ds.p[d]} hrs ${cfg.op === 'gte' ? '≥' : '≤'} ${cfg.value}${V.unit}</div>`;
+      else html += `<div class="tt-sub">${V.metricLabel[cfg.metric][0].toUpperCase() + V.metricLabel[cfg.metric].slice(1)}: ${V.fmt(S.val[d])}${ds.q[d] ? ' ✓' : ''}</div>`;
+    }
+    tt.innerHTML = html;
+    tt.style.display = 'block';
+    const tw = tt.offsetWidth;
+    tt.style.left = (x + 16 + tw > rect.width ? x - tw - 12 : x + 14) + 'px';
+    tt.style.top = (y + 14) + 'px';
   });
-}
-
-function doyToMD(year, doy){
-  const ms = Date.UTC(year,0,1) + doy*86400000;
-  const dt = new Date(ms);
-  return {m:dt.getUTCMonth()+1, d:dt.getUTCDate()};
-}
-
-function renderStrip(grid, streaks, stats, cfg){
-  const rows = stats.endYear - stats.startYear + 1;
-  const {W,H} = setupStripCanvas(rows);
-  stripCtx.clearRect(0,0,W,H);
-  drawStrip(stripCtx, W, H, grid, streaks, stats, cfg, {});
-}
-
-// hover tooltip
-(function(){
-  const tt=document.getElementById('strip-tooltip');
-  stripCanvas.addEventListener('mousemove', (e)=>{
-    if(!lastGrid || !lastStats) return;
-    const rect=stripCanvas.getBoundingClientRect();
-    const x=e.clientX-rect.left, y=e.clientY-rect.top;
-    const plotW=rect.width-LEFT_PAD-RIGHT_PAD;
-    if(x<LEFT_PAD || y<MONTH_HDR){tt.style.display='none';return;}
-    const doy=Math.floor((x-LEFT_PAD)/(plotW/366));
-    const ri=Math.floor((y-MONTH_HDR)/(ROW_H+ROW_GAP));
-    const y0=lastStats.startYear+ri;
-    if(y0<lastStats.startYear||y0>lastStats.endYear||doy<0||doy>365){tt.style.display='none';return;}
-    if(doy===365 && !isLeap(y0)){tt.style.display='none';return;}
-    const md=doyToMD(y0,doy);
-    const ymd=`${y0}-${pad2(md.m)}-${pad2(md.d)}`;
-    tt.style.display='block';
-    tt.style.left=(x+14)+'px'; tt.style.top=(y+14)+'px';
-    tt.textContent=fmtDateLong(ymd);
-  });
-  stripCanvas.addEventListener('mouseleave', ()=>{tt.style.display='none';});
+  stripCanvas.addEventListener('mouseleave', () => { tt.style.display = 'none'; });
 })();
 
 // ================================================================
-// RANKED LIST + CHART
+// RANKED
 // ================================================================
-function renderRanked(grid, streaks, stats, cfg){
-  const top = stats.sortedDesc.slice(0,15);
-  const tbody=document.getElementById('ranked-tbody');
-  if(!top.length){
-    tbody.innerHTML='<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--color-text-muted)">No qualifying streaks in the period of record</td></tr>';
-  } else {
-    tbody.innerHTML = top.map((s,i)=>{
-      const isCur = stats.currentStreak && s===stats.currentStreak;
-      const isRec = stats.recordStreak && s.length===stats.recordStreak.length;
-      const startDate=grid[s.startIdx].date, endDate=grid[s.endIdx].date;
-      const rowClass = isCur?'is-current':(isRec?'is-record':'');
-      const tag = isCur ? '<span class="rank-tag" style="background:rgba(224,130,74,.18);color:var(--streak-warm)">ACTIVE</span>' : (isRec?'<span class="rank-tag" style="background:rgba(217,169,79,.18);color:var(--streak-record)">RECORD</span>':'');
-      return `<tr class="${rowClass}"><td>#${i+1}</td><td>${fmtDateShort(startDate)}${startDate!==endDate?`–${fmtDateShort(endDate)}`:''}, ${yearOf(startDate)}</td><td class="r">${formatLength(s.length,cfg)}</td><td>${tag}</td></tr>`;
-    }).join('');
-  }
-
-  const labels = top.map((s,i)=>`#${i+1} · ${fmtDateShort(grid[s.startIdx].date)} ${yearOf(grid[s.startIdx].date)}`);
-  const lengths = top.map(s=>s.length);
-  const colors = top.map(s=>{
-    if(stats.currentStreak && s===stats.currentStreak) return '#F1EEE4';
-    if(stats.recordStreak && s.length===stats.recordStreak.length) return '#D9A94F';
-    return cfg.op==='gte' ? '#E0824A' : '#5B9BD8';
-  });
-  const trace = {
-    type:'bar', orientation:'h',
-    y: labels.slice().reverse(),
-    x: lengths.slice().reverse(),
-    marker:{color: colors.slice().reverse()},
-    hovertemplate: '%{x} ' + (cfg.aggregation==='daily'?'days':'hours') + '<extra></extra>'
-  };
-  const layout = {
-    paper_bgcolor:'#262B27', plot_bgcolor:'#262B27',
-    margin:{l:160,r:20,t:10,b:36},
-    font:{family:'Courier Prime, monospace', color:'#A6A499', size:11},
-    xaxis:{gridcolor:'rgba(232,228,217,0.08)', title:cfg.aggregation==='daily'?'Days':'Hours'},
-    yaxis:{automargin:true}
-  };
-  Plotly.newPlot('ranked-chart', [trace], layout, {responsive:true,displayModeBar:false});
-}
-
-// ================================================================
-// TOTALS MODE: COMPUTATION
-// ================================================================
-function computeYearlyTotals(grid, cfg){
-  // "possible" = in-season grid cells that exist for that year (regardless of missing readings).
-  // Comparing each year's possible-count against the record's max reveals edge years that are
-  // cut short (record starts mid-year, or the current year hasn't finished yet) -- the grid simply
-  // doesn't contain future days at all, so this is the only reliable way to flag them as partial.
-  const map = new Map(); // year -> {qual, present, possible}
-  for(const g of grid){
-    if(g.excluded) continue;
-    const y = yearOf(g.date);
-    let e = map.get(y);
-    if(!e){ e={qual:0, present:0, possible:0}; map.set(y,e); }
-    e.possible++;
-    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
-  }
-  const years = [...map.keys()].filter(y=>map.get(y).possible>0).sort((a,b)=>a-b);
-  const maxPossible = years.reduce((mx,y)=>Math.max(mx, map.get(y).possible), 0);
-  return years.map(y=>{
-    const e = map.get(y);
-    const partial = maxPossible>0 && e.possible < maxPossible*0.9;
-    return { key:String(y), label:String(y), qual:e.qual, present:e.present, possible:e.possible, partial };
-  });
-}
-
-function computeMonthlyTotals(grid, cfg){
-  // Climatology: average per-year total for each calendar month. A given year's contribution to a
-  // month is excluded from the average if that year's coverage of the month is well below the
-  // record's typical coverage for it (e.g. the current, still-in-progress month, or a record that
-  // starts/ends mid-month) -- otherwise a partial month would silently drag the average down.
-  const byMonth = new Map(); // month -> Map(year -> {qual, present, possible})
-  for(const g of grid){
-    if(g.excluded) continue;
-    const m = monthOf(g.date), y = yearOf(g.date);
-    let yearsMap = byMonth.get(m);
-    if(!yearsMap){ yearsMap=new Map(); byMonth.set(m,yearsMap); }
-    let e = yearsMap.get(y);
-    if(!e){ e={qual:0, present:0, possible:0}; yearsMap.set(y,e); }
-    e.possible++;
-    if(!g.missing){ e.present++; if(g.qualifies) e.qual++; }
-  }
-  const months = [...byMonth.keys()].sort((a,b)=>a-b);
-  return months.map(m=>{
-    const yearsMap = byMonth.get(m);
-    const entries = [...yearsMap.values()];
-    const maxPossible = entries.reduce((mx,e)=>Math.max(mx,e.possible),0);
-    const complete = entries.filter(e=> maxPossible===0 || e.possible >= maxPossible*0.9);
-    const totalQual = complete.reduce((s,e)=>s+e.qual,0);
-    const yrCount = complete.length || 1;
-    return { key:String(m), label:MONTH_NAMES[m-1], qual: totalQual, yearsCount: complete.length, avgQual: totalQual/yrCount };
-  });
-}
-
-function formatTotal(n, cfg){
-  const r = Math.round(n*10)/10;
-  if(cfg.aggregation==='daily') return `${r} day${r===1?'':'s'}`;
-  if(r>=24) return `${r} hrs (${(r/24).toFixed(1)}d)`;
-  return `${r} hr${r===1?'':'s'}`;
-}
-
-// ================================================================
-// TOTALS MODE: RENDER
-// ================================================================
-function renderTotals(grid, cfg){
-  document.getElementById('totals-hdr-label').textContent = cfg.op==='gte' ? 'Total Time At/Above Threshold' : 'Total Time At/Below Threshold';
-  const groupBy = state.totalsGroupBy;
-  const rows = groupBy==='year' ? computeYearlyTotals(grid, cfg) : computeMonthlyTotals(grid, cfg);
-  const baseColor = cfg.op==='gte' ? '#E0824A' : '#5B9BD8';
-  const unitWord = cfg.aggregation==='daily' ? 'days' : 'hours';
-
-  const labels = rows.map(r=>r.label);
-  const values = rows.map(r=> groupBy==='year' ? r.qual : r.avgQual);
-  const opacities = rows.map(r=> (groupBy==='year' && r.partial) ? 0.45 : 1);
-
-  const trace = {
-    type:'bar', x:labels, y:values,
-    marker:{color:baseColor, opacity:opacities},
-    hovertemplate:'%{y:.1f} ' + unitWord + '<extra></extra>'
-  };
-  const yAxisTitle = groupBy==='year'
-    ? (cfg.aggregation==='daily'?'Days':'Hours')
-    : (cfg.aggregation==='daily'?'Avg Days / Year':'Avg Hours / Year');
-  const layout = {
-    paper_bgcolor:'#262B27', plot_bgcolor:'#262B27',
-    margin:{l:56,r:20,t:10,b:40},
-    font:{family:'Courier Prime, monospace', color:'#A6A499', size:11},
-    xaxis:{type:'category', gridcolor:'rgba(232,228,217,0.08)'},
-    yaxis:{gridcolor:'rgba(232,228,217,0.08)', title:yAxisTitle, rangemode:'tozero'}
-  };
-  Plotly.newPlot('totals-chart', [trace], layout, {responsive:true,displayModeBar:false});
-
-  const thead = document.getElementById('totals-thead');
-  const tbody = document.getElementById('totals-tbody');
-  if(!rows.length){
-    thead.innerHTML = '<tr><th>&ndash;</th></tr>';
-    tbody.innerHTML = '<tr><td style="text-align:center;padding:20px;color:var(--color-text-muted)">No data for this selection</td></tr>';
+const PLOT_LAYOUT_BASE = {
+  paper_bgcolor: '#262B27', plot_bgcolor: '#262B27',
+  font: { family: 'Courier Prime, monospace', color: '#A6A499', size: 13 }
+};
+function renderRanked() {
+  const { cfg, S, streaks, stats } = last;
+  const tbody = $('ranked-tbody');
+  if (!S || !streaks.l.length) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty">${S ? 'No qualifying streaks in this record' : '–'}</td></tr>`;
+    Plotly.purge('ranked-chart');
     return;
   }
-  if(groupBy==='year'){
+  const order = streaks.l.map((_, k) => k).sort((a, b) => streaks.l[b] - streaks.l[a] || streaks.s[b] - streaks.s[a]).slice(0, 15);
+  const rankOf = k => 1 + streaks.l.filter(x => x > streaks.l[k]).length;
+  tbody.innerHTML = order.map(k => {
+    const isCur = k === stats.current, isRec = streaks.l[k] === stats.record;
+    const tag = isCur ? '<span class="rank-tag tag-active">Current</span>' : isRec ? '<span class="rank-tag tag-record">Record</span>' : '';
+    return `<tr class="clickable ${isCur ? 'is-current' : isRec ? 'is-record' : ''}" data-k="${k}"><td>#${rankOf(k)}</td><td>${streakDateText(S, streaks.s[k], streaks.l[k])}</td><td class="r">${formatLength(streaks.l[k], cfg)}</td><td>${tag}</td></tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr.clickable').forEach(tr => tr.addEventListener('click', () => flashStreak(+tr.dataset.k)));
+
+  const labels = order.map(k => `#${rankOf(k)} · ${fmtDay(unitStartDay(S, streaks.s[k]), false)} ${S.dayYear[dayOfUnit(S, streaks.s[k])]}`);
+  const colors = order.map(k => k === stats.current ? COLORS.current : streaks.l[k] === stats.record ? COLORS.record : baseColor(cfg));
+  // Duplicate labels (same start date text) would merge bars; make them unique.
+  const seen = new Map();
+  const uniq = labels.map(t => { const n = (seen.get(t) || 0) + 1; seen.set(t, n); return n > 1 ? t + ' '.repeat(n - 1) : t; });
+  Plotly.react('ranked-chart', [{
+    type: 'bar', orientation: 'h', y: uniq.slice().reverse(), x: order.map(k => streaks.l[k]).reverse(),
+    marker: { color: colors.slice().reverse() },
+    hovertemplate: `%{x} ${cfg.agg === 'daily' ? 'days' : 'hours'}<extra></extra>`
+  }], Object.assign({}, PLOT_LAYOUT_BASE, {
+    margin: { l: 170, r: 20, t: 10, b: 44 },
+    xaxis: { gridcolor: 'rgba(232,228,217,0.08)', title: { text: cfg.agg === 'daily' ? 'Days' : 'Hours' }, tickfont: { size: 13 } },
+    yaxis: { automargin: true, tickfont: { size: 13 } }
+  }), { responsive: true, displayModeBar: false });
+}
+
+// ================================================================
+// TOTALS
+// ================================================================
+function formatTotal(n, cfg) {
+  const r = Math.round(n * 10) / 10;
+  if (cfg.agg === 'daily') return `${r} day${r === 1 ? '' : 's'}`;
+  if (r >= 48) return `${r} hrs (${(r / 24).toFixed(1)} d)`;
+  return `${r} hr${r === 1 ? '' : 's'}`;
+}
+function renderTotals() {
+  const { cfg, S, stats } = last;
+  $('totals-hdr-label').textContent = cfg.op === 'gte' ? 'Total time at/above threshold' : 'Total time at/below threshold';
+  const thead = $('totals-thead'), tbody = $('totals-tbody');
+  if (!S) { Plotly.purge('totals-chart'); tbody.innerHTML = '<tr><td colspan="3" class="empty">–</td></tr>'; return; }
+  const unitWord = cfg.agg === 'daily' ? 'days' : 'hours';
+  const base = baseColor(cfg);
+  const layout = Object.assign({}, PLOT_LAYOUT_BASE, { margin: { l: 64, r: 20, t: 10, b: 56 } });
+  if (app.totalsGroupBy === 'year') {
+    const rows = computeYearTotals(S, stats);
+    Plotly.react('totals-chart', [{
+      type: 'bar', x: rows.map(r => syLabel(r.key, cfg.ys)), y: rows.map(r => r.qual),
+      marker: { color: base, opacity: rows.map(r => r.partial ? 0.4 : 1) },
+      hovertemplate: `%{x}: %{y} ${unitWord}<extra></extra>`
+    }], Object.assign(layout, {
+      xaxis: { type: 'category', gridcolor: 'rgba(232,228,217,0.08)', tickfont: { size: 12 } },
+      yaxis: { gridcolor: 'rgba(232,228,217,0.08)', title: { text: cfg.agg === 'daily' ? 'Days' : 'Hours' }, rangemode: 'tozero', tickfont: { size: 13 } }
+    }), { responsive: true, displayModeBar: false });
     thead.innerHTML = '<tr><th>Year</th><th class="r">Total</th><th class="r">Coverage</th></tr>';
-    tbody.innerHTML = rows.slice().reverse().map(r=>{
-      const cov = r.possible ? Math.round(r.present/r.possible*100) : 0;
-      const partialTag = r.partial ? ' <span style="color:var(--color-text-muted)">(partial)</span>' : '';
-      return `<tr><td>${r.label}${partialTag}</td><td class="r">${formatTotal(r.qual,cfg)}</td><td class="r">${cov}%</td></tr>`;
-    }).join('');
+    tbody.innerHTML = rows.slice().reverse().map(r => `<tr><td>${syLabel(r.key, cfg.ys)}${r.key === stats.currentSY ? ' <span class="muted">(to date)</span>' : r.partial ? ' <span class="muted">(partial)</span>' : ''}</td><td class="r">${formatTotal(r.qual, cfg)}</td><td class="r">${Math.round(Math.min(1, r.cov) * 100)}%</td></tr>`).join('');
   } else {
-    thead.innerHTML = '<tr><th>Month</th><th class="r">Avg / Year</th><th class="r">Years of Data</th></tr>';
-    tbody.innerHTML = rows.map(r=>{
-      return `<tr><td>${r.label}</td><td class="r">${formatTotal(r.avgQual,cfg)}</td><td class="r">${r.yearsCount}</td></tr>`;
-    }).join('');
+    const rows = computeMonthTotals(S, cfg);
+    const ordered = rows.slice().sort((a, b) => ((a.m - cfg.ys + 12) % 12) - ((b.m - cfg.ys + 12) % 12));
+    Plotly.react('totals-chart', [{
+      type: 'bar', x: ordered.map(r => MONTH_NAMES[r.m - 1]), y: ordered.map(r => r.avg),
+      marker: { color: base }, hovertemplate: `%{x}: %{y:.1f} ${unitWord}<extra></extra>`
+    }], Object.assign(layout, {
+      xaxis: { type: 'category', tickfont: { size: 13 } },
+      yaxis: { gridcolor: 'rgba(232,228,217,0.08)', title: { text: `Avg ${unitWord} per year` }, rangemode: 'tozero', tickfont: { size: 13 } }
+    }), { responsive: true, displayModeBar: false });
+    thead.innerHTML = '<tr><th>Month</th><th class="r">Avg per year</th><th class="r">Years</th></tr>';
+    tbody.innerHTML = ordered.map(r => `<tr><td>${MONTH_NAMES[r.m - 1]}</td><td class="r">${formatTotal(r.avg, cfg)}</td><td class="r">${r.years}</td></tr>`).join('');
   }
 }
 
 // ================================================================
-// LOAD STATION
+// DATA ORCHESTRATION
 // ================================================================
-async function loadStation(station){
-  curStation=station;
-  const[icao,name,st,lat,lon,tz]=station;
-  showLoading(`Fetching ${icao} full period of record from IEM ASOS… this can take ~20–40s`);
-  document.getElementById('stn-name').textContent=name;
-  document.getElementById('title-station').textContent=`${name.split(' ')[0]===name?name:name}, ${st}`;
-  document.getElementById('stn-meta').textContent=`${icao} · ${st} · Loading…`;
-  try{
-    const tzIana = TZ_IANA[tz]||'America/New_York';
-    const curYear = new Date().getUTCFullYear();
-    // POR_START_FLOOR: IEM's ASOS request endpoint just returns whatever data actually
-    // exists for a station within the requested range (no error for years before its
-    // record begins), so requesting from 1900 pulls each station's true period of record
-    // instead of the old hardcoded 1991 cutoff -- mirrors the sdate:'por' approach used
-    // in the annual precipitation tool.
-    const POR_START_FLOOR = 1900;
-    const url = buildIEMUrl(icao, tzIana, POR_START_FLOOR, curYear);
-    const resp = await fetch(url, {cache:'no-store'});
-    if(!resp.ok) throw new Error('HTTP '+resp.status);
-    const text = await resp.text();
-    rawHourly = parseIEM(text);
-    if(!rawHourly.length) throw new Error('No data returned for this station.');
-    const maps = buildMaps(rawHourly);
-    hourlyMap = maps.hMap; dailyMap = maps.dMap;
-    sortedDates = [...dailyMap.keys()].sort();
-    document.getElementById('stn-meta').textContent = `${icao} · ${st} · Record: ${sortedDates[0].slice(0,4)}–${sortedDates[sortedDates.length-1].slice(0,4)}`;
-    document.getElementById('ts-lbl').textContent = `Loaded ${new Date().toLocaleTimeString()}`;
-    rebuildPresetRow();
-    recomputeAndRender();
-  } catch(e){
-    document.getElementById('stn-meta').textContent = `${icao} · ${st} · Load failed: ${e.message}`;
-  } finally {
-    hideLoading();
-  }
-}
-function refreshData(){ if(curStation) loadStation(curStation); }
-
-function recomputeAndRender(){
-  if(!sortedDates.length) return;
+function ensureData() {
+  if (!store) return;
   const cfg = activeCfg();
-  const grid = buildGrid(cfg);
-  lastGrid = grid;
-  updateThresholdSummary(cfg);
-  if(state.mode==='totals'){
-    renderTotals(grid, cfg);
-    return;
+  if (cfg.agg === 'daily' && VARIABLES[cfg.variable].dailySource === 'acis') {
+    if (store.acis.status === 'idle') {
+      loadACIS().then(() => { if (store && store.acis.status === 'fail') ensureData(); });
+    }
+    if (store.acis.status !== 'fail') { onLoadProgress(true); return; }
   }
-  const streaks = extractStreaks(grid);
-  const stats = computeStats(grid, streaks, cfg);
-  lastStreaks=streaks; lastStats=stats;
-  renderHeadline(grid, streaks, stats, cfg);
-  renderStrip(grid, streaks, stats, cfg);
-  renderRanked(grid, streaks, stats, cfg);
+  const g = VARIABLES[cfg.variable].group;
+  const gs = groupState(g);
+  if (gs.status === 'idle') loadGroup(g);
+  onLoadProgress(true);
+}
+function selectStation(id, force) {
+  const st = STATIONS[id];
+  if (!st) return;
+  if (!force && store && store.st.id === id) return;
+  app.station = id;
+  store = newStore(st);
+  last = { cfg: null, S: null, streaks: null, stats: null };
+  forecastSeq++;
+  $('jeopardy-line').textContent = '';
+  $('stn-name').textContent = st.name;
+  $('title-station').textContent = `${st.name}, ${st.st}`;
+  syncURL();
+  ensureData();
+}
+function onConfigChange() {
+  forecastSeq++;
+  $('jeopardy-line').textContent = '';
+  syncURL();
+  syncControls();
+  ensureData();
+  if (!historyLoading()) maybeCheckForecast();
 }
 
 // ================================================================
-// CONTROLS WIRING
+// CONTROLS
 // ================================================================
-function rebuildPresetRow(){
-  const list = PRESETS[state.variable];
-  const groups = {};
-  list.forEach(p=>{(groups[p.group]=groups[p.group]||[]).push(p);});
-  const row=document.getElementById('preset-row');
-  row.innerHTML = Object.keys(groups).map(g=>{
-    return `<div class="preset-group"><span class="preset-group-label">${g}</span>${groups[g].map(p=>
-      `<button class="cc-btn cc-btn-sm${p.id===state.activePreset?' is-active':''}" data-preset="${p.id}">${p.label}</button>`
-    ).join('')}</div>`;
-  }).join('');
-  row.querySelectorAll('button[data-preset]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const p = PRESETS[state.variable].find(x=>x.id===btn.dataset.preset);
-      if(!p) return;
-      state.metric=p.metric; state.op=p.op; state.value=p.value; state.activePreset=p.id;
-      row.querySelectorAll('button[data-preset]').forEach(b=>b.classList.toggle('is-active', b.dataset.preset===p.id));
-      syncCustomControls();
-      recomputeAndRender();
-    });
-  });
+function buildFamilyBar() {
+  $('seg-family').innerHTML = FAMILIES.map(f => `<button class="cc-segmented-btn" data-fam="${f.id}">${f.label}</button>`).join('');
+  $('seg-family').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    if (app.family === b.dataset.fam) return;
+    app.family = b.dataset.fam;
+    // Switching family picks that family's first preset.
+    const first = PRESETS.find(p => p.fam === app.family);
+    app.custom = null; app.presetId = first.id;
+    onConfigChange();
+  }));
 }
-
-function rebuildSeasonRow(){
-  const row=document.getElementById('season-preset-row');
-  row.innerHTML = SEASON_PRESETS.map(p=>
-    `<button class="cc-btn cc-btn-sm${p.id===state.seasonId?' is-active':''}" data-season="${p.id}">${p.label}</button>`
-  ).join('');
-  row.querySelectorAll('button[data-season]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const p = SEASON_PRESETS.find(x=>x.id===btn.dataset.season);
-      if(!p) return;
-      state.months = new Set(p.months);
-      state.seasonId = p.id;
-      state.seasonLabel = p.label;
-      row.querySelectorAll('button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===p.id));
-      syncMonthGrid();
-      recomputeAndRender();
-    });
-  });
+function buildPresetRow() {
+  const row = $('preset-row');
+  const groups = [];
+  for (const p of PRESETS.filter(p => p.fam === app.family)) {
+    let g = groups.find(x => x.name === p.grp);
+    if (!g) { g = { name: p.grp, items: [] }; groups.push(g); }
+    g.items.push(p);
+  }
+  row.innerHTML = groups.map(g => `<div class="preset-group"><span class="preset-group-label">${g.name}</span>` +
+    g.items.map(p => `<button class="cc-btn cc-btn-sm preset-btn${!app.custom && p.id === app.presetId ? ' is-active' : ''}" data-preset="${p.id}">${p.label}</button>`).join('') + '</div>').join('');
+  row.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => {
+    app.custom = null; app.presetId = b.dataset.preset;
+    $('custom-panel').classList.remove('open');
+    onConfigChange();
+  }));
 }
-
-function toggleMonthGrid(){ document.getElementById('month-grid').classList.toggle('open'); }
-
-function customSeasonLabel(){
-  const arr=[...state.months].sort((a,b)=>a-b);
-  if(arr.length===12) return 'All Months';
-  if(arr.length===0) return 'No Months Selected';
-  return arr.map(m=>MONTH_NAMES[m-1]).join('/');
+function buildSeasonRow() {
+  $('season-preset-row').innerHTML = SEASON_PRESETS.map(s => `<button class="cc-btn cc-btn-sm preset-btn" data-season="${s.id}">${s.label}</button>`).join('');
+  $('season-preset-row').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const s = SEASON_PRESETS.find(x => x.id === b.dataset.season);
+    app.months = new Set(s.months); app.seasonId = s.id; app.seasonLabel = s.label;
+    onConfigChange();
+  }));
+  $('month-grid').innerHTML = MONTH_NAMES.map((n, i) => `<button class="cc-btn cc-btn-sm month-btn" data-m="${i + 1}">${n}</button>`).join('');
+  $('month-grid').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const m = +b.dataset.m;
+    const next = new Set(app.months);
+    if (next.has(m)) { if (next.size === 1) return; next.delete(m); } else next.add(m);
+    app.months = next;
+    const match = SEASON_PRESETS.find(s => s.months.length === next.size && s.months.every(x => next.has(x)));
+    app.seasonId = match ? match.id : 'custom';
+    app.seasonLabel = match ? match.label : customSeasonLabel(next);
+    onConfigChange();
+  }));
 }
-
-function syncMonthGrid(){
-  const grid=document.getElementById('month-grid');
-  grid.innerHTML = MONTH_NAMES.map((name,i)=>{
-    const m=i+1;
-    const on = state.months.has(m);
-    return `<button class="cc-btn cc-btn-sm month-btn${on?' is-active':''}" data-month="${m}">${name}</button>`;
-  }).join('');
-  grid.querySelectorAll('button[data-month]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const m=parseInt(btn.dataset.month,10);
-      if(state.months.has(m)){ if(state.months.size>1) state.months.delete(m); }
-      else state.months.add(m);
-      btn.classList.toggle('is-active', state.months.has(m));
-      state.seasonId='custom'; state.seasonLabel=customSeasonLabel();
-      document.querySelectorAll('#season-preset-row button[data-season]').forEach(b=>b.classList.toggle('is-active', b.dataset.season===state.seasonId));
-      recomputeAndRender();
-    });
-  });
+function customSeasonLabel(set) {
+  const ms = [...set].sort((a, b) => a - b);
+  return ms.map(m => MONTH_NAMES[m - 1]).join(', ');
 }
-
-function syncCustomControls(){
-  const meta = VARIABLE_META[state.variable];
-  document.getElementById('metric-select').value = state.metric;
-  document.querySelectorAll('#seg-op .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active', b.dataset.op===state.op));
-  document.getElementById('custom-value-label').innerHTML = meta.valueLabel;
-  const numInput=document.getElementById('custom-num'), rangeInput=document.getElementById('custom-range');
-  numInput.min=meta.rangeMin; numInput.max=meta.rangeMax; numInput.step=meta.step;
-  rangeInput.min=meta.rangeMin; rangeInput.max=meta.rangeMax; rangeInput.step=meta.step;
-  numInput.value = state.value;
-  rangeInput.value = state.value;
-  document.getElementById('metric-field').style.display = state.aggregation==='daily' ? '' : 'none';
-}
-
-function toggleCustomPanel(){
-  document.getElementById('custom-panel').classList.toggle('open');
-}
-
-function applyCustom(){
-  const num = parseFloat(document.getElementById('custom-num').value);
-  if(isNaN(num)) return;
-  state.value = num;
-  state.metric = document.getElementById('metric-select').value;
-  state.op = document.querySelector('#seg-op .cc-segmented-btn.is-active').dataset.op;
-  state.activePreset = null;
-  document.querySelectorAll('#preset-row button[data-preset]').forEach(b=>b.classList.remove('is-active'));
-  recomputeAndRender();
-}
-
-function initControls(){
-  document.getElementById('seg-mode').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      if(state.mode===btn.dataset.mode) return;
-      state.mode = btn.dataset.mode;
-      document.getElementById('seg-mode').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
-      document.getElementById('streaks-view').style.display = state.mode==='streaks' ? '' : 'none';
-      document.getElementById('totals-view').style.display = state.mode==='totals' ? '' : 'none';
-      recomputeAndRender();
-    });
-  });
-  document.getElementById('seg-totals-group').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      state.totalsGroupBy = btn.dataset.group;
-      document.getElementById('seg-totals-group').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
-      if(lastGrid) renderTotals(lastGrid, activeCfg());
-    });
-  });
-  document.getElementById('seg-variable').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      state.variable = btn.dataset.variable;
-      state.aggregation = DEFAULT_AGG[state.variable];
-      const firstPreset = PRESETS[state.variable][0];
-      state.metric=firstPreset.metric; state.op=firstPreset.op; state.value=firstPreset.value; state.activePreset=firstPreset.id;
-      document.getElementById('seg-variable').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
-      document.getElementById('seg-agg').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b.dataset.agg===state.aggregation));
-      rebuildPresetRow(); syncCustomControls(); recomputeAndRender();
-    });
-  });
-  document.getElementById('seg-agg').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      state.aggregation = btn.dataset.agg;
-      document.getElementById('seg-agg').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
-      syncCustomControls(); recomputeAndRender();
-    });
-  });
-  document.getElementById('seg-op').querySelectorAll('button').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.getElementById('seg-op').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active', b===btn));
-    });
-  });
-  const numInput=document.getElementById('custom-num'), rangeInput=document.getElementById('custom-range');
-  numInput.addEventListener('input', ()=>{ rangeInput.value = numInput.value; });
-  rangeInput.addEventListener('input', ()=>{ numInput.value = rangeInput.value; });
-  window.addEventListener('resize', ()=>{ if(state.mode==='streaks' && lastGrid && lastStats) renderStrip(lastGrid, lastStreaks, lastStats, activeCfg()); });
-}
-
-// ================================================================
-// PNG EXPORT
-// ================================================================
-function exportPNG(){
-  if(!lastGrid){alert('Load a station first.');return;}
+function syncControls() {
   const cfg = activeCfg();
-  const scale=2;
-  const ow=1200*scale, headerH=140*scale, footerH=40*scale;
-  const rows = lastStats.endYear - lastStats.startYear + 1;
-  const stripH = (MONTH_HDR + rows*(ROW_H+ROW_GAP))*scale;
-  const oh = headerH + stripH + footerH;
-  const off=document.createElement('canvas'); off.width=ow; off.height=oh;
-  const oc=off.getContext('2d');
-  oc.fillStyle='#1E2320'; oc.fillRect(0,0,ow,oh);
-  oc.fillStyle='#262B27'; oc.fillRect(0,0,ow,headerH);
+  $('seg-family').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.fam === app.family));
+  buildPresetRow();
+  $('season-preset-row').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.season === app.seasonId));
+  $('month-grid').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', app.months.has(+b.dataset.m)));
+  $('seg-record').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.rec === app.record));
+  $('view-tabs').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.view === app.view));
+  $('custom-toggle-btn').classList.toggle('is-active', !!app.custom);
+  renderSummary(cfg);
+  renderProvenance(cfg);
+}
 
-  const PAD=28*scale;
-  oc.fillStyle='#948F82'; oc.font=(11*scale)+'px "Courier Prime", monospace'; oc.textAlign='left';
-  oc.fillText('HOURLY DATA · STREAK TRACKER', PAD, 26*scale);
-  const[icao,name]=curStation;
-  oc.fillStyle='#E8E4D9'; oc.font='bold '+(22*scale)+'px "Zilla Slab", serif';
-  oc.fillText(`${name}`, PAD, 56*scale);
-  oc.fillStyle='#E0824A'; oc.font='bold '+(15*scale)+'px "Courier Prime", monospace';
-  const plainThresh = thresholdDescription(cfg).replace(/&ge;/g,'≥').replace(/&le;/g,'≤').replace(/&deg;/g,'°') + (state.seasonLabel!=='All Months' ? ` · ${state.seasonLabel}` : '');
-  oc.fillText(plainThresh, PAD, 80*scale);
+// Custom panel: a draft edited in place, applied with Apply.
+let draft = null;
+function openCustom() {
+  const cfg = activeCfg();
+  draft = { variable: cfg.variable, agg: cfg.agg, metric: cfg.metric, op: cfg.op, value: cfg.value };
+  syncCustomPanel();
+  $('custom-panel').classList.add('open');
+}
+function syncCustomPanel() {
+  const V = VARIABLES[draft.variable];
+  $('custom-variable').value = draft.variable;
+  $('seg-agg').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.agg === draft.agg));
+  $('seg-op').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.op === draft.op));
+  $('metric-field').style.display = draft.agg === 'daily' ? '' : 'none';
+  $('metric-select').value = draft.metric;
+  $('custom-value-label').textContent = `Value (${V.unit})`;
+  for (const id of ['custom-num', 'custom-range']) { const e = $(id); e.min = V.rangeMin; e.max = V.rangeMax; e.step = V.step; e.value = draft.value; }
+}
+function initCustomPanel() {
+  $('custom-toggle-btn').addEventListener('click', () => {
+    if ($('custom-panel').classList.contains('open')) $('custom-panel').classList.remove('open'); else openCustom();
+  });
+  $('custom-variable').addEventListener('change', e => {
+    draft.variable = e.target.value;
+    const V = VARIABLES[draft.variable];
+    draft.value = Math.min(V.rangeMax, Math.max(V.rangeMin, draft.value));
+    syncCustomPanel();
+  });
+  $('seg-agg').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { draft.agg = b.dataset.agg; syncCustomPanel(); }));
+  $('seg-op').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { draft.op = b.dataset.op; syncCustomPanel(); }));
+  $('metric-select').addEventListener('change', e => { draft.metric = e.target.value; });
+  $('custom-num').addEventListener('input', e => { const v = parseFloat(e.target.value); if (!isNaN(v)) { draft.value = v; $('custom-range').value = v; } });
+  $('custom-range').addEventListener('input', e => { draft.value = parseFloat(e.target.value); $('custom-num').value = draft.value; });
+  $('custom-apply').addEventListener('click', applyCustom);
+  $('custom-num').addEventListener('keydown', e => { if (e.key === 'Enter') applyCustom(); });
+}
+function applyCustom() {
+  const V = VARIABLES[draft.variable];
+  const v = Math.min(V.rangeMax, Math.max(V.rangeMin, parseFloat(draft.value)));
+  if (isNaN(v)) return;
+  const d = { variable: draft.variable, agg: draft.agg, metric: draft.agg === 'daily' ? draft.metric : 'max', op: draft.op, value: v };
+  // If the draft matches a preset exactly, select the preset instead.
+  const match = PRESETS.find(p => p.variable === d.variable && p.agg === d.agg && p.op === d.op && p.value === d.value && (d.agg === 'hourly' || p.metric === d.metric));
+  if (match) { app.custom = null; app.presetId = match.id; }
+  else app.custom = d;
+  app.family = FAMILY_OF_VARIABLE[d.variable];
+  $('custom-panel').classList.remove('open');
+  onConfigChange();
+}
 
-  const stat = lastStats.currentStreak
-    ? `CURRENT STREAK: ${formatLength(lastStats.currentStreak.length,cfg)} — active since ${fmtDateLong(lastGrid[lastStats.currentStreak.startIdx].date)}`
-    : (lastStats.lastEndedStreak ? `NOT CURRENTLY ACTIVE — last streak ${formatLength(lastStats.lastEndedStreak.length,cfg)}` : 'NO QUALIFYING STREAKS ON RECORD');
-  oc.fillStyle='#E8E4D9'; oc.font=(14*scale)+'px "Courier Prime", monospace';
-  oc.fillText(stat, PAD, 104*scale);
+function initControls() {
+  buildFamilyBar();
+  buildSeasonRow();
+  initCustomPanel();
+  $('season-custom-toggle-btn').addEventListener('click', () => $('month-grid').classList.toggle('open'));
+  $('seg-record').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { app.record = b.dataset.rec; onConfigChange(); }));
+  $('view-tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    app.view = b.dataset.view;
+    $('streaks-view').style.display = app.view === 'streaks' ? '' : 'none';
+    $('totals-view').style.display = app.view === 'totals' ? '' : 'none';
+    syncControls(); syncURL();
+    scheduleRender(true);
+  }));
+  $('seg-totals-group').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    app.totalsGroupBy = b.dataset.group;
+    $('seg-totals-group').querySelectorAll('button').forEach(x => x.classList.toggle('is-active', x === b));
+    renderTotals();
+  }));
+  $('refresh-btn').addEventListener('click', () => { if (store) selectStation(store.st.id, true); });
+  $('retry-btn').addEventListener('click', () => {
+    if (!store) return;
+    const g = activeGroupNeeded();
+    if (!g) return;
+    const gs = groupState(g);
+    gs.failed.clear(); gs.status = 'idle';
+    ensureData();
+  });
+  $('png-btn').addEventListener('click', exportPNG);
+  let rz = null;
+  window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (app.view === 'streaks' && last.S) renderCalendar(); }, 150); });
+}
 
-  if(lastStats.recordStreak){
-    oc.fillStyle='#A6A499'; oc.font=(12*scale)+'px "Public Sans", sans-serif';
-    oc.fillText(`Record: ${formatLength(lastStats.recordStreak.length,cfg)} · Total streaks: ${lastStats.totalStreaks} · Period: ${lastStats.startYear}–${lastStats.endYear}`, PAD, 124*scale);
+// ================================================================
+// STATION FINDER (search + Near Me, shared roster)
+// ================================================================
+let ddIdx = -1;
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8, r = d => d * Math.PI / 180;
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lon2 - lon1) / 2) ** 2;
+  return R * 2 * Math.asin(Math.sqrt(a));
+}
+function findNearestStation() {
+  const btn = $('locate-btn');
+  if (!navigator.geolocation) { alert('Geolocation is not supported by this browser.'); return; }
+  const orig = btn.innerHTML; btn.classList.add('loading'); btn.innerHTML = '&#8987; Locating…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    btn.classList.remove('loading'); btn.innerHTML = orig;
+    const { latitude: lat, longitude: lon } = pos.coords;
+    const ranked = Object.values(STATIONS).map(s => ({ s, dist: haversineMiles(lat, lon, s.lat, s.lon) })).sort((a, b) => a.dist - b.dist).slice(0, 8);
+    $('si').value = '';
+    renderDD(ranked.map(r => r.s), ranked.map(r => r.dist));
+  }, err => {
+    btn.classList.remove('loading'); btn.innerHTML = orig;
+    alert('Could not get your location: ' + (err && err.message ? err.message : 'permission denied or unavailable.'));
+  }, { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 });
+}
+function initSearch() {
+  const inp = $('si'), dd = $('dd'), all = Object.values(STATIONS);
+  inp.addEventListener('input', () => {
+    ddIdx = -1; const q = inp.value.trim().toLowerCase();
+    if (!q) { dd.classList.remove('open'); return; }
+    renderDD(all.filter(s => s.id.toLowerCase().startsWith(q) || s.id.slice(1).toLowerCase().startsWith(q) || s.name.toLowerCase().includes(q) || s.st.toLowerCase() === q).slice(0, 18));
+  });
+  inp.addEventListener('keydown', e => {
+    const items = dd.querySelectorAll('.d-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); ddIdx = Math.min(ddIdx + 1, items.length - 1); highlightDD(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); ddIdx = Math.max(ddIdx - 1, 0); highlightDD(items); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (ddIdx >= 0 && items[ddIdx]) items[ddIdx].click(); else if (items[0]) items[0].click(); }
+    else if (e.key === 'Escape') dd.classList.remove('open');
+  });
+  document.addEventListener('click', e => { if (!$('sw').contains(e.target)) dd.classList.remove('open'); });
+  $('locate-btn').addEventListener('click', findNearestStation);
+}
+function highlightDD(items) { items.forEach((el, i) => { el.classList.toggle('hi', i === ddIdx); if (i === ddIdx) el.scrollIntoView({ block: 'nearest' }); }); }
+function renderDD(matches, dists) {
+  const dd = $('dd');
+  if (!matches.length) { dd.classList.remove('open'); return; }
+  dd.innerHTML = matches.map((s, i) => `<div class="d-item"><span class="d-id">${s.id}</span><span class="d-name">${s.name}</span>` +
+    (dists ? `<span class="d-dist">${dists[i].toFixed(0)}mi</span>` : '') + `<span class="d-st">${s.st}</span></div>`).join('');
+  dd.querySelectorAll('.d-item').forEach((el, i) => el.addEventListener('click', () => { $('si').value = ''; dd.classList.remove('open'); selectStation(matches[i].id); }));
+  dd.classList.add('open');
+}
+
+// ================================================================
+// URL STATE  ?st=KISP&streak=d-muggy65&season=jja&rec=1991&view=totals
+// custom streak: c.<variable>.<agg>.<metric>.<op>.<value>; custom months: months=6,7,8
+// ================================================================
+function syncURL() {
+  const p = new URLSearchParams();
+  if (app.station) p.set('st', app.station);
+  if (app.custom) { const c = app.custom; p.set('streak', `c.${c.variable}.${c.agg}.${c.metric}.${c.op}.${c.value}`); }
+  else p.set('streak', app.presetId);
+  if (app.seasonId === 'custom') p.set('months', [...app.months].sort((a, b) => a - b).join(','));
+  else if (app.seasonId !== 'all') p.set('season', app.seasonId);
+  if (app.record !== 'full') p.set('rec', app.record);
+  if (app.view !== 'streaks') p.set('view', app.view);
+  try { history.replaceState(null, '', `${location.pathname}?${p.toString()}`); } catch (e) {}
+}
+function readURL() {
+  const p = new URLSearchParams(location.search);
+  const streak = p.get('streak');
+  if (streak && PRESET_BY_ID[streak]) { app.presetId = streak; app.custom = null; }
+  else if (streak && streak.startsWith('c.')) {
+    const [, variable, agg, metric, op, value] = streak.split('.').length > 6
+      ? [null, ...streak.slice(2).split('.').slice(0, 4), streak.slice(2).split('.').slice(4).join('.')]
+      : streak.split('.');
+    if (VARIABLES[variable] && (agg === 'hourly' || agg === 'daily') && ['max', 'min', 'mean'].includes(metric) && (op === 'gte' || op === 'lte') && !isNaN(parseFloat(value)))
+      app.custom = { variable, agg, metric, op, value: parseFloat(value) };
   }
-
-  // Strip
-  const stripCanvasOff=document.createElement('canvas');
-  stripCanvasOff.width=ow; stripCanvasOff.height=stripH;
-  const sctx=stripCanvasOff.getContext('2d');
-  sctx.setTransform(scale,0,0,scale,0,0);
-  drawStrip(sctx, ow/scale, stripH/scale, lastGrid, lastStreaks, lastStats, cfg, {bg:'#262B27'});
-  oc.drawImage(stripCanvasOff, 0, headerH);
-
-  oc.fillStyle='#948F82'; oc.font=(11*scale)+'px "Courier Prime", monospace'; oc.textAlign='left';
-  oc.fillText(`Data: IEM ASOS · ${icao} · contextclimate.io`, PAD, oh-14*scale);
-  oc.textAlign='right';
-  oc.fillText('contextclimate.io', ow-PAD, oh-14*scale);
-  oc.fillStyle=cfg.op==='gte'?'#E0824A':'#5B9BD8';
-  oc.fillRect(0, oh-3*scale, ow, 3*scale);
-
-  const link=document.createElement('a');
-  link.download=`streak-tracker-${icao}-${state.activePreset||'custom'}-${cfg.aggregation}.png`;
-  link.href=off.toDataURL('image/png');
-  link.click();
+  const cfg = app.custom || PRESET_BY_ID[app.presetId];
+  app.family = FAMILY_OF_VARIABLE[cfg.variable];
+  const season = p.get('season'), months = p.get('months');
+  const sp = SEASON_PRESETS.find(s => s.id === season);
+  if (sp) { app.months = new Set(sp.months); app.seasonId = sp.id; app.seasonLabel = sp.label; }
+  else if (months) {
+    const ms = months.split(',').map(Number).filter(m => m >= 1 && m <= 12);
+    if (ms.length) { app.months = new Set(ms); app.seasonId = 'custom'; app.seasonLabel = customSeasonLabel(app.months); }
+  }
+  const rec = p.get('rec'); if (rec === '1991' || rec === '30') app.record = rec;
+  const view = p.get('view'); if (view === 'totals') app.view = 'totals';
+  const st = (p.get('st') || '').toUpperCase();
+  return STATIONS[st] ? st : (STATIONS.KISP ? 'KISP' : Object.keys(STATIONS)[0]);
 }
 
 // ================================================================
-// LOADING OVERLAY
+// PNG EXPORT — drawn directly at a fixed scale, independent of the screen's DPR
 // ================================================================
-function showLoading(msg){
-  document.getElementById('loading-text').textContent=msg;
-  document.getElementById('loading-overlay').classList.add('show');
+function exportPNG() {
+  const { cfg, S, streaks, stats } = last;
+  if (!S) return;
+  const st = store.st;
+  const W = 1200, PAD = 28, headerH = 150, legendH = 34, footerH = 46;
+  const rows = stats.syLast - stats.syFirst + 1;
+  const calH = CAL.HDR + rows * (CAL.ROW_H + CAL.ROW_GAP);
+  const H = headerH + calH + legendH + footerH + 16;
+  const off = document.createElement('canvas');
+  off.width = W * EXPORT_SCALE; off.height = H * EXPORT_SCALE;
+  const c = off.getContext('2d');
+  c.scale(EXPORT_SCALE, EXPORT_SCALE);
+  c.fillStyle = '#1E2320'; c.fillRect(0, 0, W, H);
+  c.fillStyle = '#262B27'; c.fillRect(0, 0, W, headerH);
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  c.fillStyle = COLORS.muted; c.font = '12px "Courier Prime", monospace';
+  c.fillText('HOURLY DATA · STREAK TRACKER', PAD, 28);
+  c.fillStyle = '#E8E4D9'; c.font = 'bold 24px "Zilla Slab", serif';
+  c.fillText(`${st.name}, ${st.st}`, PAD, 60);
+  c.fillStyle = baseColor(cfg); c.font = 'bold 16px "Courier Prime", monospace';
+  c.fillText(summaryText(cfg), PAD, 86);
+  const { s, l } = streaks;
+  let line;
+  if (stats.current >= 0) line = `Current streak: ${formatLength(l[stats.current], cfg)} since ${fmtDay(unitStartDay(S, s[stats.current]))} · #${stats.rank} of ${stats.total}`;
+  else if (stats.lastEnded >= 0) line = `Not active · last streak ${streakDateText(S, s[stats.lastEnded], l[stats.lastEnded])} (${formatLength(l[stats.lastEnded], cfg)})`;
+  else line = 'No qualifying streaks on record';
+  c.fillStyle = '#E8E4D9'; c.font = '15px "Courier Prime", monospace';
+  c.fillText(line, PAD, 112);
+  c.fillStyle = COLORS.label; c.font = '14px "Public Sans", sans-serif';
+  const rp = returnPeriodText(stats);
+  c.fillText(`Record ${stats.record ? formatLength(stats.record, cfg) : '–'} · ${stats.total} streaks · ${S.dayYear[0]}–${S.dayYear[S.nDays - 1]}${rp !== '–' ? ` · Return period ${rp}` : ''}`, PAD, 134);
+
+  c.save(); c.translate(0, headerH + 8);
+  drawCalendar(c, W, { export: true });
+  c.restore();
+
+  // Legend
+  let lx = PAD; const ly = headerH + 8 + calH + 12;
+  c.font = '12px "Courier Prime", monospace'; c.textBaseline = 'middle';
+  const items = [[baseColor(cfg), S.upd === 24 ? 'Share of hours qualifying' : 'Qualifying day'], [COLORS.record, 'Record'], [COLORS.current, 'Current'], [COLORS.nonQual, 'Not qualifying'], [COLORS.missing, 'No data']];
+  for (const [col, txt] of items) {
+    c.fillStyle = col; c.fillRect(lx, ly - 6, 12, 12);
+    if (col === COLORS.missing) { c.strokeStyle = 'rgba(232,228,217,.25)'; c.strokeRect(lx + 0.5, ly - 5.5, 11, 11); }
+    c.fillStyle = COLORS.label; c.fillText(txt, lx + 18, ly);
+    lx += 18 + c.measureText(txt).width + 22;
+  }
+  c.textBaseline = 'alphabetic';
+  c.fillStyle = COLORS.muted; c.font = '12px "Courier Prime", monospace';
+  const srcTxt = S.source === 'acis' ? 'NOAA ACIS' : 'Iowa Environmental Mesonet ASOS';
+  c.fillText(`Data: ${srcTxt} · ${st.id} · local standard time`, PAD, H - 18);
+  c.textAlign = 'right'; c.fillText('contextclimate.io', W - PAD, H - 18);
+  c.fillStyle = baseColor(cfg); c.fillRect(0, H - 3, W, 3);
+
+  const a = document.createElement('a');
+  a.download = `streak-tracker-${st.id}-${cfg.presetId || 'custom'}.png`;
+  a.href = off.toDataURL('image/png');
+  a.click();
 }
-function hideLoading(){ document.getElementById('loading-overlay').classList.remove('show'); }
 
 // ================================================================
 // INIT
 // ================================================================
-function init(){
+function init() {
   initSearch();
   initControls();
-  syncCustomControls();
-  rebuildSeasonRow();
-  syncMonthGrid();
-  const def = STATIONS.find(s=>s[0]==='KISP') || STATIONS[0];
-  loadStation(def);
+  const id = readURL();
+  $('streaks-view').style.display = app.view === 'streaks' ? '' : 'none';
+  $('totals-view').style.display = app.view === 'totals' ? '' : 'none';
+  syncControls();
+  selectStation(id);
 }
 init();
+
 </script>
 </body>
 </html>
