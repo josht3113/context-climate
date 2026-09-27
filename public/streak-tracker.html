@@ -370,9 +370,9 @@ const VARIABLES = {
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
               fmt: v => `${Math.round(v)} mph` },
   // Gusts are events: an hour with a report but no gust is 0, not missing.
-  // Daily peak only, and only "at or above".
+  // Hourly = peak gust in the clock hour; daily = the day's peak. "At or above" only.
   gust:     { label:'Wind gust', unit:' mph', group:'wind', out:'gust', dailySource:'iem', rangeMin:15, rangeMax:100, step:1,
-              dailyOnly:true, gteOnly:true,
+              peakOnly:true, gteOnly:true,
               metricLabel:{ max:'daily peak', min:'daily peak', mean:'daily peak' },
               fmt: v => v > 0 ? `${Math.round(v)} mph` : 'no gusts' }
 };
@@ -412,14 +412,17 @@ const PRESETS = [
   { id:'c-clear',       fam:'sky',   grp:'Clear',  label:'Clear hours 0/8',         variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:0 },
   { id:'c-fewclouds',   fam:'sky',   grp:'Clear',  label:'Mostly clear hours ≤3/8', variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:3 },
   { id:'c-clearday',    fam:'sky',   grp:'Clear',  label:'Clear days (≤2/8 all day)', variable:'cloud', agg:'daily', metric:'max', op:'lte', value:2 },
-  { id:'w-calm',        fam:'wind',  grp:'Sustained', label:'Calm hours ≤3 mph',     variable:'wind', agg:'hourly', metric:'max', op:'lte', value:3 },
   { id:'w-breezy',      fam:'wind',  grp:'Sustained', label:'Breezy hours ≥15 mph',  variable:'wind', agg:'hourly', metric:'max', op:'gte', value:15 },
   { id:'w-windy',       fam:'wind',  grp:'Sustained', label:'Windy hours ≥25 mph',   variable:'wind', agg:'hourly', metric:'max', op:'gte', value:25 },
+  { id:'w-calm',        fam:'wind',  grp:'Sustained', label:'Calm hours ≤3 mph',     variable:'wind', agg:'hourly', metric:'max', op:'lte', value:3 },
   { id:'w-breezyday',   fam:'wind',  grp:'Sustained', label:'Breezy days (mean ≥15 mph)', variable:'wind', agg:'daily', metric:'mean', op:'gte', value:15 },
   { id:'w-lightday',    fam:'wind',  grp:'Sustained', label:'Light-wind days (mean ≤5 mph)', variable:'wind', agg:'daily', metric:'mean', op:'lte', value:5 },
-  { id:'g-30',          fam:'wind',  grp:'Gusts',  label:'Gusty days ≥30 mph',      variable:'gust', agg:'daily', metric:'max', op:'gte', value:30 },
-  { id:'g-40',          fam:'wind',  grp:'Gusts',  label:'Strong-gust days ≥40 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:40 },
-  { id:'g-50',          fam:'wind',  grp:'Gusts',  label:'Damaging-gust days ≥50 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:50 }
+  { id:'g-h30',         fam:'wind',  grp:'Gust hours', label:'Gusty hours ≥30 mph',   variable:'gust', agg:'hourly', metric:'max', op:'gte', value:30 },
+  { id:'g-h40',         fam:'wind',  grp:'Gust hours', label:'Strong-gust hours ≥40 mph', variable:'gust', agg:'hourly', metric:'max', op:'gte', value:40 },
+  { id:'g-h50',         fam:'wind',  grp:'Gust hours', label:'Damaging-gust hours ≥50 mph', variable:'gust', agg:'hourly', metric:'max', op:'gte', value:50 },
+  { id:'g-30',          fam:'wind',  grp:'Gust days', label:'Gusty days ≥30 mph',      variable:'gust', agg:'daily', metric:'max', op:'gte', value:30 },
+  { id:'g-40',          fam:'wind',  grp:'Gust days', label:'Strong-gust days ≥40 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:40 },
+  { id:'g-50',          fam:'wind',  grp:'Gust days', label:'Damaging-gust days ≥50 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:50 }
 ];
 const PRESET_BY_ID = Object.fromEntries(PRESETS.map(p => [p.id, p]));
 const FAMILY_OF_VARIABLE = { temp:'temp', dewpoint:'moist', cloud:'sky', wind:'wind', gust:'wind' };
@@ -971,7 +974,7 @@ function defaultYearStart(variable, op) { return ((variable === 'temp' || variab
 function activeCfg() {
   const base = app.custom || PRESET_BY_ID[app.presetId] || PRESETS[0];
   const cfg = { variable: base.variable, agg: base.agg, metric: base.metric, op: base.op, value: base.value };
-  if (VARIABLES[cfg.variable].dailyOnly) { cfg.agg = 'daily'; cfg.metric = 'max'; }
+  if (VARIABLES[cfg.variable].peakOnly) cfg.metric = 'max';
   if (VARIABLES[cfg.variable].gteOnly) cfg.op = 'gte';
   cfg.ys = (!app.custom && base.ys) ? base.ys : defaultYearStart(cfg.variable, cfg.op);
   // A season that runs across New Year's (e.g. Dec–Feb) needs Jul–Jun years to stay in one row.
@@ -1338,7 +1341,7 @@ function renderProvenance(cfg) {
   }
   if (cfg.variable === 'cloud') bits.push('Cloud cover: highest reported sky layer in oktas (ASOS ceilometer, to 12,000 ft).');
   if (cfg.variable === 'wind') bits.push('Wind: 2-minute sustained speed, knots converted to mph.');
-  if (cfg.variable === 'gust') bits.push('Gusts: highest gust or METAR peak wind (PK WND) reported during the day; a day with wind reports but no gust counts as zero.');
+  if (cfg.variable === 'gust') bits.push(`Gusts: highest gust or METAR peak wind (PK WND) reported in each clock hour${cfg.agg === 'daily' ? ', peak of the day' : ''}; an hour with wind reports but no gust counts as zero.`);
   bits.push('Days in local standard time.');
   if (cfg.ys !== 1) bits.push('Years run Jul–Jun.');
   bits.push('Forecast: NWS.');
@@ -1456,7 +1459,7 @@ async function maybeCheckForecast() {
   if (!S || !stats || stats.current < 0 || !isFresh(S) || !store) { el.textContent = ''; return; }
   el.textContent = 'Checking NWS forecast…';
   try {
-    const periods = await fetchForecast(store.st, cfg.agg === 'hourly');
+    const periods = await fetchForecast(store.st, cfg.agg === 'hourly' && cfg.variable !== 'gust');
     if (seq !== forecastSeq) return;
     const nums = str => (String(str || '').match(/\d+/g) || []).map(Number);
     const pv = p => {
@@ -1474,7 +1477,8 @@ async function maybeCheckForecast() {
       return null;
     };
     let use, when;
-    if (cfg.agg === 'hourly') { use = periods.slice(0, 6); when = 'the next 6 hours'; }
+    if (cfg.variable === 'gust' && cfg.agg === 'hourly') { use = periods.slice(0, 1); when = periods[0] ? periods[0].name.toLowerCase() : ''; }
+    else if (cfg.agg === 'hourly') { use = periods.slice(0, 6); when = 'the next 6 hours'; }
     else {
       const day = periods.find(p => p.isDaytime), night = periods.find(p => !p.isDaytime);
       if (cfg.variable === 'gust') { use = periods.slice(0, 2); when = periods.slice(0, 2).map(p => p.name.toLowerCase()).join(' and '); }
@@ -1895,10 +1899,9 @@ function syncCustomPanel() {
   $('metric-field').style.display = draft.agg === 'daily' ? '' : 'none';
   $('metric-select').value = draft.metric;
   $('custom-value-label').textContent = `Value (${V.unit.trim()})`;
-  // Gusts: daily peak, at/above only.
-  $('agg-field').style.display = V.dailyOnly ? 'none' : '';
+  // Gusts: peak only (hourly or daily), at/above only.
   $('op-field').style.display = V.gteOnly ? 'none' : '';
-  if (V.dailyOnly) $('metric-field').style.display = 'none';
+  if (V.peakOnly) $('metric-field').style.display = 'none';
   for (const id of ['custom-num', 'custom-range']) { const e = $(id); e.min = V.rangeMin; e.max = V.rangeMax; e.step = V.step; e.value = draft.value; }
 }
 function initCustomPanel() {
@@ -1923,7 +1926,7 @@ function applyCustom() {
   const V = VARIABLES[draft.variable];
   const v = Math.min(V.rangeMax, Math.max(V.rangeMin, parseFloat(draft.value)));
   if (isNaN(v)) return;
-  const d = { variable: draft.variable, agg: V.dailyOnly ? 'daily' : draft.agg, metric: V.dailyOnly ? 'max' : (draft.agg === 'daily' ? draft.metric : 'max'), op: V.gteOnly ? 'gte' : draft.op, value: v };
+  const d = { variable: draft.variable, agg: draft.agg, metric: (V.peakOnly || draft.agg !== 'daily') ? 'max' : draft.metric, op: V.gteOnly ? 'gte' : draft.op, value: v };
   // If the draft matches a preset exactly, select the preset instead.
   const match = PRESETS.find(p => p.variable === d.variable && p.agg === d.agg && p.op === d.op && p.value === d.value && (d.agg === 'hourly' || p.metric === d.metric));
   if (match) { app.custom = null; app.presetId = match.id; }
