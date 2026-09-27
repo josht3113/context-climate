@@ -158,43 +158,68 @@ def clim_weights(center):
     return [(m0, 1 - t), (m1, t)]
 
 
-def nc_retry(fn, label, tries=4, wait=10):
-    """OPeNDAP calls occasionally fail with transient 'DAP server error's."""
-    import time
-    for k in range(1, tries + 1):
+_PSL_FILES = os.environ.get('GODAS_PSL_FILES') or 'https://psl.noaa.gov/thredds/fileServer/Datasets/godas'
+_DAP = {'ok': True, 'fails': 0}       # after 2 straight OPeNDAP failures, use whole-file downloads
+WORK = '/tmp/godas'
+
+
+def _extract_year(ds):
+    import netCDF4
+    lat = np.asarray(ds['lat'][:], dtype=np.float64)
+    lon = np.asarray(ds['lon'][:], dtype=np.float64)
+    lev = np.asarray(ds['level'][:], dtype=np.float64)
+    band = Band(lat, lon)
+    k = np.where(lev <= MAX_DEPTH)[0]
+    t = ds['time']
+    dates = netCDF4.num2date(t[:], t.units, getattr(t, 'calendar', 'standard'),
+                             only_use_cftime_datetimes=True)
+    raw = ds['pottmp'][:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1, band.cols[0]:band.cols[-1] + 1]
+    a = np.ma.filled(np.ma.asarray(raw).astype(np.float64), np.nan) - 273.15
+    a[(a < -3) | (a > 40)] = np.nan
+    sub = Band(lat[band.rows], lon[band.cols])
+    return [(d.year, d.month) for d in dates], sub.reduce(a), lev[k], band.lons
+
+
+def _read_year_dap(year):
+    import netCDF4
+    ds = netCDF4.Dataset(f'{_PSL}/pottmp.{year}.nc')
+    try:
+        return _extract_year(ds)
+    finally:
+        ds.close()
+
+
+def _read_year_file(year):
+    import netCDF4
+    dest = os.path.join(WORK, f'pottmp.{year}.nc')
+    if not download(f'{_PSL_FILES}/pottmp.{year}.nc', dest, max_time=1800):
+        raise FileNotFoundError(f'pottmp.{year}.nc not on PSL (404)')
+    try:
+        ds = netCDF4.Dataset(dest)
         try:
-            return fn()
-        except Exception as e:  # noqa: BLE001
-            if k == tries:
-                raise
-            print(f'  retry {k}/{tries - 1} {label}: {e}', flush=True)
-            time.sleep(wait * k)
+            return _extract_year(ds)
+        finally:
+            ds.close()
+    finally:
+        os.remove(dest)
 
 
 def read_year(year):
     """PSL monthly file for one year -> ([(y, m)], temps[t, depth, lon] degC, depths, lons).
-    Raises FileNotFoundError-like errors when the year does not exist."""
-    import netCDF4
-    url = f'{_PSL}/pottmp.{year}.nc'
-    ds = nc_retry(lambda: netCDF4.Dataset(url), f'open pottmp.{year}.nc')
-    try:
-        lat = np.asarray(ds['lat'][:], dtype=np.float64)
-        lon = np.asarray(ds['lon'][:], dtype=np.float64)
-        lev = np.asarray(ds['level'][:], dtype=np.float64)
-        band = Band(lat, lon)
-        k = np.where(lev <= MAX_DEPTH)[0]
-        t = ds['time']
-        dates = netCDF4.num2date(t[:], t.units, getattr(t, 'calendar', 'standard'),
-                                 only_use_cftime_datetimes=True)
-        raw = nc_retry(lambda: ds['pottmp'][:, k[0]:k[-1] + 1, band.rows[0]:band.rows[-1] + 1,
-                                            band.cols[0]:band.cols[-1] + 1],
-                       f'read pottmp.{year}.nc')
-        a = np.ma.filled(np.ma.asarray(raw).astype(np.float64), np.nan) - 273.15
-        a[(a < -3) | (a > 40)] = np.nan
-        sub = Band(lat[band.rows], lon[band.cols])
-        return [(d.year, d.month) for d in dates], sub.reduce(a), lev[k], band.lons
-    finally:
-        ds.close()
+    OPeNDAP first (small); PSL's DAP service has returned 'DAP server error' for
+    whole runs, so after two straight failures the rest of the run downloads the
+    yearly files (~100 MB) from the THREDDS file server instead."""
+    if _DAP['ok']:
+        try:
+            out = _read_year_dap(year)
+            _DAP['fails'] = 0
+            return out
+        except Exception as e:  # noqa: BLE001
+            _DAP['fails'] += 1
+            if _DAP['fails'] >= 2:
+                _DAP['ok'] = False
+            print(f'  OPeNDAP failed for {year} ({e}); downloading the file instead', flush=True)
+    return _read_year_file(year)
 
 
 # ── Climatology (computed here from PSL's yearly files, stored in the branch) ──
@@ -415,6 +440,8 @@ def main():
     args = ap.parse_args()
     for d in (args.data_dir, args.work_dir):
         os.makedirs(d, exist_ok=True)
+    global WORK
+    WORK = args.work_dir
     for n in ('FAILURES', 'CHANGED'):
         p = os.path.join(args.work_dir, n)
         if os.path.exists(p):
@@ -445,7 +472,10 @@ def main():
     if clim is not None:
         # ── monthly
         have = {e['m']: e for e in idx['monthly']}
-        years = range(FIRST_YEAR, today.year + 1) if bootstrap else (today.year - 1, today.year)
+        # daily runs: this year's file (revised monthly); last year's only until its
+        # December has certainly been posted
+        years = (range(FIRST_YEAR, today.year + 1) if bootstrap
+                 else ([today.year - 1] if today.month <= 2 else []) + [today.year])
         n = sum(monthly_year(y, clim, depths, lons, args.data_dir, have, years_cache,
                              optional=(y == today.year))
                 for y in years)
