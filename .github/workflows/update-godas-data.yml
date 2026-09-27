@@ -1,0 +1,86 @@
+name: Update GODAS Section Data
+# Equatorial depth-section frames for pacific-sst-anomaly-map.html.
+# Listed in deploy.yml's workflow_run trigger.
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+    - cron: '23 19 * * *'     # CPC usually posts pentads 12-18 UTC
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: 'Rebuild the monthly archive from 1980 and fill the whole pentad window'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: godas-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install netCDF4 numpy eccodes
+          python -c "import eccodes; print('eccodes', eccodes.codes_get_api_version())"
+
+      - name: Pull current data branch
+        run: |
+          mkdir -p godas-out
+          if git ls-remote --exit-code --heads origin godas-data > /dev/null; then
+            git fetch --depth=1 origin godas-data
+            git archive FETCH_HEAD | tar -x -C godas-out
+            echo "Loaded existing godas-data branch"
+          else
+            echo "No godas-data branch yet — first run will bootstrap"
+          fi
+
+      - name: Build frames
+        shell: bash   # -eo pipefail, so a Python crash still fails the step through the filter
+        run: |
+          ARGS="--data-dir godas-out --work-dir /tmp/godas"
+          if [ "${{ inputs.bootstrap }}" = "true" ]; then ARGS="$ARGS --bootstrap"; fi
+          python scripts/build_godas_data.py $ARGS 2>&1 | { grep -v '^ECCODES ERROR.*stepType' || true; }
+
+      - name: Publish to godas-data branch
+        run: |
+          if [ ! -f godas-out/index.json ]; then
+            echo "No index.json produced — nothing to publish"
+            exit 0
+          fi
+          if [ "$(cat /tmp/godas/CHANGED 2>/dev/null)" != "1" ]; then
+            echo "No new frames — skipping publish"
+            exit 0
+          fi
+          cd godas-out
+          git init -q
+          git checkout -q -b godas-data
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "GODAS frames $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" godas-data
+          echo "Published $(ls pentad 2>/dev/null | wc -l) pentad and $(ls monthly 2>/dev/null | wc -l) monthly frames"
+
+      - name: Fail run if any source or frame was rejected
+        if: always()
+        run: |
+          if [ -s /tmp/godas/FAILURES ]; then
+            echo "::error::GODAS pipeline recorded failures:"
+            cat /tmp/godas/FAILURES
+            exit 1
+          fi
