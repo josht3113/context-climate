@@ -36,15 +36,6 @@ const SECTIONS = [
       },
       {
         tags:       ['US Cities', 'Updates Hourly'],
-        title:      'Streak Tracker',
-        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
-        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
-        to:         '/streak-tracker',
-        thumb:      '/StreakTracker_thumbnail.png',
-        slow:       true,
-      },
-      {
-        tags:       ['US Cities', 'Updates Hourly'],
         title:      'Monthly Temperature Heatmap',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies'],
@@ -74,6 +65,15 @@ const SECTIONS = [
         footerTags: ['Hourly Precip', 'Annual Total', 'Live'],
         to:         '/precip-heatmap-annual',
         thumb:      '/precip_heatmap_annual_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Updates Hourly'],
+        title:      'Streak Tracker',
+        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
+        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
+        to:         '/streak-tracker',
+        thumb:      '/StreakTracker_thumbnail.png',
+        slow:       true,
       },
       {
         tags:       ['US Cities', 'Updates Daily'],
