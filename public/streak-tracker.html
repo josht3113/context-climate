@@ -150,6 +150,11 @@ body { padding: 20px 0 48px; }
 .rank-tag.tag-gap { background: rgba(148,143,130,.16); color: var(--color-text-muted); }
 button.is-busy { opacity: .5; pointer-events: none; }
 
+.trace-group { display: none; align-items: center; gap: 10px; }
+.trace-group.show { display: flex; }
+.trace-group .cc-segmented-btn { font-size: 13px; padding-top: 6px; padding-bottom: 6px; }
+.preset-btn:disabled { opacity: .38; cursor: not-allowed; }
+
 /* ── Footer ── */
 .footer-note { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); line-height: 1.6; margin-top: 4px; }
 
@@ -206,6 +211,13 @@ button.is-busy { opacity: .5; pointer-events: none; }
     <div class="summary-row">
       <span class="threshold-summary" id="threshold-summary">&ndash;</span>
       <button class="cc-btn cc-btn-sm" id="custom-toggle-btn">Custom &#9662;</button>
+      <div class="trace-group" id="trace-group">
+        <span class="ctrl-label">Trace counts as</span>
+        <div class="cc-segmented" id="seg-trace">
+          <button class="cc-segmented-btn" data-trace="dry">Dry</button>
+          <button class="cc-segmented-btn" data-trace="wet">Wet</button>
+        </div>
+      </div>
       <div class="record-group">
         <span class="ctrl-label">Record</span>
         <div class="cc-segmented" id="seg-record">
@@ -219,11 +231,6 @@ button.is-busy { opacity: .5; pointer-events: none; }
       <div class="custom-field">
         <label for="custom-variable">Variable</label>
         <select class="cc-select" id="custom-variable">
-          <option value="temp">Temperature</option>
-          <option value="dewpoint">Dewpoint</option>
-          <option value="cloud">Cloud cover</option>
-          <option value="wind">Wind speed</option>
-          <option value="gust">Wind gust</option>
         </select>
       </div>
       <div class="custom-field" id="agg-field">
@@ -248,11 +255,11 @@ button.is-busy { opacity: .5; pointer-events: none; }
           <button class="cc-segmented-btn" data-op="lte">&le; At/Below</button>
         </div>
       </div>
-      <div class="custom-field">
+      <div class="custom-field" id="value-field">
         <label for="custom-num" id="custom-value-label">Value</label>
         <input type="number" class="num-input" id="custom-num">
       </div>
-      <div class="custom-field">
+      <div class="custom-field" id="range-field">
         <label>&nbsp;</label>
         <input type="range" class="range-input" id="custom-range" aria-label="Threshold value">
       </div>
@@ -379,7 +386,7 @@ const SPLIT_MAX_DEPTH = 4, MAX_INFLIGHT = 2;
 const EMPTY_STOP = 12;             // consecutive empty years that end the backward walk
 const POR_FLOOR = 1900;
 const ROUTINE_MIN_OBS = 200;
-const CACHE_VER = 2;
+const CACHE_VER = 3;
 const KT_TO_MPH = 1.15078;
 const EXPORT_SCALE = 3;
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -388,16 +395,31 @@ const TEMPLATE_LEN = [31,29,31,30,31,30,31,31,30,31,30,31];
 // ================================================================
 // VARIABLES, FAMILIES, PRESETS
 // ================================================================
+// Trace precipitation is stored as this sentinel; the "Trace counts as" switch decides whether it's wet or dry.
+const TRACE = Math.fround(0.001);
+const fmtIn = (d) => v => v === TRACE ? 'T' : `${v.toFixed(d)}"`;
+const WX_BITS = { rain: 1, snow: 2, fzra: 4, sleet: 8, ts: 16, fog: 32, smoke: 64, haze: 128 };
+const wxVar = (label, bit) => ({ label, unit: '', group: 'wx', out: 'wx', bit, dailySource: 'iem', categorical: true, peakOnly: true, gteOnly: true,
+  rangeMin: 1, rangeMax: 1, step: 1, metricLabel: { max: 'any hour', min: 'any hour', mean: 'any hour' }, fmt: v => v >= 1 ? 'reported' : 'none' });
 const VARIABLES = {
   temp:     { label:'Temperature', unit:'°F', group:'tmpf', out:'tmpf', dailySource:'acis', rangeMin:-30, rangeMax:120, step:1,
               metricLabel:{ max:'daily high', min:'daily low', mean:'daily mean' },
               fmt: v => `${Math.round(v)}°F` },
+  feel:     { label:'Feels like', unit:'°F', group:'feel', out:'feel', dailySource:'iem', rangeMin:-50, rangeMax:130, step:1,
+              metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
+              fmt: v => `${Math.round(v)}°F` },
+  depart:   { label:'Departure from normal', unit:'°F', acisField:'depart', dailyOnly:true, dailySource:'acis-only', requires:'normals', rangeMin:-30, rangeMax:30, step:0.5,
+              metricLabel:{ max:'daily mean', min:'daily mean', mean:'daily mean' },
+              fmt: v => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v * 10) / 10)}°F` },
   dewpoint: { label:'Dewpoint', unit:'°F', group:'dwpf', out:'dwpf', dailySource:'iem', rangeMin:-30, rangeMax:90, step:1,
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
               fmt: v => `${Math.round(v)}°F` },
   cloud:    { label:'Cloud cover', unit:'/8', group:'sky', out:'sky', dailySource:'iem', rangeMin:0, rangeMax:8, step:0.5,
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
               fmt: v => `${Math.round(v*2)/2}/8` },
+  vsby:     { label:'Visibility', unit:' mi', group:'vsby', out:'vsby', dailySource:'iem', rangeMin:0, rangeMax:10, step:0.25,
+              metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
+              fmt: v => `${Math.round(v * 100) / 100} mi` },
   wind:     { label:'Wind speed', unit:' mph', group:'wind', out:'wind', dailySource:'iem', rangeMin:0, rangeMax:60, step:1,
               metricLabel:{ max:'daily max', min:'daily min', mean:'daily mean' },
               fmt: v => `${Math.round(v)} mph` },
@@ -406,21 +428,47 @@ const VARIABLES = {
   gust:     { label:'Wind gust', unit:' mph', group:'wind', out:'gust', dailySource:'iem', rangeMin:15, rangeMax:100, step:1,
               peakOnly:true, gteOnly:true,
               metricLabel:{ max:'daily peak', min:'daily peak', mean:'daily peak' },
-              fmt: v => v > 0 ? `${Math.round(v)} mph` : 'no gusts' }
+              fmt: v => v > 0 ? `${Math.round(v)} mph` : 'no gusts' },
+  pcpn:     { label:'Precipitation', unit:'"', acisField:'pcpn', dailyOnly:true, dailySource:'acis-only', trace:true, rangeMin:0, rangeMax:5, step:0.01,
+              metricLabel:{ max:'daily total', min:'daily total', mean:'daily total' }, fmt: fmtIn(2) },
+  p01i:     { label:'Hourly precipitation', unit:'"', group:'pcp', out:'p01i', hourlyOnly:true, dailySource:'iem', trace:true, rangeMin:0, rangeMax:3, step:0.01,
+              metricLabel:{ max:'hourly', min:'hourly', mean:'hourly' }, fmt: fmtIn(2) },
+  snow:     { label:'Snowfall', unit:'"', acisField:'snow', dailyOnly:true, dailySource:'acis-only', trace:true, requires:'snow', rangeMin:0, rangeMax:30, step:0.1,
+              metricLabel:{ max:'daily total', min:'daily total', mean:'daily total' }, fmt: fmtIn(1) },
+  snwd:     { label:'Snow depth', unit:'"', acisField:'snwd', dailyOnly:true, dailySource:'acis-only', requires:'snwd', rangeMin:0, rangeMax:40, step:1,
+              metricLabel:{ max:'daily', min:'daily', mean:'daily' }, fmt: v => v === TRACE ? 'T' : `${Math.round(v)}"` },
+  x_rain:   wxVar('Rain', WX_BITS.rain),
+  x_snow:   wxVar('Snow', WX_BITS.snow),
+  x_fzra:   wxVar('Freezing rain/drizzle', WX_BITS.fzra),
+  x_sleet:  wxVar('Sleet', WX_BITS.sleet),
+  x_ts:     wxVar('Thunder', WX_BITS.ts),
+  x_fog:    wxVar('Fog', WX_BITS.fog),
+  x_smoke:  wxVar('Smoke', WX_BITS.smoke),
+  x_haze:   wxVar('Haze', WX_BITS.haze)
 };
+const CUSTOM_VARIABLE_ORDER = ['temp', 'feel', 'depart', 'dewpoint', 'cloud', 'vsby', 'wind', 'gust', 'pcpn', 'p01i', 'snow', 'snwd',
+  'x_rain', 'x_snow', 'x_fzra', 'x_sleet', 'x_ts', 'x_fog', 'x_smoke', 'x_haze'];
+// kind: how rows become hourly cells. 'state' = routine ob per hour; 'wind' = wind state + gust events;
+// 'pcp' = routine hourly precip at the ob's clock hour; 'wx' = weather-code bits of every ob in the clock hour.
 const GROUPS = {
-  tmpf: { fields:['tmpf'], chunk:10, label:'temperature', outs:['tmpf'] },
-  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint', outs:['dwpf'] },
-  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover', outs:['sky'] },
-  wind: { fields:['sknt','gust','peak_wind_gust','peak_wind_time'], chunk:6, label:'wind', outs:['wind','gust'] }
+  tmpf: { fields:['tmpf'], chunk:10, label:'temperature', outs:['tmpf'], kind:'state' },
+  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint', outs:['dwpf'], kind:'state' },
+  feel: { fields:['feel'], chunk:10, label:'feels-like', outs:['feel'], kind:'state' },
+  vsby: { fields:['vsby'], chunk:10, label:'visibility', outs:['vsby'], kind:'state' },
+  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover', outs:['sky'], kind:'sky' },
+  wind: { fields:['sknt','gust','peak_wind_gust','peak_wind_time'], chunk:6, label:'wind', outs:['wind','gust'], kind:'wind' },
+  pcp:  { fields:['p01i'], chunk:10, label:'hourly precipitation', outs:['p01i'], kind:'pcp' },
+  wx:   { fields:['metar'], chunk:3, label:'weather reports', outs:['wx'], kind:'wx' }
 };
 const FAMILIES = [
-  { id:'temp',  label:'Temperature' },
-  { id:'moist', label:'Moisture' },
-  { id:'sky',   label:'Sky' },
-  { id:'wind',  label:'Wind' }
+  { id:'temp',   label:'Temperature' },
+  { id:'moist',  label:'Moisture' },
+  { id:'sky',    label:'Sky' },
+  { id:'wind',   label:'Wind' },
+  { id:'precip', label:'Precipitation' }
 ];
 // ys = first month of the counting year (7 = Jul–Jun, so winter isn't split at New Year's)
+// era30: weather-code presets open on the last 30 years (reporting changed with ASOS in the mid-1990s)
 const PRESETS = [
   { id:'t-hot90',       fam:'temp',  grp:'Heat',   label:'Hot days ≥90°',           variable:'temp', agg:'daily', metric:'max', op:'gte', value:90 },
   { id:'t-hot100',      fam:'temp',  grp:'Heat',   label:'Extreme heat ≥100°',      variable:'temp', agg:'daily', metric:'max', op:'gte', value:100 },
@@ -431,6 +479,15 @@ const PRESETS = [
   { id:'t-ice32',       fam:'temp',  grp:'Cold',   label:'Ice days ≤32°',           variable:'temp', agg:'daily', metric:'max', op:'lte', value:32, ys:7 },
   { id:'t-frz20',       fam:'temp',  grp:'Cold',   label:'Hard freeze ≤20°',        variable:'temp', agg:'daily', metric:'min', op:'lte', value:20, ys:7 },
   { id:'t-zero',        fam:'temp',  grp:'Cold',   label:'Below-zero nights ≤0°',   variable:'temp', agg:'daily', metric:'min', op:'lte', value:0, ys:7 },
+  { id:'f-hi95',        fam:'temp',  grp:'Feels like', label:'Heat index ≥95° hours', variable:'feel', agg:'hourly', metric:'max', op:'gte', value:95 },
+  { id:'f-hi100',       fam:'temp',  grp:'Feels like', label:'Heat index ≥100° hours', variable:'feel', agg:'hourly', metric:'max', op:'gte', value:100 },
+  { id:'f-hi100d',      fam:'temp',  grp:'Feels like', label:'Heat index ≥100° days', variable:'feel', agg:'daily', metric:'max', op:'gte', value:100 },
+  { id:'f-wc10',        fam:'temp',  grp:'Feels like', label:'Wind chill ≤10° hours', variable:'feel', agg:'hourly', metric:'max', op:'lte', value:10, ys:7 },
+  { id:'f-wc0',         fam:'temp',  grp:'Feels like', label:'Wind chill ≤0° hours',  variable:'feel', agg:'hourly', metric:'max', op:'lte', value:0, ys:7 },
+  { id:'n-above',       fam:'temp',  grp:'Vs. normal', label:'Above normal',         variable:'depart', agg:'daily', metric:'mean', op:'gte', value:0.1 },
+  { id:'n-below',       fam:'temp',  grp:'Vs. normal', label:'Below normal',         variable:'depart', agg:'daily', metric:'mean', op:'lte', value:-0.1 },
+  { id:'n-above10',     fam:'temp',  grp:'Vs. normal', label:'≥10° above normal',    variable:'depart', agg:'daily', metric:'mean', op:'gte', value:10 },
+  { id:'n-below10',     fam:'temp',  grp:'Vs. normal', label:'≥10° below normal',    variable:'depart', agg:'daily', metric:'mean', op:'lte', value:-10 },
   { id:'d-muggy65',     fam:'moist', grp:'Humid',  label:'Muggy hours ≥65°',        variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:65 },
   { id:'d-humid70',     fam:'moist', grp:'Humid',  label:'Humid hours ≥70°',        variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:70 },
   { id:'d-trop75',      fam:'moist', grp:'Humid',  label:'Oppressive hours ≥75°',   variable:'dewpoint', agg:'hourly', metric:'max', op:'gte', value:75 },
@@ -444,6 +501,14 @@ const PRESETS = [
   { id:'c-clear',       fam:'sky',   grp:'Clear',  label:'Clear hours 0/8',         variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:0 },
   { id:'c-fewclouds',   fam:'sky',   grp:'Clear',  label:'Mostly clear hours ≤3/8', variable:'cloud', agg:'hourly', metric:'max', op:'lte', value:3 },
   { id:'c-clearday',    fam:'sky',   grp:'Clear',  label:'Clear days (≤2/8 all day)', variable:'cloud', agg:'daily', metric:'max', op:'lte', value:2 },
+  { id:'v-low',         fam:'sky',   grp:'Visibility', label:'Low-visibility hours ≤1 mi', variable:'vsby', agg:'hourly', metric:'max', op:'lte', value:1 },
+  { id:'v-dense',       fam:'sky',   grp:'Visibility', label:'Dense-fog hours ≤¼ mi', variable:'vsby', agg:'hourly', metric:'max', op:'lte', value:0.25 },
+  { id:'x-fog-h',       fam:'sky',   grp:'Obstructions', label:'Fog hours',   variable:'x_fog',   agg:'hourly', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-fog-d',       fam:'sky',   grp:'Obstructions', label:'Fog days',    variable:'x_fog',   agg:'daily',  metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-smoke-h',     fam:'sky',   grp:'Obstructions', label:'Smoke hours', variable:'x_smoke', agg:'hourly', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-smoke-d',     fam:'sky',   grp:'Obstructions', label:'Smoke days',  variable:'x_smoke', agg:'daily',  metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-haze-h',      fam:'sky',   grp:'Obstructions', label:'Haze hours',  variable:'x_haze',  agg:'hourly', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-haze-d',      fam:'sky',   grp:'Obstructions', label:'Haze days',   variable:'x_haze',  agg:'daily',  metric:'max', op:'gte', value:1, era30:true },
   { id:'w-breezy',      fam:'wind',  grp:'Sustained', label:'Breezy hours ≥15 mph',  variable:'wind', agg:'hourly', metric:'max', op:'gte', value:15 },
   { id:'w-windy',       fam:'wind',  grp:'Sustained', label:'Windy hours ≥25 mph',   variable:'wind', agg:'hourly', metric:'max', op:'gte', value:25 },
   { id:'w-calm',        fam:'wind',  grp:'Sustained', label:'Calm hours ≤3 mph',     variable:'wind', agg:'hourly', metric:'max', op:'lte', value:3 },
@@ -454,10 +519,29 @@ const PRESETS = [
   { id:'g-h50',         fam:'wind',  grp:'Gust hours', label:'Damaging-gust hours ≥50 mph', variable:'gust', agg:'hourly', metric:'max', op:'gte', value:50 },
   { id:'g-30',          fam:'wind',  grp:'Gust days', label:'Gusty days ≥30 mph',      variable:'gust', agg:'daily', metric:'max', op:'gte', value:30 },
   { id:'g-40',          fam:'wind',  grp:'Gust days', label:'Strong-gust days ≥40 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:40 },
-  { id:'g-50',          fam:'wind',  grp:'Gust days', label:'Damaging-gust days ≥50 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:50 }
+  { id:'g-50',          fam:'wind',  grp:'Gust days', label:'Damaging-gust days ≥50 mph', variable:'gust', agg:'daily', metric:'max', op:'gte', value:50 },
+  { id:'p-dry',         fam:'precip', grp:'Dry',  label:'Dry days',               variable:'pcpn', agg:'daily', metric:'max', op:'lte', value:0 },
+  { id:'p-wet',         fam:'precip', grp:'Wet',  label:'Wet days ≥0.01"',        variable:'pcpn', agg:'daily', metric:'max', op:'gte', value:0.01 },
+  { id:'p-rainy',       fam:'precip', grp:'Wet',  label:'Rainy days ≥0.10"',      variable:'pcpn', agg:'daily', metric:'max', op:'gte', value:0.1 },
+  { id:'p-soak',        fam:'precip', grp:'Wet',  label:'Soaking days ≥0.25"',    variable:'pcpn', agg:'daily', metric:'max', op:'gte', value:0.25 },
+  { id:'p-wethr',       fam:'precip', grp:'Wet',  label:'Wet hours ≥0.01"',       variable:'p01i', agg:'hourly', metric:'max', op:'gte', value:0.01 },
+  { id:'p-snowday',     fam:'precip', grp:'Snow', label:'Snowfall days ≥1"',      variable:'snow', agg:'daily', metric:'max', op:'gte', value:1, ys:7 },
+  { id:'p-cover1',      fam:'precip', grp:'Snow', label:'Snow on the ground ≥1"', variable:'snwd', agg:'daily', metric:'max', op:'gte', value:1, ys:7 },
+  { id:'p-cover6',      fam:'precip', grp:'Snow', label:'Snow on the ground ≥6"', variable:'snwd', agg:'daily', metric:'max', op:'gte', value:6, ys:7 },
+  { id:'x-rain-h',      fam:'precip', grp:'Type · hours', label:'Rain hours',      variable:'x_rain',  agg:'hourly', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-snow-h',      fam:'precip', grp:'Type · hours', label:'Snow hours',      variable:'x_snow',  agg:'hourly', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-fzra-h',      fam:'precip', grp:'Type · hours', label:'Freezing rain hours', variable:'x_fzra', agg:'hourly', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-sleet-h',     fam:'precip', grp:'Type · hours', label:'Sleet hours',     variable:'x_sleet', agg:'hourly', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-ts-h',        fam:'precip', grp:'Type · hours', label:'Thunder hours',   variable:'x_ts',    agg:'hourly', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-rain-d',      fam:'precip', grp:'Type · days', label:'Rain days',        variable:'x_rain',  agg:'daily', metric:'max', op:'gte', value:1, era30:true },
+  { id:'x-snow-d',      fam:'precip', grp:'Type · days', label:'Snow days',        variable:'x_snow',  agg:'daily', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-fzra-d',      fam:'precip', grp:'Type · days', label:'Freezing rain days', variable:'x_fzra', agg:'daily', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-sleet-d',     fam:'precip', grp:'Type · days', label:'Sleet days',       variable:'x_sleet', agg:'daily', metric:'max', op:'gte', value:1, era30:true, ys:7 },
+  { id:'x-ts-d',        fam:'precip', grp:'Type · days', label:'Thunder days',     variable:'x_ts',    agg:'daily', metric:'max', op:'gte', value:1, era30:true }
 ];
 const PRESET_BY_ID = Object.fromEntries(PRESETS.map(p => [p.id, p]));
-const FAMILY_OF_VARIABLE = { temp:'temp', dewpoint:'moist', cloud:'sky', wind:'wind', gust:'wind' };
+const FAMILY_OF_VARIABLE = { temp:'temp', feel:'temp', depart:'temp', dewpoint:'moist', cloud:'sky', vsby:'sky', x_fog:'sky', x_smoke:'sky', x_haze:'sky',
+  wind:'wind', gust:'wind', pcpn:'precip', p01i:'precip', snow:'precip', snwd:'precip', x_rain:'precip', x_snow:'precip', x_fzra:'precip', x_sleet:'precip', x_ts:'precip' };
 
 const SEASON_PRESETS = [
   { id:'all', label:'All months',        months:[1,2,3,4,5,6,7,8,9,10,11,12] },
@@ -581,16 +665,49 @@ function skyCodeToOktas(code) {
 }
 function modeOfHist(hist) { let best = -1, bestN = 0; for (let m = 0; m < 60; m++) if (hist[m] > bestN) { bestN = hist[m]; best = m; } return best; }
 
+
+// Weather codes: a METAR present-weather token, e.g. -RA, +TSRA, VCFG, FZDZ, BLSN.
+// Only the body before RMK is read, so remarks like "RAB15 TSE20 FU" don't count.
+// Classification matches the fog / thunderstorm / smoke / winter-precip heatmaps.
+const WX_TOKEN = /^(\+|-|VC)?(MI|PR|BC|DR|BL|SH|TS|FZ)?((?:DZ|RA|SN|SG|IC|PL|IP|GR|GS|UP|BR|FG|FU|VA|DU|SA|HZ|PY|PO|SQ|FC|SS|DS)*)$/;
+function wxBits(metar) {
+  if (!metar) return null;
+  let up = metar.trim().toUpperCase();
+  if (!up || up === 'M') return null;
+  const r = up.indexOf(' RMK');
+  if (r >= 0) up = up.slice(0, r);
+  let bits = 0;
+  for (const t of up.split(/\s+/)) {
+    if (t.length < 2) continue;
+    const m = WX_TOKEN.exec(t);
+    if (!m) continue;
+    const pre = m[1] || '', desc = m[2] || '', codes = m[3] || '';
+    if (!desc && !codes) continue;
+    const has = c => { for (let i = 0; i < codes.length; i += 2) if (codes.substr(i, 2) === c) return true; return false; };
+    const liquid = has('RA') || has('DZ');
+    if (desc === 'TS') bits |= WX_BITS.ts;
+    if (desc === 'FZ' && liquid) bits |= WX_BITS.fzra;
+    if (desc !== 'FZ' && pre !== 'VC' && liquid) bits |= WX_BITS.rain;
+    if (has('SN') || has('SG')) bits |= WX_BITS.snow;
+    if (has('PL') || has('IP')) bits |= WX_BITS.sleet;
+    if (has('FG')) bits |= WX_BITS.fog;
+    if (has('FU')) bits |= WX_BITS.smoke;
+    if (has('HZ')) bits |= WX_BITS.haze;
+  }
+  return bits;
+}
 const numOrNull = s => { if (s == null) return null; s = s.trim(); if (!s || s === 'M') return null; const f = parseFloat(s); return isNaN(f) ? null : f; };
 
 // Parse one IEM chunk into Map(LST year -> { out: Float32Array of hourly values } | null).
-// State fields (temp, dewpoint, sky, wind speed): cell window is (H-1):45 to
-// H:44, the routine ob wins, and a special fills a cell only when the routine
-// value is missing — then the special nearest the routine minute.
-// Gusts are events, binned by when they happened (clock hour, no rollover) so
-// a late-evening gust stays on its own day: the cell holds the highest gust of
-// any ob in the hour, or 0 when wind was reported with no gust. A METAR peak
-// wind (PK WND) is binned at its own reported time.
+// State fields (temp, dewpoint, feels-like, visibility, sky, wind speed): cell
+// window is (H-1):45 to H:44, the routine ob wins, and a special fills a cell
+// only when the routine value is missing — then the special nearest the routine minute.
+// Events are binned by when they happened (clock hour, no rollover), so a
+// late-evening report stays on its own day:
+//   gust  — highest gust or PK WND in the hour; 0 when wind was reported without a gust
+//   wx    — weather-code bits of every ob in the hour; 0 when obs had no codes
+//   p01i  — the routine ob's hourly precipitation (specials carry partial totals and are
+//           ignored); no P group = dry; a year with no precipitation reports at all = missing
 function parseChunk(text, group, y1, y2, st) {
   const lines = text.split('\n');
   let hdr = -1;
@@ -598,20 +715,18 @@ function parseChunk(text, group, y1, y2, st) {
   const out = new Map();
   for (let Y = y1; Y <= y2; Y++) out.set(Y, null);
   if (hdr < 0) return out;
-  const G = GROUPS[group];
+  const G = GROUPS[group], kind = G.kind;
   const h = lines[hdr].split(',');
-  const col = f => h.indexOf(f);
-  const vI = col('valid');
-  const I = {}; for (const f of G.fields) I[f] = col(f);
+  const vI = h.indexOf('valid');
+  const I = {}; for (const f of G.fields) I[f] = h.indexOf(f);
   const toLst = (s) => {
     if (!s || s.length < 16) return NaN;
     const uy = +s.substr(0, 4), um = +s.substr(5, 2), ud = +s.substr(8, 2), uh = +s.substr(11, 2), umi = +s.substr(14, 2);
     if (!(uy > 0) || isNaN(um) || isNaN(ud) || isNaN(uh) || isNaN(umi)) return NaN;
     return Date.UTC(uy, um - 1, ud, uh, umi) + stdOffsetMin(st.iana, uy) * 60000;
   };
-  // State value of a row for this group (one state output per group).
-  let stateOut, stateVal;
-  if (group === 'sky') {
+  let stateOut = null, stateVal = null;
+  if (kind === 'sky') {
     stateOut = 'sky';
     stateVal = parts => {
       let v = null;
@@ -624,18 +739,18 @@ function parseChunk(text, group, y1, y2, st) {
       }
       return v;
     };
-  } else if (group === 'wind') {
+  } else if (kind === 'wind') {
     stateOut = 'wind';
     stateVal = parts => { const k = numOrNull(parts[I.sknt]); return k === null ? null : Math.round(k * KT_TO_MPH); };
-  } else {
+  } else if (kind === 'state') {
     stateOut = G.outs[0];
     stateVal = parts => numOrNull(parts[I[G.fields[0]]]);
   }
-  const hasGust = group === 'wind';
 
   // Pass 1: parse rows, histogram of LST minutes per LST year.
   const rows = [];
   const histByYear = new Map(), histAll = new Int32Array(60);
+  const pcpSeen = new Set();   // LST cell-years with at least one precipitation report
   for (let i = hdr + 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
@@ -646,19 +761,23 @@ function parseChunk(text, group, y1, y2, st) {
     let hist = histByYear.get(ly);
     if (!hist) { hist = new Int32Array(60); histByYear.set(ly, hist); }
     hist[mi]++; histAll[mi]++;
-    const v = stateVal(parts);
-    const row = { lst, mi, v };
-    if (hasGust) {
+    const row = { lst, mi, v: stateVal ? stateVal(parts) : null };
+    if (kind === 'wind') {
       const g = numOrNull(parts[I.gust]);
       row.seen = row.v !== null || g !== null;
       row.gust = g === null ? null : Math.round(g * KT_TO_MPH);
       const pk = numOrNull(parts[I.peak_wind_gust]);
       if (pk !== null) {
         let pt = I.peak_wind_time >= 0 ? toLst((parts[I.peak_wind_time] || '').trim()) : NaN;
-        // PK WND happened since the previous routine ob; if the time is absent or implausible, assume ~30 min earlier.
         if (!(pt <= lst && lst - pt <= 2 * HOUR)) pt = lst - 30 * 60000;
         row.pk = Math.round(pk * KT_TO_MPH); row.pkLst = pt;
       }
+    } else if (kind === 'wx') {
+      row.bits = wxBits(parts.slice(I.metar).join(','));
+    } else if (kind === 'pcp') {
+      const s = (parts[I.p01i] || '').trim();
+      row.p = s === 'T' ? TRACE : numOrNull(s);
+      if (row.p !== null) pcpSeen.add(new Date(Math.floor(lst / HOUR) * HOUR).getUTCFullYear());
     }
     rows.push(row);
   }
@@ -668,6 +787,7 @@ function parseChunk(text, group, y1, y2, st) {
     let n = 0; for (let m = 0; m < 60; m++) n += hist[m];
     routineOf.set(yr, n >= ROUTINE_MIN_OBS ? modeOfHist(hist) : globalR);
   }
+  const distToRoutine = r => { const R = routineOf.get(new Date(r.lst).getUTCFullYear()) ?? globalR; const dd = Math.abs(r.mi - R); return Math.min(dd, 60 - dd); };
 
   // Pass 2: fill cells.
   const bufs = new Map();   // Y -> { vals: {out: arr}, dist }
@@ -681,31 +801,42 @@ function parseChunk(text, group, y1, y2, st) {
     }
     return b;
   };
-  const eventAt = (ms, v) => {
+  const clockCell = ms => {
     const cell = Math.floor(ms / HOUR) * HOUR;
     const Y = new Date(cell).getUTCFullYear();
-    if (Y < y1 || Y > y2) return;
-    const arr = bufFor(Y).vals.gust, idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
-    if (!(arr[idx] >= v)) arr[idx] = v;
+    if (Y < y1 || Y > y2) return null;
+    return { b: bufFor(Y), idx: (cell - Date.UTC(Y, 0, 1)) / HOUR };
   };
   for (const r of rows) {
-    // State cell (with :45 rollover).
-    const cell = Math.floor((r.lst + 15 * 60000) / HOUR) * HOUR;
-    const Y = new Date(cell).getUTCFullYear();
-    if (Y >= y1 && Y <= y2) {
-      const b = bufFor(Y);
-      if (r.v !== null) {
-        const idx = (cell - Date.UTC(Y, 0, 1)) / HOUR;
-        const R = routineOf.get(new Date(r.lst).getUTCFullYear()) ?? globalR;
-        const dd = Math.abs(r.mi - R), d = Math.min(dd, 60 - dd);
-        if (d < b.dist[idx]) { b.dist[idx] = d; b.vals[stateOut][idx] = r.v; }
+    if (stateOut) {
+      const cell = Math.floor((r.lst + 15 * 60000) / HOUR) * HOUR;
+      const Y = new Date(cell).getUTCFullYear();
+      if (Y >= y1 && Y <= y2) {
+        const b = bufFor(Y);
+        if (r.v !== null) {
+          const idx = (cell - Date.UTC(Y, 0, 1)) / HOUR, d = distToRoutine(r);
+          if (d < b.dist[idx]) { b.dist[idx] = d; b.vals[stateOut][idx] = r.v; }
+        }
       }
     }
-    if (hasGust) {
-      if (r.seen) eventAt(r.lst, r.gust === null ? 0 : r.gust);
-      if (r.pk != null) eventAt(r.pkLst, r.pk);
+    if (kind === 'wind') {
+      const put = (ms, v) => { const c = clockCell(ms); if (!c) return; const a = c.b.vals.gust; if (!(a[c.idx] >= v)) a[c.idx] = v; };
+      if (r.seen) put(r.lst, r.gust === null ? 0 : r.gust);
+      if (r.pk != null) put(r.pkLst, r.pk);
+    } else if (kind === 'wx') {
+      if (r.bits === null) continue;
+      const c = clockCell(r.lst); if (!c) continue;
+      const a = c.b.vals.wx, prev = a[c.idx];
+      a[c.idx] = (prev === prev ? prev : 0) | r.bits;
+    } else if (kind === 'pcp') {
+      const c = clockCell(r.lst); if (!c) continue;
+      const d = distToRoutine(r);
+      if (d > 10 || d >= c.b.dist[c.idx]) continue;
+      c.b.dist[c.idx] = d;
+      c.b.vals.p01i[c.idx] = r.p === null ? 0 : r.p;
     }
   }
+  if (kind === 'pcp') for (const [Y, b] of bufs) if (!pcpSeen.has(Y)) b.vals.p01i.fill(NaN);
   for (const [Y, b] of bufs) out.set(Y, b.vals);
   return out;
 }
@@ -900,32 +1031,44 @@ async function loadGroup(group) {
   onLoadProgress(true);
 }
 
-function mergedFor(group, outName) {
+function mergedFor(group, outName, bit) {
   const gs = store && store.groups[group];
   if (!gs) return null;
   gs.merged = gs.merged || {};
-  const hit = gs.merged[outName];
+  const key = bit ? `${outName}#${bit}` : outName;
+  const hit = gs.merged[key];
   if (hit !== undefined && hit.ver === gs.ver) return hit.m;
-  let minY = Infinity, maxY = -Infinity;
-  for (const [Y, v] of gs.years) if (v) { if (Y < minY) minY = Y; if (Y > maxY) maxY = Y; }
   let m = null;
-  if (minY !== Infinity) {
-    const startMs = Date.UTC(minY, 0, 1);
-    const vals = new Float32Array((Date.UTC(maxY + 1, 0, 1) - startMs) / HOUR).fill(NaN);
-    for (let Y = minY; Y <= maxY; Y++) { const v = gs.years.get(Y); if (v && v[outName]) vals.set(v[outName], (Date.UTC(Y, 0, 1) - startMs) / HOUR); }
-    m = { startMs, startDay: startMs / DAY, vals, minY, maxY };
+  if (bit) {
+    // Weather type: 1 when the hour's code bits include this type, 0 when reported without it.
+    const base = mergedFor(group, outName);
+    if (base) {
+      const v = new Float32Array(base.vals.length);
+      for (let i = 0; i < v.length; i++) { const x = base.vals[i]; v[i] = x === x ? ((x & bit) ? 1 : 0) : NaN; }
+      m = Object.assign({}, base, { vals: v });
+    }
+  } else {
+    let minY = Infinity, maxY = -Infinity;
+    for (const [Y, v] of gs.years) if (v) { if (Y < minY) minY = Y; if (Y > maxY) maxY = Y; }
+    if (minY !== Infinity) {
+      const startMs = Date.UTC(minY, 0, 1);
+      const vals = new Float32Array((Date.UTC(maxY + 1, 0, 1) - startMs) / HOUR).fill(NaN);
+      for (let Y = minY; Y <= maxY; Y++) { const v = gs.years.get(Y); if (v && v[outName]) vals.set(v[outName], (Date.UTC(Y, 0, 1) - startMs) / HOUR); }
+      m = { startMs, startDay: startMs / DAY, vals, minY, maxY };
+    }
   }
-  gs.merged[outName] = { ver: gs.ver, m };
+  gs.merged[key] = { ver: gs.ver, m };
   return m;
 }
 
 // Per-LST-day aggregates of an hourly group.
-function dailyFor(group, outName) {
+function dailyFor(group, outName, bit) {
   const gs = store && store.groups[group];
-  const m = mergedFor(group, outName);
+  const m = mergedFor(group, outName, bit);
   if (!m) return null;
   gs.daily = gs.daily || {};
-  const hit = gs.daily[outName];
+  const key = bit ? `${outName}#${bit}` : outName;
+  const hit = gs.daily[key];
   if (hit && hit.ver === gs.ver) return hit.d;
   const nDays = m.vals.length / 24;
   const max = new Float32Array(nDays).fill(NaN), min = new Float32Array(nDays).fill(NaN), mean = new Float32Array(nDays).fill(NaN), cnt = new Uint8Array(nDays);
@@ -939,7 +1082,7 @@ function dailyFor(group, outName) {
     if (c >= MIN_HOURS_COMPLETE) { max[d] = hi; min[d] = lo; mean[d] = s / c; }
   }
   const d = { startDay: m.startDay, max, min, mean, cnt };
-  gs.daily[outName] = { ver: gs.ver, d };
+  gs.daily[key] = { ver: gs.ver, d };
   return d;
 }
 
@@ -957,7 +1100,7 @@ async function loadACIS() {
     const json = await fetchWithRetry(`ACIS ${sid}`, async () => {
       const resp = await fetch('https://data.rcc-acis.org/StnData', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sid, sdate: 'por', edate: 'por', elems: ['maxt', 'mint'] })
+        body: JSON.stringify({ sid, sdate: 'por', edate: 'por', elems: ['maxt', 'mint', 'pcpn', 'snow', 'snwd', { name: 'avgt', normal: '1' }] })
       });
       if (!resp.ok) { const err = new Error(`ACIS HTTP ${resp.status}`); err.transient = isTransientStatus(resp.status); throw err; }
       return resp.json();
@@ -969,17 +1112,30 @@ async function loadACIS() {
     const startDay = ymdToDay(p0[0], p0[1], p0[2]);
     const p1 = rows[rows.length - 1][0].split('-').map(Number);
     const n = ymdToDay(p1[0], p1[1], p1[2]) - startDay + 1;
-    const maxt = new Float32Array(n).fill(NaN), mint = new Float32Array(n).fill(NaN);
-    const pv = s => { if (s == null) return NaN; const f = parseFloat(s); return isNaN(f) ? NaN : f; };
+    const mk = () => new Float32Array(n).fill(NaN);
+    const maxt = mk(), mint = mk(), pcpn = mk(), snow = mk(), snwd = mk(), navg = mk();
+    // 'T' = trace; 'M' missing; 'S' = part of a multi-day total and 'A' = that accumulated total, both unusable per day.
+    const pv = s => {
+      if (s == null) return NaN;
+      s = String(s).trim();
+      if (s === 'T') return TRACE;
+      if (!s || s === 'M' || s === 'S' || /A$/.test(s)) return NaN;
+      const f = parseFloat(s); return isNaN(f) ? NaN : f;
+    };
     for (const r of rows) {
       const p = r[0].split('-').map(Number);
       const i = ymdToDay(p[0], p[1], p[2]) - startDay;
       if (i < 0 || i >= n) continue;
-      maxt[i] = pv(r[1]); mint[i] = pv(r[2]);
+      maxt[i] = pv(r[1]); mint[i] = pv(r[2]); pcpn[i] = pv(r[3]); snow[i] = pv(r[4]); snwd[i] = pv(r[5]); navg[i] = pv(r[6]);
     }
-    let any = false; for (let i = 0; i < n; i++) if (maxt[i] === maxt[i] || mint[i] === mint[i]) { any = true; break; }
+    let any = false; for (let i = 0; i < n; i++) if (maxt[i] === maxt[i] || mint[i] === mint[i] || pcpn[i] === pcpn[i]) { any = true; break; }
     if (!any) throw new Error('no ACIS values');
-    Object.assign(a, { status: 'ok', startDay, maxt, mint });
+    // Departure from normal = daily mean (from the high and low) minus the 1991–2020 normal mean.
+    const depart = mk();
+    for (let i = 0; i < n; i++) if (maxt[i] === maxt[i] && mint[i] === mint[i] && navg[i] === navg[i]) depart[i] = (maxt[i] + mint[i]) / 2 - navg[i];
+    const count = arr => { let c = 0; for (let i = 0; i < n; i++) if (arr[i] === arr[i]) c++; return c; };
+    const avail = { normals: count(navg) > 0, snow: count(snow) >= 5 * 365, snwd: count(snwd) >= 5 * 365 };
+    Object.assign(a, { status: 'ok', startDay, maxt, mint, pcpn, snow, snwd, navg, depart, avail });
   } catch (e) {
     if (!storeAlive(tok)) return;
     a.status = 'fail'; a.error = e.message;
@@ -1000,14 +1156,20 @@ const app = {
   seasonId: 'all', seasonLabel: 'All months',
   record: 'full',
   view: 'streaks',
-  totalsGroupBy: 'ytd'
+  totalsGroupBy: 'ytd',
+  traceWet: false
 };
-function defaultYearStart(variable, op) { return ((variable === 'temp' || variable === 'dewpoint') && op === 'lte') ? 7 : 1; }
+function defaultYearStart(variable, op) { return ((variable === 'temp' || variable === 'dewpoint' || variable === 'feel') && op === 'lte') || variable === 'snow' || variable === 'snwd' ? 7 : 1; }
 function activeCfg() {
   const base = app.custom || PRESET_BY_ID[app.presetId] || PRESETS[0];
   const cfg = { variable: base.variable, agg: base.agg, metric: base.metric, op: base.op, value: base.value };
-  if (VARIABLES[cfg.variable].peakOnly) cfg.metric = 'max';
-  if (VARIABLES[cfg.variable].gteOnly) cfg.op = 'gte';
+  const V = VARIABLES[cfg.variable];
+  if (V.peakOnly) cfg.metric = 'max';
+  if (V.gteOnly) cfg.op = 'gte';
+  if (V.dailyOnly) cfg.agg = 'daily';
+  if (V.hourlyOnly) cfg.agg = 'hourly';
+  if (V.categorical) cfg.value = 1;
+  cfg.traceWet = !!(V.trace && app.traceWet);
   cfg.ys = (!app.custom && base.ys) ? base.ys : defaultYearStart(cfg.variable, cfg.op);
   // A season that runs across New Year's (e.g. Dec–Feb) needs Jul–Jun years to stay in one row.
   if (app.months.size < 12 && app.months.has(12) && app.months.has(1)) cfg.ys = 7;
@@ -1017,6 +1179,7 @@ function activeCfg() {
 }
 // Which data the active config reads: 'acis' or an IEM group name.
 function sourceFor(cfg) {
+  if (VARIABLES[cfg.variable].dailySource === 'acis-only') return 'acis';
   if (cfg.agg === 'daily' && VARIABLES[cfg.variable].dailySource === 'acis') {
     if (!store || store.acis.status !== 'fail') return 'acis';
   }
@@ -1027,7 +1190,20 @@ function activeGroupNeeded() {
   const s = sourceFor(activeCfg());
   return s === 'acis' ? null : s;
 }
-const qualifies = (v, cfg) => cfg.op === 'gte' ? v >= cfg.value : v <= cfg.value;
+// A trace is dry unless the user counts it as wet, in which case it's treated as the smallest measurable amount.
+const qualifies = (v, cfg) => {
+  if (v === TRACE) v = (cfg.traceWet ? 0.01 : 0);
+  // Values are stored as 32-bit floats (0.01 becomes 0.0099999998), so compare against the threshold rounded the same way.
+  const t = Math.fround(cfg.value);
+  return cfg.op === 'gte' ? v >= t : v <= t;
+};
+// Why a selection has no series: a field this station doesn't record.
+function unavailableReason(cfg) {
+  const V = VARIABLES[cfg.variable];
+  if (!store || store.acis.status !== 'ok' || !V.requires) return store && V.dailySource === 'acis-only' && store.acis.status === 'fail' ? 'ACIS daily record unavailable' : null;
+  if (store.acis.avail[V.requires]) return null;
+  return V.requires === 'normals' ? 'No official normals at this station' : `${V.label} not recorded at this station`;
+}
 
 // ================================================================
 // SERIES — one unit per hour or per day, starting on an LST day boundary.
@@ -1082,6 +1258,11 @@ function buildSeries(cfg) {
   if (src === 'acis') {
     const a = store.acis;
     if (a.status !== 'ok') return null;
+    const V = VARIABLES[cfg.variable];
+    if (V.acisField) {
+      if (V.requires && !a.avail[V.requires]) return null;
+      return finalizeSeries('day', a.startDay, a[V.acisField], cfg, st, 'acis');
+    }
     const n = a.maxt.length, vals = new Float32Array(n);
     for (let i = 0; i < n; i++) {
       const hi = a.maxt[i], lo = a.mint[i];
@@ -1089,13 +1270,13 @@ function buildSeries(cfg) {
     }
     return finalizeSeries('day', a.startDay, vals, cfg, st, 'acis');
   }
-  const out = VARIABLES[cfg.variable].out;
+  const out = VARIABLES[cfg.variable].out, bit = VARIABLES[cfg.variable].bit;
   if (cfg.agg === 'hourly') {
-    const m = mergedFor(src, out);
+    const m = mergedFor(src, out, bit);
     if (!m) return null;
     return finalizeSeries('hour', m.startDay, m.vals, cfg, st, 'iem');
   }
-  const dly = dailyFor(src, out);
+  const dly = dailyFor(src, out, bit);
   if (!dly) return null;
   return finalizeSeries('day', dly.startDay, dly[cfg.metric], cfg, st, cfg.variable === 'temp' ? 'iem-derived' : 'iem');
 }
@@ -1244,6 +1425,13 @@ function formatLengthShort(n, cfg) {
 }
 function thresholdText(cfg) {
   const V = VARIABLES[cfg.variable];
+  if (V.categorical) return `${V.label} reported, ${cfg.agg === 'daily' ? 'daily (any hour)' : 'hourly'}`;
+  if (cfg.variable === 'depart') {
+    const a = Math.abs(cfg.value);
+    if (a <= 0.5) return `Daily mean ${cfg.op === 'gte' ? 'above' : 'below'} normal`;
+    return `Daily mean ≥ ${a}°F ${cfg.op === 'gte' ? 'above' : 'below'} normal`;
+  }
+  if (V.trace && cfg.op === 'lte' && cfg.value === 0) return `${V.label}: none${cfg.traceWet ? '' : ' measurable'}, ${cfg.agg === 'daily' ? V.metricLabel.max : 'hourly'}`;
   const op = cfg.op === 'gte' ? '≥' : '≤';
   const how = cfg.agg === 'daily' ? V.metricLabel[cfg.metric] : 'hourly';
   return `${V.label} ${op} ${cfg.value}${V.unit}, ${how}`;
@@ -1253,6 +1441,7 @@ function summaryText(cfg) {
   const parts = [thresholdText(cfg)];
   if (cfg.seasonLabel !== 'All months') parts.push(cfg.seasonLabel);
   if (cfg.record !== 'full') parts.push(recordText(cfg));
+  if (cfg.traceWet) parts.push('trace = wet');
   return parts.join(' · ');
 }
 function unitStartDay(S, i) { return S.startDay + dayOfUnit(S, i); }
@@ -1366,14 +1555,19 @@ function renderSummary(cfg) { $('threshold-summary').textContent = summaryText(c
 function renderProvenance(cfg) {
   const src = last.S ? last.S.source : sourceFor(cfg);
   const bits = [];
-  if (src === 'acis') bits.push('Daily high/low: NOAA ACIS station record.');
+  const V = VARIABLES[cfg.variable];
+  const acisWhat = { pcpn: 'precipitation', snow: 'snowfall', snwd: 'snow depth', depart: 'high/low' }[cfg.variable] || 'high/low';
+  if (src === 'acis') bits.push(`Daily ${acisWhat}: NOAA ACIS station record.`);
   else {
     bits.push('Hourly observations: Iowa Environmental Mesonet ASOS archive, routine METAR per hour.');
     if (src === 'iem-derived') bits.push('Daily high/low derived from hourly observations.');
   }
-  if (cfg.variable === 'cloud') bits.push('Cloud cover: highest reported sky layer in oktas (ASOS ceilometer, to 12,000 ft).');
-  if (cfg.variable === 'wind') bits.push('Wind: 2-minute sustained speed, knots converted to mph.');
-  if (cfg.variable === 'gust') bits.push(`Gusts: highest gust or METAR peak wind (PK WND) reported in each clock hour${cfg.agg === 'daily' ? ', peak of the day' : ''}; an hour with wind reports but no gust counts as zero.`);
+  if (cfg.variable === 'depart') bits.push('Normals: NCEI 1991–2020 via ACIS; departure uses the mean of the daily high and low.');
+  if (cfg.variable === 'feel') bits.push('Feels like: IEM apparent temperature (heat index when hot, wind chill when cold, otherwise air temperature).');
+  if (cfg.variable === 'vsby') bits.push('Visibility: prevailing visibility in miles.');
+  if (cfg.variable === 'p01i') bits.push('Hourly precipitation: routine METAR precipitation group; no group reported counts as dry.');
+  if (V.categorical) bits.push('Weather types: present-weather codes in each METAR, remarks excluded; an hour counts if any report in it carries the code.');
+  if (V.trace) bits.push(cfg.traceWet ? 'Trace counts as wet.' : 'Trace counts as dry.');
   bits.push('Days in local standard time.');
   if (cfg.ys !== 1) bits.push('Years run Jul–Jun.');
   bits.push('Forecast: NWS.');
@@ -1390,7 +1584,8 @@ function renderHeadline() {
   const setChip = (id, text, dim) => { const e = $(id); e.textContent = text; e.classList.toggle('dim', !!dim); };
   if (!S) {
     val.textContent = '–'; unit.textContent = ''; badge.textContent = '–'; badge.className = 'cc-badge badge-ended';
-    label.textContent = store && !historyLoading() ? 'No data for this selection' : 'Loading';
+    const why = unavailableReason(cfg);
+    label.textContent = why || (store && !historyLoading() ? 'No data for this selection' : 'Loading');
     note.textContent = '';
     ['sv-rp', 'sv-record', 'sv-season', 'sv-total', 'sv-avg', 'sv-period'].forEach(id => setChip(id, '–', true));
     $('jeopardy-line').textContent = '';
@@ -1663,7 +1858,9 @@ function flashStreak(k) {
       const ds = daySummary(S), V = VARIABLES[cfg.variable];
       if (ds.ex[d] && ds.p[d] === 0) html += `<div class="tt-sub">Outside season</div>`;
       else if (ds.p[d] === 0) html += `<div class="tt-sub">No data</div>`;
-      else if (S.upd === 24) html += `<div class="tt-sub">${ds.q[d]} of ${ds.p[d]} hrs ${cfg.op === 'gte' ? '≥' : '≤'} ${cfg.value}${V.unit}</div>`;
+      else if (S.upd === 24) html += V.categorical
+        ? `<div class="tt-sub">${ds.q[d]} of ${ds.p[d]} hrs with ${V.label.toLowerCase()}</div>`
+        : `<div class="tt-sub">${ds.q[d]} of ${ds.p[d]} hrs ${cfg.op === 'gte' ? '≥' : '≤'} ${cfg.value}${V.unit}</div>`;
       else html += `<div class="tt-sub">${V.metricLabel[cfg.metric][0].toUpperCase() + V.metricLabel[cfg.metric].slice(1)}: ${V.fmt(S.val[d])}${ds.q[d] ? ' ✓' : ''}</div>`;
     }
     tt.innerHTML = html;
@@ -1692,6 +1889,8 @@ const unitsTitle = cfg => cfg.agg === 'daily' ? 'Days' : 'Hours';
 function valueAxisTitle(cfg) {
   if (cfg.variable === 'cloud') return 'Cloud cover (oktas)';
   const V = VARIABLES[cfg.variable];
+  if (V.categorical) return `${V.label} reported`;
+  if (V.unit === '"') return `${V.label} (in)`;
   return `${V.label} (${V.unit.trim()})`;
 }
 function ols(xs, ys) {
@@ -1715,16 +1914,20 @@ function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n 
 
 // Streak value column: extreme in the streak's direction, or the mean where the extreme says nothing.
 function streakValueKind(cfg) {
+  const V = VARIABLES[cfg.variable];
+  if (V.categorical) return 'none';
+  if (V.trace) return cfg.op === 'gte' ? 'sum' : 'none';
   if (cfg.variable === 'cloud') return 'mean';
   if (cfg.variable === 'wind' && cfg.op === 'lte') return 'mean';
   return cfg.op === 'gte' ? 'max' : 'min';
 }
-const VALUE_HDR = { max: 'Peak', min: 'Lowest', mean: 'Mean' };
+const VALUE_HDR = { max: 'Peak', min: 'Lowest', mean: 'Mean', sum: 'Total', none: '' };
 function streakValue(S, s0, len, kind) {
+  if (kind === 'none') return null;
   let hi = -Infinity, lo = Infinity, sum = 0, c = 0;
-  for (let i = s0; i < s0 + len; i++) { const v = S.val[i]; if (v === v) { c++; sum += v; if (v > hi) hi = v; if (v < lo) lo = v; } }
+  for (let i = s0; i < s0 + len; i++) { let v = S.val[i]; if (v === v) { if (kind === 'sum' && v === TRACE) v = 0; c++; sum += v; if (v > hi) hi = v; if (v < lo) lo = v; } }
   if (!c) return null;
-  return kind === 'max' ? hi : kind === 'min' ? lo : sum / c;
+  return kind === 'max' ? hi : kind === 'min' ? lo : kind === 'sum' ? sum : sum / c;
 }
 function streakTouchesGap(S, s0, len) {
   const b = s0 - 1, a = s0 + len;
@@ -1742,7 +1945,7 @@ function rankRows(max) {
     const s0 = streaks.s[k], len = streaks.l[k], v = streakValue(S, s0, len, kind);
     return {
       k, rank: rankOfLength(len), dates: streakDateText(S, s0, len), length: formatLength(len, cfg),
-      value: v == null ? '–' : V.fmt(v), current: k === stats.current, record: len === stats.record,
+      value: kind === 'none' ? '' : v == null ? '–' : V.fmt(v), current: k === stats.current, record: len === stats.record,
       gap: streakTouchesGap(S, s0, len)
     };
   });
@@ -1752,8 +1955,31 @@ function rankRows(max) {
 // FORECAST (NWS) — verdict text + a series for the chart
 // ================================================================
 let fcSeries = null;
+const NO_FORECAST = new Set(['snow', 'snwd', 'depart', 'vsby']);
+const SERIES_VARS = new Set(['temp', 'dewpoint', 'wind', 'feel']);
+const WX_WORDING = { x_rain: /rain|showers|drizzle/i, x_snow: /snow|flurr/i, x_fzra: /freezing (rain|drizzle)/i, x_sleet: /sleet/i,
+  x_ts: /thunder|t-storm/i, x_fog: /fog/i, x_smoke: /smoke/i, x_haze: /haze/i };
+function apparentF(t, rh, w) {
+  if (t >= 80 && rh != null) {
+    const s = 0.5 * (t + 61 + (t - 68) * 1.2 + rh * 0.094);
+    if ((s + t) / 2 < 80) return s;
+    return -42.379 + 2.04901523 * t + 10.14333127 * rh - 0.22475541 * t * rh - 0.00683783 * t * t - 0.05481717 * rh * rh
+      + 0.00122874 * t * t * rh + 0.00085282 * t * rh * rh - 0.00000199 * t * t * rh * rh;
+  }
+  if (t <= 50 && w >= 3) return 35.74 + 0.6215 * t - 35.75 * w ** 0.16 + 0.4275 * t * w ** 0.16;
+  return t;
+}
+const popOf = p => (p.probabilityOfPrecipitation && typeof p.probabilityOfPrecipitation.value === 'number') ? p.probabilityOfPrecipitation.value : 0;
 function forecastValue(p, cfg) {
   const nums = str => (String(str || '').match(/\d+/g) || []).map(Number);
+  const V = VARIABLES[cfg.variable];
+  if (V.categorical) return WX_WORDING[cfg.variable].test(`${p.shortForecast || ''} ${p.detailedForecast || ''}`) ? 1 : 0;
+  if (cfg.variable === 'pcpn' || cfg.variable === 'p01i') return popOf(p) >= 50 ? 0.01 : 0;
+  if (cfg.variable === 'feel') {
+    if (typeof p.temperature !== 'number') return null;
+    const rh = p.relativeHumidity && typeof p.relativeHumidity.value === 'number' ? p.relativeHumidity.value : null;
+    const w = nums(p.windSpeed); return apparentF(p.temperature, rh, w.length ? Math.max(...w) : 0);
+  }
   if (cfg.variable === 'wind') { const n = nums(p.windSpeed); return n.length ? (cfg.agg === 'daily' && cfg.metric === 'mean' ? n.reduce((a, b) => a + b, 0) / n.length : Math.max(...n)) : null; }
   if (cfg.variable === 'gust') {
     const m = String(p.detailedForecast || '').match(/gusts?[^.]*?(?:as high as|up to|around|near|of)\s+(\d+)\s*mph/i);
@@ -1770,7 +1996,7 @@ function forecastValue(p, cfg) {
 function buildForecastSeries(cfg, periods, hourlyFeed) {
   const off = stdOffsetMin(store.st.iana, new Date().getUTCFullYear()) * 60000;
   const pts = [];
-  if (hourlyFeed && cfg.variable !== 'cloud') {
+  if (hourlyFeed && SERIES_VARS.has(cfg.variable)) {
     for (const p of periods.slice(0, 48)) {
       const v = forecastValue(p, cfg), t = Date.parse(p.startTime);
       if (v == null || isNaN(t)) continue;
@@ -1802,17 +2028,19 @@ function forecastVerdictHTML(cfg, periods) {
     : cfg.agg === 'daily' && cfg.metric === 'mean' ? [vals.reduce((a, b) => a + b, 0) / vals.length] : vals;
   const all = tested.every(v => qualifies(v, cfg)), any = tested.some(v => qualifies(v, cfg));
   const V = VARIABLES[cfg.variable];
-  const shown = cfg.variable === 'gust' && tested[0] === 0 ? 'no gusts mentioned'
+  const shown = V.categorical ? (any ? `mentions ${V.label.toLowerCase()}` : `no mention of ${V.label.toLowerCase()}`)
+    : (cfg.variable === 'pcpn' || cfg.variable === 'p01i') ? `precipitation chance up to ${Math.max(...use.map(popOf))}%`
+    : cfg.variable === 'gust' && tested[0] === 0 ? 'no gusts mentioned'
     : [...new Set(vals.filter(v => cfg.variable !== 'gust' || v > 0).map(v => Math.round(v)))].join('–') + V.unit;
   const verdict = all ? 'likely to continue' : !any ? 'likely to end' : 'close call';
-  return `<strong>Forecast: ${verdict}.</strong> NWS ${when}: ${shown}${cfg.variable === 'cloud' ? ' (from forecast wording)' : ''}.`;
+  return `<strong>Forecast: ${verdict}.</strong> NWS ${when}: ${shown}${cfg.variable === 'cloud' || V.categorical ? ' (from forecast wording)' : ''}.`;
 }
 async function maybeCheckForecast() {
   const el = $('jeopardy-line');
   const { cfg, S, stats } = last;
   const seq = ++forecastSeq;
   fcSeries = null;
-  if (!S || !stats || !isFresh(S) || !store) { el.textContent = ''; return; }
+  if (!S || !stats || !isFresh(S) || !store || NO_FORECAST.has(cfg.variable)) { el.textContent = ''; return; }
   const active = stats.current >= 0;
   el.textContent = active ? 'Checking NWS forecast…' : '';
   try {
@@ -1857,9 +2085,11 @@ function nowFigure(size) {
     x.push(naiveISO(unitMs(S, i))); y.push(ok ? v : null); yq.push(q && ok ? v : null); col.push(q ? base : NONQUAL_SOLID);
   }
   const hoverX = hourly ? '%{x|%b %d, %-I %p}' : '%{x|%b %d, %Y}';
-  const fmtHover = cfg.variable === 'cloud' ? '%{y:.1f}/8' : `%{y:.0f}${V.unit}`;
+  const fmtHover = V.categorical ? `${V.label}` : cfg.variable === 'cloud' ? '%{y:.1f}/8' : V.trace ? `%{y:.2f}${V.unit}` : cfg.variable === 'vsby' ? '%{y:.2f} mi' : cfg.variable === 'depart' ? '%{y:+.1f}°F' : `%{y:.0f}${V.unit}`;
+  const asBars = cfg.variable === 'gust' || V.categorical || V.trace || cfg.variable === 'snwd';
+  if (V.categorical) for (let i = 0; i < y.length; i++) if (y[i] === 0) y[i] = null;
   const data = [];
-  if (cfg.variable === 'gust') {
+  if (asBars) {
     data.push({ type: 'bar', x, y, marker: { color: col }, hovertemplate: `${hoverX}<br>${fmtHover}<extra></extra>` });
   } else {
     data.push({ type: 'scatter', mode: hourly ? 'lines' : 'lines+markers', x, y, connectgaps: false,
@@ -1879,9 +2109,10 @@ function nowFigure(size) {
         hovertemplate: `${hoverX}<br>Forecast ${fmtHover}<extra></extra>` });
     }
   }
-  const shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: cfg.value, y1: cfg.value, line: { color: '#E8E4D9', width: 1, dash: 'dash' } }];
-  const annotations = [{ xref: 'paper', x: 1, xanchor: 'left', y: cfg.value, yanchor: 'middle', showarrow: false,
-    text: ` ${cfg.op === 'gte' ? '≥' : '≤'} ${cfg.value}${V.unit}`, font: { color: '#E8E4D9', size: 13 } }];
+  const showLine = !V.categorical && !(V.trace && cfg.value === 0);
+  const shapes = showLine ? [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: cfg.value, y1: cfg.value, line: { color: '#E8E4D9', width: 1, dash: 'dash' } }] : [];
+  const annotations = showLine ? [{ xref: 'paper', x: 1, xanchor: 'left', y: cfg.value, yanchor: 'middle', showarrow: false,
+    text: ` ${cfg.op === 'gte' ? '≥' : '≤'} ${cfg.value}${V.unit}`, font: { color: '#E8E4D9', size: 13 } }] : [];
   if (focus) {
     const half = hourly ? 0 : DAY / 2;
     const x0 = naiveISO(unitMs(S, focus.fs) - half), x1 = naiveISO(unitMs(S, focus.fe) + (hourly ? HOUR : DAY / 2));
@@ -1896,7 +2127,7 @@ function nowFigure(size) {
     margin: { l: 64, r: 86, t: 30, b: 46 }, showlegend: false, bargap: 0.15, shapes, annotations,
     xaxis: { type: 'date', gridcolor: GRID, tickfont: { size: 12 } },
     yaxis: Object.assign({ gridcolor: GRID, tickfont: { size: 13 }, title: { text: valueAxisTitle(cfg), font: { size: 13 } }, zeroline: false },
-      cfg.variable === 'cloud' ? { range: [-0.3, 8.5] } : cfg.variable === 'gust' ? { rangemode: 'tozero' } : {})
+      cfg.variable === 'cloud' ? { range: [-0.3, 8.5] } : V.categorical ? { range: [0, 1.15], showticklabels: false, showgrid: false } : asBars ? { rangemode: 'tozero' } : {})
   }, size || {});
   return { data, layout, focus };
 }
@@ -2305,13 +2536,14 @@ function initExports() {
 // ================================================================
 function ensureData() {
   if (!store) return;
-  const cfg = activeCfg();
-  if (cfg.agg === 'daily' && VARIABLES[cfg.variable].dailySource === 'acis') {
-    if (store.acis.status === 'idle') {
-      loadACIS().then(() => { if (store && store.acis.status === 'fail') ensureData(); });
-    }
-    if (store.acis.status !== 'fail') { onLoadProgress(true); return; }
+  const cfg = activeCfg(), V = VARIABLES[cfg.variable];
+  // ACIS loads for every station (one quick request): it also tells us which fields the station records.
+  if (store.acis.status === 'idle') {
+    const tok = store.token;
+    loadACIS().then(() => { if (!storeAlive(tok)) return; syncControls(); if (store.acis.status === 'fail') ensureData(); });
   }
+  if (V.dailySource === 'acis-only') { onLoadProgress(true); return; }
+  if (cfg.agg === 'daily' && V.dailySource === 'acis' && store.acis.status !== 'fail') { onLoadProgress(true); return; }
   const g = VARIABLES[cfg.variable].group;
   const gs = groupState(g);
   if (gs.status === 'idle') loadGroup(g);
@@ -2363,9 +2595,15 @@ function buildPresetRow() {
     g.items.push(p);
   }
   row.innerHTML = groups.map(g => `<div class="preset-group"><span class="preset-group-label">${g.name}</span>` +
-    g.items.map(p => `<button class="cc-btn cc-btn-sm preset-btn${!app.custom && p.id === app.presetId ? ' is-active' : ''}" data-preset="${p.id}">${p.label}</button>`).join('') + '</div>').join('');
+    g.items.map(p => {
+      const req = VARIABLES[p.variable].requires;
+      const off = req && store && store.acis.status === 'ok' && !store.acis.avail[req];
+      const why = off ? unavailableReason(Object.assign({}, p)) : '';
+      return `<button class="cc-btn cc-btn-sm preset-btn${!app.custom && p.id === app.presetId ? ' is-active' : ''}" data-preset="${p.id}"${off ? ` disabled title="${why}"` : ''}>${p.label}</button>`;
+    }).join('') + '</div>').join('');
   row.querySelectorAll('.preset-btn').forEach(b => b.addEventListener('click', () => {
     app.custom = null; app.presetId = b.dataset.preset;
+    if (PRESET_BY_ID[app.presetId].era30) app.record = '30';
     $('custom-panel').classList.remove('open');
     onConfigChange();
   }));
@@ -2402,6 +2640,8 @@ function syncControls() {
   $('seg-record').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.rec === app.record));
   $('view-tabs').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.view === app.view));
   $('custom-toggle-btn').classList.toggle('is-active', !!app.custom);
+  $('trace-group').classList.toggle('show', !!VARIABLES[cfg.variable].trace);
+  $('seg-trace').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', (b.dataset.trace === 'wet') === app.traceWet));
   renderSummary(cfg);
   renderProvenance(cfg);
 }
@@ -2421,13 +2661,18 @@ function syncCustomPanel() {
   $('seg-op').querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.op === draft.op));
   $('metric-field').style.display = draft.agg === 'daily' ? '' : 'none';
   $('metric-select').value = draft.metric;
-  $('custom-value-label').textContent = `Value (${V.unit.trim()})`;
-  // Gusts: peak only (hourly or daily), at/above only.
+  $('custom-value-label').textContent = V.unit.trim() ? `Value (${V.unit.trim() === '"' ? 'in' : V.unit.trim()})` : 'Value';
+  // Some variables fix part of the definition: gusts/weather types are peaks and at-or-above only,
+  // ACIS fields are daily only, hourly precipitation is hourly only, weather types have no threshold.
   $('op-field').style.display = V.gteOnly ? 'none' : '';
-  if (V.peakOnly) $('metric-field').style.display = 'none';
+  $('agg-field').style.display = (V.dailyOnly || V.hourlyOnly) ? 'none' : '';
+  if (V.peakOnly || V.acisField || V.hourlyOnly) $('metric-field').style.display = 'none';
+  $('value-field').style.display = V.categorical ? 'none' : '';
+  $('range-field').style.display = V.categorical ? 'none' : '';
   for (const id of ['custom-num', 'custom-range']) { const e = $(id); e.min = V.rangeMin; e.max = V.rangeMax; e.step = V.step; e.value = draft.value; }
 }
 function initCustomPanel() {
+  $('custom-variable').innerHTML = CUSTOM_VARIABLE_ORDER.map(k => `<option value="${k}">${VARIABLES[k].categorical ? 'Weather: ' : ''}${VARIABLES[k].label}</option>`).join('');
   $('custom-toggle-btn').addEventListener('click', () => {
     if ($('custom-panel').classList.contains('open')) $('custom-panel').classList.remove('open'); else openCustom();
   });
@@ -2449,7 +2694,8 @@ function applyCustom() {
   const V = VARIABLES[draft.variable];
   const v = Math.min(V.rangeMax, Math.max(V.rangeMin, parseFloat(draft.value)));
   if (isNaN(v)) return;
-  const d = { variable: draft.variable, agg: draft.agg, metric: (V.peakOnly || draft.agg !== 'daily') ? 'max' : draft.metric, op: V.gteOnly ? 'gte' : draft.op, value: v };
+  const agg = V.dailyOnly ? 'daily' : V.hourlyOnly ? 'hourly' : draft.agg;
+  const d = { variable: draft.variable, agg, metric: (V.peakOnly || V.acisField || agg !== 'daily') ? 'max' : draft.metric, op: V.gteOnly ? 'gte' : draft.op, value: V.categorical ? 1 : v };
   // If the draft matches a preset exactly, select the preset instead.
   const match = PRESETS.find(p => p.variable === d.variable && p.agg === d.agg && p.op === d.op && p.value === d.value && (d.agg === 'hourly' || p.metric === d.metric));
   if (match) { app.custom = null; app.presetId = match.id; }
@@ -2465,6 +2711,7 @@ function initControls() {
   initCustomPanel();
   $('season-custom-toggle-btn').addEventListener('click', () => $('month-grid').classList.toggle('open'));
   $('seg-record').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { app.record = b.dataset.rec; onConfigChange(); }));
+  $('seg-trace').querySelectorAll('button').forEach(b => b.addEventListener('click', () => { app.traceWet = b.dataset.trace === 'wet'; onConfigChange(); }));
   $('view-tabs').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
     app.view = b.dataset.view;
     $('streaks-view').style.display = app.view === 'streaks' ? '' : 'none';
@@ -2554,6 +2801,7 @@ function syncURL() {
   else if (app.seasonId !== 'all') p.set('season', app.seasonId);
   if (app.record !== 'full') p.set('rec', app.record);
   if (app.view !== 'streaks') p.set('view', app.view);
+  if (app.traceWet) p.set('trace', 'wet');
   try { history.replaceState(null, '', `${location.pathname}?${p.toString()}`); } catch (e) {}
 }
 function readURL() {
@@ -2578,6 +2826,7 @@ function readURL() {
   }
   const rec = p.get('rec'); if (rec === '1991' || rec === '30') app.record = rec;
   const view = p.get('view'); if (view === 'totals') app.view = 'totals';
+  if (p.get('trace') === 'wet') app.traceWet = true;
   const st = (p.get('st') || '').toUpperCase();
   return STATIONS[st] ? st : (STATIONS.KISP ? 'KISP' : Object.keys(STATIONS)[0]);
 }
