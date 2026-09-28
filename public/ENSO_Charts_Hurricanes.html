@@ -113,8 +113,6 @@ header .cc-title { margin-bottom:6px; }
 .stats-table tr:hover td { background:var(--color-surface-2); }
 .phase-cell { display:flex; align-items:center; gap:8px; }
 .warn { color:var(--amb); }
-.trend-pos { color:#f87171; }
-.trend-neg { color:#60a5fa; }
 .footnote { font-family:var(--font-mono); font-size:12px; color:var(--color-text-muted); letter-spacing:.03em; text-align:center; margin-top:8px; }
 
 /* ── Modal ── */
@@ -144,6 +142,7 @@ header .cc-title { margin-bottom:6px; }
 /* ── Button tiers (Display vs Actions) — replaces one dense 8-item row ── */
 .btn-tier { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
 .btn-tier + .btn-tier { margin-top:10px; }
+.cc-btn:disabled { opacity:.35; cursor:not-allowed; pointer-events:none; }
 </style>
 </head>
 <body>
@@ -198,8 +197,19 @@ header .cc-title { margin-bottom:6px; }
     <button class="cc-btn cc-btn-sm" id="btn-season-summer" onclick="setSeasonMode('summer')">Summer (JJA)</button>
   </div>
   <div class="btn-tier">
+    <span class="cc-btn-row-label">View</span>
+    <button class="cc-btn cc-btn-sm on" id="btn-view-dots" onclick="setView('dots')">Dots</button>
+    <button class="cc-btn cc-btn-sm"    id="btn-view-terc" onclick="setView('terc')">Terciles</button>
+  </div>
+  <div class="btn-tier">
+    <span class="cc-btn-row-label">Values</span>
+    <button class="cc-btn cc-btn-sm"    id="btn-val-actual"  onclick="setValMode('actual')">Actual</button>
+    <button class="cc-btn cc-btn-sm"    id="btn-val-anom"    onclick="setValMode('anom')">Anomaly</button>
+    <button class="cc-btn cc-btn-sm on" id="btn-val-detrend" onclick="setValMode('detrend')">Detrended Anomaly</button>
+    <button class="cc-btn cc-btn-sm"    id="btn-val-pct"     onclick="setValMode('pct')">% of Normal</button>
+  </div>
+  <div class="btn-tier">
     <span class="cc-btn-row-label">Display</span>
-    <button class="cc-btn cc-btn-sm" id="btn-anomaly" onclick="toggleAnomaly()">Anomaly</button>
     <button class="cc-btn cc-btn-sm" id="btn-boxplot" onclick="toggleBoxplot()">Box Plot</button>
     <button class="cc-btn cc-btn-sm" id="btn-trend"   onclick="toggleTrend()">Trend &nearr;</button>
     <button class="cc-btn cc-btn-sm" id="btn-decade"  onclick="toggleDecade()">Decade Colors</button>
@@ -232,7 +242,7 @@ header .cc-title { margin-bottom:6px; }
       <button class="modal-btn"         onclick="downloadImg()">&#8595; Download PNG</button>
       <button class="modal-btn"         onclick="closeModal()">&times; Close</button>
     </div>
-    <p class="modal-hint">Right-click image to copy or save &middot; 1600 &times; 900 px</p>
+    <p class="modal-hint">Right-click image to copy or save &middot; <span id="modal-dims"></span></p>
     <div id="modal-toast">&#10003; Copied to clipboard!</div>
   </div>
 </div>
@@ -266,7 +276,8 @@ const S = {
   decade:     false,
   iso:        {atl:null, pac:null},
   iso_decade: {atl:null, pac:null},
-  anomaly:    false,
+  vmode:      'detrend',
+  view:       'dots',
   boxplot:    false,
   trend:      false,
   season:     'winter',
@@ -313,14 +324,23 @@ applyEnsoMode();
 
 let _copyUrl='', _debounce=null, _chartReady=false;
 
-const BASIN_MEANS = {};
-['atl','pac'].forEach(b => {
-  BASIN_MEANS[b] = {};
-  VARS.forEach(v => {
-    const vals = D.points[b].filter(p=>p[v.key]!==null&&p[v.key]!==undefined).map(p=>p[v.key]);
-    BASIN_MEANS[b][v.key] = vals.length ? vals.reduce((a,x)=>a+x,0)/vals.length : 0;
-  });
-});
+const TREND_COL  = {hur:{pos:'#f87171', neg:'#60a5fa'}};
+const TERC_COL   = {hur:{lo:'#60a5fa',  hi:'#f87171'}};
+const RANK_WORDS = {hur:['highest','lowest']};
+// Tool hooks for the shared VALUES/UNCERTAINTY block
+function allPts(){return D.points[S.basin];}
+function curIso(){return S.iso[S.basin];}
+function curIsoDec(){return S.iso_decade[S.basin];}
+function setIso(v){S.iso[S.basin]=v;}
+function setIsoDec(v){S.iso_decade[S.basin]=v;}
+function colKey(){return 'hur';}
+function baseUnit(){return currentVar().unit||'';}
+function numFmt(v){return String(parseFloat(v.toFixed(1)));}
+function valName(){return currentVar().label;}
+function axisBase(){return S.vmode==='actual'?currentVar().y_label:currentVar().label;}
+function axisUnit(){return '';}
+function pctAvailable(){return true;}
+function oniCell(p){return '';}
 
 function currentVar(){ return VARS.find(v=>v.key===S.var_key); }
 function makeTitle(){
@@ -332,7 +352,6 @@ function medianVal(arr){const s=[...arr].sort((a,b)=>a-b),m=Math.floor(s.length/
 function stdDevVal(arr){if(arr.length<2)return null;const m=arr.reduce((a,b)=>a+b,0)/arr.length;return Math.sqrt(arr.reduce((s,v)=>s+(v-m)**2,0)/(arr.length-1));}
 function linreg(xs,ys){const n=xs.length;if(n<3)return null;const mx=xs.reduce((a,b)=>a+b,0)/n,my=ys.reduce((a,b)=>a+b,0)/n;let num=0,den=0;for(let i=0;i<n;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}return den>0?num/den:null;}
 function ptY(p){const v=p[S.var_key];return(v===null||v===undefined)?null:v;}
-function dispY(raw){if(raw===null||raw===undefined)return null;return S.anomaly?raw-BASIN_MEANS[S.basin][S.var_key]:raw;}
 function dotColor(p){return S.decade?p.decade_color:p.phase_color;}
 function dotOpacity(p){
   const iso=S.iso[S.basin],isoDec=S.iso_decade[S.basin];
@@ -340,52 +359,162 @@ function dotOpacity(p){
   const inP=S.decade?(isoDec===null||p.decade===isoDec):(iso===null||p.enso_code===iso);
   if(inR&&inP)return 0.88; if(inR&&!inP)return 0.10; if(!inR&&inP)return 0.15; return 0.04;
 }
-function yLabel(){const v=currentVar();return S.anomaly?v.y_anom:v.y_label;}
 function filteredPts(){return D.points[S.basin].filter(p=>p.start_year>=S.lo&&p.start_year<=S.hi&&ptY(p)!==null);}
+
+
+
+
+// ================================================================
+// VALUES, BASELINE, UNCERTAINTY, TERCILES, RANK
+// Shared logic (kept identical in ENSO_Charts.html and
+// ENSO_Charts_Hurricanes.html). Tool-specific hooks: allPts, ptY,
+// curIso, colKey, baseUnit, numFmt, valName, axisBase, axisUnit,
+// pctAvailable, oniCell.
+// ================================================================
+const CI_B=1000, CI_LEVEL=0.90;
+const TERC_NEAR='#8A877C';
+let BASE={mean:0,slope:0,xm:0};
+
+// Deterministic PRNG so bootstrap bands are identical on every redraw.
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+// Percentile bootstrap CI of the mean (CI_B resamples, fixed seed per phase).
+function bootCI(vals,seed){
+  const n=vals.length;if(n<3)return null;
+  const rnd=mulberry32(seed),means=new Float64Array(CI_B);
+  for(let b=0;b<CI_B;b++){let s=0;for(let i=0;i<n;i++)s+=vals[(rnd()*n)|0];means[b]=s/n;}
+  means.sort();const a=(1-CI_LEVEL)/2;
+  return [means[Math.floor(a*(CI_B-1))],means[Math.ceil((1-a)*(CI_B-1))]];
+}
+function quantile(sorted,q){const pos=(sorted.length-1)*q,lo=Math.floor(pos),hi=Math.ceil(pos);return sorted[lo]+(sorted[hi]-sorted[lo])*(pos-lo);}
+function ordinal(n){const s=['th','st','nd','rd'],v=n%100;return n+(s[(v-20)%10]||s[v]||s[0]);}
+function trendCol(v){const r=Math.round(v*10)/10;return r===0?'#948F82':(r>0?TREND_COL[colKey()].pos:TREND_COL[colKey()].neg);}
+function fmtSlope(v){let r=Math.round(v*10)/10;if(r===0)r=0;return (r>0?'+':'')+numFmt(r);}
+
+// Baseline over the in-range seasons: mean always; linear fit vs start_year
+// in detrend mode.
+function computeBase(){
+  const fps=filteredPts(),n=fps.length;
+  if(!n){BASE={mean:0,slope:0,xm:0};return;}
+  const ys=fps.map(ptY),xs=fps.map(p=>p.start_year);
+  const mean=ys.reduce((a,b)=>a+b,0)/n,xm=xs.reduce((a,b)=>a+b,0)/n;
+  const slope=S.vmode==='detrend'?(linreg(xs,ys)??0):0;
+  BASE={mean,slope,xm};
+}
+function dispY(raw,year){
+  if(raw===null||raw===undefined)return null;
+  if(S.vmode==='anom')return raw-BASE.mean;
+  if(S.vmode==='detrend')return raw-(BASE.mean+BASE.slope*(year-BASE.xm));
+  if(S.vmode==='pct')return BASE.mean>0?raw/BASE.mean*100:null;
+  return raw;
+}
+function dv(p){return dispY(ptY(p),p.start_year);}
+function unitStr(){return S.vmode==='pct'?'%':baseUnit();}
+function fmtV(v){
+  if(v===null||v===undefined)return '—';
+  if(S.vmode==='pct')return Math.round(v)+'%';
+  let r=Math.round(v*10)/10;if(r===0)r=0; // no "-0.0"
+  const sg=(S.vmode==='anom'||S.vmode==='detrend')&&r>0?'+':'';
+  return sg+numFmt(r)+baseUnit();
+}
+function fmtObs(v){return v===null||v===undefined?'—':numFmt(v)+baseUnit();}
+function valLabel(){return {actual:valName(),anom:'Anomaly',detrend:'Detrended anomaly',pct:'% of normal'}[S.vmode];}
+function yLabel(){
+  if(S.view==='terc')return 'Share of Seasons (%)';
+  const b=axisBase(),u=axisUnit();
+  if(S.vmode==='anom')return `${b} Anomaly${u}`;
+  if(S.vmode==='detrend')return `${b} Anomaly, Detrended${u}`;
+  if(S.vmode==='pct')return `${b} (% of Normal)`;
+  return `${b}${u}`;
+}
+
 function phaseStats(){
   const fps=filteredPts(),out={};
   D.phases.forEach(ph=>{
-    const vals=fps.filter(p=>p.enso_code===ph.code).map(ptY);
+    const vals=fps.filter(p=>p.enso_code===ph.code).map(dv).filter(v=>v!==null);
     const n=vals.length,mean=n?vals.reduce((a,b)=>a+b,0)/n:null;
-    out[ph.code]={mean,median:n?medianVal(vals):null,std:n>1?stdDevVal(vals):null,count:n};
+    out[ph.code]={mean,median:n?medianVal(vals):null,std:n>1?stdDevVal(vals):null,count:n,ci:bootCI(vals,9973*ph.code+17)};
   });
   return out;
 }
-
-function buildTraces(){
-  const stats=phaseStats(),fps=filteredPts(),traces=[];
-  const unit=currentVar().unit||'',vLabel=currentVar().label;
-  const fmt=v=>v!==null?(parseFloat(v.toFixed(1))+''+unit):'—';
-
+// Terciles of the in-range seasons (displayed values); per-phase counts
+// below the lower / above the upper tercile.
+function tercileStats(){
+  const fps=filteredPts(),all=fps.map(dv).filter(v=>v!==null).sort((a,b)=>a-b);
+  if(all.length<3)return null;
+  const q1=quantile(all,1/3),q2=quantile(all,2/3),out={};
   D.phases.forEach(ph=>{
-    const pts=D.points[S.basin].filter(p=>p.enso_code===ph.code&&ptY(p)!==null);
-    const cd=pts.map(p=>[p.season, fmt(dispY(ptY(p))), p.decade]);
+    const v=fps.filter(p=>p.enso_code===ph.code).map(dv).filter(x=>x!==null);
+    const lo=v.filter(x=>x<q1).length,hi=v.filter(x=>x>q2).length;
+    out[ph.code]={n:v.length,lo,mid:v.length-lo-hi,hi};
+  });
+  return out;
+}
+// Rank of a season's observed value among the in-range seasons.
+function rankCtx(){const vals=filteredPts().map(ptY);return{vals,n:vals.length};}
+function rankStr(p,ctx){
+  if(p.start_year<S.lo||p.start_year>S.hi)return '';
+  const v=ptY(p);let gt=0,lt=0,eq=0;
+  ctx.vals.forEach(x=>{if(x>v)gt++;else if(x<v)lt++;else eq++;});
+  const hi=gt+1,lo=lt+1,tie=eq>1?'T-':'',w=RANK_WORDS[colKey()];
+  const r=hi<=lo?hi:lo,word=hi<=lo?w[0]:w[1];
+  if(r===1)return `<br>${eq>1?'Tied ':''}${eq>1?word:word[0].toUpperCase()+word.slice(1)} of ${ctx.n}`;
+  return `<br>${tie}${ordinal(r)} ${word} of ${ctx.n}`;
+}
+
+function buildTraces(){return S.view==='terc'?buildTercileTraces():buildDotTraces();}
+function buildDotTraces(){
+  const stats=phaseStats(),fps=filteredPts(),traces=[],rc=rankCtx();
+  const obsLine=S.vmode!=='actual'?'<br>Observed: %{customdata[4]}':'';
+  D.phases.forEach(ph=>{
+    const ci=stats[ph.code].ci;
+    traces.push({type:'scatter',mode:'lines',x:[ph.x_center,ph.x_center],y:ci?[ci[0],ci[1]]:[null,null],
+      line:{color:hexToRgba(ph.color,0.42),width:14},hoverinfo:'skip',showlegend:false,_ci:true});
+  });
+  D.phases.forEach(ph=>{
+    const pts=allPts().filter(p=>p.enso_code===ph.code&&ptY(p)!==null&&dv(p)!==null);
+    const cd=pts.map(p=>[p.season,fmtV(dv(p)),p.decade,oniCell(p),fmtObs(ptY(p)),rankStr(p,rc)]);
     traces.push({
       type:'scatter',mode:'markers',
-      x:pts.map(p=>p.x_pos),y:pts.map(p=>dispY(ptY(p))),
+      x:pts.map(p=>p.x_pos),y:pts.map(dv),
       marker:{color:pts.map(dotColor),opacity:pts.map(dotOpacity),size:9,line:{width:0.5,color:'rgba(0,0,0,.25)'}},
       customdata:cd,
-      hovertemplate:`<b>%{customdata[0]}</b><br>${vLabel}: <b>%{customdata[1]}</b><br>Decade: %{customdata[2]}<extra></extra>`,
+      hovertemplate:`<b>%{customdata[0]}</b><br>${valLabel()}: <b>%{customdata[1]}</b>${obsLine}%{customdata[5]}<br>Decade: %{customdata[2]}%{customdata[3]}<extra></extra>`,
       showlegend:false,_phase:ph.code,
     });
   });
-
   D.phases.forEach(ph=>{
     const s=stats[ph.code];
-    const dY=s.mean!==null?dispY(s.mean):null;
+    const ciStr=s.ci?`<br>90% CI: ${fmtV(s.ci[0])} to ${fmtV(s.ci[1])}`:'';
     traces.push({
-      type:'scatter',mode:'markers',x:[ph.x_center],y:[dY],
+      type:'scatter',mode:'markers',x:[ph.x_center],y:[s.mean],
       marker:{symbol:'line-ew-open',size:30,color:ph.color,line:{width:4.5,color:ph.color},opacity:1},
-      customdata:[[ph.label, fmt(dY)]],
-      hovertemplate:'<b>%{customdata[0]}</b><br>Phase mean: <b>%{customdata[1]}</b><extra></extra>',
+      customdata:[[ph.label,fmtV(s.mean),ciStr]],
+      hovertemplate:'<b>%{customdata[0]}</b><br>Phase mean: <b>%{customdata[1]}</b>%{customdata[2]}<extra></extra>',
       showlegend:false,_mean:true,_phase:ph.code,
     });
   });
-
   D.phases.forEach(ph=>{
-    const vals=fps.filter(p=>p.enso_code===ph.code).map(p=>dispY(ptY(p)));
+    const vals=fps.filter(p=>p.enso_code===ph.code).map(dv).filter(v=>v!==null);
     const show=S.boxplot&&vals.length>=3;
     traces.push({type:'box',x:Array(vals.length).fill(ph.x_center),y:vals,boxpoints:false,fillcolor:hexToRgba(ph.color,0.16),line:{color:ph.color,width:1.5},whiskerwidth:0.5,width:0.28,showlegend:false,visible:show,hoverinfo:'skip'});
+  });
+  return traces;
+}
+function buildTercileTraces(){
+  const T=tercileStats(),tc=TERC_COL[colKey()],iso=curIso(),traces=[];
+  [['lo','Below normal',tc.lo],['mid','Near normal',TERC_NEAR],['hi','Above normal',tc.hi]].forEach(([k,label,col])=>{
+    const xs=[],ys=[],txt=[],cd=[],op=[];
+    D.phases.forEach(ph=>{
+      const t=T?T[ph.code]:null,n=t?t.n:0,pc=n?100*t[k]/n:0;
+      xs.push(ph.x_center);ys.push(pc);txt.push(n&&pc>=7?Math.round(pc)+'%':'');
+      cd.push([ph.label,label,t?t[k]:0,n,Math.round(pc)]);
+      op.push(iso===null||iso===ph.code?1:0.25);
+    });
+    traces.push({type:'bar',x:xs,y:ys,width:0.62,text:txt,textposition:'inside',insidetextanchor:'middle',
+      textfont:{family:"'Courier Prime',monospace",size:13,color:'#1E2320'},
+      marker:{color:col,opacity:op,line:{width:0}},customdata:cd,
+      hovertemplate:'<b>%{customdata[0]}</b><br>%{customdata[1]}: <b>%{customdata[2]} of %{customdata[3]}</b> (%{customdata[4]}%)<extra></extra>',
+      showlegend:false,_terc:true});
   });
   return traces;
 }
@@ -401,33 +530,144 @@ function makeAnnotations(){
     {x:3.0,y:-0.30,xref:'x',yref:'paper',text:'<b>NEUTRAL</b>',font:{color:'#4ade80',size:14},showarrow:false},
     {x:5.5,y:-0.30,xref:'x',yref:'paper',text:'<b>EL NIÑO ►</b>',font:{color:'#f87171',size:14},showarrow:false}
   );
-  if(S.trend){
+  if(S.trend&&S.view==='dots'){
     const fps=filteredPts();
     D.phases.forEach(ph=>{
-      const pts=fps.filter(p=>p.enso_code===ph.code);
+      const pts=fps.filter(p=>p.enso_code===ph.code&&dv(p)!==null);
       if(pts.length<3)return;
-      const slope=linreg(pts.map(p=>p.start_year),pts.map(p=>dispY(ptY(p))));
+      const slope=linreg(pts.map(p=>p.start_year),pts.map(dv));
       if(slope===null)return;
-      const sd=slope*10,sign=sd>=0?'+':'',col=sd>=0?'#f87171':'#60a5fa';
-      ann.push({x:ph.x_center,y:1.06,xref:'x',yref:'paper',text:`${sign}${sd.toFixed(1)}/dec`,showarrow:false,font:{size:12,color:col}});
+      const sd=slope*10;
+      ann.push({x:ph.x_center,y:1.06,xref:'x',yref:'paper',text:`${fmtSlope(sd)}${unitStr()}/dec`,showarrow:false,font:{size:12,color:trendCol(sd)}});
     });
   }
   return ann;
 }
 
 function buildLayout(){
-  const tMargin=S.trend?44:10,N=D.phases.length;
+  const terc=S.view==='terc',tMargin=(S.trend&&!terc)?44:10,N=D.phases.length;
+  const x0=-0.6,x1=N-0.4;
+  let shapes=[];
+  if(terc)shapes=[1/3,2/3].map(f=>({type:'line',x0,x1,y0:f*100,y1:f*100,xref:'x',yref:'y',layer:'below',line:{color:'rgba(232,228,217,.45)',width:1.5,dash:'dot'}}));
+  else if(S.vmode==='anom'||S.vmode==='detrend')shapes=[{type:'line',x0,x1,y0:0,y1:0,xref:'x',yref:'y',line:{color:'rgba(232,228,217,.2)',width:1.5,dash:'dash'}}];
+  else if(S.vmode==='pct')shapes=[{type:'line',x0,x1,y0:100,y1:100,xref:'x',yref:'y',line:{color:'rgba(232,228,217,.25)',width:1.5,dash:'dash'}}];
+  const yaxis={title:{text:yLabel(),font:{size:14,color:'#A6A499',family:"'Courier Prime',monospace"}},gridcolor:'rgba(232,228,217,.06)',
+    zeroline:!terc&&(S.vmode==='anom'||S.vmode==='detrend'),zerolinecolor:'rgba(232,228,217,.25)',zerolinewidth:1.5,
+    tickfont:{family:"'Courier Prime',monospace",size:12,color:'#948F82'}};
+  if(terc)Object.assign(yaxis,{range:[0,100],ticksuffix:'%',tickvals:[0,25,50,75,100],fixedrange:true});
   return {
     paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'#262B27',
     font:{color:'#A6A499',family:"'Public Sans',sans-serif"},
-    xaxis:{tickmode:'array',tickvals:D.phases.map(p=>p.x_center),ticktext:D.phases.map(p=>p.label_br),tickfont:{size:12,color:'#948F82',family:"'Courier Prime',monospace"},showgrid:false,zeroline:false,range:[-0.6,N-0.4]},
-    yaxis:{title:{text:yLabel(),font:{size:14,color:'#A6A499',family:"'Courier Prime',monospace"}},gridcolor:'rgba(232,228,217,.06)',zeroline:S.anomaly,zerolinecolor:'rgba(232,228,217,.25)',zerolinewidth:1.5,tickfont:{family:"'Courier Prime',monospace",size:12,color:'#948F82'}},
-    shapes:S.anomaly?[{type:'line',x0:-0.6,x1:N-0.4,y0:0,y1:0,xref:'x',yref:'y',line:{color:'rgba(232,228,217,.2)',width:1.5,dash:'dash'}}]:[],
+    barmode:'stack',
+    xaxis:{tickmode:'array',tickvals:D.phases.map(p=>p.x_center),ticktext:D.phases.map(p=>p.label_br),tickfont:{size:12,color:'#948F82',family:"'Courier Prime',monospace"},showgrid:false,zeroline:false,range:[x0,x1]},
+    yaxis,shapes,
     annotations:makeAnnotations(),
     hoverlabel:{bgcolor:'#2C322D',bordercolor:'rgba(160,140,198,0.3)',font:{color:'#E8E4D9',family:"'Public Sans',sans-serif",size:13}},
     margin:{l:68,r:20,t:tMargin,b:135},showlegend:false,height:510,
-    transition:{duration:350,easing:'cubic-in-out'},
+    // No layout transition: a Plotly.react that lands mid-transition leaves the
+    // y-axis at the previous scale.
   };
+}
+
+function buildLegend(){
+  const el=document.getElementById('legend');el.innerHTML='';
+  const key=(html)=>{const mi=document.createElement('div');mi.className='leg-item noclick';mi.innerHTML=html;el.appendChild(mi);};
+  if(S.view==='terc'){
+    const tc=TERC_COL[colKey()];
+    key(`<div class="leg-dot" style="background:${tc.lo};border-radius:2px"></div>Below normal`);
+    key(`<div class="leg-dot" style="background:${TERC_NEAR};border-radius:2px"></div>Near normal`);
+    key(`<div class="leg-dot" style="background:${tc.hi};border-radius:2px"></div>Above normal`);
+    const div=document.createElement('div');div.className='leg-divider';el.appendChild(div);
+    key('<div class="leg-line" style="background:none;border-top:2px dotted #A6A499;height:0"></div>Equal thirds (33% / 67%)');
+    return;
+  }
+  if(S.decade){
+    const present=[...new Set(allPts().map(p=>p.decade))].sort();
+    present.forEach(d=>{
+      const dc=D.decades.find(x=>x.label===d)?.color??'#888';
+      const item=document.createElement('div');
+      item.className='leg-item'+(curIsoDec()===d?' iso':'');
+      item.innerHTML=`<div class="leg-dot" style="background:${dc}"></div>${d}`;
+      item.onclick=()=>{setIsoDec(curIsoDec()===d?null:d);refresh();};
+      el.appendChild(item);
+    });
+  }else{
+    D.phases.forEach(ph=>{
+      const item=document.createElement('div');
+      item.className='leg-item'+(curIso()===ph.code?' iso':'');
+      item.innerHTML=`<div class="leg-dot" style="background:${ph.color}"></div>${ph.label}`;
+      item.onclick=()=>{setIso(curIso()===ph.code?null:ph.code);refresh();};
+      el.appendChild(item);
+    });
+  }
+  const div=document.createElement('div');div.className='leg-divider';el.appendChild(div);
+  key('<div class="leg-line" style="background:#888"></div>Phase mean');
+  key('<div class="leg-line" style="background:rgba(136,136,136,.45);height:10px;width:8px;border-radius:1px"></div>90% CI of mean');
+}
+
+function buildStatsTable(){
+  const stats=phaseStats(),fps=filteredPts(),terc=S.view==='terc',T=terc?tercileStats():null;
+  let html='<thead><tr><th style="text-align:left">Phase</th><th>n</th><th>Mean</th><th>90% CI</th><th>Median</th><th>Std Dev</th>';
+  if(S.trend&&!terc)html+='<th>Trend / dec</th>';
+  if(terc)html+='<th>Below</th><th>Near</th><th>Above</th>';
+  html+='</tr></thead><tbody>';
+  D.phases.forEach(ph=>{
+    const s=stats[ph.code],warn=s.count>0&&s.count<LOW_N;
+    const pts=fps.filter(p=>p.enso_code===ph.code&&dv(p)!==null),vals=pts.map(dv);
+    const fmtStd=s.std!==null?(S.vmode==='pct'?Math.round(s.std)+'%':numFmt(s.std)+baseUnit()):'—';
+    const ciCell=s.ci?`${fmtV(s.ci[0])} to ${fmtV(s.ci[1])}`:'—';
+    let extra='';
+    if(S.trend&&!terc){
+      const slp=linreg(pts.map(p=>p.start_year),vals);
+      extra=(slp!==null&&s.count>=3)?`<td><span style="color:${trendCol(slp*10)}">${fmtSlope(slp*10)}${unitStr()}</span></td>`:'<td>—</td>';
+    }
+    if(terc){
+      const t=T?T[ph.code]:null,pc=k=>t&&t.n?Math.round(100*t[k]/t.n)+'%':'—';
+      extra+=`<td>${pc('lo')}</td><td>${pc('mid')}</td><td>${pc('hi')}</td>`;
+    }
+    html+=`<tr><td><div class="phase-cell"><div class="leg-dot" style="background:${ph.color};width:10px;height:10px;border-radius:50%;flex-shrink:0"></div>${ph.label}</div></td><td>${s.count}${warn?' <span class="warn">⚠</span>':''}</td><td>${fmtV(s.mean)}</td><td>${ciCell}</td><td>${fmtV(s.median)}</td><td>${fmtStd}</td>${extra}</tr>`;
+  });
+  document.getElementById('stats-table').innerHTML=html+'</tbody>';
+}
+
+// Values / View controls
+function syncValButtons(){
+  ['actual','anom','detrend','pct'].forEach(m=>document.getElementById('btn-val-'+m).classList.toggle('on',S.vmode===m));
+  document.getElementById('btn-val-pct').disabled=!pctAvailable();
+}
+function setValMode(m){if(S.vmode===m)return;if(m==='pct'&&!pctAvailable())return;S.vmode=m;syncValButtons();refresh();}
+function ensureValModeValid(){if(S.vmode==='pct'&&!pctAvailable())S.vmode='detrend';syncValButtons();}
+function syncViewButtons(){
+  ['dots','terc'].forEach(v=>document.getElementById('btn-view-'+v).classList.toggle('on',S.view===v));
+  ['btn-boxplot','btn-trend','btn-decade'].forEach(id=>{document.getElementById(id).disabled=S.view==='terc';});
+}
+function setView(v){
+  if(S.view===v)return;S.view=v;
+  if(v==='terc'&&S.decade){S.decade=false;setIsoDec(null);document.getElementById('btn-decade').classList.remove('on');}
+  syncViewButtons();refresh();
+}
+// Export: context descriptors + a key row for encodings the axis doesn't explain.
+const VDESC={actual:'',anom:'Anomaly vs period mean',detrend:'Anomaly vs period linear trend',pct:'% of period mean'};
+function exportContextSuffix(){
+  let c='';
+  if(S.view==='terc')c+='  ·  Tercile breakdown';
+  if(VDESC[S.vmode]&&!(S.view==='terc'&&S.vmode!=='detrend'))c+='  ·  '+VDESC[S.vmode];
+  return c;
+}
+function drawExportKey(oc,x,y){
+  oc.font='13px "Courier Prime", monospace';oc.textBaseline='middle';
+  const items=S.view==='terc'
+    ?[['sq',TERC_COL[colKey()].lo,'Below normal'],['sq',TERC_NEAR,'Near normal'],['sq',TERC_COL[colKey()].hi,'Above normal'],['dot','#A6A499','Equal thirds (33% / 67%)']]
+    :[['line','#A6A499','Phase mean'],['bar','rgba(166,164,153,.5)','90% CI of mean']];
+  items.forEach(([k,col,label])=>{
+    oc.fillStyle=col;oc.strokeStyle=col;
+    if(k==='sq')oc.fillRect(x,y-6,12,12);
+    else if(k==='line')oc.fillRect(x,y-2,20,4);
+    else if(k==='bar')oc.fillRect(x+6,y-8,8,16);
+    else{oc.setLineDash([2,3]);oc.lineWidth=2;oc.beginPath();oc.moveTo(x,y);oc.lineTo(x+20,y);oc.stroke();oc.setLineDash([]);}
+    x+=28;oc.fillStyle='#A6A499';oc.fillText(label,x,y);x+=oc.measureText(label).width+26;
+  });
+  oc.textBaseline='alphabetic';
 }
 
 function buildExportLayout(){
@@ -444,11 +684,12 @@ function buildExportLayout(){
 
 function buildChart(){
   const div=document.getElementById('plt-main');
+  computeBase();
   Plotly.react(div,buildTraces(),buildLayout(),{responsive:true,displayModeBar:false});
   if(!_chartReady){
     div.on('plotly_click',ev=>{
       const tr=ev.points[0].data;
-      if(tr._mean)return;
+      if(tr._mean||tr._ci||tr._terc)return;
       if(S.decade){const d=ev.points[0].customdata[2];S.iso_decade[S.basin]=S.iso_decade[S.basin]===d?null:d;}
       else{S.iso[S.basin]=S.iso[S.basin]===tr._phase?null:tr._phase;}
       refresh();
@@ -459,6 +700,7 @@ function buildChart(){
 }
 
 function refresh(){
+  computeBase();
   Plotly.react(document.getElementById('plt-main'),buildTraces(),buildLayout(),{responsive:true,displayModeBar:false});
   updateMeta();buildLegend();updatePhasePills();updateColoringBy();updateFootnote();
   if(document.getElementById('stats-panel').style.display!=='none')buildStatsTable();
@@ -480,33 +722,6 @@ function updateFootnote(){
     :'Click a dot or legend label to isolate · Double-click chart to clear · Eastern Pacific season: May 15–Nov 30';
 }
 
-function buildLegend(){
-  const el=document.getElementById('legend');el.innerHTML='';
-  const curIso=S.iso[S.basin];
-  if(S.decade){
-    const present=[...new Set(D.points[S.basin].map(p=>p.decade))].sort();
-    present.forEach(d=>{
-      const dc=D.decades.find(x=>x.label===d)?.color??'#888';
-      const item=document.createElement('div');
-      item.className='leg-item'+(S.iso_decade[S.basin]===d?' iso':'');
-      item.innerHTML=`<div class="leg-dot" style="background:${dc}"></div>${d}`;
-      item.onclick=()=>{S.iso_decade[S.basin]=S.iso_decade[S.basin]===d?null:d;refresh();};
-      el.appendChild(item);
-    });
-  }else{
-    D.phases.forEach(ph=>{
-      const item=document.createElement('div');
-      item.className='leg-item'+(curIso===ph.code?' iso':'');
-      item.innerHTML=`<div class="leg-dot" style="background:${ph.color}"></div>${ph.label}`;
-      item.onclick=()=>{S.iso[S.basin]=S.iso[S.basin]===ph.code?null:ph.code;refresh();};
-      el.appendChild(item);
-    });
-    const div=document.createElement('div');div.className='leg-divider';el.appendChild(div);
-    const mi=document.createElement('div');mi.className='leg-item noclick';
-    mi.innerHTML='<div class="leg-line" style="background:#888"></div>Phase mean';
-    el.appendChild(mi);
-  }
-}
 
 function buildPhasePills(){
   const el=document.getElementById('phase-pills');el.innerHTML='';
@@ -545,24 +760,6 @@ function selectVar(key){
   refresh();
 }
 
-function buildStatsTable(){
-  const stats=phaseStats(),fps=filteredPts(),unit=currentVar().unit||'';
-  const fmt=v=>v!==null?parseFloat(v.toFixed(1))+''+unit:'—';
-  let html='<thead><tr><th style="text-align:left">Phase</th><th>n</th><th>Mean</th><th>Median</th><th>Std Dev</th>';
-  if(S.trend)html+='<th>Trend / dec</th>';
-  html+='</tr></thead><tbody>';
-  D.phases.forEach(ph=>{
-    const s=stats[ph.code],warn=s.count>0&&s.count<LOW_N;
-    const pts=fps.filter(p=>p.enso_code===ph.code),vals=pts.map(p=>dispY(ptY(p)));
-    const fmtMean=s.mean!==null?fmt(dispY(s.mean)):'—';
-    const fmtMed=s.median!==null?fmt(dispY(s.median)):'—';
-    const fmtStd=s.std!==null?fmt(s.std):'—';
-    let trendCell='';
-    if(S.trend){const slp=linreg(pts.map(p=>p.start_year),vals);if(slp!==null&&s.count>=3){const sd=slp*10;trendCell=`<span class="${sd>=0?'trend-pos':'trend-neg'}">${sd>=0?'+':''}${sd.toFixed(1)}</span>`;}else trendCell='—';}
-    html+=`<tr><td><div class="phase-cell"><div class="leg-dot" style="background:${ph.color};width:10px;height:10px;border-radius:50%;flex-shrink:0"></div>${ph.label}</div></td><td>${s.count}${warn?' <span class="warn">⚠</span>':''}</td><td>${fmtMean}</td><td>${fmtMed}</td><td>${fmtStd}</td>${S.trend?`<td>${trendCell}</td>`:''}</tr>`;
-  });
-  document.getElementById('stats-table').innerHTML=html+'</tbody>';
-}
 
 function syncFill(){
   const lo=parseInt(document.getElementById('rlo').value),hi=parseInt(document.getElementById('rhi').value);
@@ -580,17 +777,17 @@ function initSlider(){
 }
 function resetSlider(){document.getElementById('rlo').value=S.lo;document.getElementById('rhi').value=S.hi;syncFill();}
 
-function toggleAnomaly(){S.anomaly=!S.anomaly;document.getElementById('btn-anomaly').classList.toggle('on',S.anomaly);refresh();}
 function toggleBoxplot(){S.boxplot=!S.boxplot;document.getElementById('btn-boxplot').classList.toggle('on',S.boxplot);refresh();}
 function toggleTrend(){S.trend=!S.trend;document.getElementById('btn-trend').classList.toggle('on',S.trend);refresh();}
 function toggleDecade(){S.decade=!S.decade;if(!S.decade){S.iso_decade.atl=null;S.iso_decade.pac=null;}document.getElementById('btn-decade').classList.toggle('on',S.decade);refresh();}
-function toggleStats(){const panel=document.getElementById('stats-panel'),open=panel.style.display==='block';panel.style.display=open?'none':'block';document.getElementById('btn-summary').classList.toggle('on',!open);if(!open)buildStatsTable();}
+function toggleStats(){const panel=document.getElementById('stats-panel'),open=panel.style.display==='block';panel.style.display=open?'none':'block';document.getElementById('btn-summary').classList.toggle('on',!open);if(!open){computeBase();buildStatsTable();}}
 function clearIso(){S.iso[S.basin]=null;S.iso_decade[S.basin]=null;refresh();}
 function resetAll(){
   S.lo=D.min_year;S.hi=D.max_year;S.decade=false;
   S.iso={atl:null,pac:null};S.iso_decade={atl:null,pac:null};
-  S.anomaly=false;S.boxplot=false;S.trend=false;S.season='winter';
-  ['btn-anomaly','btn-boxplot','btn-trend','btn-decade','btn-summary'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  S.vmode='detrend';S.view='dots';S.boxplot=false;S.trend=false;S.season='winter';
+  syncValButtons();syncViewButtons();
+  ['btn-boxplot','btn-trend','btn-decade','btn-summary'].forEach(id=>document.getElementById(id).classList.remove('on'));
   document.getElementById('btn-season-winter').classList.add('on');document.getElementById('btn-season-fall').classList.remove('on');document.getElementById('btn-season-summer').classList.remove('on');
   document.getElementById('stats-panel').style.display='none';
   applyEnsoMode();resetSlider();refresh();
@@ -610,23 +807,28 @@ async function showExport(){
   document.getElementById('modal-toast').style.display='none';
   document.getElementById('exp-modal').style.display='flex';
   try{
+    // Fixed export multiplier: Plotly renders the chart at EXPORT_SCALE directly,
+    // so it is never upscaled into the composite (independent of devicePixelRatio).
+    const EXPORT_SCALE=3;
     const chartW=1500,chartH=760;
-    const chartUrl=await Plotly.toImage({data:buildTraces(),layout:buildExportLayout()},{format:'png',width:chartW,height:chartH});
+    computeBase();
+    const chartUrl=await Plotly.toImage({data:buildTraces(),layout:buildExportLayout()},{format:'png',width:chartW,height:chartH,scale:EXPORT_SCALE});
     const chartImg=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=chartUrl;});
 
     const fps=filteredPts();
     const basinMin=S.basin==='pac'?PAC_MIN:ATL_MIN;
     const dispLo=Math.max(S.lo,basinMin);
-    let context=`${dispLo}–${S.hi}  ·  ${fps.length} seasons  ·  ${currentVar().label}`;
+    const SEASON_NAME={winter:'Winter (DJF)',fall:'Fall (SON)',summer:'Summer (JJA)'};
+    let context=`${dispLo}–${S.hi}  ·  ${fps.length} seasons  ·  Phase: ${SEASON_NAME[S.season]}`+exportContextSuffix();
     const curIso=S.iso[S.basin];
     if(curIso!==null){const ph=D.phases.find(p=>p.code===curIso);if(ph)context+=`  ·  Isolated: ${ph.label}`;}
 
-    const PAD=32,HDR=130,FTR=46;
+    const PAD=32,HDR=150,FTR=46;
     const ow=chartW+PAD*2,oh=HDR+chartH+FTR;
     const off=document.createElement('canvas');
-    off.width=Math.round(ow*2);off.height=Math.round(oh*2);
+    off.width=Math.round(ow*EXPORT_SCALE);off.height=Math.round(oh*EXPORT_SCALE);
     const oc=off.getContext('2d');
-    oc.scale(2,2);
+    oc.scale(EXPORT_SCALE,EXPORT_SCALE);
 
     oc.fillStyle='#1E2320';oc.fillRect(0,0,ow,oh);
     oc.fillStyle='#A08CC6';oc.fillRect(0,0,ow,4);
@@ -643,6 +845,7 @@ async function showExport(){
 
     oc.fillStyle='#A6A499';oc.font='16px "Public Sans", sans-serif';
     oc.fillText(context,PAD,96);
+    drawExportKey(oc,PAD,124);
 
     oc.fillStyle='#262B27';
     oc.fillRect(PAD,HDR,chartW,chartH);
@@ -654,6 +857,7 @@ async function showExport(){
     oc.fillStyle='#A08CC6';oc.fillRect(0,oh-3,ow,3);
 
     const url=off.toDataURL('image/png');
+    document.getElementById('modal-dims').textContent=`${off.width} \u00d7 ${off.height} px`;
     _copyUrl=url;const img=document.getElementById('modal-img');img.src=url;img.style.display='block';
     document.getElementById('modal-loading').style.display='none';
     document.getElementById('modal-actions').style.display='flex';
@@ -682,7 +886,7 @@ document.querySelectorAll('.cc-tab').forEach(b=>{
 });
 
 window.addEventListener('DOMContentLoaded',()=>{
-  buildVarPills();buildPhasePills();initSlider();
+  buildVarPills();buildPhasePills();initSlider();syncValButtons();syncViewButtons();
   buildChart();updateMeta();buildLegend();updatePhasePills();updateColoringBy();updateFootnote();
 });
 </script>
