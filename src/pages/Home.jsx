@@ -8,275 +8,127 @@ import { parseQuery, filterSections, countCards } from './toolSearch'
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
 // To add a section: add a new object to SECTIONS.
+//
+// Accent lives on the SECTION, not the card — every card in a section takes
+// the section's accentVar, so a card can't drift to a stale color when it
+// moves between sections.
+//
+// `slow: true` marks a card whose tool does a long live data fetch (~30 s);
+// the card shows a small load-time marker.
+//
+// Station climatology (Temperature / Precipitation / Wind) shares one accent.
+// Global Climate sits between it and ENSO & Tropics on purpose: the blue and
+// the lavender are only ~16 ΔE apart and must not be adjacent.
 
 const SECTIONS = [
   {
-    id:    'live-heatmaps',
-    label: 'Live  ·  Updates Continuously',
+    id:        'live',
+    label:     'Live  ·  Updates Continuously',
+    accentVar: '--accent-live',
     cards: [
       {
-        tags:       ['US Cities', 'Select Your Location'],
+        tags:       ['US Cities', 'Updates Continuously'],
         title:      'Local Weather & Forecast',
         description:'Live station observations with time-series charts, climate normals, daily records, and solar data updated continuously.',
         footerTags: ['Climate Normals', 'Forecasts', 'Solar & Moon'],
         to:         '/current-conditions',
-        accentVar:  '--accent-live',
         thumb:      '/current-conditions_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'Updates Hourly'],
+        title:      'Streak Tracker',
+        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
+        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
+        to:         '/streak-tracker',
+        thumb:      '/StreakTracker_thumbnail.png',
+        slow:       true,
+      },
+      {
+        tags:       ['US Cities', 'Updates Hourly'],
         title:      'Monthly Temperature Heatmap',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies'],
         to:         '/temp-heatmap-monthly',
-        accentVar:  '--accent-live',
         thumb:      '/OG_Monthly_Heatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'Updates Hourly'],
         title:      'Annual Temperature Heatmap',
         description:'Full-year hourly temperature and weather patterns at a glance — 366 days × 24 hours in a single view. Grows in real time through the current year.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies'],
         to:         '/temp-heatmap-annual',
-        accentVar:  '--accent-live',
         thumb:      '/OG_Annual_Heatmap_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'Updates Hourly'],
         title:      'Monthly Precipitation Heatmap',
         description:'Hourly liquid-equivalent precipitation for any month and station. Streams live data for the current month.',
         footerTags: ['Hourly Precip', 'Daily Totals', 'Live'],
         to:         '/precip-heatmap-monthly',
-        accentVar:  '--accent-live',
         thumb:      '/precip_heatmap_monthly_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'UPDATES HOURLY'],
+        tags:       ['US Cities', 'Updates Hourly'],
         title:      'Annual Precipitation Heatmap',
         description:'Full-year hourly precipitation grid with daily totals and monthly accumulated totals per hour of day. Live through the current year.',
         footerTags: ['Hourly Precip', 'Annual Total', 'Live'],
         to:         '/precip-heatmap-annual',
-        accentVar:  '--accent-live',
         thumb:      '/precip_heatmap_annual_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'UPDATES DAILY'],
+        tags:       ['US Cities', 'Updates Daily'],
         title:      'Meteorological Seasons',
         description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],
         to:         '/seasons',
-        accentVar:  '--accent-live',
         thumb:      '/Seasons_thumbnail.png',
       },
       {
-        tags:       ['US Cities', 'UPDATES MONTHLY'],
-        title:      'Cloud Cover Explorer',
-        description:'Long-term overcast-sky frequency for any U.S. city — a decades-long trend line and a month-by-month heatmap built from hourly ASOS sky-condition observations.',
-        footerTags: ['Overcast Frequency', 'Trend', 'Heatmap'],
-        to:         '/cloud-cover-explorer',
-        accentVar:  '--accent-live',
-        thumb:      '/CloudCoverExplorer_thumbnail.png',
+        tags:       ['Surface Obs', 'Updates Hourly'],
+        title:      'Surface Map',
+        description:'Live station observations. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
+        footerTags: ['Station Model', 'Local', 'Live Obs'],
+        to:         '/surface-map',
+        thumb:      '/SurfaceMap_thumbnail.png',
+      },
+      {
+        tags:       ['Surface Maps', 'Updates Hourly'],
+        title:      'Surface Analysis Builder',
+        description:'Draw your own surface analysis on a live CONUS station map. Plot cold fronts, warm fronts, troughs, and pressure centers over real-time observations, with isobars, isotherms, radar, satellite, and zoom.',
+        footerTags: ['Fronts', 'Isobars', 'Isotherms', 'Radar', 'Satellite', 'Zoom'],
+        to:         '/surface-analysis',
+        thumb:      '/SurfaceAnalysis_thumbnail.png',
       },
     ],
   },
   {
-    id:    'connections',
-    label: 'Climatology Charts',
+    id:        'temperature',
+    label:     'Temperature & Humidity',
+    accentVar: '--accent-hourly',
     cards: [
       {
-        tags:       ['ENSO PHASE COMPARISONS', 'US CITIES'],
-        title:      'ENSO Winter Analysis',
-        description:'Snowfall and winter temperatures across various US cities, stratified by El Niño, La Niña, and neutral ENSO phases.',
-        footerTags: ['ENSO', 'Snowfall', 'Temp'],
-        to:         '/enso',
-        accentVar:  '--accent-climate',
-        thumb:      '/ENSOThumbnail.png',
-      },
-      {
-        tags:       ['ENSO PHASE COMPARISONS', 'TROPICAL CYCLONES'],
-        title:      'Tropical Cyclones ENSO Phase Comparison',
-        description:'Atlantic and Eastern Pacific hurricane activity by ENSO phase — named storms, hurricane days, and ACE from 1851 onward.',
-        footerTags: ['Atlantic', 'East Pacific', 'ACE', 'ENSO'],
-        to:         '/hurricanes',
-        accentVar:  '--accent-climate',
-        thumb:      '/ENSOhurricanesThumbnail.png',
-      },
-      {
-        tags:       ['TROPICAL CYCLONES', 'SEASON TRACKING'],
-        title:      'Tropical ACE Tracker',
-        description:'Cumulative Accumulated Cyclone Energy for every basin, each season plotted against the whole satellite-era record and against its closest analog seasons.',
-        footerTags: ['All Basins', 'Global', 'ACE', 'Analogs'],
-        to:         '/tropical-ace',
-        accentVar:  '--accent-climate',
-        thumb:      '/TropicalACE_thumbnail.png',
-      },
-      {
-        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
-        title:      'ENSO Analog Spaghetti',
-        description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window with the current event bold on top. Compare past years to today at a glance.',
-        footerTags: ['Niño 3.4', 'ONI', 'Analogs', '1870–Present'],
-        to:         '/enso-spaghetti',
-        accentVar:  '--accent-climate',
-        thumb:      '/enso-analog-spaghetti_thumbnail.png',
-      },
-      {
-        tags:       ['US CIties', 'FREQUENCY'],
-        title:      'Temperature Frequency',
-        description:'Distribution of temperatures at various US cities across years, months, and seasons. Turn on current conditions for context.',
-        footerTags: ['Monthly', 'Seasonal', 'Monthly'],
-        to:         '/temp-frequency',
-        accentVar:  '--accent-climate',
-        thumb:      '/TempFrequency_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'ANY CITY'],
-        title:      'Daily Temperature Climatology',
-        description:'Every day of the year’s normal and record high/low temperature for any U.S. city, threaded across a station’s full period of record — with peak-of-summer, peak-of-winter, and all-time record chips.',
-        footerTags: ['Normals 1991–2020', 'Record Highs/Lows', 'Any City'],
-        to:         '/temperature-climatology',
-        accentVar:  '--accent-climate',
-        thumb:      '/TemperatureClimatology_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'FREQUENCY'],
-        title:      'Dewpoint Frequency',
-        description:'Distribution of dewpoint temperatures at various US cities across years, months, and seasons. Turn on current conditions for context.',
-        footerTags: ['Annual', 'Seasonal', 'Monthly'],
-        to:         '/dewpoint-frequency',
-        accentVar:  '--accent-climate',
-        thumb:      '/DewpointFrequency_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'ANY CITY'],
-        title:      'Daily Dewpoint Climatology',
-        description:'Every day of the year’s record and average dewpoint for any U.S. city, threaded across a station’s full ASOS record — with most-humid-day, driest-day, and all-time record chips.',
-        footerTags: ['Record Highs/Lows', 'Daily Averages', 'Any City'],
-        to:         '/dewpoint-climatology',
-        accentVar:  '--accent-climate',
-        thumb:      '/DewpointClimatology_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'ANY CITY'],
+        tags:       ['US Cities', 'Any City'],
         title:      'Climographs',
         description:'The classic monthly climograph for any U.S. city — average temperature and precipitation side by side, with two-city compare mode, °F/°C and in/mm toggles, and full data tables.',
         footerTags: ['Normals 1991–2020', 'Compare Cities', 'Any City'],
         to:         '/climographs',
-        accentVar:  '--accent-climate',
         thumb:      '/climographs_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'SNOWFALL'],
-        title:      'Snowfall Season Window',
-        description:'First and last snowfall dates and season length for Northeast cities — visualizing how the window of winter precipitation shifts year to year.',
-        footerTags: ['First Snow', 'Last Snow', 'Season Length', 'Trends'],
-        to:         '/snowfall-season-window',
-        accentVar:  '--accent-climate',
-        thumb:      '/snowfall_season_window_thumbnail.png',
+        tags:       ['US Cities', 'Any City'],
+        title:      'Daily Temperature Climatology',
+        description:'Every day of the year’s normal and record high/low temperature for any U.S. city, threaded across a station’s full period of record — with peak-of-summer, peak-of-winter, and all-time record chips.',
+        footerTags: ['Normals 1991–2020', 'Record Highs/Lows', 'Any City'],
+        to:         '/temperature-climatology',
+        thumb:      '/TemperatureClimatology_thumbnail.png',
       },
       {
-        tags:       ['US CITIES', 'SNOWFALL'],
-        title:      'Snow Frequency',
-        description:'Monthly snow day frequency for Northeast cities — how often measurable snowfall occurs by month and how that pattern has evolved over time.',
-        footerTags: ['Snow Days', 'Monthly Frequency', 'Trends'],
-        to:         '/snow-frequency',
-        accentVar:  '--accent-climate',
-        thumb:      '/snowfall_frequency_thumbnail.png',
-      },
-      {
-        tags:       ['US CITIES', 'SEASONAL SNOWFALL'],
-        title:      'U.S. Seasonal Snowfall',
-        description:'Season-by-season snowfall totals for select U.S. cities — comparing individual winters against climatological averages and long-term trends.',
-        footerTags: ['Seasonal Totals', 'Multi-City', 'Trends'],
-        to:         '/us-snow-seasons',
-        accentVar:  '--accent-climate',
-        thumb:      '/US_seasonal_snowfall_thumbnail.png',
-      },
-      {
-        tags:       ['US CITIES', 'RAIN VS SNOW'],
-        title:      'Winter Precipitation Types',
-        description:'Rain vs. snow days each winter, total winter snowfall trends, and how the size of major snowstorms has shifted by decade.',
-        footerTags: ['Rain vs Snow Days', 'Storm Size by Decade', 'Trends'],
-        to:         '/winter-precip-types',
-        accentVar:  '--accent-climate',
-        thumb:      '/winter_precip_types_thumbnail.png',
-      },
-      {
-        tags:       ['US CITIES', 'ANNUAL PRECIPITATION'],
-        title:      'U.S. Annual Precipitation',
-        description:'Year-by-year total precipitation for select U.S. cities — visualizing wet and dry years against long-term averages and percentile ranges.',
-        footerTags: ['Annual Totals', 'Percentiles', 'Multi-City'],
-        to:         '/us-precip-years',
-        accentVar:  '--accent-climate',
-        thumb:      '/US_annual_precipitation_thumbnail.png',
-      },
-      {
-        tags:       ['ARCTIC', 'ANTARCTIC', 'DAILY'],
-        title:      'Sea Ice Extent Explorer',
-        description:'Daily Arctic and Antarctic sea ice extent since 1979 — isolate any year, compare it against decade averages, and see how today stacks up against the full historical record.',
-        footerTags: ['NSIDC G02135', '1979–Present', 'Arctic ⇄ Antarctic'],
-        to:         '/seaice-extent-explorer',
-        accentVar:  '--accent-climate',
-        thumb:      '/SeaIceExtent_thumbnail.png',
-      },
-      {
-        tags:       ['Global Sample', 'UPDATES WEEKLY'],
-        title:      'Global Cloud Cover Trend',
-        description:'Global mean cloud cover from a 144-point equal-area ERA5 reanalysis sample, 1980 to present — tracking how planetary cloudiness is trending against the 1991–2020 baseline.',
-        footerTags: ['ERA5 Reanalysis', '144-Point Sample', '1980–Present'],
-        to:         '/global-cloud-cover-trend',
-        accentVar:  '--accent-climate',
-        thumb:      '/CloudCoverTrend_thumbnail.png',
-      },
-      {
-        tags:       ['Global', 'UPDATES DAILY'],
-        title:      'Global Temperature in Context',
-        description:'Every day of the ERA5 record, 1940 to present, layered on one calendar — see exactly how today compares against 86 years of history, colored by El Niño / La Niña phase.',
-        footerTags: ['ERA5 Reanalysis', 'ENSO Phase', '1940–Present'],
-        to:         '/global-temperature-context',
-        accentVar:  '--accent-climate',
-        thumb:      '/GlobalTemperatureContext_thumbnail.png',
-      },
-      {
-        tags:       ['NOAA GML', '1979–PRESENT'],
-        title:      'Greenhouse Gas Tracker',
-        description:'Forty-six years of measured atmospheric composition — 22 long-lived gases from CO₂ to HFCs, plotted alongside NOAA’s Annual Greenhouse Gas Index and its radiative-forcing breakdown.',
-        footerTags: ['22 Gases', 'AGGI', 'Radiative Forcing'],
-        to:         '/greenhouse-gas-tracker',
-        accentVar:  '--accent-climate',
-        thumb:      '/GreenhouseGasExplorer_thumbnail.png',
-      },
-    ],
-  },
-  {
-    id:    'heatmaps',
-    label: 'Climatology Heatmaps',
-    cards: [
-      {
-        tags:       ['US Cities', 'WIND SPEED'],
-        title:      'Wind by Hour Heatmap',
-        description:'Heatmap of wind speed by hour of day across the full climatological record for various US cities.',
-        footerTags: ['Wind Speed', 'Seasonal Pattern', 'Diurnal Pattern'],
-        to:         '/wind-hour-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/WindHourHeatmap_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'WIND'],
-        title:      'Wind Threshold Heatmap',
-        description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year.',
-        footerTags: ['Wind', 'Climatology'],
-        to:         '/wind-threshold-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/WindThresholdHeatmap_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'DEWPOINT'],
-        title:      'Dewpoint Threshold Heatmap',
-        description:'Monthly frequency of days meeting or exceeding key dewpoint thresholds at various US cities.',
-        footerTags: ['Dewpoint', 'Climatology'],
-        to:         '/dewpoint-threshold-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/DewptThresholdHeatmap_thumbnail.png',
+        tags:       ['US Cities', 'Frequency'],
+        title:      'Temperature Frequency',
+        description:'Distribution of temperatures at various US cities across years, months, and seasons. Turn on current conditions for context.',
+        footerTags: ['Annual', 'Seasonal', 'Monthly'],
+        to:         '/temp-frequency',
+        thumb:      '/TempFrequency_thumbnail.png',
       },
       {
         tags:       ['US Cities', 'Temp Frequencies'],
@@ -284,17 +136,131 @@ const SECTIONS = [
         description:'Probability of hourly temperatures meeting or exceeding key hot and cold thresholds at various US cities.',
         footerTags: ['Temperature', 'Climatology'],
         to:         '/temp-threshold-heatmap',
-        accentVar:  '--accent-hourly',
         thumb:      '/TempThresholdHeatmap_thumbnail.png',
+        slow:       true,
       },
       {
-        tags:       ['US Cities', 'STREAKS'],
-        title:      'Streak Tracker',
-        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
-        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
-        to:         '/streak-tracker',
-        accentVar:  '--accent-hourly',
-        thumb:      '/StreakTracker_thumbnail.png',
+        tags:       ['US Cities', 'Any City'],
+        title:      'Daily Dewpoint Climatology',
+        description:'Every day of the year’s record and average dewpoint for any U.S. city, threaded across a station’s full ASOS record — with most-humid-day, driest-day, and all-time record chips.',
+        footerTags: ['Record Highs/Lows', 'Daily Averages', 'Any City'],
+        to:         '/dewpoint-climatology',
+        thumb:      '/DewpointClimatology_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Frequency'],
+        title:      'Dewpoint Frequency',
+        description:'Distribution of dewpoint temperatures at various US cities across years, months, and seasons. Turn on current conditions for context.',
+        footerTags: ['Annual', 'Seasonal', 'Monthly'],
+        to:         '/dewpoint-frequency',
+        thumb:      '/DewpointFrequency_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Dewpoint'],
+        title:      'Dewpoint Threshold Heatmap',
+        description:'Monthly frequency of days meeting or exceeding key dewpoint thresholds at various US cities.',
+        footerTags: ['Dewpoint', 'Climatology'],
+        to:         '/dewpoint-threshold-heatmap',
+        thumb:      '/DewptThresholdHeatmap_thumbnail.png',
+        slow:       true,
+      },
+    ],
+  },
+  {
+    id:        'precipitation',
+    label:     'Precipitation & Snow',
+    accentVar: '--accent-hourly',
+    cards: [
+      {
+        tags:       ['US Cities', 'Annual Precipitation'],
+        title:      'U.S. Annual Precipitation',
+        description:'Year-by-year total precipitation for select U.S. cities — visualizing wet and dry years against long-term averages and percentile ranges.',
+        footerTags: ['Annual Totals', 'Percentiles', 'Multi-City'],
+        to:         '/us-precip-years',
+        thumb:      '/US_annual_precipitation_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Seasonal Snowfall'],
+        title:      'U.S. Seasonal Snowfall',
+        description:'Season-by-season snowfall totals for select U.S. cities — comparing individual winters against climatological averages and long-term trends.',
+        footerTags: ['Seasonal Totals', 'Multi-City', 'Trends'],
+        to:         '/us-snow-seasons',
+        thumb:      '/US_seasonal_snowfall_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Snowfall'],
+        title:      'Snowfall Season Window',
+        description:'First and last snowfall dates and season length for Northeast cities — visualizing how the window of winter precipitation shifts year to year.',
+        footerTags: ['First Snow', 'Last Snow', 'Season Length', 'Trends'],
+        to:         '/snowfall-season-window',
+        thumb:      '/snowfall_season_window_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Snowfall'],
+        title:      'Snow Frequency',
+        description:'Monthly snow day frequency for Northeast cities — how often measurable snowfall occurs by month and how that pattern has evolved over time.',
+        footerTags: ['Snow Days', 'Monthly Frequency', 'Trends'],
+        to:         '/snow-frequency',
+        thumb:      '/snowfall_frequency_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Rain vs Snow'],
+        title:      'Winter Precipitation Types',
+        description:'Rain vs. snow days each winter, total winter snowfall trends, and how the size of major snowstorms has shifted by decade.',
+        footerTags: ['Rain vs Snow Days', 'Storm Size by Decade', 'Trends'],
+        to:         '/winter-precip-types',
+        thumb:      '/winter_precip_types_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Winter Climo'],
+        title:      'Winter Precipitation Heatmap',
+        description:'Heatmap of winter precipitation types and totals at various US cities.',
+        footerTags: ['Snow', 'Sleet', 'Freezing Rain', 'Climatology'],
+        to:         '/winter-precip-heatmap',
+        thumb:      '/WinterPrecipHeatmap_thumbnail.png',
+        slow:       true,
+      },
+    ],
+  },
+  {
+    id:        'wind-sky',
+    label:     'Wind, Pressure & Sky',
+    accentVar: '--accent-hourly',
+    cards: [
+      {
+        tags:       ['US Cities', 'Wind Speed'],
+        title:      'Wind by Hour Heatmap',
+        description:'Heatmap of wind speed by hour of day across the full climatological record for various US cities.',
+        footerTags: ['Wind Speed', 'Seasonal Pattern', 'Diurnal Pattern'],
+        to:         '/wind-hour-heatmap',
+        thumb:      '/WindHourHeatmap_thumbnail.png',
+        slow:       true,
+      },
+      {
+        tags:       ['US Cities', 'Wind'],
+        title:      'Wind Threshold Heatmap',
+        description:'Probability of sustained and gust wind speeds meeting or exceeding key thresholds by hour and day of year.',
+        footerTags: ['Wind', 'Climatology'],
+        to:         '/wind-threshold-heatmap',
+        thumb:      '/WindThresholdHeatmap_thumbnail.png',
+        slow:       true,
+      },
+      {
+        tags:       ['US Cities', 'Pressure'],
+        title:      'Sea Level Pressure Heatmap',
+        description:'Climatological mean sea level pressure by hour and day of year. Individual years are much more interesting with this one.',
+        footerTags: ['SLP', 'Seasonal Cycle', 'Diurnal Signal'],
+        to:         '/slp-heatmap',
+        thumb:      '/SLP_Heatmap_thumbnail.png',
+        slow:       true,
+      },
+      {
+        tags:       ['US Cities', 'Updates Monthly'],
+        title:      'Cloud Cover Explorer',
+        description:'Long-term overcast-sky frequency for any U.S. city — a decades-long trend line and a month-by-month heatmap built from hourly ASOS sky-condition observations.',
+        footerTags: ['Overcast Frequency', 'Trend', 'Heatmap'],
+        to:         '/cloud-cover-explorer',
+        thumb:      '/CloudCoverExplorer_thumbnail.png',
       },
       {
         tags:       ['US Cities', 'Fog'],
@@ -302,8 +268,8 @@ const SECTIONS = [
         description:'Monthly and seasonal frequency of fog events at various US cities.',
         footerTags: ['Fog Days', 'Climatology'],
         to:         '/fog-heatmap',
-        accentVar:  '--accent-hourly',
         thumb:      '/FogHeatmap_thumbnail.png',
+        slow:       true,
       },
       {
         tags:       ['US Cities', 'Thunderstorm Days'],
@@ -311,50 +277,156 @@ const SECTIONS = [
         description:'Monthly frequency of thunderstorm days at various US Cities.',
         footerTags: ['Thunderstorms', 'Climatology'],
         to:         '/thunderstorm-heatmap',
-        accentVar:  '--accent-hourly',
         thumb:      '/ThunderstormHeatmap_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'WINTER CLIMO'],
-        title:      'Winter Precipitation Heatmap',
-        description:'Heatmap of winter precipitation types and totals at various US cities.',
-        footerTags: ['Snow', 'Sleet', 'Freezing Rain', 'Climatology'],
-        to:         '/winter-precip-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/WinterPrecipHeatmap_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities','PRESSURE'],
-        title:      'Sea Level Pressure Heatmap',
-        description:'Climatological mean sea level pressure by hour and day of year. Individual years are much more interesting with this one.',
-        footerTags: ['SLP', 'Seasonal Cycle', 'Diurnal Signal'],
-        to:         '/slp-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/SLP_Heatmap_thumbnail.png',
-      },
-      {
-        tags:       ['ENSO HISTORY', 'EL NIÑO / LA NIÑA'],
-        title:      'ENSO History Heatmap',
-        description:'Monthly Niño 3.4 SST anomaly from 1870 to present — placing current ENSO conditions in historical context.',
-        footerTags: ['El Niño', 'Model Forecast', '1870–Present'],
-        to:         '/enso-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/ENSO_Heatmap_thumbnail.png',
-      },
-      {
-        tags:       ['Sea Ice Area', 'ARCTIC / ANTARCTIC'],
-        title:      'Sea Ice Extent Heatmap',
-        description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic changes at a glance.',
-        footerTags: ['Sea Ice', 'Arctic ⇄ Antarctic'],
-        to:         '/seaice-heatmap',
-        accentVar:  '--accent-hourly',
-        thumb:      '/SeaiceHeatmap_thumbnail.png',
+        slow:       true,
       },
     ],
   },
   {
-    id:    'solar',
-    label: 'Solar',
+    id:        'global',
+    label:     'Global Climate',
+    accentVar: '--accent-climate',
+    cards: [
+      {
+        tags:       ['Global', 'Updates Daily'],
+        title:      'Global Temperature in Context',
+        description:'Every day of the ERA5 record, 1940 to present, layered on one calendar — see exactly how today compares against 86 years of history, colored by El Niño / La Niña phase.',
+        footerTags: ['ERA5 Reanalysis', 'ENSO Phase', '1940–Present'],
+        to:         '/global-temperature-context',
+        thumb:      '/GlobalTemperatureContext_thumbnail.png',
+      },
+      {
+        tags:       ['Arctic', 'Antarctic', 'Daily'],
+        title:      'Sea Ice Extent Explorer',
+        description:'Daily Arctic and Antarctic sea ice extent since 1979 — isolate any year, compare it against decade averages, and see how today stacks up against the full historical record.',
+        footerTags: ['NSIDC G02135', '1979–Present', 'Arctic ⇄ Antarctic'],
+        to:         '/seaice-extent-explorer',
+        thumb:      '/SeaIceExtent_thumbnail.png',
+      },
+      {
+        tags:       ['Sea Ice Area', 'Arctic / Antarctic'],
+        title:      'Sea Ice Extent Heatmap',
+        description:'Every month since 1979 in one grid — toggle between anomaly and raw extent to see the long-term Arctic and Antarctic changes at a glance.',
+        footerTags: ['Sea Ice', 'Arctic ⇄ Antarctic'],
+        to:         '/seaice-heatmap',
+        thumb:      '/SeaiceHeatmap_thumbnail.png',
+      },
+      {
+        tags:       ['NOAA GML', '1979–Present'],
+        title:      'Greenhouse Gas Tracker',
+        description:'Forty-six years of measured atmospheric composition — 22 long-lived gases from CO₂ to HFCs, plotted alongside NOAA’s Annual Greenhouse Gas Index and its radiative-forcing breakdown.',
+        footerTags: ['22 Gases', 'AGGI', 'Radiative Forcing'],
+        to:         '/greenhouse-gas-tracker',
+        thumb:      '/GreenhouseGasExplorer_thumbnail.png',
+      },
+      {
+        tags:       ['Global Sample', 'Updates Weekly'],
+        title:      'Global Cloud Cover Trend',
+        description:'Global mean cloud cover from a 144-point equal-area ERA5 reanalysis sample, 1980 to present — tracking how planetary cloudiness is trending against the 1991–2020 baseline.',
+        footerTags: ['ERA5 Reanalysis', '144-Point Sample', '1980–Present'],
+        to:         '/global-cloud-cover-trend',
+        thumb:      '/CloudCoverTrend_thumbnail.png',
+      },
+    ],
+  },
+  {
+    id:        'enso-tropics',
+    label:     'ENSO & Tropics',
+    accentVar: '--accent-enso',
+    cards: [
+      {
+        tags:       ['ENSO History', 'El Niño / La Niña'],
+        title:      'ENSO History Heatmap',
+        description:'Monthly Niño 3.4 SST anomaly from 1870 to present — placing current ENSO conditions in historical context.',
+        footerTags: ['El Niño', 'Model Forecast', '1870–Present'],
+        to:         '/enso-heatmap',
+        thumb:      '/ENSO_Heatmap_thumbnail.png',
+      },
+      {
+        tags:       ['ENSO History', 'El Niño / La Niña'],
+        title:      'ENSO Analog Spaghetti',
+        description:'Every historical El Niño and La Niña trajectory overlaid on a single 24-month window with the current event bold on top. Compare past years to today at a glance.',
+        footerTags: ['Niño 3.4', 'ONI', 'Analogs', '1870–Present'],
+        to:         '/enso-spaghetti',
+        thumb:      '/enso-analog-spaghetti_thumbnail.png',
+      },
+      {
+        tags:       ['ENSO', 'Climate Data'],
+        title:      'Pacific SST Anomaly Map',
+        description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record.',
+        footerTags: ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
+        to:         '/pacific-sst-map',
+        thumb:      '/PacificSstMap_thumbnail.png',
+      },
+      {
+        tags:       ['ENSO Phase Comparisons', 'US Cities'],
+        title:      'ENSO Winter Analysis',
+        description:'Snowfall and winter temperatures across various US cities, stratified by El Niño, La Niña, and neutral ENSO phases.',
+        footerTags: ['ENSO', 'Snowfall', 'Temp'],
+        to:         '/enso',
+        thumb:      '/ENSOThumbnail.png',
+      },
+      {
+        tags:       ['ENSO Phase Comparisons', 'Tropical Cyclones'],
+        title:      'Tropical Cyclones ENSO Phase Comparison',
+        description:'Atlantic and Eastern Pacific hurricane activity by ENSO phase — named storms, hurricane days, and ACE from 1851 onward.',
+        footerTags: ['Atlantic', 'East Pacific', 'ACE', 'ENSO'],
+        to:         '/hurricanes',
+        thumb:      '/ENSOhurricanesThumbnail.png',
+      },
+      {
+        tags:       ['Tropical Cyclones', 'Updates Daily'],
+        title:      'Tropical ACE Tracker',
+        description:'Cumulative Accumulated Cyclone Energy for every basin, each season plotted against the whole satellite-era record and against its closest analog seasons.',
+        footerTags: ['All Basins', 'Global', 'ACE', 'Analogs'],
+        to:         '/tropical-ace',
+        thumb:      '/TropicalACE_thumbnail.png',
+      },
+    ],
+  },
+  {
+    id:        'severe-weather',
+    label:     'Severe Weather',
+    accentVar: '--accent-severe',
+    cards: [
+      {
+        tags:       ['1950–2022', 'Interactive Map'],
+        title:      'Tornado Track Explorer',
+        description:'Every confirmed tornado track in the NOAA/SPC severe weather database — filter by year, month, and EF rating, and click any track for its full record.',
+        footerTags: ['EF Scale', 'Path Data', '68,701 Tracks'],
+        to:         '/tornado-track-explorer',
+        thumb:      '/TornadoTrackExplorer_thumbnail.png',
+      },
+      {
+        tags:       ['1950–2022', 'Any City'],
+        title:      'Tornado History Near You',
+        description:'Search any U.S. city or airport station to see every tornado on record within a chosen radius — monthly frequency, strength breakdown, and a full nearby-track log.',
+        footerTags: ['Radius Search', 'EF Scale', 'Monthly Frequency'],
+        to:         '/tornado-history-near-you',
+        thumb:      '/TornadoHistoryNearYou_thumbnail.png',
+      },
+      {
+        tags:       ['1950–2022', 'National Dashboard'],
+        title:      'U.S. Tornado Climatology',
+        description:'Annual trends, seasonal and time-of-day patterns, state-by-state rankings, and the records that define the historical database — all in one dashboard.',
+        footerTags: ['Annual Trend', 'State Rankings', 'Records & Extremes'],
+        to:         '/us-tornado-climatology',
+        thumb:      '/TornadoClimatology_thumbnail.png',
+      },
+      {
+        tags:       ['1950–2022', 'Outbreak Days'],
+        title:      'Tornado Outbreak Explorer',
+        description:'Ranked outbreak days, a year-by-year intensity timeline, and a full track-by-track map and sequence for the Super Outbreaks, Palm Sunday, and every other major outbreak in the record.',
+        footerTags: ['Outbreak Rankings', 'Sequence Maps', '13 Named Outbreaks'],
+        to:         '/tornado-outbreak-explorer',
+        thumb:      '/OutbreakExplorer_thumbnail.png',
+      },
+    ],
+  },
+  {
+    id:        'solar',
+    label:     'Solar',
+    accentVar: '--accent-solar',
     cards: [
       {
         tags:       ['Solar', 'Interactive'],
@@ -362,8 +434,7 @@ const SECTIONS = [
         description:'Visualize solar altitude, azimuth, and day length across any latitude and time of year.',
         footerTags: ['All NH Latitudes', 'Solar Altitude', 'Solar Azimuth'],
         to:         '/solar',
-        accentVar:  '--accent-enso',
-        thumb:      'SolarHeatMap_thumbnail.png',
+        thumb:      '/SolarHeatMap_thumbnail.png',
       },
       {
         tags:       ['Solar Angle Calendar', 'Global Cities', 'Interactive'],
@@ -371,7 +442,6 @@ const SECTIONS = [
         description:'Day-by-day solar angle and duration data across the full year by location.',
         footerTags: ['Solar Angle', 'Day Length'],
         to:         '/solar-calendar',
-        accentVar:  '--accent-enso',
         thumb:      '/SolarCalendar_thumbnail.png',
       },
       {
@@ -380,7 +450,6 @@ const SECTIONS = [
         description:'Daily sunrise and sunset clock times across the full year — revealing how the earliest sunrise and latest sunset are offset from the solstice by the equation of time.',
         footerTags: ['Sunrise', 'Sunset', 'Equation of Time'],
         to:         '/sunrise-sunset-calendar',
-        accentVar:  '--accent-enso',
         thumb:      '/SunriseSunsetCalendar_thumbnail.png',
       },
       {
@@ -389,7 +458,6 @@ const SECTIONS = [
         description:'Monthly sunspot counts since 1749 as an interactive heatmap — watch the ~11-year solar cycle rise and fall through 275 years of the longest continuous scientific record on Earth, and see exactly where Solar Cycle 25 stands today.',
         footerTags: ['Solar Cycle', 'Sunspot Number'],
         to:         '/sunspot-heatmap',
-        accentVar:  '--accent-enso',
         thumb:      '/SunspotHeatMap_thumbnail.png',
       },
       {
@@ -398,7 +466,6 @@ const SECTIONS = [
         description:"Every sunspot group's latitude since 1874 — watch each solar cycle's bands drift from the mid-latitudes toward the equator, cycle after cycle, in the classic Maunder-style diagram.",
         footerTags: ["Spörer's Law", '1874–Present'],
         to:         '/sunspot-butterfly-diagram',
-        accentVar:  '--accent-enso',
         thumb:      '/SunspotButterflyDiagram_thumbnail.png',
       },
       {
@@ -407,7 +474,6 @@ const SECTIONS = [
         description:'The traditional sunspot-number time series, plus a cycle-comparison view that restacks any set of solar cycles on a shared "years since minimum" axis so you can see exactly how Cycle 25 stacks up against its predecessors.',
         footerTags: ['Solar Cycle', 'Cycle Comparison', 'SILSO Data'],
         to:         '/solar-cycle-progression',
-        accentVar:  '--accent-enso',
         thumb:      '/SolarCycleProgression_thumbnail.png',
       },
       {
@@ -416,98 +482,21 @@ const SECTIONS = [
         description:'The Sun\'s total energy output across the 11-year solar cycle, paired with a live look at how much of that energy is actually reaching the ground at Islip right now versus what\'s typical for the date.',
         footerTags: ['TSI', 'Live Irradiance', 'LASP · Open-Meteo'],
         to:         '/solar-output',
-        accentVar:  '--accent-enso',
         thumb:      '/SolarOutput_thumbnail.png',
-      },
-    ],
-  },
-  {
-    id:    'maps',
-    label: 'Maps',
-    cards: [
-      {
-        tags:       ['Surface Obs', 'UPDATES HOURLY'],
-        title:      'Surface Map',
-        description:'Live station observations. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
-        footerTags: ['Station Model', 'Local', 'Live Obs'],
-        to:         '/surface-map',
-        accentVar:  '--accent-live',
-        thumb:      '/SurfaceMap_thumbnail.png',
-      },
-      {
-        tags:       ['Surface Maps', 'UPDATES HOURLY'],
-        title:      'Surface Analysis Builder',
-        description:'Draw your own surface analysis on a live CONUS station map. Plot cold fronts, warm fronts, troughs, and pressure centers over real-time observations, with isobars, isotherms, radar, satellite, and zoom.',
-        footerTags: ['Fronts', 'Isobars', 'Isotherms', 'Radar', 'Satellite', 'Zoom'],
-        to:         '/surface-analysis',
-        accentVar:  '--accent-live',
-        thumb:      '/SurfaceAnalysis_thumbnail.png',
-      },
-      {
-        tags:       ['ENSO', 'CLIMATE DATA'],
-        title:      'Pacific SST Anomaly Map',
-        description:'Explore monthly sea surface temperature anomalies across the equatorial Pacific from 1980 to present. Navigate the full ENSO record.',
-        footerTags: ['ERSSTv5', 'Niño 3.4', 'ENSO', 'Walker Circulation'],
-        to:         '/pacific-sst-map',
-        accentVar:  '--accent-live',
-        thumb:      '/PacificSstMap_thumbnail.png',
-      },
-    ],
-  },
-  {
-    id:    'severe-weather',
-    label: 'Severe Weather',
-    cards: [
-      {
-        tags:       ['1950–2022', 'INTERACTIVE MAP'],
-        title:      'Tornado Track Explorer',
-        description:'Every confirmed tornado track in the NOAA/SPC severe weather database — filter by year, month, and EF rating, and click any track for its full record.',
-        footerTags: ['EF Scale', 'Path Data', '68,701 Tracks'],
-        to:         '/tornado-track-explorer',
-        accentVar:  '--accent-severe',
-        thumb:      '/TornadoTrackExplorer_thumbnail.png',
-      },
-      {
-        tags:       ['1950–2022', 'ANY CITY'],
-        title:      'Tornado History Near You',
-        description:'Search any U.S. city or airport station to see every tornado on record within a chosen radius — monthly frequency, strength breakdown, and a full nearby-track log.',
-        footerTags: ['Radius Search', 'EF Scale', 'Monthly Frequency'],
-        to:         '/tornado-history-near-you',
-        accentVar:  '--accent-severe',
-        thumb:      '/TornadoHistoryNearYou_thumbnail.png',
-      },
-      {
-        tags:       ['1950–2022', 'NATIONAL DASHBOARD'],
-        title:      'U.S. Tornado Climatology',
-        description:'Annual trends, seasonal and time-of-day patterns, state-by-state rankings, and the records that define the historical database — all in one dashboard.',
-        footerTags: ['Annual Trend', 'State Rankings', 'Records & Extremes'],
-        to:         '/us-tornado-climatology',
-        accentVar:  '--accent-severe',
-        thumb:      '/TornadoClimatology_thumbnail.png',
-      },
-      {
-        tags:       ['1950–2022', 'OUTBREAK DAYS'],
-        title:      'Tornado Outbreak Explorer',
-        description:'Ranked outbreak days, a year-by-year intensity timeline, and a full track-by-track map and sequence for the Super Outbreaks, Palm Sunday, and every other major outbreak in the record.',
-        footerTags: ['Outbreak Rankings', 'Sequence Maps', '13 Named Outbreaks'],
-        to:         '/tornado-outbreak-explorer',
-        accentVar:  '--accent-severe',
-        thumb:      '/OutbreakExplorer_thumbnail.png',
       },
     ],
   },
 ]
 
-// Section list for the jump nav — accent is read off each section's first
-// card (same convention the section header already uses below), so this
-// stays in sync automatically if cards are added/reordered.
+// Section list for the jump nav — accent comes from the section itself, the
+// same value its header and cards use.
 // NOTE: derived from the FULL SECTIONS, not the filtered list — the nav needs
 // every pill (dimmed when empty) and a stable accent per section regardless of
 // which card happens to match.
 const NAV_SECTIONS = SECTIONS.map((section) => ({
   id:     section.id,
   label:  section.label,
-  accent: `var(${section.cards[0]?.accentVar || '--color-text-primary'})`,
+  accent: `var(${section.accentVar})`,
 }))
 
 // Denominator for the filter's "n of m" readout — derived, so it can't drift
@@ -609,28 +598,17 @@ export default function Home() {
         >
           <p
             className={styles.sectionLabel}
-            style={{ '--section-accent': `var(${section.cards[0]?.accentVar || '--color-text-primary'})` }}
+            style={{ '--section-accent': `var(${section.accentVar})` }}
           >
             <span className={styles.sectionLabelBar} />
             {section.label}
-            {section.id === 'live-heatmaps' && (
+            {section.id === 'live' && (
               <span className={styles.livePulse} aria-hidden="true" />
             )}
           </p>
-          {section.id === 'heatmaps' && (
-            <p
-              style={{
-                fontSize:     '0.75rem',
-                color:        'var(--color-text-muted)',
-                margin:       '0.25rem 0 1rem',
-              }}
-            >
-              Note: data fetches for these tools may take ~30 seconds to load.
-            </p>
-          )}
           <div className={styles.grid}>
             {section.cards.map((card) => (
-              <ToolCard key={card.title} {...card} />
+              <ToolCard key={card.title} {...card} accentVar={section.accentVar} />
             ))}
           </div>
         </section>
@@ -641,7 +619,7 @@ export default function Home() {
 }
 
 // ── ToolCard ──────────────────────────────────────────────────────────────────
-function ToolCard({ tags, title, description, footerTags, to, accentVar, thumb, status }) {
+function ToolCard({ tags, title, description, footerTags, to, accentVar, thumb, status, slow }) {
   const isSoon = status === 'soon'
 
   const inner = (
@@ -656,8 +634,8 @@ function ToolCard({ tags, title, description, footerTags, to, accentVar, thumb, 
         style={{ background: isSoon ? 'var(--color-border)' : `var(${accentVar})` }}
       />
 
-      {/* Tags */}
-      <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+      {/* Tags (+ load-time marker, right-aligned; wraps below on narrow cards) */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '12px' }}>
         {tags.map((t) => (
           <span
             key={t}
@@ -671,6 +649,22 @@ function ToolCard({ tags, title, description, footerTags, to, accentVar, thumb, 
             {t}
           </span>
         ))}
+        {slow && !isSoon && (
+          <span
+            title="Data fetch may take ~30 seconds"
+            style={{
+              marginLeft:    'auto',
+              alignSelf:     'center',
+              fontFamily:    'var(--font-mono)',
+              fontSize:      '11px',
+              letterSpacing: '0.06em',
+              color:         'var(--color-text-muted)',
+              whiteSpace:    'nowrap',
+            }}
+          >
+            ~30 s load
+          </span>
+        )}
       </div>
 
       {/* Body */}
