@@ -24,6 +24,7 @@ const SECTIONS = [
   {
     id:        'live',
     label:     'Live  ·  Updates Continuously',
+    navLabel:  'Live',
     accentVar: '--accent-live',
     cards: [
       {
@@ -104,6 +105,7 @@ const SECTIONS = [
   {
     id:        'temperature',
     label:     'Temperature & Humidity',
+    navLabel:  'Temp & Humidity',
     accentVar: '--accent-hourly',
     cards: [
       {
@@ -169,6 +171,7 @@ const SECTIONS = [
   {
     id:        'precipitation',
     label:     'Precipitation & Snow',
+    navLabel:  'Precip & Snow',
     accentVar: '--accent-hourly',
     cards: [
       {
@@ -225,6 +228,7 @@ const SECTIONS = [
   {
     id:        'wind-sky',
     label:     'Wind, Pressure & Sky',
+    navLabel:  'Wind & Sky',
     accentVar: '--accent-hourly',
     cards: [
       {
@@ -285,6 +289,7 @@ const SECTIONS = [
   {
     id:        'global',
     label:     'Global Climate',
+    navLabel:  'Global',
     accentVar: '--accent-climate',
     cards: [
       {
@@ -332,6 +337,7 @@ const SECTIONS = [
   {
     id:        'enso-tropics',
     label:     'ENSO & Tropics',
+    navLabel:  'ENSO & Tropics',
     accentVar: '--accent-enso',
     cards: [
       {
@@ -387,6 +393,7 @@ const SECTIONS = [
   {
     id:        'severe-weather',
     label:     'Severe Weather',
+    navLabel:  'Severe',
     accentVar: '--accent-severe',
     cards: [
       {
@@ -426,6 +433,7 @@ const SECTIONS = [
   {
     id:        'solar',
     label:     'Solar',
+    navLabel:  'Solar',
     accentVar: '--accent-solar',
     cards: [
       {
@@ -489,13 +497,15 @@ const SECTIONS = [
 ]
 
 // Section list for the jump nav — accent comes from the section itself, the
-// same value its header and cards use.
+// same value its header and cards use. Pills use the short `navLabel` so all
+// eight fit one row (measured: fits at viewports ≥ ~1230px with the filter
+// count showing, ≥ ~1160px without); section headings keep the full `label`.
 // NOTE: derived from the FULL SECTIONS, not the filtered list — the nav needs
 // every pill (dimmed when empty) and a stable accent per section regardless of
 // which card happens to match.
 const NAV_SECTIONS = SECTIONS.map((section) => ({
   id:     section.id,
-  label:  section.label,
+  label:  section.navLabel ?? section.label,
   accent: `var(${section.accentVar})`,
 }))
 
