@@ -69,8 +69,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Updates Hourly'],
         title:      'Streak Tracker',
-        description:'How long has this place been running hot, cold, muggy, or dry? Current active streaks and all-time records for any U.S. city, tracked hourly or daily, with a forecast check on whether the streak survives.',
-        footerTags: ['Heat & Cold Streaks', 'Humidity Streaks', 'Forecast Outlook'],
+        description:'Current active streaks and all-time records for U.S. cities, tracked hourly or daily.',
+        footerTags: ['Temperature', 'Humidity', 'Sky', 'Wind', 'Precipitation'],
         to:         '/streak-tracker',
         thumb:      '/StreakTracker_thumbnail.png',
         slow:       true,
