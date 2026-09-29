@@ -381,12 +381,8 @@ const HOUR = 3600000, DAY = 86400000;
 const MIN_HOURS_COMPLETE = 18;     // hours of the variable needed for a day to count
 const COVERAGE_MIN = 0.9;          // share of in-season units a year needs to enter the rarity distribution
 const RP_MIN_YEARS = 10;           // fewer qualifying years than this -> no return period
-// Every wait scales with T_SCALE (1 in production; the test harness shrinks it).
-const T_SCALE = (typeof window !== 'undefined' && window.__ccTimeScale) || 1;
-const FETCH_RETRIES = 3, FETCH_BACKOFF_MS = 1200 * T_SCALE, FETCH_GAP_MS = 400 * T_SCALE;
-const FETCH_TIMEOUT_MS = (typeof window !== 'undefined' && window.__ccFetchTimeoutMs) || 45000;              // a request still running after this is abandoned and split/retried
-const RETRY_PASS_WAITS = [5000, 15000, 45000].map(x => x * T_SCALE);   // automatic re-attempts of failed years
-const SPLIT_MAX_DEPTH = 4, MAX_INFLIGHT = 3;
+const FETCH_RETRIES = 3, FETCH_BACKOFF_MS = 1200, FETCH_GAP_MS = 400;
+const SPLIT_MAX_DEPTH = 4, MAX_INFLIGHT = 2;
 const EMPTY_STOP = 12;             // consecutive empty years that end the backward walk
 const POR_FLOOR = 1900;
 const ROUTINE_MIN_OBS = 200;
@@ -455,14 +451,14 @@ const CUSTOM_VARIABLE_ORDER = ['temp', 'feel', 'depart', 'dewpoint', 'cloud', 'v
 // kind: how rows become hourly cells. 'state' = routine ob per hour; 'wind' = wind state + gust events;
 // 'pcp' = routine hourly precip at the ob's clock hour; 'wx' = weather-code bits of every ob in the clock hour.
 const GROUPS = {
-  tmpf: { fields:['tmpf'], chunk:2, label:'temperature', outs:['tmpf'], kind:'state' },
-  dwpf: { fields:['dwpf'], chunk:2, label:'dewpoint', outs:['dwpf'], kind:'state' },
-  feel: { fields:['feel'], chunk:2, label:'feels-like', outs:['feel'], kind:'state' },
-  vsby: { fields:['vsby'], chunk:2, label:'visibility', outs:['vsby'], kind:'state' },
-  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:1, label:'sky cover', outs:['sky'], kind:'sky' },
-  wind: { fields:['sknt','gust','peak_wind_gust','peak_wind_time'], chunk:1, label:'wind', outs:['wind','gust'], kind:'wind' },
-  pcp:  { fields:['p01i'], chunk:2, label:'hourly precipitation', outs:['p01i'], kind:'pcp' },
-  wx:   { fields:['wxcodes'], chunk:1, label:'weather reports', outs:['wx'], kind:'wx', v:2 }
+  tmpf: { fields:['tmpf'], chunk:10, label:'temperature', outs:['tmpf'], kind:'state' },
+  dwpf: { fields:['dwpf'], chunk:10, label:'dewpoint', outs:['dwpf'], kind:'state' },
+  feel: { fields:['feel'], chunk:10, label:'feels-like', outs:['feel'], kind:'state' },
+  vsby: { fields:['vsby'], chunk:10, label:'visibility', outs:['vsby'], kind:'state' },
+  sky:  { fields:['skyc1','skyc2','skyc3','skyc4'], chunk:6, label:'sky cover', outs:['sky'], kind:'sky' },
+  wind: { fields:['sknt','gust','peak_wind_gust','peak_wind_time'], chunk:6, label:'wind', outs:['wind','gust'], kind:'wind' },
+  pcp:  { fields:['p01i'], chunk:10, label:'hourly precipitation', outs:['p01i'], kind:'pcp' },
+  wx:   { fields:['metar'], chunk:3, label:'weather reports', outs:['wx'], kind:'wx' }
 };
 const FAMILIES = [
   { id:'temp',   label:'Temperature' },
@@ -646,17 +642,8 @@ function buildIEMUrl(stId, group, y1, y2) {
     `&tz=Etc%2FUTC&format=comma&latlon=no&elev=no&missing=M&trace=T&direct=no`;
 }
 async function fetchIEMOnce(stId, group, y1, y2) {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
   let resp;
-  try {
-    resp = await fetch(buildIEMUrl(stId, group, y1, y2), { cache: 'no-store', signal: ctl.signal });
-  } catch (e) {
-    clearTimeout(timer);
-    if (e.name === 'AbortError') { const err = new Error('IEM timeout'); err.transient = true; throw err; }
-    throw e;
-  }
-  clearTimeout(timer);
+  resp = await fetch(buildIEMUrl(stId, group, y1, y2), { cache: 'no-store' });
   if (!resp.ok) {
     const err = new Error(`IEM HTTP ${resp.status}`);
     err.transient = isTransientStatus(resp.status); err.status = resp.status;
@@ -786,9 +773,7 @@ function parseChunk(text, group, y1, y2, st) {
         row.pk = Math.round(pk * KT_TO_MPH); row.pkLst = pt;
       }
     } else if (kind === 'wx') {
-      // IEM's parsed present-weather field; an ob with none reported is 0, not missing.
-      const b = wxBits(parts[I.wxcodes]);
-      row.bits = b === null ? 0 : b;
+      row.bits = wxBits(parts.slice(I.metar).join(','));
     } else if (kind === 'pcp') {
       const s = (parts[I.p01i] || '').trim();
       row.p = s === 'T' ? TRACE : numOrNull(s);
@@ -890,7 +875,7 @@ const idb = (() => {
   }
   return { get, put };
 })();
-const cacheKey = (stId, group, Y) => `${stId}|${group}${GROUPS[group].v ? '@' + GROUPS[group].v : ''}|${Y}`;
+const cacheKey = (stId, group, Y) => `${stId}|${group}|${Y}`;
 function yearCacheable(st, Y) { return nowLST(st).ms >= Date.UTC(Y + 1, 0, 10); }
 async function cacheGetYear(stId, group, Y) {
   const rec = await idb.get(cacheKey(stId, group, Y));
@@ -985,20 +970,14 @@ async function loadGroup(group) {
   // Stop once any 12 consecutive years below the recent chunk are known to be
   // empty. Completions arrive out of order (a year stuck in retries must not
   // hold the walk open), so this scans known years rather than a frontier.
-  let emptyTail = 0;   // known-empty years at the bottom of the walk, ignoring years still in flight
   function advanceFrontier() {
-    let run = 0, tail = 0;
+    let run = 0;
     for (let Y = curY - 2; Y > nextY; Y--) {
-      const known = gs.years.has(Y), empty = known && gs.years.get(Y) === null;
-      if (empty) { if (++run >= EMPTY_STOP) { stop = true; return; } }
+      if (gs.years.has(Y) && gs.years.get(Y) === null) { if (++run >= EMPTY_STOP) { stop = true; return; } }
       else run = 0;
-      if (empty) tail++; else if (known || gs.failed.has(Y)) tail = 0;
     }
-    emptyTail = tail;
     if (nextY < POR_FLOOR) stop = true;
   }
-  // Past the apparent start of the record, go one request at a time so the walk doesn't overshoot.
-  const maxInflight = () => emptyTail >= 4 ? 1 : MAX_INFLIGHT;
   await new Promise(resolve => {
     let pumping = false, again = false, finished = false;
     const finish = () => { if (!finished) { finished = true; resolve(); } };
@@ -1006,7 +985,7 @@ async function loadGroup(group) {
     async function pumpOnce() {
       if (!storeAlive(tok)) return;
       advanceFrontier();
-      while (wanted() && !exhausted() && inflight < maxInflight()) {
+      while (wanted() && !exhausted() && inflight < MAX_INFLIGHT) {
         while (nextY >= POR_FLOOR && gs.years.has(nextY)) nextY--;
         if (nextY < POR_FLOOR) break;
         const c = await cacheGetYear(st.id, group, nextY);
@@ -1030,8 +1009,7 @@ async function loadGroup(group) {
           if (!storeAlive(tok)) { finish(); return; }
           ingest(res);
           failStreak = res.years.size === 0 ? failStreak + 1 : 0;
-          if (failStreak >= 8) stop = true;                       // IEM effectively down: stop, leave the rest to Retry
-          else if (failStreak >= 3) await sleep(RETRY_PASS_WAITS[0]);   // busy spell: back off before continuing
+          if (failStreak >= 3) stop = true;
           onLoadProgress();
           pump();
         })();
@@ -1049,21 +1027,6 @@ async function loadGroup(group) {
   });
   if (!storeAlive(tok)) return;
   advanceFrontier();
-  // Step 3: failed years get automatic re-attempts, one year at a time, with growing waits.
-  for (let pass = 0; pass < RETRY_PASS_WAITS.length && gs.failed.size && wanted(); pass++) {
-    gs.retrying = { pass: pass + 1, of: RETRY_PASS_WAITS.length };
-    onLoadProgress();
-    await sleep(RETRY_PASS_WAITS[pass]);
-    for (const Y of [...gs.failed.keys()].sort((a, b) => b - a)) {
-      if (!storeAlive(tok) || !wanted()) break;
-      const res = await fetchRange(st, group, Y, Y);
-      if (!storeAlive(tok)) return;
-      ingest(res);
-      onLoadProgress();
-      await sleep(FETCH_GAP_MS);
-    }
-  }
-  gs.retrying = null;
   gs.status = stop ? 'done' : 'idle';
   onLoadProgress(true);
 }
@@ -1288,37 +1251,6 @@ function finalizeSeries(unit, startDay, vals, cfg, st, source) {
            lastMs: (sd * DAY) + (n - 1) * (unit === 'hour' ? HOUR : DAY) };
 }
 
-// Hourly precipitation groups are sometimes absent from IEM's archive for stretches
-// (the obs exist, the precip group doesn't), which reads as falsely dry. A month where
-// the ACIS daily record has at least 0.25" but no hour shows measurable precipitation
-// is treated as missing.
-const PRECIP_CHECK_MIN_IN = 0.25;
-function checkedHourlyPrecip(m) {
-  const a = store.acis;
-  if (a.status !== 'ok' || !a.pcpn) return m;
-  const gs = store.groups.pcp;
-  if (gs._checked && gs._checked.ver === gs.ver && gs._checked.src === m) return gs._checked.m;
-  const vals = new Float32Array(m.vals);
-  const nDays = vals.length / 24;
-  let d = 0, masked = 0;
-  while (d < nDays) {
-    const t = dayToYMD(m.startDay + d);
-    const len = Math.min(daysInMonth(t.y, t.m) - t.d + 1, nDays - d);
-    let acisSum = 0, wetHours = 0, reported = 0;
-    for (let k = 0; k < len; k++) {
-      const ai = m.startDay + d + k - a.startDay;
-      const p = ai >= 0 && ai < a.pcpn.length ? a.pcpn[ai] : NaN;
-      if (p === p && p !== TRACE) acisSum += p;
-      for (let h = (d + k) * 24, e = h + 24; h < e; h++) { const v = vals[h]; if (v === v) { reported++; if (v >= 0.01) wetHours++; } }
-    }
-    if (reported && !wetHours && acisSum >= PRECIP_CHECK_MIN_IN) { vals.fill(NaN, d * 24, (d + len) * 24); masked++; }
-    d += len;
-  }
-  const out = masked ? Object.assign({}, m, { vals }) : m;
-  gs._checked = { ver: gs.ver, src: m, m: out, masked };
-  return out;
-}
-
 function buildSeries(cfg) {
   if (!store) return null;
   const st = store.st;
@@ -1340,9 +1272,8 @@ function buildSeries(cfg) {
   }
   const out = VARIABLES[cfg.variable].out, bit = VARIABLES[cfg.variable].bit;
   if (cfg.agg === 'hourly') {
-    let m = mergedFor(src, out, bit);
+    const m = mergedFor(src, out, bit);
     if (!m) return null;
-    if (out === 'p01i') m = checkedHourlyPrecip(m);
     return finalizeSeries('hour', m.startDay, m.vals, cfg, st, 'iem');
   }
   const dly = dailyFor(src, out, bit);
@@ -1586,9 +1517,7 @@ function renderStatus() {
     const gs = store.groups[src];
     const yrs = gs ? [...gs.years.entries()].filter(([, v]) => v).map(([Y]) => Y) : [];
     loading = !gs || gs.status === 'loading' || gs.status === 'idle';
-    const nf = gs ? gs.failed.size : 0;
-    if (loading && gs && gs.retrying) msg = `Retrying ${nf} year${nf === 1 ? '' : 's'} · pass ${gs.retrying.pass} of ${gs.retrying.of}`;
-    else if (loading) msg = (yrs.length ? `Loading ${GROUPS[src].label} history · back to ${Math.min(...yrs)}` : `Loading ${GROUPS[src].label}…`) + (nf ? ` · ${nf} to retry` : '');
+    if (loading) msg = yrs.length ? `Loading ${GROUPS[src].label} history · back to ${Math.min(...yrs)}` : `Loading ${GROUPS[src].label}…`;
     else msg = `Updated ${new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
   txt.textContent = msg;
@@ -1636,7 +1565,7 @@ function renderProvenance(cfg) {
   if (cfg.variable === 'depart') bits.push('Normals: NCEI 1991–2020 via ACIS; departure uses the mean of the daily high and low.');
   if (cfg.variable === 'feel') bits.push('Feels like: IEM apparent temperature (heat index when hot, wind chill when cold, otherwise air temperature).');
   if (cfg.variable === 'vsby') bits.push('Visibility: prevailing visibility in miles.');
-  if (cfg.variable === 'p01i') bits.push('Hourly precipitation: routine METAR precipitation group; no group reported counts as dry, except months where ACIS shows at least 0.25" but no hour does, which count as missing.');
+  if (cfg.variable === 'p01i') bits.push('Hourly precipitation: routine METAR precipitation group; no group reported counts as dry.');
   if (V.categorical) bits.push('Weather types: present-weather codes in each METAR, remarks excluded; an hour counts if any report in it carries the code.');
   if (V.trace) bits.push(cfg.traceWet ? 'Trace counts as wet.' : 'Trace counts as dry.');
   bits.push('Days in local standard time.');
