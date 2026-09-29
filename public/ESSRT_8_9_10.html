@@ -58,7 +58,7 @@ body{background:var(--color-bg);font-family:var(--font-body);color:var(--color-t
 .rbtn:hover{background:rgba(232,228,217,.06);color:var(--color-text-primary)}
 .rbtn.active{background:var(--tool-accent);color:var(--color-bg);font-weight:600}
 .rdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1px solid rgba(0,0,0,.2)}
-.info-panel{flex:1;overflow-y:auto;min-height:0;padding:15px}
+.info-panel{flex:1 1 0;overflow-y:auto;min-height:150px;padding:15px}
 .info-empty{display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;font-family:var(--font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--color-text-muted);text-align:center;padding:20px}
 .iname{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--color-text-primary);margin-bottom:12px;line-height:1.2}
 .irow{display:flex;gap:9px;align-items:flex-start;margin-bottom:10px;padding:10px;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md)}
@@ -86,6 +86,11 @@ body{background:var(--color-bg);font-family:var(--font-body);color:var(--color-t
 .dtbtn.grid-on .gsw{background:#FFFFFF}
 #latBtn.grid-on{background:#C4532A;color:#FFFFFF;font-weight:700}
 #lonBtn.grid-on{background:#2A62B0;color:#FFFFFF;font-weight:700}
+.scrap-cv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6}
+.map-panel.scrap-on{touch-action:none}
+.gsw.scrap{width:15px;height:9px;background:#EFE6CC;border:1px solid rgba(0,0,0,.4);border-radius:1px}
+#scrapBtn.scrap-on{background:var(--tool-accent);color:var(--color-bg);font-weight:700}
+.dtbtn:disabled{opacity:.4;cursor:default}
 .tag{display:inline-block;border:1px solid var(--color-border);padding:4px 12px;border-radius:var(--radius-md);font-size:12px;font-family:var(--font-mono);color:var(--color-text-muted);letter-spacing:.08em}
 </style>
 </head>
@@ -119,6 +124,7 @@ body{background:var(--color-bg);font-family:var(--font-body);color:var(--color-t
       <img id="iCR"   class="map-img cmp-right" alt=""/>
     </div>
     <canvas class="grid-cv" id="gridCv"></canvas>
+    <canvas class="scrap-cv" id="scrapCv"></canvas>
     <div class="split-div" id="sdiv"></div>
     <div class="cmp-lbl L" id="cL"></div>
     <div class="cmp-lbl R" id="cR"></div>
@@ -126,7 +132,7 @@ body{background:var(--color-bg);font-family:var(--font-body);color:var(--color-t
   </div>
   <aside class="sidebar">
     <!-- MAIN VIEW -->
-    <div id="mainView" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
+    <div id="mainView" style="display:flex;flex-direction:column;flex:1;overflow-y:auto;min-height:0">
       <div class="sec" style="padding-bottom:10px">
         <div class="sttl">Regions</div>
         <div class="rlist" id="rlist"></div>
@@ -168,6 +174,12 @@ body{background:var(--color-bg);font-family:var(--font-body);color:var(--color-t
       <div class="dem-toggle" style="margin-bottom:0">
         <button class="dtbtn" id="latBtn"><span class="gsw lat"></span>Latitude</button>
         <button class="dtbtn" id="lonBtn"><span class="gsw lon"></span>Longitude</button>
+      </div>
+      <!-- SCRAP PAPER (pages 8 & 9) -->
+      <div class="sttl" style="margin-top:14px">Scrap Paper</div>
+      <div class="dem-toggle" style="margin-bottom:0">
+        <button class="dtbtn" id="scrapBtn"><span class="gsw scrap"></span>Show paper</button>
+        <button class="dtbtn" id="scrapClr" disabled>Clear marks</button>
       </div>
     </div>
     <!-- DEM STYLE PANEL (shown in sidebar when on elevation page) -->
@@ -362,6 +374,7 @@ var gridCv=document.getElementById('gridCv');
 function gridActive(){return !cmpMode&&(String(curP)==='8'||String(curP)==='9')&&(gridOn.lat||gridOn.lon);}
 function renderGrid(){
   gridRaf=0;
+  renderScrap();
   var dpr=window.devicePixelRatio||1,pw=panel.clientWidth,ph=panel.clientHeight;
   if(gridCv.width!==Math.round(pw*dpr)||gridCv.height!==Math.round(ph*dpr)){gridCv.width=Math.round(pw*dpr);gridCv.height=Math.round(ph*dpr);}
   var ctx=gridCv.getContext('2d');
@@ -375,12 +388,177 @@ function syncGridUI(){
   var p=String(curP);
   document.getElementById('gridBtns').style.display=(!cmpMode&&(p==='8'||p==='9'))?'':'none';
   ['lat','lon'].forEach(function(k){document.getElementById(k+'Btn').classList.toggle('grid-on',gridOn[k]);});
+  syncScrapUI();
   queueGrid();
 }
 ['lat','lon'].forEach(function(k){
   document.getElementById(k+'Btn').addEventListener('click',function(){gridOn[k]=!gridOn[k];syncGridUI();});
 });
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(queueGrid);
+
+/* ── SCRAP PAPER (pages 8 & 9) ──
+   Paper lives in page-8 image px (the grid's frame), so on page 9 it shifts by
+   GRID_OFF and marks stay over the same places. (x,y) = left end of the straight
+   measuring edge; a = rotation; ticks = distances from the left end, image px.
+   Length scales with the map; thickness is screen-clamped so it never swallows
+   the view at high zoom. */
+var SCRAP_L=4200, SCRAP_GRIP=15, SCRAP_GRIP_R=10;
+var scrap={on:false,x:0,y:0,a:0,ticks:[]},scrapHover=null,scrapDrag=null;
+var scrapCv=document.getElementById('scrapCv');
+var ROT_CUR='url("data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M18.5 12a6.5 6.5 0 1 1-2.1-4.8" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round"/><path d="M18.5 12a6.5 6.5 0 1 1-2.1-4.8" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round"/><path d="M19.5 3.5v5h-5z" fill="#111" stroke="#fff" stroke-width="1"/></svg>')+'") 12 12, alias';
+function scrapActive(){var p=String(curP);return scrap.on&&!cmpMode&&(p==='8'||p==='9');}
+function scrapThick(k){return Math.max(40,Math.min(60,300*k));}
+function scrapView(){
+  var pw=panel.clientWidth,ph=panel.clientHeight;
+  var fit=Math.min(pw/GRID_W,ph/GRID_H),ox=(pw-GRID_W*fit)/2,oy=(ph-GRID_H*fit)/2;
+  var o=GRID_OFF[String(curP)]||[0,0];
+  return{k:fit*scale,
+    f:function(ix,iy){return [tx+scale*(ox+fit*(ix+o[0])),ty+scale*(oy+fit*(iy+o[1]))];},
+    inv:function(sx,sy){return [((sx-tx)/scale-ox)/fit-o[0],((sy-ty)/scale-oy)/fit-o[1]];}};
+}
+function scrapHash(i){var s=Math.sin(i*12.9898+4.1)*43758.5453;return s-Math.floor(s);}
+function accentCol(){
+  var c=getComputedStyle(document.documentElement).getPropertyValue('--tool-accent').trim();
+  return c||'#3CA3AE';
+}
+/* draws in ctx px; f maps page-8 image px → ctx px; k = ctx px per image px */
+function drawScrap(ctx,f,k,opt){
+  var p0=f(scrap.x,scrap.y),Ls=SCRAP_L*k,h=scrapThick(k);
+  var N=Math.max(8,Math.round(Ls/7));
+  ctx.save();
+  ctx.translate(p0[0],p0[1]);ctx.rotate(scrap.a);
+  /* paper body — straight top edge, torn bottom edge */
+  ctx.beginPath();
+  ctx.moveTo(0,0);ctx.lineTo(Ls,0);
+  for(var i=N;i>=0;i--){ctx.lineTo(Ls*i/N,h-scrapHash(i)*5-(i%2)*1.5);}
+  ctx.closePath();
+  ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=10;ctx.shadowOffsetY=3;
+  ctx.fillStyle='#EFE6CC';ctx.fill();
+  ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+  ctx.strokeStyle='rgba(60,52,36,.35)';ctx.lineWidth=1;ctx.stroke();
+  /* measuring edge */
+  ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Ls,0);
+  ctx.strokeStyle='#4A4336';ctx.lineWidth=1.4;ctx.stroke();
+  /* pencil ticks */
+  ctx.lineCap='round';
+  ctx.beginPath();
+  scrap.ticks.forEach(function(t){var x=t*k;ctx.moveTo(x,0.5);ctx.lineTo(x,h*0.6);});
+  ctx.strokeStyle='#26231E';ctx.lineWidth=2;ctx.stroke();
+  if(opt.ghost!=null){
+    var gx=opt.ghost*k;
+    ctx.beginPath();ctx.moveTo(gx,0.5);ctx.lineTo(gx,h*0.6);
+    ctx.strokeStyle='rgba(38,35,30,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  }
+  /* rotate grips — each swings the paper around the opposite end */
+  if(opt.grips){
+    var acc=accentCol();
+    [[-SCRAP_GRIP,h/2],[Ls+SCRAP_GRIP,h/2]].forEach(function(g){
+      ctx.beginPath();ctx.arc(g[0],g[1],SCRAP_GRIP_R,0,Math.PI*2);
+      ctx.fillStyle=acc;ctx.fill();
+      ctx.strokeStyle='#1E2320';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.beginPath();ctx.arc(g[0],g[1],5,-0.35*Math.PI,1.2*Math.PI);
+      ctx.strokeStyle='#1E2320';ctx.lineWidth=1.8;ctx.stroke();
+      var ex=g[0]+5*Math.cos(-0.35*Math.PI),ey=g[1]+5*Math.sin(-0.35*Math.PI);
+      ctx.beginPath();ctx.moveTo(ex+3.2,ey-1.4);ctx.lineTo(ex-0.6,ey-2.6);ctx.lineTo(ex+0.9,ey+1.6);ctx.closePath();
+      ctx.fillStyle='#1E2320';ctx.fill();
+    });
+  }
+  ctx.restore();
+}
+function renderScrap(){
+  var dpr=window.devicePixelRatio||1,pw=panel.clientWidth,ph=panel.clientHeight;
+  if(scrapCv.width!==Math.round(pw*dpr)||scrapCv.height!==Math.round(ph*dpr)){scrapCv.width=Math.round(pw*dpr);scrapCv.height=Math.round(ph*dpr);}
+  var ctx=scrapCv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,pw,ph);
+  if(!scrapActive())return;
+  var v=scrapView();
+  drawScrap(ctx,v.f,v.k,{grips:true,ghost:scrapDrag?null:scrapHover});
+}
+/* screen point → what it hits on the paper */
+function scrapHit(sx,sy){
+  var v=scrapView(),k=v.k,p0=v.f(scrap.x,scrap.y),Ls=SCRAP_L*k,h=scrapThick(k);
+  var c=Math.cos(scrap.a),s=Math.sin(scrap.a),dx=sx-p0[0],dy=sy-p0[1];
+  var u=dx*c+dy*s,w=-dx*s+dy*c,r=SCRAP_GRIP_R+3;
+  if(Math.hypot(u+SCRAP_GRIP,w-h/2)<=r)return{type:'gripL',k:k};
+  if(Math.hypot(u-Ls-SCRAP_GRIP,w-h/2)<=r)return{type:'gripR',k:k};
+  if(u>=0&&u<=Ls&&w>=0&&w<=h)return{type:'body',u:u/k,k:k};
+  return null;
+}
+function panelXY(e){var rc=panel.getBoundingClientRect();return[e.clientX-rc.left,e.clientY-rc.top];}
+function scrapCursor(hit,dragging){
+  panel.style.cursor=!hit?'':(hit.type==='body'?(dragging?'grabbing':'grab'):ROT_CUR);
+}
+panel.addEventListener('pointerdown',function(e){
+  if(!scrapActive()||(e.pointerType==='mouse'&&e.button!==0))return;
+  var p=panelXY(e),hit=scrapHit(p[0],p[1]);
+  if(!hit)return;
+  e.preventDefault();e.stopPropagation();
+  try{panel.setPointerCapture(e.pointerId);}catch(err){}
+  var d={type:hit.type,id:e.pointerId,sx:p[0],sy:p[1],moved:false,x0:scrap.x,y0:scrap.y,a0:scrap.a,u:hit.u,k:hit.k};
+  if(hit.type!=='body'){
+    var v=scrapView(),c=Math.cos(scrap.a),s=Math.sin(scrap.a);
+    d.pivImg=hit.type==='gripR'?[scrap.x,scrap.y]:[scrap.x+SCRAP_L*c,scrap.y+SCRAP_L*s];
+    var pv=v.f(d.pivImg[0],d.pivImg[1]);d.piv=pv;
+    d.ang0=Math.atan2(p[1]-pv[1],p[0]-pv[0]);
+  }
+  scrapDrag=d;scrapHover=null;scrapCursor(hit,true);queueGrid();
+});
+panel.addEventListener('pointermove',function(e){
+  var p=panelXY(e);
+  if(scrapDrag&&e.pointerId===scrapDrag.id){
+    var d=scrapDrag;
+    if(d.type==='body'){
+      if(!d.moved&&Math.hypot(p[0]-d.sx,p[1]-d.sy)>4)d.moved=true;
+      if(d.moved){scrap.x=d.x0+(p[0]-d.sx)/d.k;scrap.y=d.y0+(p[1]-d.sy)/d.k;}
+    }else{
+      d.moved=true;
+      scrap.a=d.a0+Math.atan2(p[1]-d.piv[1],p[0]-d.piv[0])-d.ang0;
+      if(d.type==='gripL'){scrap.x=d.pivImg[0]-SCRAP_L*Math.cos(scrap.a);scrap.y=d.pivImg[1]-SCRAP_L*Math.sin(scrap.a);}
+    }
+    queueGrid();return;
+  }
+  if(!scrapActive()||panning){if(scrapHover!=null){scrapHover=null;queueGrid();}return;}
+  var hit=scrapHit(p[0],p[1]);
+  scrapCursor(hit,false);
+  var gh=(hit&&hit.type==='body'&&e.pointerType!=='touch')?hit.u:null;
+  if(gh!==scrapHover){scrapHover=gh;queueGrid();}
+});
+function scrapEnd(e){
+  var d=scrapDrag;if(!d||e.pointerId!==d.id)return;
+  scrapDrag=null;
+  if(e.type==='pointerup'&&d.type==='body'&&!d.moved){
+    var tol=7/d.k,best=-1,bd=Infinity;
+    scrap.ticks.forEach(function(t,i){var dd=Math.abs(t-d.u);if(dd<bd){bd=dd;best=i;}});
+    if(best>=0&&bd<=tol)scrap.ticks.splice(best,1);
+    else scrap.ticks.push(Math.max(0,Math.min(SCRAP_L,d.u)));
+    syncScrapUI();
+  }
+  var p=panelXY(e),hit=scrapActive()?scrapHit(p[0],p[1]):null;
+  scrapCursor(hit,false);
+  scrapHover=(hit&&hit.type==='body'&&e.pointerType!=='touch')?hit.u:null;
+  queueGrid();
+}
+panel.addEventListener('pointerup',scrapEnd);
+panel.addEventListener('pointercancel',scrapEnd);
+panel.addEventListener('pointerleave',function(){if(!scrapDrag&&scrapHover!=null){scrapHover=null;panel.style.cursor='';queueGrid();}});
+function placeScrap(){
+  var v=scrapView(),pw=panel.clientWidth,ph=panel.clientHeight,Ls=SCRAP_L*v.k;
+  var sx=Ls<=pw*0.8?(pw-Ls)/2:pw*0.1, c=v.inv(sx,ph/2-scrapThick(v.k)/2);
+  scrap.x=c[0];scrap.y=c[1];scrap.a=0;
+}
+function syncScrapUI(){
+  document.getElementById('scrapBtn').classList.toggle('scrap-on',scrap.on);
+  document.getElementById('scrapClr').disabled=!scrap.on||!scrap.ticks.length;
+  panel.classList.toggle('scrap-on',scrapActive());
+  if(!scrapActive()){scrapDrag=null;scrapHover=null;panel.style.cursor='';}
+  queueGrid();
+}
+document.getElementById('scrapBtn').addEventListener('click',function(){
+  scrap.on=!scrap.on;
+  if(scrap.on)placeScrap();
+  syncScrapUI();
+});
+document.getElementById('scrapClr').addEventListener('click',function(){scrap.ticks=[];syncScrapUI();});
 
 /* ── ZOOM ── */
 function applyT(){zw.style.transform='translate('+tx+'px,'+ty+'px) scale('+scale+')';queueGrid();}
@@ -399,7 +577,7 @@ panel.addEventListener('wheel',function(e){if(cmpMode)return;e.preventDefault();
 document.getElementById('zIn').addEventListener('click',function(){zoomTo(scale*1.4,panel.clientWidth/2,panel.clientHeight/2);});
 document.getElementById('zOut').addEventListener('click',function(){zoomTo(scale/1.4,panel.clientWidth/2,panel.clientHeight/2);});
 document.getElementById('zRst').addEventListener('click',resetZoom);
-panel.addEventListener('mousedown',function(e){if(cmpMode||e.button!==0||scale<=1)return;panning=true;panSX=e.clientX;panSY=e.clientY;panTX=tx;panTY=ty;panel.classList.add('panning');e.preventDefault();});
+panel.addEventListener('mousedown',function(e){if(scrapDrag||cmpMode||e.button!==0||scale<=1)return;panning=true;panSX=e.clientX;panSY=e.clientY;panTX=tx;panTY=ty;panel.classList.add('panning');e.preventDefault();});
 window.addEventListener('mousemove',function(e){if(!panning)return;
   if(e.buttons===0){panning=false;panel.classList.remove('panning');return;}
   var c=clamp(scale,panTX+(e.clientX-panSX),panTY+(e.clientY-panSY));tx=c.x;ty=c.y;applyT();});
@@ -628,6 +806,12 @@ function downloadPNG(){
   if(gridActive()){
     var gk=IMG_W/GRID_W;
     drawGridTo(oc,function(ix,iy){return [PAD+ix*gk,HDR+iy*gk];},{x:PAD,y:HDR,w:IMG_W,h:IMG_H},gk,String(curP));
+  }
+  if(scrapActive()){
+    var sk=IMG_W/GRID_W,so=GRID_OFF[String(curP)];
+    oc.save();oc.beginPath();oc.rect(PAD,HDR,IMG_W,IMG_H);oc.clip();
+    drawScrap(oc,function(ix,iy){return [PAD+(ix+so[0])*sk,HDR+(iy+so[1])*sk];},sk,{});
+    oc.restore();
   }
 
   var y=HDR+IMG_H+GAP;
