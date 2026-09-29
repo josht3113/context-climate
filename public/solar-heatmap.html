@@ -75,6 +75,10 @@ input[type=range].s2::-moz-range-thumb { background: var(--series-2); }
 canvas.plot { display: block; width: 100%; cursor: crosshair; }
 
 .legend-panel, .daily-panel { padding: 14px 16px 10px; margin-bottom: 14px; }
+.xrow { margin-left: auto; display: inline-flex; gap: 6px; flex-wrap: wrap; align-self: center; }
+.xbtn { padding: 5px 11px; }
+.xbtn:disabled { opacity: .45; cursor: default; }
+.xbtn.is-active:disabled { opacity: 1; }
 .daily-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
 
 /* ── Tooltip ── */
@@ -156,9 +160,13 @@ footer strong { color: var(--color-text-secondary); }
     <button class="tb is-active" data-ov="events">Solstices / Equinoxes</button>
     <span class="sep"></span>
     <button class="tb" id="btnAnim">Animate Latitude</button>
+    <select class="cc-select" id="sweepSel" aria-label="Latitude sweep range">
+      <option value="full">90°S → 90°N</option>
+      <option value="north">0° → 90°N</option>
+      <option value="south">0° → 90°S</option>
+      <option value="cur">Current → pole</option>
+    </select>
     <button class="tb" id="btnCompare">Compare</button>
-    <button class="tb" id="btnPng">Download PNG</button>
-    <button class="tb" id="btnCopy">Copy Image</button>
   </div>
   <div class="crow is-hidden" id="cmpRow">
     <span class="cc-btn-row-label">Compare</span>
@@ -170,16 +178,23 @@ footer strong { color: var(--color-text-secondary); }
     </div>
     <span class="lat-readout s2" id="lat2Readout">69.65°N</span>
   </div>
+  <div class="crow">
+    <span class="cc-btn-row-label">Export all</span>
+    <button class="tb xbtn" data-kind="group" data-fmt="png">↓ PNG</button>
+    <button class="tb xbtn" data-kind="group" data-fmt="gif">↓ GIF</button>
+    <button class="tb xbtn" data-kind="group" data-fmt="video">↓ MP4</button>
+    <button class="tb xbtn" data-kind="group" data-fmt="copy">Copy Image</button>
+  </div>
 </div>
 
 <div class="cards" id="cards">
   <div class="cc-panel card" id="card1">
-    <div class="card-head"><span class="card-name" id="name1"></span><span class="card-sub" id="sub1"></span></div>
+    <div class="card-head"><span class="card-name" id="name1"></span><span class="card-sub" id="sub1"></span><span class="xrow"><button class="tb xbtn" data-kind="card1" data-fmt="png">↓ PNG</button><button class="tb xbtn" data-kind="card1" data-fmt="gif">↓ GIF</button><button class="tb xbtn" data-kind="card1" data-fmt="video">↓ MP4</button></span></div>
     <div class="cc-stat-row" id="stats1"></div>
     <canvas class="plot" id="heat1"></canvas>
   </div>
   <div class="cc-panel card is-hidden" id="card2">
-    <div class="card-head"><span class="card-name" id="name2"></span><span class="card-sub" id="sub2"></span></div>
+    <div class="card-head"><span class="card-name" id="name2"></span><span class="card-sub" id="sub2"></span><span class="xrow"><button class="tb xbtn" data-kind="card2" data-fmt="png">↓ PNG</button><button class="tb xbtn" data-kind="card2" data-fmt="gif">↓ GIF</button><button class="tb xbtn" data-kind="card2" data-fmt="video">↓ MP4</button></span></div>
     <div class="cc-stat-row" id="stats2"></div>
     <canvas class="plot" id="heat2"></canvas>
   </div>
@@ -196,6 +211,7 @@ footer strong { color: var(--color-text-secondary); }
       <button class="cc-tab" data-t="ins">Daily Insolation</button>
       <button class="cc-tab" data-t="eot">Equation of Time</button>
     </div>
+    <span class="xrow"><button class="tb xbtn" data-kind="daily" data-fmt="png">↓ PNG</button><button class="tb xbtn" data-kind="daily" data-fmt="gif">↓ GIF</button><button class="tb xbtn" data-kind="daily" data-fmt="video">↓ MP4</button></span>
   </div>
   <canvas class="plot" id="dailyCv"></canvas>
 </div>
@@ -350,7 +366,8 @@ const LINES=[
   {name:'Tropic of Capricorn',lat:-23.44},{name:'Antarctic Circle',lat:-66.56},{name:'South Pole',lat:-90},
 ];
 
-const st={
+let st={
+  sweep:'full',
   loc:{...PLACES[3]}, loc2:{...PLACES[6]},
   view:'alt', axis:'solar', dst:true, res:5,
   ov:{rise:true,noon:true,twi:false,events:true},
@@ -371,7 +388,8 @@ function fmtDur(min){ const m=Math.round(min); return Math.floor(m/60)+'h '+Stri
 const signed=(v,dp)=>(v>0?'+':v<0?'−':'')+Math.abs(v).toFixed(dp);
 const COMPASS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 const compass=az=>COMPASS[Math.round(az/22.5)%16];
-const locLabel=loc=>loc.name||fmtLat(loc.lat);
+const fmtLatT=l=>(+Math.abs(l).toFixed(2))+'°'+(l>0?'N':l<0?'S':'');
+const locLabel=loc=>loc.name||fmtLatT(loc.lat);
 
 // ── Time zones ────────────────────────────────────────────────
 const TZC={};
@@ -631,7 +649,8 @@ function drawLegend(ctx,w){
   ctx.fillStyle=BG; ctx.fillRect(0,0,w,LEG_H);
   const v=st.view, sw=34, gap=16;
   const titles={alt:'Solar altitude (°)',az:'Azimuth — direction of the sun',ins:'Clear-sky insolation (W/m²)'};
-  const bx=HPL+sw+gap+10, bw=Math.max(200,Math.min(820,w-bx-HPR)), by=24, bh=16;
+  const keysW=(st.ov.rise||st.ov.noon||st.ov.twi)?250:0;
+  const bx=HPL+sw+gap+10, bw=Math.max(200,Math.min(820,w-bx-HPR-keysW)), by=24, bh=16;
   ctx.font=font(13,F_BODY,600); ctx.fillStyle=TXT; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
   ctx.fillText(titles[v],bx,15);
   // night / below-horizon swatch
@@ -672,7 +691,7 @@ function drawLegend(ctx,w){
   if(st.ov.noon) keys.push(['Solar noon','rgba(255,217,90,0.95)',[]]);
   if(st.ov.twi) keys.push(['Twilight −6° −12° −18°','rgba(160,185,245,0.9)',[5,3]]);
   const kx0=bx+bw+36;
-  if(keys.length&&w-kx0>200){
+  if(keys.length&&w-kx0>=190){
     ctx.font=font(13,F_BODY,500); ctx.textAlign='left'; ctx.textBaseline='middle';
     keys.forEach(([l,c,dash],i)=>{
       const y=by+2+i*18;
@@ -894,12 +913,12 @@ $('cmpSelect').addEventListener('change',e=>{
 $('lat2Slider').addEventListener('input',e=>{ st.loc2={...st.loc2,name:'',lat:+e.target.value}; syncCmp(); scheduleRecompute(2); });
 
 // animation
-let animDir=1, animRaf=0;
+let animDir=1, animRaf=0, animLo=-90, animHi=90;
 function stopAnim(){ if(!st.anim) return; st.anim=false; cancelAnimationFrame(animRaf); $('btnAnim').textContent='Animate Latitude'; $('btnAnim').classList.remove('anim'); }
 function animStep(){
   if(!st.anim) return;
   let lat=st.loc.lat+animDir*0.5;
-  if(lat>=90){lat=90;animDir=-1;} if(lat<=-90){lat=-90;animDir=1;}
+  if(lat>=animHi){lat=animHi;animDir=-1;} if(lat<=animLo){lat=animLo;animDir=1;}
   st.loc={...st.loc,name:'',lat:Math.round(lat*100)/100}; syncPresets();
   M1=buildModel(st.loc); renderHeat(1); renderCardText(1); renderDaily();
   animRaf=requestAnimationFrame(animStep);
@@ -907,7 +926,14 @@ function animStep(){
 $('btnAnim').addEventListener('click',()=>{
   if(st.anim){ stopAnim(); return; }
   st.anim=true; $('btnAnim').textContent='Pause'; $('btnAnim').classList.add('anim');
-  animDir=st.loc.lat>=89.9?-1:1; animRaf=requestAnimationFrame(animStep);
+  const L=sweepLats(st.sweep,st.loc.lat);
+  animLo=Math.min(L[0],L[L.length-1]); animHi=Math.max(L[0],L[L.length-1]);
+  const lat=Math.max(animLo,Math.min(animHi,st.loc.lat));
+  animDir=L[L.length-1]>=L[0]?1:-1;
+  if(Math.abs(lat-(animDir>0?animHi:animLo))<0.25) animDir=-animDir;
+  st.loc={...st.loc,name:lat===st.loc.lat?st.loc.name:'',lat}; animRaf=requestAnimationFrame(animStep);
+});
+$('sweepSel').addEventListener('change',e=>{ st.sweep=e.target.value; if(st.anim){ stopAnim(); $('btnAnim').click(); }
 });
 
 // hover
@@ -933,53 +959,57 @@ bindHeatHover(1); bindHeatHover(2);
   cv.addEventListener('mouseleave',()=>{ TT.style.display='none'; st.hoverDay=null; renderDaily(); });
 }
 
-// ── PNG export (fixed EXPORT_SCALE, independent of devicePixelRatio) ──
-const EXPORT_SCALE=3;
-function loadImg(src){ return new Promise(r=>{ const i=new Image(); i.onload=()=>r(i); i.onerror=()=>r(null); i.src=src; }); }
+// ── EXPORT: shared frame layouts for PNG · GIF · MP4 ──────────
+// Every export draws through the same layout functions. PNG renders at a fixed
+// EXPORT_SCALE (never devicePixelRatio); GIF at 1×; video at up to 4/3.
+const EXPORT_SCALE=3, FRAME_MS=70, HOLD_MS=2000, EX_PAD=20, EX_HEAD=86, EX_FOOT=36, EXP_W=960, GROUP_W=1500;
+const LOGO=new Image(); LOGO.src=LOGO_SRC;
+const VIEW_TITLE={alt:'Solar Altitude',az:'Solar Azimuth',ins:'Clear-Sky Insolation'};
+const VIEW_SUB={alt:'geometric altitude',az:'0° = north, clockwise',ins:'clear-sky model, no clouds'};
+const TAB_TITLE={daylen:'Day Length',noon:'Noon Sun Altitude',ins:'Daily Insolation',eot:'Equation of Time'};
+const TAB_SUB={daylen:'sunrise to sunset, refraction included',noon:'geometric altitude at solar noon',ins:'top of atmosphere vs clear-sky surface',eot:'same at every latitude'};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const yieldUI=()=>new Promise(r=>setTimeout(r,0));
+
+function sweepLats(range,lat0){
+  let a,b,step=1;
+  if(range==='full'){ a=-90; b=90; step=2; }
+  else if(range==='north'){ a=0; b=90; }
+  else if(range==='south'){ a=0; b=-90; }
+  else { a=Math.round(lat0*100)/100; b=a>=0?90:-90; if(Math.abs(b-a)<1) b=0; }
+  const n=Math.max(2,Math.round(Math.abs(b-a)/step)+1), out=[];
+  for(let k=0;k<n;k++) out.push(Math.round((a+(b-a)*k/(n-1))*100)/100);
+  return out;
+}
+const sweepText=lats=>'Latitude sweep '+fmtLatT(lats[0])+' → '+fmtLatT(lats[lats.length-1]);
+const subLine=parts=>parts.filter(Boolean).join(' · ').toUpperCase();
+const axisText=()=>st.axis==='clock'?'Clock time'+(st.dst?'':' (standard)'):'Solar time';
+
+function runWith(snap,fn){ const live=st; st=snap; try{ return fn(); } finally{ st=live; } }
+function fitText(ctx,text,x,y,maxW,size,fam,wt){
+  let s=size; ctx.font=font(s,fam,wt);
+  while(ctx.measureText(text).width>maxW&&s>9){ s-=0.5; ctx.font=font(s,fam,wt); }
+  ctx.fillText(text,x,y);
+}
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-async function composeExport(){
-  await document.fonts.ready;
-  const ms=models(), S=EXPORT_SCALE, W=1500, PAD=24, GAP=16;
-  const cardW=ms.length===2?(W-PAD*2-GAP)/2:W-PAD*2;
-  const statsH=ms.length===2?74*2+8:74;
-  const cardH=16+30+10+statsH+12+HEAT_H+10;
-  const HEAD=86, H=PAD+HEAD+cardH+GAP+LEG_H+20+GAP+DAILY_H+20+44;
-  const cv=document.createElement('canvas'); cv.width=W*S; cv.height=H*S;
-  const ctx=cv.getContext('2d'); ctx.scale(S,S);
-  ctx.fillStyle=PAGE_BG; ctx.fillRect(0,0,W,H);
-  // header
-  const logo=await loadImg(LOGO_SRC); let tx=PAD;
-  if(logo){ const lh=40, lw=logo.naturalWidth*lh/logo.naturalHeight; ctx.drawImage(logo,PAD,PAD+4,lw,lh); tx=PAD+lw+14; }
+function exHeader(ctx,W,title,sub,readout,readColor){
+  let tx=EX_PAD;
+  if(LOGO.complete&&LOGO.naturalWidth){ const lh=42, lw=LOGO.naturalWidth*lh/LOGO.naturalHeight; ctx.drawImage(LOGO,EX_PAD,EX_PAD+8,lw,lh); tx=EX_PAD+lw+16; }
+  const rw=readout?190:0;
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-  ctx.font=font(30,F_DISP,700); ctx.fillStyle=TXT; ctx.fillText('Solar Heatmap Explorer',tx,PAD+30);
-  const viewName={alt:'Solar altitude',az:'Solar azimuth',ins:'Clear-sky insolation'}[st.view];
-  const axisName=st.axis==='clock'?'Clock time'+(st.dst?'':' (standard)'):'Solar time';
-  ctx.font=font(15,F_MONO,700); ctx.fillStyle=SER[0];
-  ctx.fillText(`${viewName.toUpperCase()} · ${axisName.toUpperCase()} · ${st.res}-MIN INTERVAL · ${YEAR}`,tx,PAD+56);
-  // cards
-  let y=PAD+HEAD;
-  ms.forEach((m,i)=>{
-    const cx=PAD+i*(cardW+GAP);
-    ctx.fillStyle=BG; roundRect(ctx,cx,y,cardW,cardH,6); ctx.fill();
-    ctx.font=font(22,F_DISP,700); ctx.fillStyle=ms.length===2?SER[i]:TXT; ctx.textAlign='left';
-    const nm=m.loc.name||fmtLat(m.loc.lat); ctx.fillText(nm,cx+16,y+36);
-    const sub=[m.loc.name?fmtLat(m.loc.lat):'',st.axis==='clock'?fmtLon(m.loc.lon)+' · '+m.loc.tz:''].filter(Boolean).join(' · ');
-    const nw=ctx.measureText(nm).width;
-    ctx.font=font(14,F_MONO,400); ctx.fillStyle=TXT2; ctx.fillText(sub,cx+16+nw+14,y+36);
-    drawStatsRow(ctx,cx+13,y+56,cardW-26,m,ms.length===2?3:6);
-    ctx.save(); ctx.translate(cx,y+56+statsH+12); drawHeat(ctx,cardW,m); ctx.restore();
-  });
-  y+=cardH+GAP;
-  ctx.fillStyle=BG; roundRect(ctx,PAD,y,W-PAD*2,LEG_H+20,6); ctx.fill();
-  ctx.save(); ctx.translate(PAD,y+10); ctx.beginPath(); ctx.rect(0,0,W-PAD*2,LEG_H); ctx.clip(); drawLegend(ctx,W-PAD*2); ctx.restore();
-  y+=LEG_H+20+GAP;
-  ctx.fillStyle=BG; roundRect(ctx,PAD,y,W-PAD*2,DAILY_H+20,6); ctx.fill();
-  ctx.save(); ctx.translate(PAD,y+10); drawDaily(ctx,W-PAD*2,ms,st.tab,null); ctx.restore();
-  y+=DAILY_H+20;
-  ctx.font=font(13,F_MONO,400); ctx.fillStyle=TXT3; ctx.textAlign='left';
-  ctx.fillText('Chart: Josh Timlin  |  Sun position: NOAA Solar Calculator (Meeus)  |  Clear-sky insolation: Meinel & Meinel (1976), Kasten & Young (1989)',PAD,y+28);
-  ctx.textAlign='right'; ctx.fillStyle=TXT2; ctx.font=font(13,F_MONO,700); ctx.fillText('contextclimate.io',W-PAD,y+28);
-  return cv;
+  ctx.font=font(12,F_MONO,700); ctx.fillStyle=TXT3; ctx.fillText('CONTEXTCLIMATE · SOLAR HEATMAP EXPLORER',tx,EX_PAD+12);
+  ctx.fillStyle=TXT; fitText(ctx,title,tx,EX_PAD+42,W-tx-EX_PAD-rw,28,F_DISP,700);
+  ctx.fillStyle=SER[0]; fitText(ctx,sub,tx,EX_PAD+64,W-tx-EX_PAD-rw,14,F_MONO,700);
+  if(readout){
+    ctx.textAlign='right'; ctx.font=font(34,F_MONO,700); ctx.fillStyle=readColor||SER[0];
+    ctx.fillText(readout,W-EX_PAD,EX_PAD+42);
+    ctx.font=font(12,F_MONO,700); ctx.fillStyle=TXT3; ctx.fillText('LATITUDE',W-EX_PAD,EX_PAD+62);
+  }
+}
+function exFooter(ctx,W,y){
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic'; ctx.fillStyle=TXT3;
+  fitText(ctx,'Chart: Josh Timlin  |  Sun position: NOAA Solar Calculator (Meeus)  |  Clear-sky insolation: Meinel & Meinel (1976), Kasten & Young (1989)',EX_PAD,y+24,W-EX_PAD*2-160,13,F_MONO,400);
+  ctx.textAlign='right'; ctx.font=font(13,F_MONO,700); ctx.fillStyle=TXT2; ctx.fillText('contextclimate.io',W-EX_PAD,y+24);
 }
 function drawStatsRow(ctx,x,y,w,m,perRow){
   const cw=w/perRow;
@@ -987,26 +1017,378 @@ function drawStatsRow(ctx,x,y,w,m,perRow){
     const cx=x+(i%perRow)*cw, cy=y+Math.floor(i/perRow)*82, s=m.stats[key];
     ctx.fillStyle='#2C322D'; roundRect(ctx,cx+3,cy,cw-6,74,5); ctx.fill();
     ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-    ctx.font=font(12,F_MONO,700); ctx.fillStyle=TXT2; ctx.fillText(lab.toUpperCase(),cx+13,cy+19);
-    let fs=26; ctx.font=font(fs,F_DISP,700); while(ctx.measureText(s.v).width>cw-26&&fs>16){ fs--; ctx.font=font(fs,F_DISP,700); }
-    ctx.fillStyle=TXT; ctx.fillText(s.v,cx+13,cy+48);
-    ctx.font=font(13,F_BODY,400); ctx.fillStyle=TXT2; ctx.fillText(s.n,cx+13,cy+66);
+    ctx.fillStyle=TXT2; fitText(ctx,lab.toUpperCase(),cx+13,cy+19,cw-24,12,F_MONO,700);
+    ctx.fillStyle=TXT; fitText(ctx,s.v,cx+13,cy+48,cw-24,26,F_DISP,700);
+    ctx.fillStyle=TXT2; fitText(ctx,s.n,cx+13,cy+66,cw-24,13,F_BODY,400);
   });
 }
-function exportName(){
-  const nm=(st.loc.name||fmtLat(st.loc.lat)).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-  return `solar-heatmap_${nm}${st.compare?'_vs_'+(st.loc2.name||fmtLat(st.loc2.lat)).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''):''}_${st.view}.png`;
+const cardLoc=loc=>loc.name||fmtLatT(loc.lat);
+
+// Individual heatmap card: stats + heatmap + legend
+function layoutCard(spec){
+  const W=EXP_W, CW=W-EX_PAD*2, statsH=74;
+  const panelH=12+statsH+8+HEAT_H+4+LEG_H+6;
+  const H=EX_PAD+EX_HEAD+panelH+EX_FOOT;
+  return {W,H,draw(ctx,fr){
+    const m=fr.models[0], second=spec.kind==='card2'&&st.compare;
+    ctx.fillStyle=PAGE_BG; ctx.fillRect(0,0,W,H);
+    exHeader(ctx,W,VIEW_TITLE[st.view]+(spec.lats?'':' · '+cardLoc(m.loc)),
+      subLine([spec.lats?sweepText(spec.lats):'',VIEW_SUB[st.view],axisText()+(st.axis==='clock'?' '+zoneLabel(m.loc):''),st.res+'-min interval',String(YEAR)]),
+      fmtLatT(m.loc.lat),second?SER[1]:SER[0]);
+    let y=EX_PAD+EX_HEAD;
+    ctx.fillStyle=BG; roundRect(ctx,EX_PAD,y,CW,panelH,6); ctx.fill();
+    drawStatsRow(ctx,EX_PAD+8,y+12,CW-16,m,6);
+    y+=12+statsH+8;
+    ctx.save(); ctx.translate(EX_PAD,y); drawHeat(ctx,CW,m); ctx.restore();
+    y+=HEAT_H+4;
+    ctx.save(); ctx.translate(EX_PAD,y); ctx.beginPath(); ctx.rect(0,0,CW,LEG_H); ctx.clip(); drawLegend(ctx,CW); ctx.restore();
+    exFooter(ctx,W,EX_PAD+EX_HEAD+panelH);
+  }};
 }
-function flash(id,msg){ const b=$(id), o=b.textContent; b.textContent=msg; b.classList.add('is-active'); setTimeout(()=>{ b.textContent=o; b.classList.remove('is-active'); },1800); }
-function downloadBlob(blob){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=exportName(); document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
-$('btnPng').addEventListener('click',async()=>{ const cv=await composeExport(); cv.toBlob(b=>{ downloadBlob(b); flash('btnPng','Saved'); },'image/png'); });
-$('btnCopy').addEventListener('click',async()=>{
-  const cv=await composeExport();
-  cv.toBlob(async b=>{
-    try{ await navigator.clipboard.write([new ClipboardItem({'image/png':b})]); flash('btnCopy','Copied'); }
-    catch(err){ downloadBlob(b); flash('btnCopy','Downloaded'); }
-  },'image/png');
+// Daily chart panel on its own
+function layoutDaily(spec){
+  const W=EXP_W, CW=W-EX_PAD*2, panelH=DAILY_H+16, H=EX_PAD+EX_HEAD+panelH+EX_FOOT;
+  return {W,H,draw(ctx,fr){
+    const ms=fr.models;
+    ctx.fillStyle=PAGE_BG; ctx.fillRect(0,0,W,H);
+    const who=spec.lats?sweepText(spec.lats)+(ms[1]?' vs '+cardLoc(ms[1].loc):''):ms.map(m=>cardLoc(m.loc)).join(' vs ');
+    exHeader(ctx,W,TAB_TITLE[st.tab],subLine([who,TAB_SUB[st.tab],String(YEAR)]),st.tab==='eot'&&!spec.lats?null:fmtLatT(ms[0].loc.lat));
+    const y=EX_PAD+EX_HEAD;
+    ctx.fillStyle=BG; roundRect(ctx,EX_PAD,y,CW,panelH,6); ctx.fill();
+    ctx.save(); ctx.translate(EX_PAD,y+8); drawDaily(ctx,CW,ms,st.tab,null); ctx.restore();
+    exFooter(ctx,W,y+panelH);
+  }};
+}
+// Everything: card(s), legend, daily chart
+function layoutGroup(spec){
+  const two=spec.snap.compare, W=GROUP_W, CW=W-EX_PAD*2, GAP=16;
+  const cardW=two?(CW-GAP)/2:CW, statsH=two?74*2+8:74, cardH=16+30+10+statsH+12+HEAT_H+10;
+  const H=EX_PAD+EX_HEAD+cardH+GAP+LEG_H+20+GAP+DAILY_H+20+EX_FOOT;
+  return {W,H,draw(ctx,fr){
+    const ms=fr.models;
+    ctx.fillStyle=PAGE_BG; ctx.fillRect(0,0,W,H);
+    const who=spec.lats?sweepText(spec.lats)+(two?' vs '+cardLoc(ms[1].loc):''):ms.map(m=>cardLoc(m.loc)).join(' vs ');
+    exHeader(ctx,W,VIEW_TITLE[st.view]+' · '+TAB_TITLE[st.tab],subLine([who,VIEW_SUB[st.view],axisText(),st.res+'-min interval',String(YEAR)]),fmtLatT(ms[0].loc.lat));
+    let y=EX_PAD+EX_HEAD;
+    ms.forEach((m,i)=>{
+      const cx=EX_PAD+i*(cardW+GAP);
+      ctx.fillStyle=BG; roundRect(ctx,cx,y,cardW,cardH,6); ctx.fill();
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.font=font(22,F_DISP,700); ctx.fillStyle=two?SER[i]:TXT;
+      const nm=cardLoc(m.loc); ctx.fillText(nm,cx+16,y+36);
+      const nw=ctx.measureText(nm).width;
+      const sub=[m.loc.name?fmtLatT(m.loc.lat):'',st.axis==='clock'?fmtLon(m.loc.lon)+' · '+m.loc.tz:''].filter(Boolean).join(' · ');
+      ctx.font=font(14,F_MONO,400); ctx.fillStyle=TXT2; ctx.fillText(sub,cx+16+nw+14,y+36);
+      drawStatsRow(ctx,cx+13,y+56,cardW-26,m,two?3:6);
+      ctx.save(); ctx.translate(cx,y+56+statsH+12); drawHeat(ctx,cardW,m); ctx.restore();
+    });
+    y+=cardH+GAP;
+    ctx.fillStyle=BG; roundRect(ctx,EX_PAD,y,CW,LEG_H+20,6); ctx.fill();
+    ctx.save(); ctx.translate(EX_PAD,y+10); ctx.beginPath(); ctx.rect(0,0,CW,LEG_H); ctx.clip(); drawLegend(ctx,CW); ctx.restore();
+    y+=LEG_H+20+GAP;
+    ctx.fillStyle=BG; roundRect(ctx,EX_PAD,y,CW,DAILY_H+20,6); ctx.fill();
+    ctx.save(); ctx.translate(EX_PAD,y+10); drawDaily(ctx,CW,ms,st.tab,null); ctx.restore();
+    exFooter(ctx,W,y+DAILY_H+20);
+  }};
+}
+const layoutFor=spec=>spec.kind==='daily'?layoutDaily(spec):spec.kind==='group'?layoutGroup(spec):layoutCard(spec);
+
+// Spec = snapshot of settings at click + which panel + sweep latitudes (null = still image)
+function makeSpec(kind,animated){
+  const snap=JSON.parse(JSON.stringify({...st,anim:false,hoverDay:null}));
+  const base=kind==='card2'?snap.loc2:snap.loc;
+  return {kind,snap,lats:animated?sweepLats(snap.sweep,base.lat):null};
+}
+// Models for every frame. Sweep frames keep only what drawing needs (grids dropped).
+async function prepareFrames(spec,onProg){
+  const {kind,snap,lats}=spec;
+  const light=m=>{ m.alt=m.az=m.ghi=null; return m; };
+  const base=kind==='card2'?snap.loc2:snap.loc;
+  const fixed=(kind==='daily'||kind==='group')&&snap.compare?runWith(snap,()=>light(buildModel(snap.loc2))):null;
+  const pack=m=>({models:kind==='card1'||kind==='card2'?[m]:fixed?[m,fixed]:[m]});
+  if(!lats) return [pack(runWith(snap,()=>light(buildModel(base))))];
+  const frames=[];
+  for(let k=0;k<lats.length;k++){
+    frames.push(pack(runWith(snap,()=>light(buildModel({...base,name:'',lat:lats[k]})))));
+    onProg((k+1)/lats.length); await yieldUI();
+  }
+  return frames;
+}
+
+async function exportPNG(spec){
+  const frames=await prepareFrames(spec,()=>{});
+  const L=layoutFor(spec), S=EXPORT_SCALE, cv=document.createElement('canvas');
+  cv.width=L.W*S; cv.height=L.H*S;
+  const ctx=cv.getContext('2d'); ctx.scale(S,S);
+  runWith(spec.snap,()=>L.draw(ctx,frames[0]));
+  return cv;
+}
+
+// ── GIF encoder: global median-cut palette, changed-pixel boxes, LZW ──
+class ByteBuf{
+  constructor(n){ this.a=new Uint8Array(n||1<<16); this.n=0; }
+  grow(k){ if(this.n+k>this.a.length){ let s=this.a.length*2; while(s<this.n+k) s*=2; const b=new Uint8Array(s); b.set(this.a.subarray(0,this.n)); this.a=b; } }
+  byte(v){ this.grow(1); this.a[this.n++]=v; }
+  bytes(src,len){ this.grow(len); this.a.set(len===src.length?src:src.subarray(0,len),this.n); this.n+=len; }
+  u16(v){ this.byte(v&255); this.byte((v>>8)&255); }
+  out(){ return this.a.slice(0,this.n); }
+}
+const LZW_MASKS=[0x0000,0x0001,0x0003,0x0007,0x000F,0x001F,0x003F,0x007F,0x00FF,0x01FF,0x03FF,0x07FF,0x0FFF,0x1FFF,0x3FFF,0x7FFF,0xFFFF];
+function lzwEncode(pixels,out){
+  const INIT=8, BITS=12, HSIZE=5003, MAXMAX=1<<BITS;
+  const htab=new Int32Array(HSIZE).fill(-1), codetab=new Int32Array(HSIZE);
+  const initBits=INIT+1, CLEAR=1<<INIT, EOI=CLEAR+1;
+  let nBits=initBits, maxcode=(1<<nBits)-1, freeEnt=CLEAR+2, clearFlg=false, acc=0, accBits=0;
+  const blk=new Uint8Array(256); let bn=0;
+  const flush=()=>{ if(bn>0){ out.byte(bn); out.bytes(blk,bn); bn=0; } };
+  const put=c=>{ blk[bn++]=c; if(bn>=254) flush(); };
+  const output=code=>{
+    acc&=LZW_MASKS[accBits];
+    acc=accBits>0?acc|(code<<accBits):code;
+    accBits+=nBits;
+    while(accBits>=8){ put(acc&255); acc>>=8; accBits-=8; }
+    if(freeEnt>maxcode||clearFlg){
+      if(clearFlg){ nBits=initBits; maxcode=(1<<nBits)-1; clearFlg=false; }
+      else { nBits++; maxcode=nBits===BITS?MAXMAX:(1<<nBits)-1; }
+    }
+    if(code===EOI){ while(accBits>0){ put(acc&255); acc>>=8; accBits-=8; } flush(); }
+  };
+  let hshift=0; for(let f=HSIZE;f<65536;f*=2) hshift++; hshift=8-hshift;
+  out.byte(INIT);
+  output(CLEAR);
+  let ent=pixels[0];
+  outer: for(let p=1;p<pixels.length;p++){
+    const c=pixels[p], fcode=(c<<BITS)+ent; let i=(c<<hshift)^ent;
+    if(htab[i]===fcode){ ent=codetab[i]; continue; }
+    if(htab[i]>=0){
+      const disp=i===0?1:HSIZE-i;
+      do{ if((i-=disp)<0) i+=HSIZE; if(htab[i]===fcode){ ent=codetab[i]; continue outer; } } while(htab[i]>=0);
+    }
+    output(ent); ent=c;
+    if(freeEnt<MAXMAX){ codetab[i]=freeEnt++; htab[i]=fcode; }
+    else { htab.fill(-1); freeEnt=CLEAR+2; clearFlg=true; output(CLEAR); }
+  }
+  output(ent); output(EOI);
+  out.byte(0);
+}
+function medianCut(hist,K){
+  const cols=[]; for(let i=0;i<hist.length;i++) if(hist[i]) cols.push(i);
+  const CH=[i=>i>>12,i=>(i>>6)&63,i=>i&63];
+  const box=c=>{
+    const lo=[63,63,63], hi=[0,0,0]; let cnt=0;
+    for(const i of c){ for(let k=0;k<3;k++){ const v=CH[k](i); if(v<lo[k]) lo[k]=v; if(v>hi[k]) hi[k]=v; } cnt+=hist[i]; }
+    return {c,cnt,rng:[hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]]};
+  };
+  const boxes=[box(cols)];
+  while(boxes.length<K){
+    let bi=-1, best=-1;
+    boxes.forEach((b,i)=>{ if(b.c.length<2) return; const sc=Math.sqrt(b.cnt)*Math.max(...b.rng); if(sc>best){ best=sc; bi=i; } });
+    if(bi<0) break;
+    const b=boxes[bi], ch=b.rng.indexOf(Math.max(...b.rng)), f=CH[ch];
+    b.c.sort((x,y)=>f(x)-f(y));
+    let acc=0, cut=1;
+    for(let j=0;j<b.c.length;j++){ acc+=hist[b.c[j]]; if(acc>=b.cnt/2){ cut=j+1; break; } }
+    cut=Math.max(1,Math.min(b.c.length-1,cut));
+    boxes.splice(bi,1,box(b.c.slice(0,cut)),box(b.c.slice(cut)));
+  }
+  const pal=new Uint8Array(768);
+  boxes.forEach((b,k)=>{
+    let r=0,g=0,bl=0;
+    for(const i of b.c){ const w=hist[i]; r+=((i>>12)*4+2)*w; g+=(((i>>6)&63)*4+2)*w; bl+=((i&63)*4+2)*w; }
+    pal[k*3]=Math.round(r/b.cnt); pal[k*3+1]=Math.round(g/b.cnt); pal[k*3+2]=Math.round(bl/b.cnt);
+  });
+  return {pal,n:boxes.length};
+}
+function nearestIdx(P,key){
+  const r=(key>>12)*4+2, g=((key>>6)&63)*4+2, b=(key&63)*4+2;
+  let bi=0, bd=1e9;
+  for(let k=0;k<P.n;k++){ const dr=P.pal[k*3]-r, dg=P.pal[k*3+1]-g, db=P.pal[k*3+2]-b, d=dr*dr*2+dg*dg*4+db*db*3; if(d<bd){ bd=d; bi=k; } }
+  return bi;
+}
+const TRANSP=255;
+// 4×4 ordered dither, ±GIF_DITHER/2 levels — hides palette banding in the smooth colour ramps
+const GIF_DITHER=10;
+const BAYER4=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]].map(r=>r.map(v=>Math.round((v/16-0.5+1/32)*GIF_DITHER)));
+function gifFrame(out,W,H,idx,prev,delayCs){
+  let x0=0,y0=0,x1=W-1,y1=H-1;
+  if(prev){
+    x0=W; y0=H; x1=-1; y1=-1;
+    for(let y=0;y<H;y++){ const o=y*W; for(let x=0;x<W;x++) if(idx[o+x]!==prev[o+x]){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } }
+    if(x1<0){ x0=y0=x1=y1=0; }
+  }
+  const w=x1-x0+1, h=y1-y0+1, sub=new Uint8Array(w*h);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const s=(y+y0)*W+x+x0;
+    sub[y*w+x]=prev&&idx[s]===prev[s]?TRANSP:idx[s];
+  }
+  out.byte(0x21); out.byte(0xF9); out.byte(4); out.byte((1<<2)|(prev?1:0)); out.u16(delayCs); out.byte(TRANSP); out.byte(0);
+  out.byte(0x2C); out.u16(x0); out.u16(y0); out.u16(w); out.u16(h); out.byte(0);
+  lzwEncode(sub,out);
+}
+async function exportGIF(spec,prog){
+  const frames=await prepareFrames(spec,p=>prog(p*0.25));
+  const L=layoutFor(spec), W=L.W, H=L.H, n=frames.length;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const ctx=cv.getContext('2d',{willReadFrequently:true});
+  const render=k=>{ ctx.setTransform(1,0,0,1,0,0); runWith(spec.snap,()=>L.draw(ctx,frames[k])); return ctx.getImageData(0,0,W,H).data; };
+  const key=(px,i)=>((px[i]>>2)<<12)|((px[i+1]>>2)<<6)|(px[i+2]>>2);
+  const hist=new Uint32Array(262144), ns=Math.min(n,14);
+  for(let s=0;s<ns;s++){
+    const px=render(Math.round(s*(n-1)/Math.max(1,ns-1)));
+    for(let i=0;i<px.length;i+=4) hist[key(px,i)]++;
+    await yieldUI();
+  }
+  const P=medianCut(hist,255);
+  const out=new ByteBuf(1<<22);
+  for(const c of 'GIF89a') out.byte(c.charCodeAt(0));
+  out.u16(W); out.u16(H); out.byte(0xF7); out.byte(0); out.byte(0);
+  out.bytes(P.pal,768);
+  out.byte(0x21); out.byte(0xFF); out.byte(11); for(const c of 'NETSCAPE2.0') out.byte(c.charCodeAt(0)); out.byte(3); out.byte(1); out.u16(0); out.byte(0);
+  const cache=new Int16Array(262144).fill(-1);
+  let prev=null;
+  for(let k=0;k<n;k++){
+    const px=render(k), idx=new Uint8Array(W*H);
+    for(let y=0,j=0;y<H;y++){
+      const brow=BAYER4[y&3];
+      for(let x=0;x<W;x++,j++){
+        const i=j*4, t=brow[x&3];
+        const r=px[i]+t, g=px[i+1]+t, bb=px[i+2]+t;
+        const q=(((r<0?0:r>255?255:r)>>2)<<12)|(((g<0?0:g>255?255:g)>>2)<<6)|((bb<0?0:bb>255?255:bb)>>2);
+        let c=cache[q]; if(c<0){ c=nearestIdx(P,q); cache[q]=c; } idx[j]=c;
+      }
+    }
+    gifFrame(out,W,H,idx,prev,Math.round((k===n-1?FRAME_MS+HOLD_MS:FRAME_MS)/10));
+    prev=idx; prog(0.25+0.75*(k+1)/n); await yieldUI();
+  }
+  out.byte(0x3B);
+  return new Blob([out.out()],{type:'image/gif'});
+}
+
+// ── Video: MediaRecorder, MP4 when the browser can record it, else WebM ──
+const VIDEO_MIME=(()=>{
+  if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream) return null;
+  for(const t of ['video/mp4;codecs=avc1.640033','video/mp4;codecs=avc1.4d0033','video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'])
+    if(MediaRecorder.isTypeSupported(t)) return t;
+  return null;
+})();
+const VIDEO_EXT=VIDEO_MIME&&VIDEO_MIME.includes('mp4')?'mp4':'webm';
+async function exportVideo(spec,prog){
+  const frames=await prepareFrames(spec,p=>prog(p*0.3));
+  const L=layoutFor(spec), vs=Math.min(4/3,1920/L.W), n=frames.length;
+  const cv=document.createElement('canvas'); cv.width=2*Math.round(L.W*vs/2); cv.height=2*Math.round(L.H*vs/2);
+  const ctx=cv.getContext('2d'), sx=cv.width/L.W, sy=cv.height/L.H;
+  const paint=k=>{ ctx.setTransform(sx,0,0,sy,0,0); runWith(spec.snap,()=>L.draw(ctx,frames[k])); };
+  paint(0);
+  const stream=cv.captureStream(0), track=stream.getVideoTracks()[0];
+  const rec=new MediaRecorder(stream,{mimeType:VIDEO_MIME,videoBitsPerSecond:8e6});
+  const chunks=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+  const stopped=new Promise(r=>{ rec.onstop=r; });
+  rec.start(250);
+  const t0=performance.now();
+  for(let k=0;k<n;k++){
+    const target=t0+k*FRAME_MS, now=performance.now();
+    if(now<target) await sleep(target-now);
+    else if(k<n-1&&now>target+FRAME_MS) continue;
+    paint(k); if(track.requestFrame) track.requestFrame();
+    prog(0.3+0.7*(k+1)/n);
+  }
+  const tEnd=t0+(n-1)*FRAME_MS+HOLD_MS;
+  while(performance.now()<tEnd){ await sleep(FRAME_MS); paint(n-1); if(track.requestFrame) track.requestFrame(); }
+  rec.stop(); await stopped; track.stop();
+  const blob=new Blob(chunks,{type:VIDEO_MIME.split(';')[0]});
+  return VIDEO_EXT==='webm'?fixWebmDuration(blob,(n-1)*FRAME_MS+HOLD_MS):blob;
+}
+// Chrome's WebM has no Duration element; insert one into Segment › Info.
+async function fixWebmDuration(blob,ms){
+  try{
+    const b=new Uint8Array(await blob.arrayBuffer());
+    const vlen=x=>{ for(let l=1;l<=8;l++) if(x&(0x80>>(l-1))) return l; return 0; };
+    const readId=p=>{ const l=vlen(b[p]); let v=0; for(let i=0;i<l;i++) v=v*256+b[p+i]; return {v,l}; };
+    const readSize=p=>{ const l=vlen(b[p]); let v=b[p]&(0xFF>>l), unk=v===(0xFF>>l);
+      for(let i=1;i<l;i++){ v=v*256+b[p+i]; if(b[p+i]!==0xFF) unk=false; } return {v,l,unk}; };
+    const writeSize=(a,p,l,v)=>{ for(let i=l-1;i>0;i--){ a[p+i]=v%256; v=Math.floor(v/256); } a[p]=(0x80>>(l-1))|v; };
+    let p=0, id=readId(p); if(id.v!==0x1A45DFA3) return blob;
+    let sz=readSize(p+id.l); p+=id.l+sz.l+sz.v;
+    id=readId(p); if(id.v!==0x18538067) return blob;
+    const segSizePos=p+id.l, seg=readSize(segSizePos);
+    let q=segSizePos+seg.l; const segEnd=seg.unk?b.length:q+seg.v;
+    while(q<segEnd){
+      const cid=readId(q), cs=readSize(q+cid.l), ds=q+cid.l+cs.l;
+      if(cid.v===0x1549A966){
+        let scale=1e6, r=ds;
+        while(r<ds+cs.v){
+          const e=readId(r), es=readSize(r+e.l), ed=r+e.l+es.l;
+          if(e.v===0x4489) return blob;
+          if(e.v===0x2AD7B1){ scale=0; for(let i=0;i<es.v;i++) scale=scale*256+b[ed+i]; }
+          r=ed+es.v;
+        }
+        const dur=new Uint8Array(11); dur[0]=0x44; dur[1]=0x89; dur[2]=0x88;
+        new DataView(dur.buffer).setFloat64(3,ms*1e6/scale);
+        if(cs.v+11>=Math.pow(2,7*cs.l)-1) return blob;
+        if(!seg.unk&&seg.v+11>=Math.pow(2,7*seg.l)-1) return blob;
+        const out=new Uint8Array(b.length+11);
+        out.set(b.subarray(0,ds),0);
+        writeSize(out,q+cid.l,cs.l,cs.v+11);
+        if(!seg.unk) writeSize(out,segSizePos,seg.l,seg.v+11);
+        out.set(dur,ds); out.set(b.subarray(ds),ds+11);
+        return new Blob([out],{type:blob.type});
+      }
+      if(cs.unk) break;
+      q=ds+cs.v;
+    }
+  }catch(e){}
+  return blob;
+}
+
+// ── Export buttons ────────────────────────────────────────────
+function exportName(spec,ext){
+  const slug=t=>t.replace(/[øØ]/g,'o').replace(/[æÆ]/g,'ae').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().replace(/°/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  const s=spec.snap, base=spec.kind==='card2'?s.loc2:s.loc;
+  const what=spec.kind==='daily'?s.tab:spec.kind==='group'?s.view+'-all':s.view;
+  const who=slug(cardLoc(base))+(spec.lats?'_sweep-'+slug(fmtLatT(spec.lats[0]))+'-to-'+slug(fmtLatT(spec.lats[spec.lats.length-1])):'');
+  const vs=(spec.kind==='daily'||spec.kind==='group')&&s.compare?'_vs_'+slug(cardLoc(s.loc2)):'';
+  return `solar-heatmap_${who}${vs}_${what}.${ext}`;
+}
+function downloadBlob(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+let exportBusy=false;
+function setExportButtons(disabled){
+  document.querySelectorAll('.xbtn').forEach(b=>{ b.disabled=disabled||(b.dataset.fmt==='video'&&!VIDEO_MIME); });
+}
+async function runExport(btn){
+  if(exportBusy) return;
+  stopAnim();
+  const fmt=btn.dataset.fmt, kind=btn.dataset.kind, label=btn.textContent;
+  const spec=makeSpec(kind,fmt!=='png'&&fmt!=='copy');
+  const tag=fmt==='video'?VIDEO_EXT.toUpperCase():fmt.toUpperCase();
+  exportBusy=true; setExportButtons(true); btn.classList.add('is-active');
+  const prog=p=>{ btn.textContent=tag+' '+Math.round(p*100)+'%'; };
+  try{
+    await document.fonts.ready;
+    if(fmt==='png'||fmt==='copy'){
+      const cv=await exportPNG(spec), blob=await new Promise(r=>cv.toBlob(r,'image/png'));
+      if(fmt==='copy'){
+        try{ await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); btn.textContent='Copied'; }
+        catch(e){ downloadBlob(blob,exportName(spec,'png')); btn.textContent='Downloaded'; }
+        await sleep(1200);
+      } else downloadBlob(blob,exportName(spec,'png'));
+    } else {
+      const blob=fmt==='gif'?await exportGIF(spec,prog):await exportVideo(spec,prog);
+      downloadBlob(blob,exportName(spec,fmt==='gif'?'gif':VIDEO_EXT));
+    }
+  } catch(err){ console.error(err); btn.textContent='Failed'; await sleep(1500); }
+  finally{ btn.textContent=label; btn.classList.remove('is-active'); exportBusy=false; setExportButtons(false); }
+}
+document.querySelectorAll('.xbtn').forEach(b=>{
+  if(b.dataset.fmt==='video') b.textContent='↓ '+(VIDEO_MIME?VIDEO_EXT.toUpperCase():'MP4');
+  if(b.dataset.fmt==='video'&&!VIDEO_MIME) b.title='Video recording is not supported in this browser';
+  b.addEventListener('click',()=>runExport(b));
 });
+setExportButtons(false);
+
 
 // ── Init ──────────────────────────────────────────────────────
 let resizeT=0;
