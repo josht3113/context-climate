@@ -17,7 +17,7 @@ window.MAP_REGIONS = {
   // from Albany/Schenectady (N) to Cape May (S). Long Island stays centred.
   tristate: {
     bounds: { west: -76.0, east: -69.6, north: 43.0, south: 38.8 },
-    label:  'Tri-State Wide',
+    label:  'Tri-State',
   },
 
   // Continental US, padded so models at the border and coastal

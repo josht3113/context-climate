@@ -8,8 +8,10 @@
      • Projection     — (lon, lat) → canvas (x, y), and the inverse
      • Basemap        — loads basemap-national.json / basemap-regional.json
                         (built by scripts/build_basemap.py) and draws
-                        water → foreign land → US land → state/province
-                        borders → international border → coastline
+                        water → land → foreign tint → state/province
+                        borders → international border → coastline.
+                        Borders are clipped to land so legal lines that
+                        run across bays and sounds don't draw.
      • Stamp          — "[ contextclimate ] · VALID …" watermark
 
    Station plots live in station-model.js.
@@ -43,8 +45,8 @@ window.MAP = (function () {
   };
 
   const FONTS = {
-    stampLogo:  '600 14px "Barlow Condensed"',
-    stampValid: '12px "JetBrains Mono"',
+    stampLogo:  '700 13px "Courier Prime"',
+    stampValid: '12px "Courier Prime"',
   };
 
   // ── Projection ─────────────────────────────────────
@@ -88,9 +90,16 @@ window.MAP = (function () {
   }
 
   // ── Basemap loading ────────────────────────────────
-  // Pixels per degree of longitude decides which resolution to use.
+  // The shoreline-detail file covers this box only (keep in sync with
+  // REGIONAL_EXTENT in scripts/build_basemap.py).
+  const REGIONAL_EXTENT = { west: -84.5, south: 34.5, east: -63.5, north: 49.0 };
+
+  // Zoomed-in views inside the regional box get shoreline detail.
   function basemapResFor(bounds, CW) {
-    return CW / (bounds.east - bounds.west) > 60 ? 'regional' : 'national';
+    const e = REGIONAL_EXTENT;
+    const inside = bounds.west >= e.west && bounds.east <= e.east &&
+                   bounds.south >= e.south && bounds.north <= e.north;
+    return inside && CW / (bounds.east - bounds.west) > 60 ? 'regional' : 'national';
   }
 
   const cache = {};
@@ -119,11 +128,10 @@ window.MAP = (function () {
     const lines = list => list.map(l => decodeRing(l, scale));
     return {
       kind: 'cc-basemap', res: raw.res, source: raw.source,
-      fillForeign: polys(raw.fill_foreign),
-      fillUS:      polys(raw.fill_us),
-      admin1:      lines(raw.admin1),
-      intl:        lines(raw.intl),
-      coast:       lines(raw.coast),
+      land:    polys(raw.land),
+      foreign: polys(raw.foreign),
+      admin1:  lines(raw.admin1),
+      intl:    lines(raw.intl),
     };
   }
 
@@ -154,14 +162,13 @@ window.MAP = (function () {
     if (close) ctx.closePath();
   }
 
-  function fillLayer(ctx, polys, color, project, view) {
-    ctx.beginPath();
+  function polyPath(polys, project, view) {
+    const path = new Path2D();
     for (const p of polys) {
       if (!visible(p, view)) continue;
-      for (const r of p.rings) traceRing(ctx, r.pts, project, true);
+      for (const r of p.rings) traceRing(path, r.pts, project, true);
     }
-    ctx.fillStyle = color;
-    ctx.fill('evenodd');
+    return path;
   }
 
   function strokeLayer(ctx, lines, color, style, project, view) {
@@ -192,11 +199,21 @@ window.MAP = (function () {
     ctx.lineCap = 'round';
 
     if (geo.kind === 'cc-basemap') {
-      fillLayer(ctx, geo.fillForeign, COLORS.landForeign, project, v);
-      fillLayer(ctx, geo.fillUS, COLORS.landUS, project, v);
+      const land = polyPath(geo.land, project, v);
+      ctx.fillStyle = COLORS.landUS;
+      ctx.fill(land, 'evenodd');
+
+      ctx.save();
+      ctx.clip(land, 'evenodd');
+      ctx.fillStyle = COLORS.landForeign;
+      ctx.fill(polyPath(geo.foreign, project, v), 'evenodd');
       strokeLayer(ctx, geo.admin1, COLORS.admin1, LINES.admin1, project, v);
       strokeLayer(ctx, geo.intl, COLORS.intl, LINES.intl, project, v);
-      strokeLayer(ctx, geo.coast, COLORS.coast, LINES.coast, project, v);
+      ctx.restore();
+
+      ctx.strokeStyle = COLORS.coast;
+      ctx.lineWidth = LINES.coast.width;
+      ctx.stroke(land);
     } else if (geo.features) {
       ctx.beginPath();
       for (const feat of geo.features) {
@@ -251,6 +268,6 @@ window.MAP = (function () {
   return {
     COLORS, LINES, FONTS,
     computeDims, makeProjection, makeUnproject,
-    basemapResFor, loadBasemap, renderBase, drawStamp,
+    REGIONAL_EXTENT, basemapResFor, loadBasemap, renderBase, drawStamp,
   };
 })();

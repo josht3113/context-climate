@@ -18,6 +18,7 @@
    Public API (window.STATION_MODEL):
      ready()                         → Promise; resolves once fonts are usable
      fromNws(feature)                → normalized observation
+     fromMetar(raw, {lon, lat, ts})  → normalized observation from METAR text
      tendencyFromHistory(ob, obs[])  → { ppp, a, source } | null
      layout(ctx, ob, opts)           → { els, box } (box relative to station)
      thin(ctx, items, opts)          → { kept, dropped }  (opts: clip, reserved, layoutFn)
@@ -59,7 +60,7 @@ window.STATION_MODEL = (function () {
 
   const WX_FAMILY = 'CCWxSymbols';
   const FONTS = {
-    data:  '600 16px "Barlow Condensed"',
+    data:  '600 16px "Barlow Condensed"',   // content font for the plot (condensed keeps models compact)
     small: '600 13px "Barlow Condensed"',
     id:    '400 12px "Barlow Condensed"',
     wx:    `24px ${WX_FAMILY}`,     // nominal; see WX_MAX_H
@@ -345,6 +346,14 @@ window.STATION_MODEL = (function () {
       tend5: m ? m.tend5 : null,
       tend: null,
     };
+  }
+
+  // Raw METAR text (e.g. from IEM) → ob, with position and time supplied.
+  function fromMetar(raw, meta) {
+    return fromNws({
+      geometry: { coordinates: [meta.lon, meta.lat] },
+      properties: { timestamp: meta.ts, rawMessage: raw },
+    });
   }
 
   // ── Pressure tendency ──────────────────────────────
@@ -745,7 +754,7 @@ window.STATION_MODEL = (function () {
 
   return {
     COLORS, WX_COLORS, FONTS, GEOM, SKY_LABEL, TEND_LABEL,
-    ready, parseMetar, fromNws, tendencyFromHistory, tendencyCode,
+    ready, parseMetar, fromNws, fromMetar, tendencyFromHistory, tendencyCode,
     wxCode, wxClass, wxChar, cToF, fmtSlp, fmtTend, formatVis,
     layout, thin, draw, drawThinned,
   };
