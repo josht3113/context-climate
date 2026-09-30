@@ -100,6 +100,14 @@ const SECTIONS = [
         to:         '/surface-analysis',
         thumb:      '/SurfaceAnalysis_thumbnail.png',
       },
+      {
+        tags:       ['Cape May–Boston', 'Updates Continuously'],
+        title:      'Tide Watch',
+        description:'Live water levels and storm surge at 15 tide gauges from Cape May to Boston, with every major coastal flood ranked against each gauge\'s full record.',
+        footerTags: ['Water Level', 'Storm Surge', 'Flood Stages', 'Records'],
+        to:         '/tide-watch',
+        thumb:      '/TideWatch_thumbnail.png',
+      },
     ],
   },
   {
