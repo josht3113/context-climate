@@ -1,41 +1,48 @@
 #!/usr/bin/env python3
 """
-build_basemap.py — one-time build of the shared ContextClimate basemap.
+build_basemap.py — builds the shared ContextClimate basemaps.
 
-Output: public/basemap-national.json and public/basemap-regional.json,
-loaded by map-base.js (MAP.loadBasemap). Both cover the same North
-American extent; they differ only in simplification tolerance and
-coordinate precision.
+Outputs (public/):
+  basemap-regional.json  Eastern US / SE Canada at shoreline detail
+                         (Tri-State and any other zoomed-in view inside
+                         REGIONAL_EXTENT)
+  basemap-national.json  North America at national-map detail
 
 Sources
-  US              public/states-500k.geojson (Census cartographic boundary, 1:500k)
-  Canada, Mexico  Natural Earth 10m admin-1 (lakes variant)
-  Other land      Natural Earth 10m admin-0 (lakes variant) — Bahamas, Cuba, etc.
-  Inland lakes    Natural Earth 10m lakes (Great Lakes excluded: the Census
-                  and NE admin geometry already leave them as water)
+  Land / water edge
+    regional  OpenStreetMap land polygons (100 m, via simonepri/geo-maps
+              v0.6.0, © OpenStreetMap contributors, ODbL). Cleaned here:
+              tile seams closed, tile-edge pinholes and specks removed.
+    national  Natural Earth 10m admin-0 (lakes variant) minus large lakes.
+  State lines   U.S. Census Bureau cartographic boundary 1:500k (2020)
+  Provinces, other countries   Natural Earth 10m admin-1 / admin-0
 
-Layers written
-  fill_foreign  land outside the US (polygons, even-odd rings)
-  fill_us       US land (polygons, even-odd rings)
-  coast         land/water edge of the combined land mass (lines)
-  intl          US land border with Canada and Mexico (lines)
-  admin1        state / province / Mexican state borders (lines)
+Census boundaries are *legal* lines — they run across Peconic Bay, Great
+South Bay, Long Island Sound — so they are never used for the land fill.
+map-base.js clips state/province lines to the land, so those water
+crossings don't draw.
 
-Coordinates are integers at 10^-q degrees, delta-encoded per ring/line:
-  [x0, y0, dx1, dy1, dx2, dy2, ...]
+Layers written (coordinates: integers at 10^-q degrees, delta-encoded):
+  land     polygons, even-odd rings (lakes are holes); its outline is the coast
+  foreign  non-US land (drawn clipped to `land` in a slightly darker tint)
+  admin1   state / province interior borders (lines)
+  intl     US land border with Canada and Mexico (lines)
 
 Run from the repo root:
-  pip install shapely
+  pip install shapely ijson
   python scripts/build_basemap.py
-The Natural Earth files are downloaded to scripts/.cache/ on first run.
+Downloads (~180 MB, cached in scripts/.cache/) happen on first run.
 """
 
 import json
 import os
+import pickle
 import sys
+import time
 import urllib.request
 
-from shapely.geometry import shape, box, mapping, Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
+import shapely
+from shapely.geometry import shape, box, Polygon, MultiPolygon, LineString, MultiLineString, GeometryCollection
 from shapely.ops import unary_union, linemerge
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -43,249 +50,248 @@ PUBLIC = os.path.join(REPO, 'public')
 CACHE = os.path.join(REPO, 'scripts', '.cache')
 
 NE_BASE = 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/'
-NE_FILES = {
-    'admin1': 'ne_10m_admin_1_states_provinces_lakes.geojson',
-    'admin0': 'ne_10m_admin_0_countries_lakes.geojson',
-    'lakes':  'ne_10m_lakes.geojson',
+SOURCES = {
+    'ne_admin1': NE_BASE + 'ne_10m_admin_1_states_provinces_lakes.geojson',
+    'ne_admin0': NE_BASE + 'ne_10m_admin_0_countries_lakes.geojson',
+    'ne_lakes':  NE_BASE + 'ne_10m_lakes.geojson',
+    'census':    'https://raw.githubusercontent.com/loganpowell/census-geojson/master/GeoJSON/500k/2020/state.json',
+    'osm_land':  'https://github.com/simonepri/geo-maps/releases/download/v0.6.0/earth-lands-100m.geo.json',
 }
 
-# West, south, east, north. Wider than any map view (the Surface Analysis
-# Builder's full view is -128/22/-60/55) so the clip edge never shows.
-EXTENT = (-132.0, 17.0, -50.0, 60.0)
+NATIONAL_EXTENT = (-132.0, 17.0, -50.0, 60.0)
+# Keep in sync with REGIONAL_EXTENT in map-base.js.
+REGIONAL_EXTENT = (-84.5, 34.5, -63.5, 49.0)
 
-US_EXCLUDE = {'AK', 'HI', 'GU', 'AS', 'MP', 'VI'}
-GREAT_LAKES = {'Lake Superior', 'Lake Michigan', 'Lake Huron', 'Lake Erie', 'Lake Ontario'}
-
-# Seam fill between the Census US border and the Natural Earth Canada /
-# Mexico borders, which don't share vertices. Degrees.
-SEAM = 0.008
-# How close US boundary must be to foreign land to count as the international border.
-INTL_NEAR = 0.02
-# Tolerance used to strip a shared edge from a boundary (degrees).
-EPS = 0.0005
+US_EXCLUDE = {'AK', 'HI', 'GU', 'AS', 'MP', 'VI', 'PR'}
 
 RESOLUTIONS = {
-    #            simplify tol (deg)  quantize (decimals)  min lake area (deg^2)
-    'national': dict(tol=0.02,   q=3, min_lake=0.05),
-    'regional': dict(tol=0.0012, q=4, min_lake=0.003),
+    'national': dict(extent=NATIONAL_EXTENT, tol=0.02,   q=3, min_island=0.02,    min_hole=0.05),
+    'regional': dict(extent=REGIONAL_EXTENT, tol=0.0012, q=4, min_island=0.00004, min_hole=0.0015),
 }
+
+OSM_CLOSE = 0.0009     # deg — closes seams between OSM tiles (~100 m)
+INTL_NEAR = 0.02       # deg — US boundary this close to Canada/Mexico is the international border
+EPS = 0.0005           # deg — strip a shared edge from a boundary
 
 
 def log(*a):
     print('[basemap]', *a, flush=True)
 
 
-def fetch_ne(key):
+def cached(key):
     os.makedirs(CACHE, exist_ok=True)
-    path = os.path.join(CACHE, NE_FILES[key])
+    path = os.path.join(CACHE, os.path.basename(SOURCES[key]))
     if not os.path.exists(path):
-        url = NE_BASE + NE_FILES[key]
-        log('downloading', url)
-        urllib.request.urlretrieve(url, path)
-    with open(path) as f:
+        log('downloading', SOURCES[key])
+        urllib.request.urlretrieve(SOURCES[key], path)
+    return path
+
+
+def load_json(key):
+    with open(cached(key)) as f:
         return json.load(f)
 
 
-def polys_only(g):
-    """Keep only the areal parts of a geometry."""
-    if g.is_empty:
-        return MultiPolygon()
-    if isinstance(g, Polygon):
-        return MultiPolygon([g])
-    if isinstance(g, MultiPolygon):
-        return g
-    if isinstance(g, GeometryCollection):
-        parts = []
-        for p in g.geoms:
-            pp = polys_only(p)
-            parts.extend(pp.geoms)
-        return MultiPolygon(parts)
-    return MultiPolygon()
-
-
-def lines_only(g):
+def polys(g):
     if g.is_empty:
         return []
-    if isinstance(g, LineString):
+    if isinstance(g, Polygon):
         return [g]
-    if isinstance(g, MultiLineString):
-        return list(g.geoms)
-    if isinstance(g, GeometryCollection):
+    if isinstance(g, (MultiPolygon, GeometryCollection)):
         out = []
         for p in g.geoms:
-            out.extend(lines_only(p))
+            out.extend(polys(p))
         return out
     return []
 
 
-def load_sources():
-    ext = box(*EXTENT)
+def lines(g):
+    if g.is_empty:
+        return []
+    if isinstance(g, LineString):
+        return [g]
+    if isinstance(g, (MultiLineString, GeometryCollection)):
+        out = []
+        for p in g.geoms:
+            out.extend(lines(p))
+        return out
+    return []
 
-    with open(os.path.join(PUBLIC, 'states-500k.geojson')) as f:
-        us_geo = json.load(f)
-    us_states = []
-    for ft in us_geo['features']:
-        if ft['properties'].get('STUSPS') in US_EXCLUDE:
+
+def drop_small(g, min_island, min_hole):
+    out = []
+    for p in polys(g):
+        if p.area < min_island:
             continue
+        holes = [h for h in p.interiors if Polygon(h).area >= min_hole]
+        out.append(Polygon(p.exterior, holes))
+    return MultiPolygon(out)
+
+
+# ── Land ──────────────────────────────────────────────
+def osm_land(extent, min_island, min_hole):
+    """OSM land polygons inside `extent`, cleaned of tile artifacts."""
+    import ijson
+    done = os.path.join(CACHE, 'osm_land_clean_%s.pkl' % '_'.join(str(v) for v in extent))
+    if os.path.exists(done):
+        with open(done, 'rb') as f:
+            return pickle.load(f)
+    subset = os.path.join(CACHE, 'osm_land_%s.json' % '_'.join(str(v) for v in extent))
+    if not os.path.exists(subset):
+        log('extracting OSM land for', extent, '(streams the 117 MB source)')
+        keep = []
+        with open(cached('osm_land'), 'rb') as f:
+            for poly in ijson.items(f, 'geometries.item.coordinates.item', use_float=True):
+                ext = poly[0]
+                xs = [c[0] for c in ext]
+                if max(xs) < extent[0] or min(xs) > extent[2]:
+                    continue
+                ys = [c[1] for c in ext]
+                if max(ys) < extent[1] or min(ys) > extent[3]:
+                    continue
+                keep.append(poly)
+        with open(subset, 'w') as f:
+            json.dump(keep, f)
+    with open(subset) as f:
+        raw = json.load(f)
+
+    parts = []
+    for poly in raw:
+        holes = [h for h in poly[1:] if len(h) > 3 and Polygon(h).area >= min_hole]
+        p = Polygon(poly[0], holes)
+        if not p.is_valid:
+            p = p.buffer(0)
+        p = shapely.clip_by_rect(p, *extent)
+        if not p.is_empty:
+            parts.append(p)
+    log('OSM parts:', len(parts))
+    land = unary_union(parts)
+    land = land.buffer(OSM_CLOSE, join_style='mitre', mitre_limit=2) \
+               .buffer(-OSM_CLOSE, join_style='mitre', mitre_limit=2)
+    land = drop_small(land, min_island, min_hole)
+    with open(done, 'wb') as f:
+        pickle.dump(land, f)
+    return land
+
+
+def ne_land(extent, min_island, min_hole):
+    ext = box(*extent)
+    parts = []
+    for ft in load_json('ne_admin0')['features']:
         g = shape(ft['geometry']).buffer(0)
-        g = g.intersection(ext)
+        if g.intersects(ext):
+            parts.append(g.intersection(ext))
+    land = unary_union(parts)
+    lakes = []
+    for ft in load_json('ne_lakes')['features']:
+        g = shape(ft['geometry']).buffer(0)
+        if g.intersects(ext) and g.area >= min_hole:
+            lakes.append(g)
+    if lakes:
+        land = land.difference(unary_union(lakes))
+    return drop_small(land, min_island, min_hole)
+
+
+# ── Boundaries ────────────────────────────────────────
+def boundaries(extent):
+    ext = box(*extent)
+    census = load_json('census')
+    feats = [ft for ft in census['features'] if ft['properties'].get('STUSPS') not in US_EXCLUDE]
+    if len(feats) < 49:
+        sys.exit(f'Census: expected ≥49 states, got {len(feats)} — aborting.')
+    us_states = []
+    for ft in feats:
+        g = shape(ft['geometry']).buffer(0).intersection(ext)
         if not g.is_empty:
             us_states.append(g)
-    log('US states:', len(us_states))
-    if len(us_states) < 49:
-        sys.exit('Expected at least 49 US state features — aborting.')
 
-    a1 = fetch_ne('admin1')
-    ca_prov, mx_states = [], []
-    for ft in a1['features']:
+    ca, mx = [], []
+    for ft in load_json('ne_admin1')['features']:
         a3 = ft['properties'].get('adm0_a3')
         if a3 not in ('CAN', 'MEX'):
             continue
         g = shape(ft['geometry']).buffer(0).intersection(ext)
-        if g.is_empty:
-            continue
-        (ca_prov if a3 == 'CAN' else mx_states).append(g)
-    log('Canada provinces:', len(ca_prov), '· Mexico states:', len(mx_states))
-    if len(ca_prov) < 10 or len(mx_states) < 20:
-        sys.exit('Natural Earth admin-1 looks incomplete — aborting.')
+        if not g.is_empty:
+            (ca if a3 == 'CAN' else mx).append(g)
 
-    a0 = fetch_ne('admin0')
-    others = []
-    for ft in a0['features']:
-        a3 = ft['properties'].get('ADM0_A3')
-        if a3 in ('USA', 'CAN', 'MEX'):
+    foreign = []
+    for ft in load_json('ne_admin0')['features']:
+        if ft['properties'].get('ADM0_A3') == 'USA':
             continue
         g = shape(ft['geometry']).buffer(0)
         if g.intersects(ext):
-            others.append(g.intersection(ext))
-    log('Other countries in extent:', len(others))
+            foreign.append(g.intersection(ext))
 
-    lk = fetch_ne('lakes')
-    lakes = []
-    for ft in lk['features']:
-        name = ft['properties'].get('name')
-        if name in GREAT_LAKES:
-            continue
-        g = shape(ft['geometry']).buffer(0)
-        if g.intersects(ext):
-            lakes.append(g.intersection(ext))
-    # Drop anything that touches the Great Lakes themselves (named bays such
-    # as Georgian Bay / Saginaw Bay are separate NE features).
-    gl = unary_union([shape(ft['geometry']).buffer(0) for ft in lk['features']
-                      if ft['properties'].get('name') in GREAT_LAKES]).buffer(0.01)
-    lakes = [g for g in lakes if not g.intersects(gl)]
-    log('Inland lakes (pre-filter):', len(lakes))
-
-    return ext, us_states, ca_prov, mx_states, others, lakes
-
-
-def admin_interior_lines(units, outer):
-    """Internal borders between the units of one country."""
-    lines = unary_union([u.boundary for u in units])
-    lines = lines.difference(outer.boundary.buffer(EPS))
-    return lines
-
-
-def build_geometry():
-    ext, us_states, ca_prov, mx_states, others, lakes = load_sources()
+    def interior(units):
+        if not units:
+            return GeometryCollection()
+        outer = unary_union(units)
+        return unary_union([u.boundary for u in units]).difference(outer.boundary.buffer(EPS))
 
     us = unary_union(us_states)
-    ca = unary_union(ca_prov)
-    mx = unary_union(mx_states)
-    foreign = unary_union([ca, mx] + others)
-
-    # Close the hairline gap where Census and Natural Earth borders meet.
-    seam = foreign.buffer(SEAM).intersection(us.buffer(SEAM))
-    foreign_fill = unary_union([foreign, seam]).intersection(ext)
-
-    admin1 = unary_union([
-        admin_interior_lines(us_states, us),
-        admin_interior_lines(ca_prov, ca),
-        admin_interior_lines(mx_states, mx),
-    ])
-
-    near_foreign = unary_union([ca, mx]).buffer(INTL_NEAR)
-    intl = us.boundary.intersection(near_foreign)
-
-    return dict(ext=ext, us=us, foreign_fill=foreign_fill, lakes=lakes,
-                admin1=admin1, intl=intl)
+    admin1 = unary_union([interior(us_states), interior(ca), interior(mx)])
+    near = unary_union(ca + mx).buffer(INTL_NEAR) if (ca or mx) else GeometryCollection()
+    intl = us.boundary.intersection(near) if not near.is_empty else GeometryCollection()
+    return unary_union(foreign), admin1, intl
 
 
-def encode_ring(coords, q):
+# ── Encoding ──────────────────────────────────────────
+def enc(coords, q):
     s = 10 ** q
-    out = []
-    px = py = None
+    out, px, py = [], None, None
     for x, y in coords:
         ix, iy = round(x * s), round(y * s)
         if px is None:
             out += [ix, iy]
+        elif ix != px or iy != py:
+            out += [ix - px, iy - py]
         else:
-            dx, dy = ix - px, iy - py
-            if dx == 0 and dy == 0:
-                continue
-            out += [dx, dy]
+            continue
         px, py = ix, iy
     return out
 
 
-def encode_polys(mp, q):
-    polys = []
-    for p in mp.geoms:
-        rings = [encode_ring(p.exterior.coords, q)]
-        rings += [encode_ring(r.coords, q) for r in p.interiors]
-        rings = [r for r in rings if len(r) >= 8]  # ≥ 4 points
-        if rings:
-            polys.append(rings)
-    return polys
-
-
-def encode_lines(lines, q):
+def enc_polys(g, q):
     out = []
-    for ln in lines:
-        r = encode_ring(ln.coords, q)
-        if len(r) >= 4:
-            out.append(r)
+    for p in polys(g):
+        rings = [enc(p.exterior.coords, q)] + [enc(r.coords, q) for r in p.interiors]
+        rings = [r for r in rings if len(r) >= 8]
+        if rings:
+            out.append(rings)
     return out
 
 
-def build_resolution(G, name, tol, q, min_lake):
-    lakes = unary_union([g for g in G['lakes'] if g.area >= min_lake])
+def enc_lines(g, q):
+    ls = lines(g)
+    if ls:
+        ls = lines(linemerge(ls))
+    return [r for r in (enc(l.coords, q) for l in ls) if len(r) >= 4]
 
-    us_fill = polys_only(G['us'].difference(lakes).simplify(tol, preserve_topology=True))
-    fg_fill = polys_only(G['foreign_fill'].difference(lakes).simplify(tol, preserve_topology=True))
 
-    land = unary_union([G['us'], G['foreign_fill']]).difference(lakes)
-    land = land.simplify(tol, preserve_topology=True)
-    # Coastline = land edge, minus the artificial edge where land meets the extent clip.
-    coast = land.boundary.difference(G['ext'].exterior.buffer(1e-6))
-    coast = linemerge(lines_only(coast)) if lines_only(coast) else coast
-
-    admin1 = G['admin1'].difference(lakes.buffer(EPS)) if not lakes.is_empty else G['admin1']
-    admin1 = linemerge(lines_only(admin1)).simplify(tol, preserve_topology=False)
-    intl = linemerge(lines_only(G['intl'])).simplify(tol, preserve_topology=False)
+def build(name, extent, tol, q, min_island, min_hole):
+    t = time.time()
+    land = osm_land(extent, min_island, min_hole) if name == 'regional' else ne_land(extent, min_island, min_hole)
+    land = drop_small(land.simplify(tol, preserve_topology=True), min_island, min_hole)
+    foreign, admin1, intl = boundaries(extent)
+    foreign = foreign.simplify(tol, preserve_topology=True)
+    admin1 = unary_union(lines(admin1)).simplify(tol, preserve_topology=False)
+    intl = unary_union(lines(intl)).simplify(tol, preserve_topology=False)
 
     out = {
-        'v': 1,
-        'res': name,
-        'q': q,
-        'extent': list(EXTENT),
-        'source': 'US: U.S. Census Bureau cartographic boundary 1:500k. '
-                  'Canada, Mexico, other land and inland lakes: Natural Earth 1:10m.',
-        'fill_foreign': encode_polys(fg_fill, q),
-        'fill_us':      encode_polys(us_fill, q),
-        'coast':        encode_lines(lines_only(coast), q),
-        'intl':         encode_lines(lines_only(intl), q),
-        'admin1':       encode_lines(lines_only(admin1), q),
+        'v': 2, 'res': name, 'q': q, 'extent': list(extent),
+        'source': ('Land: OpenStreetMap contributors (ODbL). ' if name == 'regional' else 'Land: Natural Earth 1:10m. ')
+                  + 'State lines: U.S. Census Bureau 1:500k. Provinces and other countries: Natural Earth 1:10m.',
+        'land':    enc_polys(land, q),
+        'foreign': enc_polys(foreign, q),
+        'admin1':  enc_lines(admin1, q),
+        'intl':    enc_lines(intl, q),
     }
-
-    # Defensive checks before writing anything.
-    n_pts = {k: sum(len(r) // 2 for p in out[k] for r in p) for k in ('fill_foreign', 'fill_us')}
-    n_pts.update({k: sum(len(l) // 2 for l in out[k]) for k in ('coast', 'intl', 'admin1')})
-    log(name, 'points per layer:', n_pts)
-    for k, minimum in (('fill_us', 500), ('fill_foreign', 500), ('coast', 500), ('admin1', 200), ('intl', 20)):
-        if n_pts[k] < minimum:
-            sys.exit(f'{name}: layer {k} has only {n_pts[k]} points — aborting without writing.')
-
+    counts = {k: sum(len(r) // 2 for p in out[k] for r in p) for k in ('land', 'foreign')}
+    counts.update({k: sum(len(l) // 2 for l in out[k]) for k in ('admin1', 'intl')})
+    log(name, counts, f'{time.time() - t:.0f}s')
+    for k, minimum in (('land', 2000), ('foreign', 200), ('admin1', 500), ('intl', 20)):
+        if counts[k] < minimum:
+            sys.exit(f'{name}: layer {k} has only {counts[k]} points — aborting without writing.')
     path = os.path.join(PUBLIC, f'basemap-{name}.json')
     with open(path, 'w') as f:
         json.dump(out, f, separators=(',', ':'))
@@ -293,9 +299,9 @@ def build_resolution(G, name, tol, q, min_lake):
 
 
 def main():
-    G = build_geometry()
-    for name, cfg in RESOLUTIONS.items():
-        build_resolution(G, name, **cfg)
+    only = sys.argv[1:] or list(RESOLUTIONS)
+    for name in only:
+        build(name, **RESOLUTIONS[name])
 
 
 if __name__ == '__main__':
