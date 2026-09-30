@@ -217,6 +217,33 @@ canvas {
   font-size: 12px;
   color: rgba(255,255,255,0.55);
 }
+.legend { flex-direction: column; align-items: center; gap: 10px; }
+.lg-row { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.lg-wx {
+  font-family: 'CCWxSymbols';
+  font-size: 22px;
+  line-height: 1;
+  width: 20px;
+  text-align: center;
+}
+.lg-credits {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 12px;
+  letter-spacing: 0;
+  color: rgba(255,255,255,0.32);
+  text-align: center;
+}
+#tip { max-width: 380px; }
+#tip .tip-raw {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255,255,255,0.5);
+  word-break: break-word;
+}
 </style>
 </head>
 <body>
@@ -267,16 +294,12 @@ canvas {
 
 <div id="tip"></div>
 
-<div class="legend" id="legend">
-  <div class="lg"><div class="lg-dot" style="background:#e05252"></div>Temperature &deg;F</div>
-  <div class="lg"><div class="lg-dot" style="background:#6aabee"></div>Dewpoint &deg;F</div>
-  <div class="lg"><div class="lg-dot" style="background:#9aa3b2"></div>Pressure (coded mb)</div>
-  <div class="lg"><div class="lg-dot" style="border:1px solid rgba(255,255,255,0.5);background:transparent"></div>Wind barb &middot; Sky cover</div>
-</div>
+<div class="legend" id="legend"></div>
 
 <!-- Shared modules: must load before the page script below -->
 <script src="map-base.js"></script>
 <script src="map-regions.js"></script>
+<script src="station-model.js"></script>
 
 <script>
 // ═══════════════════════════════════════════════════
@@ -289,7 +312,11 @@ let B          = REGION.bounds;
 const CW   = 1200;
 let dims = MAP.computeDims(B, CW);
 let CH   = dims.CH;
-const REFRESH_MS = 60 * 60 * 1000; // hourly
+const REFRESH_MS   = 60 * 60 * 1000;      // hourly
+const HISTORY_MS   = 4.25 * 3600 * 1000;  // enough hourly obs for a 3-hr tendency
+const EXPORT_SCALE = 3;
+
+const SM = STATION_MODEL;
 
 // ═══════════════════════════════════════════════════
 // STATIONS — by region
@@ -479,6 +506,16 @@ const REGION_DATA = {
 let STATIONS = REGION_DATA[REGION_KEY].stations;
 let NAMES    = REGION_DATA[REGION_KEY].names;
 
+// Thinning priority for the Tri-State view (lower wins when models overlap).
+const TIERS_TRISTATE = {
+  KJFK:1, KNYC:1, KISP:1, KBDL:1, KBOS:1, KPVD:1, KPHL:1, KALB:1, KACY:1, KABE:1,
+  KBDR:1, KHPN:1, KORH:1, KPOU:1, KACK:1, KAVP:1, KTTN:1,
+};
+
+function priority(id) {
+  return REGION_KEY === 'conus' ? (TIERS_CONUS[id] || 3) : (TIERS_TRISTATE[id] || 2);
+}
+
 // ═══════════════════════════════════════════════════
 // CANVAS + PROJECTION
 // ═══════════════════════════════════════════════════
@@ -488,32 +525,21 @@ const dpr = window.devicePixelRatio || 1;
 let project;
 
 // Re-run whenever the region (and therefore CW/CH/bounds) changes.
-// Resizing a canvas's width/height resets its transform, so re-applying
-// dpr scale here each time is correct rather than compounding.
 function applyCanvasSize() {
   cv.width  = CW * dpr;
   cv.height = CH * dpr;
   cv.style.width  = CW + 'px';
-  cv.style.height = CH + 'px';
-  ctx.scale(dpr, dpr);
+  cv.style.aspectRatio = `${CW} / ${CH}`;
+  cv.style.height = 'auto';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   project = MAP.makeProjection(B, dims);
 }
 applyCanvasSize();
 
 // ═══════════════════════════════════════════════════
-// UNIT HELPERS
+// UNITS + FIELD ACCESSORS
 // ═══════════════════════════════════════════════════
-const cToF     = c => c != null ? Math.round(c * 9/5 + 32) : null;
-const kmhToKt  = k => k != null ? k / 1.852 : null;
-const kmhToMph = k => k != null ? Math.round(k * 0.621371) : null;
-const paToMb   = p => p != null ? p / 100 : null;
-
-// Prefer the true METAR SLP remark (seaLevelPressure) when a station
-// transmits it; fall back to the altimeter-derived barometricPressure
-// (always present) otherwise. Used everywhere pressure is displayed —
-// the Station Model glyph, the tooltip, and the SLP color tab — so a
-// given station shows one consistent pressure no matter the view.
-const slpMb = stn => paToMb(stn.slp ?? stn.pres);
+const ktToMph = k => k != null ? Math.round(k * 1.15078) : null;
 
 // ═══════════════════════════════════════════════════
 // COLOR SCALES — ported 1:1 from temp-heatmap-monthly.html
@@ -524,15 +550,8 @@ const SCALES = {
   temp: { vals: [-60,-48,-36,-24,-13,-1,11,23,35,47,59,71,83,94,106,118,130],
           cols: ['#2A0440','#5A108B','#8B19B2','#C21E81','#EA6A9B','#F3B8CC','#D1C4DC','#AFD1ED','#8ACCBA','#67C27C','#93CA58','#DFDA3E','#F4AE2D','#E25922','#E32F2F','#FFD7D7','#FFC4D3'] },
   dew:  { vals: [-25, 5, 18, 30, 55, 68, 80],   cols: ['#4A3410','#B89870','#D4C060','#FFEE00','#3DB84A','#2A8C30','#2A72C8'] },
-  // Sea-level pressure (mb). Same red-gray-blue idea as before, but
-  // narrower: 960-1060 made everyday weather (which rarely strays past
-  // ~1000-1025) look almost entirely gray. ±25 mb around 1010 means
-  // ordinary day-to-day swings actually show color, while genuine
-  // extremes (sub-985 lows, 1035+ highs) still clamp to full red/blue.
   pres: { vals: [985, 1010, 1035],
           cols: ['#9E1B1B','#BFBFBF','#1B4399'] },
-  // Wind gusts (mph). Thresholds loosely track public wind-hazard
-  // language: breezy, advisory-level, warning-level, hurricane-force.
   gust: { vals: [10, 25, 40, 58, 75, 100],
           cols: ['#6AABEE','#5DBF6A','#FFE033','#FF9933','#D41A1A','#8B19B2'] },
 };
@@ -555,272 +574,98 @@ function getColor(val, sc) {
   return cs[cs.length - 1];
 }
 
-function fmtPres(mb) {
-  if (mb == null) return '';
-  return String(Math.round(mb * 10) % 1000).padStart(3, '0');
-}
-
-function skyFrac(clouds) {
-  if (!clouds || !clouds.length) return null;
-  const rank = { CLR:0, SKC:0, FEW:1, SCT:2, BKN:3, OVC:4, VV:5 };
-  let best = 'CLR';
-  for (const l of clouds) {
-    if ((rank[l.amount] ?? -1) > (rank[best] ?? -1)) best = l.amount;
-  }
-  return { CLR:0, SKC:0, FEW:0.2, SCT:0.5, BKN:0.75, OVC:1, VV:-1 }[best] ?? 0;
-}
-
-// ═══════════════════════════════════════════════════
-// STATION MODEL DRAWING
-// ═══════════════════════════════════════════════════
-// Sky-cover circle: filled-fraction shows total cloud cover.
-function drawSky(x, y, r, frac) {
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI * 2);
-  ctx.strokeStyle = '#3a5575';
-  ctx.lineWidth = 1.1;
-  ctx.stroke();
-
-  if (frac == null || frac === 0) return;
-
-  if (frac === -1) { // sky obscured — X mark
-    ctx.strokeStyle = '#3a5575';
-    ctx.lineWidth = 1;
-    const d = r * 0.62;
-    ctx.beginPath();
-    ctx.moveTo(x-d, y-d); ctx.lineTo(x+d, y+d);
-    ctx.moveTo(x+d, y-d); ctx.lineTo(x-d, y+d);
-    ctx.stroke();
-    return;
-  }
-
-  ctx.fillStyle = '#3a5575';
-
-  // OVC (fully covered) — solid fill
-  if (frac >= 0.999) {
-    ctx.beginPath();
-    ctx.arc(x, y, r - 0.5, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-
-  // Partial cover — pie slice from 12 o'clock, clockwise (WMO convention)
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.arc(x, y, r - 0.5, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * frac);
-  ctx.closePath();
-  ctx.fill();
-}
-
-// Wind barb: standard meteorological convention.
-//   half barb = 5 kt, full barb = 10 kt, pennant = 50 kt
-function drawBarb(x, y, dirDeg, speedKt) {
-  if (speedKt == null) return;
-
-  if (speedKt < 2.5) {  // calm — small open circle around the station
-    ctx.beginPath();
-    ctx.arc(x, y, 10, 0, Math.PI * 2);
-    ctx.strokeStyle = '#3a5575';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    return;
-  }
-
-  const { SL, BL, BS } = MAP.STATION;
-  const rad = dirDeg * Math.PI / 180;
-  const dx =  Math.sin(rad);
-  const dy = -Math.cos(rad);
-  const tx = x + dx * SL, ty = y + dy * SL;
-  const px = -dy, py = dx;
-
-  ctx.strokeStyle = '#2a3f5c';
-  ctx.fillStyle   = '#2a3f5c';
-  ctx.lineWidth   = 1.1;
-
-  // Staff
-  ctx.beginPath();
-  ctx.moveTo(x, y); ctx.lineTo(tx, ty);
-  ctx.stroke();
-
-  let rem = Math.round(speedKt / 5) * 5;
-  let pos = 0;
-
-  // 50-kt pennants
-  while (rem >= 50) {
-    const bx = tx - dx*pos, by = ty - dy*pos;
-    ctx.beginPath();
-    ctx.moveTo(bx, by);
-    ctx.lineTo(bx + px*BL, by + py*BL);
-    ctx.lineTo(bx - dx*BS, by - dy*BS);
-    ctx.closePath(); ctx.fill();
-    rem -= 50; pos += BS + 1;
-  }
-  // 10-kt full barbs
-  while (rem >= 10) {
-    const bx = tx - dx*pos, by = ty - dy*pos;
-    ctx.beginPath();
-    ctx.moveTo(bx, by); ctx.lineTo(bx + px*BL, by + py*BL);
-    ctx.stroke();
-    rem -= 10; pos += BS;
-  }
-  // 5-kt half barb
-  if (rem >= 5) {
-    const bx = tx - dx*pos, by = ty - dy*pos;
-    ctx.beginPath();
-    ctx.moveTo(bx, by); ctx.lineTo(bx + px*(BL/2), by + py*(BL/2));
-    ctx.stroke();
-  }
-}
-
-// Full station model: sky + barb + temp/dew/pressure/id labels
-function drawStation(stn) {
-  const [x, y] = project(stn.lon, stn.lat);
-  if (x < -30 || x > CW+30 || y < -30 || y > CH+30) return;
-
-  const { R, OFFSET_PAD } = MAP.STATION;
-  const off = R + OFFSET_PAD;
-  const kt  = kmhToKt(stn.windSpeed);
-  const mb  = slpMb(stn);
-
-  drawSky(x, y, R, skyFrac(stn.clouds));
-  if (stn.windDir != null && kt != null) drawBarb(x, y, stn.windDir, kt);
-
-  ctx.textBaseline = 'middle';
-
-  // Temperature (red, upper-left)
-  const tF = cToF(stn.temp);
-  if (tF != null) {
-    ctx.font = MAP.FONTS.stationData;
-    ctx.fillStyle = MAP.COLORS.temp; ctx.textAlign = 'right';
-    ctx.fillText(tF, x - off, y - off);
-  }
-
-  // Dewpoint (blue, lower-left)
-  const dF = cToF(stn.dew);
-  if (dF != null) {
-    ctx.font = MAP.FONTS.stationData;
-    ctx.fillStyle = MAP.COLORS.dew; ctx.textAlign = 'right';
-    ctx.fillText(dF, x - off, y + off);
-  }
-
-  // Pressure (dark, upper-right)
-  if (mb != null) {
-    ctx.font = MAP.FONTS.stationData;
-    ctx.fillStyle = MAP.COLORS.textPrimary; ctx.textAlign = 'left';
-    ctx.fillText(fmtPres(mb), x + off, y - off);
-  }
-
-  // Station ID (gray, lower-right)
-  ctx.font = MAP.FONTS.stationId;
-  ctx.fillStyle = MAP.COLORS.textSecondary; ctx.textAlign = 'left';
-  ctx.fillText(stn.id.slice(1), x + off, y + off);
-}
-
-// Per-mode raw-value accessor — already in the units each scale/legend
-// expects (whole mb for pressure, mph for gust) — plus the short suffix
-// printed after the number. Add a mode here and a matching SCALES entry
-// to get a new color tab for free.
+// Per-mode value (in the units each scale/legend expects) and suffix.
+// Pressure is true sea-level pressure only, same as the station model.
 const FIELD_VALUE = {
-  temp: stn => cToF(stn.temp),
-  dew:  stn => cToF(stn.dew),
-  pres: stn => { const m = slpMb(stn); return m != null ? Math.round(m) : null; },
-  gust: stn => kmhToMph(stn.windGust),
+  temp: s => SM.cToF(s.tempC),
+  dew:  s => SM.cToF(s.dewC),
+  pres: s => s.slp != null ? Math.round(s.slp) : null,
+  gust: s => (s.wind && s.wind.gust != null) ? ktToMph(s.wind.gust) : null,
 };
 const FIELD_SUFFIX = { temp: '\u00B0', dew: '\u00B0', pres: '', gust: '' };
 
-// Value-only marker: one large colored number, no other station glyphs.
-// `field` matches a SCALES/FIELD_VALUE key (temp, dew, pres, gust).
-function drawValueOnly(stn, field) {
-  const [x, y] = project(stn.lon, stn.lat);
-  if (x < -30 || x > CW+30 || y < -30 || y > CH+30) return;
+// ═══════════════════════════════════════════════════
+// VALUE-ONLY MARKERS (Temperature / Dewpoint / SLP / Gust tabs)
+// ═══════════════════════════════════════════════════
+const VALUE_FONT = '700 26px "JetBrains Mono", monospace';
+const VALUE_ID_FONT = '600 13px "Barlow Condensed"';
 
+function valueLayout(c, stn, field) {
   const raw = FIELD_VALUE[field](stn);
-  if (raw == null) return;
-
-  const color = getColor(raw, SCALES[field]);
+  if (raw == null) return null;
   const label = `${raw}${FIELD_SUFFIX[field]}`;
+  c.font = VALUE_FONT;
+  const w = c.measureText(label).width;
+  return { raw, label, color: getColor(raw, SCALES[field]),
+           box: { x0: -w / 2 - 2, x1: w / 2 + 2, y0: -15, y1: 28 } };
+}
 
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+function drawValueOnly(c, x, y, stn, lay) {
+  c.save();
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.lineJoin = 'round';
 
-  // Dark halo so the colored number stays legible over the light basemap
-  // regardless of land/ocean/state-line color underneath it.
-  ctx.font = '700 26px "JetBrains Mono", monospace';
-  ctx.lineWidth = 4;
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(8,12,20,0.82)';
-  ctx.strokeText(label, x, y);
-  ctx.fillStyle = color;
-  ctx.fillText(label, x, y);
+  c.font = VALUE_FONT;
+  c.lineWidth = 4;
+  c.strokeStyle = 'rgba(8,12,20,0.82)';
+  c.strokeText(lay.label, x, y);
+  c.fillStyle = lay.color;
+  c.fillText(lay.label, x, y);
 
-  // Station ID below, for reference
   const idLabel = stn.id.slice(1);
-  ctx.font = '600 13px "Barlow Condensed"';
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-  ctx.strokeText(idLabel, x, y + 20);
-  ctx.fillStyle = MAP.COLORS.textSecondary;
-  ctx.fillText(idLabel, x, y + 20);
+  c.font = VALUE_ID_FONT;
+  c.lineWidth = 3;
+  c.strokeStyle = 'rgba(255,255,255,0.85)';
+  c.strokeText(idLabel, x, y + 20);
+  c.fillStyle = MAP.COLORS.textSecondary;
+  c.fillText(idLabel, x, y + 20);
+  c.restore();
 }
 
 // ═══════════════════════════════════════════════════
-// LOAD BASE GEOJSON
+// BASEMAP
 // ═══════════════════════════════════════════════════
-let statesGeo = null;
+let basemap = null;
 
 async function loadGeo(signal) {
-  const r = await fetch(REGION.geo, { signal });
-  if (!r.ok) throw new Error(`Failed to fetch ${REGION.geo}: HTTP ${r.status}`);
-  statesGeo = await r.json();
+  basemap = await MAP.loadBasemap(MAP.basemapResFor(B, CW), { signal });
 }
 
 // ═══════════════════════════════════════════════════
-// FETCH OBSERVATIONS (routine hourly METARs)
+// FETCH OBSERVATIONS (routine hourly METARs + 3-hr history)
 // ═══════════════════════════════════════════════════
 let obs = [];
 
+const isRoutine = ts => { const m = new Date(ts).getUTCMinutes(); return m >= 45 || m <= 5; };
+
 async function fetchStn(id, signal) {
+  const base  = `https://api.weather.gov/stations/${id}/observations`;
+  const start = new Date(Date.now() - HISTORY_MS).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const urls  = [`${base}?start=${encodeURIComponent(start)}&limit=40`, `${base}?limit=12`];
   try {
-    const r = await fetch(
-      `https://api.weather.gov/stations/${id}/observations?limit=6`,
-      { headers: { 'User-Agent': 'contextclimate.io' }, signal }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
-    const features = j.features;
-    if (!features?.length) return null;
+    let features = null;
+    for (const url of urls) {
+      const r = await fetch(url, { headers: { 'User-Agent': 'contextclimate.io' }, signal });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.features && j.features.length) { features = j.features; break; }
+    }
+    if (!features) return null;
 
-    // Prefer routine METAR (issued :45–:59 or :00–:05)
-    const feat = features.find(f => {
-      const min = new Date(f.properties?.timestamp).getUTCMinutes();
-      return min >= 45 || min <= 5;
-    }) || features[0];
+    features.sort((a, b) => Date.parse(b.properties.timestamp) - Date.parse(a.properties.timestamp));
+    const all  = features.map(SM.fromNws).filter(o => o.ts);
+    const now  = all.find(o => isRoutine(o.ts)) || all[0];
+    if (!now || now.lat == null || now.lon == null) return null;
 
-    const p      = feat.properties;
-    const coords = feat.geometry?.coordinates;
-    if (!coords) return null;
-
-    return {
-      id,
-      lon:       coords[0],
-      lat:       coords[1],
-      temp:      p.temperature?.value,
-      dew:       p.dewpoint?.value,
-      windDir:   p.windDirection?.value,
-      windSpeed: p.windSpeed?.value,
-      windGust:  p.windGust?.value,
-      pres:      p.barometricPressure?.value,
-      slp:       p.seaLevelPressure?.value,
-      clouds:    p.cloudLayers,
-      vis:       p.visibility?.value,
-      ts:        p.timestamp,
-    };
+    const hist = all.filter(o => isRoutine(o.ts));
+    return Object.assign(now, { id, tend: SM.tendencyFromHistory(now, hist) });
   } catch { return null; }
 }
 
 async function loadObs(signal) {
   const results = await Promise.all(STATIONS.map(id => fetchStn(id, signal)));
-  obs = results.filter(r => r?.lat != null && r?.lon != null);
+  obs = results.filter(Boolean);
 }
 
 function getValidTime() {
@@ -834,35 +679,55 @@ function getValidTime() {
 // RENDER
 // ═══════════════════════════════════════════════════
 let densityTier = 1; // 1=standard, 3=dense/all — National only.
-// Tier 2 still exists in TIERS_CONUS (a few legacy stations are tagged
-// that way) but no longer has its own button — Standard shows tier 1,
-// Dense shows everything, tier-2 stations only ever appear in Dense.
 
-// Render-time filter, not a re-fetch: obs already holds everyone, this
-// just decides who gets drawn, so flipping density is instant.
 function shownStations() {
   if (REGION_KEY !== 'conus') return obs;
   return obs.filter(s => (TIERS_CONUS[s.id] || 3) <= densityTier);
 }
 
-function render() {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(0, 0, CW, CH);
-  ctx.clip();
-  MAP.renderBase(ctx, statesGeo, project, dims);
-  const visible = shownStations();
-  if (mode === 'station') {
-    for (const stn of visible) drawStation(stn);
-  } else {
-    for (const stn of visible) drawValueOnly(stn, mode);
+// Plotted vs thinned stations for the current view, recomputed per render.
+let plotted = [], thinned = [];
+
+function placeStations(c) {
+  const items = [];
+  for (const stn of shownStations()) {
+    const [x, y] = project(stn.lon, stn.lat);
+    if (x < -30 || x > CW + 30 || y < -30 || y > CH + 30) continue;
+    items.push({ x, y, ob: stn, priority: priority(stn.id) });
   }
-  MAP.drawStamp(ctx, getValidTime(), dims);
-  ctx.restore();
+  // Models must sit fully on the canvas and stay clear of the stamp
+  // (bottom-left) and the Copy Map button (top-right).
+  const opts = {
+    clip: { x0: 2, y0: 2, x1: CW - 2, y1: CH - 2 },
+    reserved: [{ x0: 0, y0: CH - 36, x1: 360, y1: CH }, { x0: CW - 150, y0: 0, x1: CW, y1: 50 }],
+  };
+  if (mode === 'station') return SM.thin(c, items, opts);
+  const withVal = items.filter(it => FIELD_VALUE[mode](it.ob) != null);
+  return SM.thin(c, withVal, Object.assign(opts, { layoutFn: it => valueLayout(c, it.ob, mode) }));
+}
+
+function render(c = ctx) {
+  c.save();
+  c.beginPath();
+  c.rect(0, 0, CW, CH);
+  c.clip();
+  MAP.renderBase(c, basemap, project, dims, B);
+
+  const { kept, dropped } = placeStations(c);
+  plotted = kept; thinned = dropped;
+
+  for (const it of dropped) SM.drawThinned(c, it.x, it.y);
+  if (mode === 'station') {
+    for (const it of kept) SM.draw(c, it.x, it.y, it.ob, { lay: it.lay });
+  } else {
+    for (const it of kept) drawValueOnly(c, it.x, it.y, it.ob, it.lay);
+  }
+  MAP.drawStamp(c, getValidTime(), dims);
+  c.restore();
 }
 
 // ═══════════════════════════════════════════════════
-// VIEW MODE — station model / temp-only / dewpoint-only
+// VIEW MODE — station model / value-only tabs
 // ═══════════════════════════════════════════════════
 let mode = 'station';
 
@@ -873,30 +738,48 @@ function legendGradient(sc) {
   return `linear-gradient(to right, ${stops.join(', ')})`;
 }
 
-// Per-mode display name and end-of-bar unit suffix for the legend.
 const MODE_LABELS = { temp: 'Temperature', dew: 'Dewpoint', pres: 'Sea-level pressure', gust: 'Wind gusts' };
 const MODE_UNITS  = { temp: '\u00B0', dew: '\u00B0', pres: ' mb', gust: ' mph' };
+
+const WX_LEGEND = [
+  ['rain', 63, 'Rain'], ['snow', 73, 'Snow'], ['mix', 69, 'Mixed'],
+  ['ice', 67, 'Freezing / ice'], ['thunder', 1095, 'Thunder'], ['obscur', 45, 'Fog / mist'],
+];
+
+const CREDITS = 'Observations: NWS api.weather.gov &middot; Boundaries: U.S. Census Bureau, Natural Earth &middot; '
+  + 'Weather symbols: OGC MetOcean DWG World Weather Symbols (CC BY 4.0)';
 
 function updateLegend() {
   const legend = document.getElementById('legend');
   if (mode === 'station') {
+    const wx = WX_LEGEND.map(([cls, code, label]) =>
+      `<div class="lg"><span class="lg-wx" style="color:${SM.WX_COLORS[cls]}">${SM.wxChar(code)}</span>${label}</div>`).join('');
     legend.innerHTML = `
-      <div class="lg"><div class="lg-dot" style="background:#e05252"></div>Temperature &deg;F</div>
-      <div class="lg"><div class="lg-dot" style="background:#6aabee"></div>Dewpoint &deg;F</div>
-      <div class="lg"><div class="lg-dot" style="background:#9aa3b2"></div>Pressure (coded mb)</div>
-      <div class="lg"><div class="lg-dot" style="border:1px solid rgba(255,255,255,0.5);background:transparent"></div>Wind barb &middot; Sky cover</div>
+      <div class="lg-row">
+        <div class="lg"><div class="lg-dot" style="background:${SM.COLORS.temp}"></div>Temperature &deg;F</div>
+        <div class="lg"><div class="lg-dot" style="background:${SM.COLORS.dew}"></div>Dewpoint &deg;F</div>
+        <div class="lg">SLP coded, 0.1 mb</div>
+        <div class="lg">3-hr change, 0.1 mb</div>
+        <div class="lg">Wind kt</div>
+        <div class="lg">Visibility mi</div>
+      </div>
+      <div class="lg-row">${wx}</div>
+      <div class="lg-credits">${CREDITS}</div>
     `;
   } else {
     const sc    = SCALES[mode];
     const label = MODE_LABELS[mode];
     const unit  = MODE_UNITS[mode];
     legend.innerHTML = `
-      <div class="lg lg-scale">
-        <span class="lg-scale-lbl">${sc.vals[0]}${unit}</span>
-        <div class="lg-gradient" style="background:${legendGradient(sc)}"></div>
-        <span class="lg-scale-lbl">${sc.vals[sc.vals.length - 1]}${unit}</span>
+      <div class="lg-row">
+        <div class="lg lg-scale">
+          <span class="lg-scale-lbl">${sc.vals[0]}${unit}</span>
+          <div class="lg-gradient" style="background:${legendGradient(sc)}"></div>
+          <span class="lg-scale-lbl">${sc.vals[sc.vals.length - 1]}${unit}</span>
+        </div>
+        <div class="lg">${label}</div>
       </div>
-      <div class="lg">${label} &middot; colored by value${mode === 'gust' ? ' &middot; blank where no gust reported' : ''}</div>
+      <div class="lg-credits">${CREDITS}</div>
     `;
   }
 }
@@ -917,41 +800,59 @@ document.querySelectorAll('#view-toggle .vt-btn').forEach(btn => {
 const tip = document.getElementById('tip');
 const ov  = document.getElementById('ov');
 
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const row = (lbl, v) => v == null || v === '' ? '' :
+  `<div class="tip-row"><span class="tip-lbl">${lbl}</span><span>${v}</span></div>`;
+
+function tipHtml(s) {
+  const tF = SM.cToF(s.tempC), dF = SM.cToF(s.dewC);
+  const w = s.wind;
+  let wind = null;
+  if (w && w.kt != null) {
+    if (w.kt === 0) wind = 'Calm';
+    else {
+      const dir = w.dir != null ? `${String(w.dir).padStart(3, '0')}&deg;` : 'Variable';
+      wind = `${dir} ${w.kt} kt${w.gust ? `, gust ${w.gust}` : ''} &middot; ${ktToMph(w.kt)} mph`;
+    }
+  }
+  const tend = s.tend
+    ? `${s.tend.ppp > 0 ? '+' : ''}${(s.tend.ppp / 10).toFixed(1)} mb &middot; ${SM.TEND_LABEL[s.tend.a]}`
+    : null;
+  const vis = s.visSM != null ? `${SM.formatVis(s.visSM, s.visLT)} mi` : null;
+  const sky = s.sky ? SM.SKY_LABEL[s.sky] : 'Missing';
+  return `
+    <div class="tip-id">${s.id} &middot; ${esc(NAMES[s.id] || s.id)}</div>
+    ${row('Temp', tF != null ? `${tF}&deg;F` : null)}
+    ${row('Dewpoint', dF != null ? `${dF}&deg;F` : null)}
+    ${row('Sea-level pressure', s.slp != null ? `${s.slp.toFixed(1)} mb` : null)}
+    ${row('3-hr change', tend)}
+    ${row('Wind', wind)}
+    ${row('Visibility', vis)}
+    ${row('Weather', s.wx.length ? esc(s.wx.join(' ')) : null)}
+    ${row('Sky', sky)}
+    ${s.raw ? `<div class="tip-raw">${esc(s.raw)}</div>` : ''}
+  `;
+}
+
 cv.addEventListener('mousemove', e => {
   const rect = cv.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * (CW / rect.width);
   const my = (e.clientY - rect.top)  * (CH / rect.height);
 
-  let best = null, bestD = 24;
-  for (const s of shownStations()) {
-    const [sx, sy] = project(s.lon, s.lat);
-    const d = Math.hypot(mx - sx, my - sy);
-    if (d < bestD) { bestD = d; best = s; }
+  let best = null, bestD = 18;
+  for (const it of plotted.concat(thinned)) {
+    const d = Math.hypot(mx - it.x, my - it.y);
+    if (d < bestD) { bestD = d; best = it.ob; }
   }
-
   if (!best) { tip.style.display = 'none'; return; }
 
-  const tF    = cToF(best.temp);
-  const dF    = cToF(best.dew);
-  const mb    = slpMb(best);
-  const kt    = kmhToKt(best.windSpeed);
-  const mph   = best.windSpeed != null ? Math.round(best.windSpeed * 0.621) : null;
-  const visMi = best.vis != null ? (best.vis / 1609.34).toFixed(1) : null;
-
-  tip.innerHTML = `
-    <div class="tip-id">${best.id} &middot; ${NAMES[best.id] || best.id}</div>
-    ${tF    != null ? `<div class="tip-row"><span class="tip-lbl">Temp</span><span>${tF}&deg;F</span></div>` : ''}
-    ${dF    != null ? `<div class="tip-row"><span class="tip-lbl">Dewpoint</span><span>${dF}&deg;F</span></div>` : ''}
-    ${mb    != null ? `<div class="tip-row"><span class="tip-lbl">Pressure</span><span>${mb.toFixed(1)} mb</span></div>` : ''}
-    ${kt    != null ? `<div class="tip-row"><span class="tip-lbl">Wind</span><span>${best.windDir != null ? best.windDir+'&deg; @ ' : ''}${Math.round(kt)} kt &middot; ${mph} mph</span></div>` : ''}
-    ${visMi != null ? `<div class="tip-row"><span class="tip-lbl">Visibility</span><span>${visMi} mi</span></div>` : ''}
-  `;
-
+  tip.innerHTML = tipHtml(best);
   tip.style.display = 'block';
   const tw = tip.offsetWidth, th = tip.offsetHeight;
-  let lx = e.clientX + 16, ly = e.clientY - th/2;
+  let lx = e.clientX + 16, ly = e.clientY - th / 2;
   if (lx + tw > window.innerWidth - 8) lx = e.clientX - tw - 16;
   if (ly < 4) ly = 4;
+  if (ly + th > window.innerHeight - 4) ly = window.innerHeight - th - 4;
   tip.style.left = lx + 'px';
   tip.style.top  = ly + 'px';
 });
@@ -959,13 +860,23 @@ cv.addEventListener('mousemove', e => {
 cv.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
 
 // ═══════════════════════════════════════════════════
-// SHARE / COPY PILL
+// SHARE / COPY PILL — fixed 3× export, independent of screen dpr
 // ═══════════════════════════════════════════════════
 const shareBtn   = document.getElementById('share-btn');
 const shareLabel = document.getElementById('share-label');
 
+function exportCanvas() {
+  const off = document.createElement('canvas');
+  off.width  = CW * EXPORT_SCALE;
+  off.height = CH * EXPORT_SCALE;
+  const oc = off.getContext('2d');
+  oc.scale(EXPORT_SCALE, EXPORT_SCALE);
+  render(oc);
+  return off;
+}
+
 shareBtn.addEventListener('click', () => {
-  cv.toBlob(async blob => {
+  exportCanvas().toBlob(async blob => {
     const file = new File([blob], 'contextclimate-surface-map.png', { type: 'image/png' });
 
     if (navigator.canShare?.({ files: [file] })) {
@@ -1004,17 +915,20 @@ function flash(msg) {
 // ═══════════════════════════════════════════════════
 const setStatus = msg => { document.getElementById('stext').textContent = msg; };
 
+function statusLine(prefix) {
+  const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const thin = thinned.length ? ` · ${thinned.length} thinned` : '';
+  return `${prefix}${plotted.length} plotted${thin} · ${t}`;
+}
+
 // ═══════════════════════════════════════════════════
 // REGION LOADING + SWITCHING
 // ═══════════════════════════════════════════════════
-// init() and switchRegion() both funnel through here. Each call gets its
-// own AbortController; starting a new one cancels whatever the previous
-// call still had in flight, so an init() still mid-fetch when the user
-// clicks a toggle can't resolve later and clobber the newer region's
-// state with stale data (the bug that caused the stuck/mismatched map).
+// Each call gets its own AbortController; starting a new one cancels
+// whatever the previous call still had in flight.
 let currentAbort = null;
 
-async function loadRegion(key, { isInitial = false } = {}) {
+async function loadRegion(key) {
   if (currentAbort) currentAbort.abort();
   const abort = new AbortController();
   currentAbort = abort;
@@ -1037,44 +951,33 @@ async function loadRegion(key, { isInitial = false } = {}) {
   setStatus('Loading map boundaries…');
 
   try {
-    await loadGeo(abort.signal);
-    if (abort.signal.aborted) return;  // superseded by a newer region switch
+    await Promise.all([loadGeo(abort.signal), SM.ready()]);
+    if (abort.signal.aborted) return;
 
-    if (isInitial) await document.fonts.ready;
-    MAP.renderBase(ctx, statesGeo, project, dims);
+    obs = [];
+    render();
 
     ov.textContent = 'Fetching observations…';
     setStatus('Fetching station observations…');
     await loadObs(abort.signal);
-    if (abort.signal.aborted) return;  // superseded again — don't paint stale obs
+    if (abort.signal.aborted) return;
 
     render();
     ov.style.display = 'none';
-
-    const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-    setStatus(`${obs.length} of ${STATIONS.length} stations loaded · ${t}`);
+    setStatus(statusLine(`${obs.length} of ${STATIONS.length} stations loaded · `));
   } catch (err) {
-    if (abort.signal.aborted) return;  // expected cancellation, not a real failure
+    if (abort.signal.aborted) return;
     console.error('Failed to load region', key, err);
     ov.textContent = 'Could not load map data — check your connection and try again.';
     setStatus('Load failed — see browser console for details');
   }
 }
 
-async function init() {
-  await loadRegion(REGION_KEY, { isInitial: true });
-}
-
-async function switchRegion(key) {
-  if (key === REGION_KEY) return;
-  await loadRegion(key);
-}
-
 document.querySelectorAll('#region-toggle .vt-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     if (btn.dataset.region === REGION_KEY) return;
     document.querySelectorAll('#region-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
-    switchRegion(btn.dataset.region);
+    loadRegion(btn.dataset.region);
   });
 });
 
@@ -1085,17 +988,18 @@ document.querySelectorAll('#density-toggle .vt-btn').forEach(btn => {
     densityTier = tier;
     document.querySelectorAll('#density-toggle .vt-btn').forEach(b => b.classList.toggle('active', b === btn));
     render();
+    setStatus(statusLine(''));
   });
 });
 
 async function refresh() {
   await loadObs();
   render();
-  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-  setStatus(`${obs.length} stations · Refreshed ${t}`);
+  setStatus(statusLine('Refreshed · '));
 }
 
-init();
+updateLegend();
+loadRegion(REGION_KEY);
 setInterval(refresh, REFRESH_MS);
 </script>
 </body>
