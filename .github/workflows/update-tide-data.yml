@@ -1,0 +1,50 @@
+name: Update tide data
+
+on:
+  schedule:
+    - cron: "17 11 * * *"      # daily, 11:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-tide-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install numpy
+
+      # Raw NOAA downloads are cached between runs (not committed). Verified
+      # years older than last year are fetched once; recent years refresh.
+      - name: Restore NOAA cache
+        uses: actions/cache@v4
+        with:
+          path: data_cache/tides
+          key: tides-${{ github.run_id }}
+          restore-keys: tides-
+
+      - name: Build catalog
+        run: python scripts/build_tide_events.py --out public/tide-catalog.json --cache data_cache/tides
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git add public/tide-catalog.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update tide catalog"
+            git push
+          fi
