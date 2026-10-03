@@ -40,6 +40,26 @@ body { padding: 12px 16px; overflow-x: hidden; }
 .goto input:focus { outline: 2px solid var(--tool-accent); outline-offset: 1px; }
 .goto input.bad { border-color: #E4756B; }
 
+/* photon targets — primary control, lives in the scene */
+.tgt-row { position: absolute; top: 10px; left: 12px; display: none; gap: 8px; z-index: 2; }
+.pwrap.show-tgt .tgt-row { display: flex; }
+.tgt { position: relative; flex: 1 1 0; min-width: 0; height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  background: var(--color-surface-2); border: 1px solid var(--color-border-hover); border-radius: 8px; color: var(--color-text-primary);
+  cursor: pointer; text-align: left; font: inherit; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .2s ease; }
+.tgt:hover { transform: translateY(-2px); border-color: var(--tool-accent); box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
+.tgt:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; }
+.tgt.is-active { border-color: var(--tool-accent); background: color-mix(in srgb, var(--tool-accent) 20%, #262B27);
+  box-shadow: 0 0 0 1px var(--tool-accent), 0 0 20px color-mix(in srgb, var(--tool-accent) 38%, transparent); }
+.tgt-ico { flex-shrink: 0; width: 36px; height: 28px; display: block; }
+.tgt-txt { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.tgt-name { font-family: var(--font-body); font-weight: 600; font-size: 16px; white-space: nowrap; }
+.tgt-resp { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-secondary); }
+.tgt-dot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; display: none; }
+.tgt.reacts:not(.is-active) .tgt-dot { display: block; animation: tgtPulse 2.2s ease-in-out infinite; }
+@keyframes tgtPulse { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.25); } }
+@media (prefers-reduced-motion: reduce) { .tgt-dot { animation: none !important; } .tgt { transition: none; } }
+@media (max-width: 1200px) { .tgt-ico { display: none; } .tgt { padding: 6px 8px; } .ro-v small { display: none; } .goto input { width: 112px; } .ro { padding: 4px 9px; } }
+
 /* panel row */
 .prow { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 8px; flex: 1; min-height: 0; }
 .pwrap { position: relative; min-height: 0; background: #262B27; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; }
@@ -114,7 +134,7 @@ body { padding: 12px 16px; overflow-x: hidden; }
     </div>
 
     <div class="prow">
-      <div class="pwrap"><canvas id="panelCv"></canvas></div>
+      <div class="pwrap" id="pwrap"><canvas id="panelCv"></canvas><div class="tgt-row" id="tgtRow" role="radiogroup" aria-label="Photon target"></div></div>
       <aside class="cc-rail-panel rail">
         <div class="rail-sec is-active" data-for="speed">
           <span class="cc-btn-row-label">Wave B wavelength</span>
@@ -131,9 +151,6 @@ body { padding: 12px 16px; overflow-x: hidden; }
           <select id="anchorSel" aria-label="Size reference"></select>
         </div>
         <div class="rail-sec" data-for="photon">
-          <span class="cc-btn-row-label">Target</span>
-          <div class="btn-grid" id="targetBtns"></div>
-          <div class="cc-rail-divider"></div>
           <span class="cc-btn-row-label">Brightness</span>
           <input type="range" id="briSlider" min="0" max="1" step="0.001" value="0.35" aria-label="Brightness (photons per second)">
           <div class="rail-val" id="briVal">—</div>
@@ -616,7 +633,7 @@ function updateReadouts() {
 }
 function setL(L) {
   st.L = L; st.raceT = 0;
-  drawBand(); updateReadouts();
+  drawBand(); updateReadouts(); syncTargetBtns();
   if (st.panel === 'scale') drawScale();
 }
 const setNm = nm => setL(Math.log10(nm));
@@ -901,6 +918,8 @@ const ph = { list: [], acc: 0, sent: 0, absorbed: 0, broke: 0,
   spin: 0, spinV: 0, bendA: 0, strA: 0, sloshA: 0, t: 0,
   broken: 0, brokenType: null, level: 2, excT: 0, flash: 0, emitted: [] };
 const PHOTON_V = 300;
+const P_TOP = 72;            // space reserved for the target row
+let P_RS = 11, P_ROD = 160;
 const briRate = () => Math.round(Math.pow(10, st.bri * Math.log10(40)) * 10) / 10; // 1 … 40 / s
 function resetCounts() { ph.sent = 0; ph.absorbed = 0; ph.broke = 0; }
 function resetTarget() { ph.list = []; ph.emitted = []; ph.spinV = 0; ph.bendA = 0; ph.strA = 0; ph.sloshA = 0; ph.broken = 0; ph.level = 2; ph.excT = 0; }
@@ -1022,23 +1041,24 @@ function drawTarget(c, tx, ty) {
     case 'h': {
       for (let n = 2; n <= 8; n++) {
         c.strokeStyle = n === ph.level ? 'rgba(232,228,217,0.6)' : 'rgba(232,228,217,0.16)'; c.lineWidth = 1;
-        c.beginPath(); c.arc(tx, ty, n * 13, 0, Math.PI * 2); c.stroke();
+        c.beginPath(); c.arc(tx, ty, n * P_RS, 0, Math.PI * 2); c.stroke();
       }
-      txt(c, 'level 2', tx, ty + 2 * 13 + 15, { font: '400 13px ' + MONO, color: 'rgba(232,228,217,0.6)' });
+      txt(c, 'level 2', tx, ty + 2 * P_RS + 15, { font: '400 13px ' + MONO, color: 'rgba(232,228,217,0.6)' });
       atom(c, tx, ty, 7, '#E4756B');
       if (!ionized) {
-        const a = t * 2.2, rr = ph.level * 13;
+        const a = t * 2.2, rr = ph.level * P_RS;
         c.fillStyle = '#6FA8D8'; c.shadowColor = '#6FA8D8'; c.shadowBlur = 10;
         c.beginPath(); c.arc(tx + rr * Math.cos(a), ty + rr * Math.sin(a), 6, 0, Math.PI * 2); c.fill(); c.shadowBlur = 0;
-        if (ph.level > 2) txt(c, 'level ' + ph.level, tx, ty - rr - 8, { font: '400 13px ' + MONO, color: 'rgba(232,228,217,0.85)' });
+        if (ph.level > 2) txt(c, 'level ' + ph.level, tx + rr + 12, ty + 4, { font: '400 13px ' + MONO, color: 'rgba(232,228,217,0.85)', align: 'left' });
       }
       break;
     }
     case 'metal': {
-      c.fillStyle = '#8C9196'; c.fillRect(tx - 7, ty - 95, 14, 190);
-      c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(tx - 5, ty - 95, 3, 190);
+      const hR = P_ROD / 2;
+      c.fillStyle = '#8C9196'; c.fillRect(tx - 7, ty - hR, 14, P_ROD);
+      c.fillStyle = 'rgba(255,255,255,0.25)'; c.fillRect(tx - 5, ty - hR, 3, P_ROD);
       for (let i = 0; i < 7; i++) {
-        const yy = ty - 78 + i * 26 + ph.sloshA * 22 * Math.sin(t * 7);
+        const yy = ty - hR * 0.82 + i * (hR * 1.64 / 6) + ph.sloshA * hR * 0.22 * Math.sin(t * 7);
         c.fillStyle = '#6FA8D8'; c.beginPath(); c.arc(tx, yy, 3.5, 0, Math.PI * 2); c.fill();
       }
       break;
@@ -1056,7 +1076,10 @@ function drawElectronOut(c, tx, ty, bt) {
 function drawPhoton(dt) {
   const c = pctx;
   c.clearRect(0, 0, PW, PH);
-  const gw = 230, sceneW = PW - gw, tx = Math.round(sceneW * 0.6), ty = Math.round(PH / 2 + 10);
+  const gw = 230, sceneW = PW - gw, tx = Math.round(sceneW * 0.6), ty = Math.round((P_TOP + 34 + PH - 26) / 2);
+  P_RS = Math.max(8, Math.min(13, (Math.min(ty - P_TOP - 34, PH - 30 - ty) - 6) / 8));
+  P_ROD = Math.min(190, 2 * (ty - P_TOP - 40));
+  document.getElementById('tgtRow').style.width = (sceneW - 24) + 'px';
   stepPhotons(dt, tx);
   const nm = nmNow();
   // source
@@ -1081,8 +1104,7 @@ function drawPhoton(dt) {
   const resp = responseOf(st.target, nm);
   let rt = RESP_TEXT[st.target][resp.type] || 'No effect';
   if (resp.type === 'jump') rt += '  (level 2 → ' + resp.n + ')';
-  txt(c, TARGETS[st.target].name, tx, 26, { font: '400 13px ' + MONO, color: 'rgba(232,228,217,0.7)' });
-  txt(c, rt, tx, 48, { font: '600 17px ' + BODY, color: resp.type === 'none' ? 'rgba(232,228,217,0.7)' : (RESP_COLOR[resp.type] || '#E8E4D9') });
+  txt(c, rt, tx, P_TOP + 24, { font: '600 17px ' + BODY, color: resp.type === 'none' ? 'rgba(232,228,217,0.7)' : (RESP_COLOR[resp.type] || '#E8E4D9') });
   // counters
   const brk = st.target === 'h' ? 'Ionized' : st.target === 'metal' ? 'Electrons out' : 'Split or ionized';
   txt(c, 'Photons sent ' + ph.sent + '   ·   Absorbed ' + ph.absorbed + '   ·   ' + brk + ' ' + ph.broke, 16, PH - 14, { font: '400 14px ' + MONO, color: 'rgba(232,228,217,0.85)', align: 'left' });
@@ -1280,6 +1302,7 @@ function setPanel(p) {
   document.querySelectorAll('[data-panel]').forEach(b => b.classList.toggle('is-active', b.dataset.panel === p));
   document.querySelectorAll('.rail-sec').forEach(s => s.classList.toggle('is-active', s.dataset.for === p));
   st.raceT = 0;
+  document.getElementById('pwrap').classList.toggle('show-tgt', p === 'photon');
   sizePanel();
   if (p === 'scale') drawScale();
 }
@@ -1306,9 +1329,34 @@ const aSel = document.getElementById('anchorSel');
 aSel.innerHTML = '<option value="auto">Nearest in size</option>' + ANCHORS.map(a => '<option value="' + a.key + '">' + a.name + ' — ' + lenUnit(a.size) + '</option>').join('');
 aSel.addEventListener('change', () => { st.anchor = aSel.value; drawScale(); });
 
-const tb = document.getElementById('targetBtns');
-TARGET_ORDER.forEach(k => { const b = document.createElement('button'); b.className = 'cc-btn cc-btn-sm'; b.dataset.t = k; b.textContent = TARGETS[k].label; b.addEventListener('click', () => { st.target = k; resetTarget(); resetCounts(); syncTargetBtns(); }); tb.appendChild(b); });
-function syncTargetBtns() { tb.querySelectorAll('button').forEach(b => b.classList.toggle('is-active', b.dataset.t === st.target)); }
+const tb = document.getElementById('tgtRow');
+const TGT_ICON = {
+  h2o: '<line x1="18" y1="11" x2="8" y2="20" stroke="#B9B4A8" stroke-width="2"/><line x1="18" y1="11" x2="28" y2="20" stroke="#B9B4A8" stroke-width="2"/><circle cx="18" cy="11" r="7.5" fill="#D9534F"/><circle cx="8" cy="20" r="4.8" fill="#E8E4D9"/><circle cx="28" cy="20" r="4.8" fill="#E8E4D9"/>',
+  co2: '<line x1="6" y1="14" x2="30" y2="14" stroke="#B9B4A8" stroke-width="2"/><circle cx="6" cy="14" r="6" fill="#D9534F"/><circle cx="18" cy="14" r="5" fill="#7D8A85"/><circle cx="30" cy="14" r="6" fill="#D9534F"/>',
+  o2: '<line x1="11" y1="14" x2="25" y2="14" stroke="#B9B4A8" stroke-width="2"/><circle cx="11" cy="14" r="7.5" fill="#D9534F"/><circle cx="25" cy="14" r="7.5" fill="#D9534F"/>',
+  h: '<circle cx="18" cy="14" r="11" fill="none" stroke="rgba(232,228,217,0.5)" stroke-width="1.2"/><circle cx="18" cy="14" r="3.2" fill="#E4756B"/><circle cx="26" cy="6.5" r="2.8" fill="#6FA8D8"/>',
+  metal: '<rect x="15.5" y="1" width="5" height="26" rx="1" fill="#8C9196"/><circle cx="18" cy="7" r="1.8" fill="#6FA8D8"/><circle cx="18" cy="14" r="1.8" fill="#6FA8D8"/><circle cx="18" cy="21" r="1.8" fill="#6FA8D8"/>'
+};
+const RESP_SHORT = { spin: 'Spins', bend: 'Bends', stretch: 'Stretches', split: 'Splits', ionize: 'Ionizes', jump: 'Jumps up', slosh: 'Sloshes', reflect: 'Reflects', eject: 'Ejects e⁻', none: 'No effect' };
+TARGET_ORDER.forEach(k => {
+  const b = document.createElement('button');
+  b.className = 'tgt'; b.dataset.t = k; b.setAttribute('role', 'radio');
+  b.innerHTML = '<svg class="tgt-ico" viewBox="0 0 36 28" aria-hidden="true">' + TGT_ICON[k] + '</svg>' +
+    '<span class="tgt-txt"><span class="tgt-name">' + TARGETS[k].label + '</span><span class="tgt-resp"></span></span><span class="tgt-dot"></span>';
+  b.addEventListener('click', () => { st.target = k; resetTarget(); resetCounts(); syncTargetBtns(); });
+  tb.appendChild(b);
+});
+function syncTargetBtns() {
+  const nm = nmNow();
+  tb.querySelectorAll('.tgt').forEach(b => {
+    const on = b.dataset.t === st.target, r = responseOf(b.dataset.t, nm).type;
+    b.classList.toggle('is-active', on); b.setAttribute('aria-checked', on);
+    b.classList.toggle('reacts', r !== 'none' && r !== 'reflect');
+    const rs = b.querySelector('.tgt-resp'), col = r === 'none' ? '' : RESP_COLOR[r];
+    rs.textContent = RESP_SHORT[r]; rs.style.color = col;
+    b.querySelector('.tgt-dot').style.background = col || 'transparent';
+  });
+}
 const bS = document.getElementById('briSlider');
 function syncBri() { const r = briRate(); document.getElementById('briVal').textContent = nice(r, 2) + (r === 1 ? ' photon' : ' photons') + ' per second'; }
 bS.addEventListener('input', () => { st.bri = parseFloat(bS.value); syncBri(); });
