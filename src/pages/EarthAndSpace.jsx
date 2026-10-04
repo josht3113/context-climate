@@ -52,6 +52,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Page 5', 'Interactive'],
+        title:       'Life Cycles of Stars Model',
+        description: 'Explore ESSRT page 5 interactively — slide a star\'s mass to light its path, follow a Sun-like, massive or low-mass star through every stage, and see real images and true-scale models of each one.',
+        footerTags:  ['Stellar Evolution', 'Star Mass', 'Supernova'],
+        to:          '/ESSRT_5',
+        thumb:       '/ESSRT_5_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Pages 6 & 7', 'Interactive'],
         title:       'Geologic History of NY State',
         description: 'Explore ESSRT pages 6–7 interactively with zoom and overlay functions, as well as information about key index fossils.',
@@ -349,6 +358,15 @@ const SECTIONS = [
             footerTags:  ['Stellar Evolution', 'Nebula', 'Supernova'],
             to:          '/earthandspace/stellar-life-cycles',
             thumb:       '/StellarLifeCycles_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Stellar Evolution', 'Interactive'],
+            title:       'Life Cycles of Stars Model',
+            description: 'Slide a star\'s mass and watch its path light up on the ESSRT model — from nebula to white dwarf, neutron star or black hole — with real images and true-scale comparisons.',
+            footerTags:  ['Star Mass', 'Stellar Fate', 'Recycling'],
+            to:          '/ESSRT_5',
+            thumb:       '/ESSRT_5_thumbnail.png',
             status:      'live',
           },
           {
