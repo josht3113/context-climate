@@ -34,6 +34,7 @@ import ESSRT_2                     from './pages/ESSRT_2'
 import ESSRT_3                     from './pages/ESSRT_3'
 import ESSRT_5                     from './pages/ESSRT_5'
 import ESSRT_11                    from './pages/ESSRT_11'
+import ESSRT_12                    from './pages/ESSRT_12'
 import RadioactiveDecay            from './pages/radioactive_decay_simulator'
 import CloudFormationLab           from './pages/CloudFormationLab'
 import SeismicWaveExplorer         from './pages/SeismicWaveExplorer'
@@ -183,6 +184,7 @@ export default function App() {
           <Route path="/ESSRT_3"                             element={<ESSRT_3 />}                 />
           <Route path="/ESSRT_5"                             element={<ESSRT_5 />}                 />
           <Route path="/ESSRT_11"                            element={<ESSRT_11 />}                />
+          <Route path="/ESSRT_12"                            element={<ESSRT_12 />}                />
           <Route path="/radioactive_decay_simulator"         element={<RadioactiveDecay />}        />
           <Route path="/earthandspace/cloud-formation-lab"   element={<CloudFormationLab />}       />
           <Route path="/earthandspace/seismic-wave-explorer" element={<SeismicWaveExplorer />}     />
