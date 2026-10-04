@@ -79,6 +79,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Page 11', 'Interactive'],
+        title:       "Earth's Interior",
+        description: "Explore ESSRT page 11 interactively — drag a probe from the crust to the center to read each layer's density, pressure and temperature, morph the model to true scale, and trace seismic waves through the core.",
+        footerTags:  ["Earth's Layers", 'Lithosphere', 'Density'],
+        to:          '/ESSRT_11',
+        thumb:       '/ESSRT_11_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Page 15', 'Interactive'],
         title:       'Rock Cycle Infographic',
         description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack processes, structures and other important aspects of the rock cycle. Guided tour and rock types functions available.',
@@ -571,6 +580,15 @@ const SECTIONS = [
         thumb:         'seismic_wave_explorer_thumbnail.png',
         status:       'live',
 },
+      {
+        tags:        ["Earth's Interior", 'Interactive'],
+        title:       "Earth's Interior Model",
+        description: 'Probe Earth layer by layer from crust to inner core, compare what the layers are made of with how they behave, and see where magma really comes from.',
+        footerTags:  ['Lithosphere', 'Asthenosphere', 'Core'],
+        to:          '/ESSRT_11',
+        thumb:       '/ESSRT_11_thumbnail.png',
+        status:      'live',
+      },
       {
         tags:        ['Subduction', 'Interactive'],
         title:       'Subduction Zone Explorer',
