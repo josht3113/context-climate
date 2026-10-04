@@ -90,8 +90,8 @@ const SECTIONS = [
       {
         tags:        ['ESSRT', 'Page 12', 'Interactive'],
         title:       'Radiometric Dating & Hotspots',
-        description: 'Explore ESSRT page 12 interactively — drag a sample\'s age across the dating table to see which isotopes can date it, then switch to the hotspot map to trace hotspot tracks (Hawaii, Yellowstone, Réunion, Tristan, Iceland) and find out which hotspots sit on plate boundaries.',
-        footerTags:  ['Half-Life', 'Radiometric Dating', 'Hotspots', 'Hotspot Tracks'],
+        description: 'Explore ESSRT page 12 interactively — slide a sample\'s age to see which isotopes can date it, filter by material, then date the Hawaiian chain and find out which hotspots sit on plate boundaries.',
+        footerTags:  ['Half-Life', 'Radiometric Dating', 'Hotspots'],
         to:          '/ESSRT_12',
         thumb:       '/ESSRT_12_thumbnail.png',
         status:      'live',
