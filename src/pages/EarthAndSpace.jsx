@@ -354,7 +354,7 @@ const SECTIONS = [
           {
             tags:        ['Stellar Evolution', 'Interactive'],
             title:       'Life Cycles of Stars',
-            description: 'Follow a star from its birth in a nebula through to its final stage, and see how a star\'s initial mass influences the the length of a star\'s life cycle and the ultimate fate of the star.',
+            description: 'Follow a star of any of five masses across the H-R diagram from protostar to final fate, switch to true time to see how long each stage really lasts, or race all five to the present day.',
             footerTags:  ['Stellar Evolution', 'Nebula', 'Supernova'],
             to:          '/earthandspace/stellar-life-cycles',
             thumb:       '/StellarLifeCycles_thumbnail.png',
