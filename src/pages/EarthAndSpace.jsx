@@ -88,6 +88,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Page 12', 'Interactive'],
+        title:       'Radiometric Dating & Hotspots',
+        description: 'Explore ESSRT page 12 interactively — slide a sample\'s age to see which isotopes can date it, filter by material, then date the Hawaiian chain and find out which hotspots sit on plate boundaries.',
+        footerTags:  ['Half-Life', 'Radiometric Dating', 'Hotspots'],
+        to:          '/ESSRT_12',
+        thumb:       '/ESSRT_12_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Page 15', 'Interactive'],
         title:       'Rock Cycle Infographic',
         description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack processes, structures and other important aspects of the rock cycle. Guided tour and rock types functions available.',
@@ -564,7 +573,7 @@ const SECTIONS = [
       {
         tags:        ['Radioactive Decay', 'Interactive'],
         title:       'Radioactive Decay Simulator',
-        description: 'Select a parent isotope from the ESSRT table and calculate the age of a sample based on remaining parent material and half-life — with visual decay curve.',
+        description: 'Watch atoms of any ESSRT page 12 isotope decay against Earth\'s age, then date real samples — from Ötzi the Iceman to the oldest zircon on Earth — by picking the right clock and reading its decay curve.',
         footerTags:  ['Radiometric Dating', 'Half-Life', 'Isotopes'],
         to:          '/radioactive_decay_simulator',
         thumb:       '/radioactive_decay_simulator_thumbnail.png',
