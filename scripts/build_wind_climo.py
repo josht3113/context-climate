@@ -36,6 +36,7 @@ retries and splitting.
 
 import argparse
 import csv
+import http.client
 import io
 import json
 import math
@@ -62,6 +63,7 @@ KT_TO_MPH = 1.15078
 MIN_GAP_S = float(os.environ.get("WIND_MIN_GAP_S", "1.5"))   # IEM: 1 request / second / IP
 RETRY_WAITS = tuple(float(x) for x in os.environ.get("WIND_RETRY_WAITS", "10,30,90").split(","))
 REQUEST_TIMEOUT = 900        # socket timeout per request
+STATIONS_PER_REQUEST = 10    # smaller responses are less likely to be cut off mid-stream
 
 DIURNAL_MIN_N = 100          # hours per month-hour cell over 30 years (~900 possible)
 MONTH_MIN_HOURS = 150        # hourly values in a year-month
@@ -152,7 +154,8 @@ def _http_get(url):
         if e.code >= 500 or e.code in (408, 425, 429):
             raise TransientError(f"HTTP {e.code}") from e
         raise FatalFetchError(f"HTTP {e.code}: {e.read()[:200]!r}") from e
-    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, ConnectionError, OSError) as e:
+        # HTTPException covers IncompleteRead: IEM closing a stream mid-transfer
         raise TransientError(str(e)) from e
 
 
@@ -214,7 +217,10 @@ def fetch_year(year, station_ids):
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
     if ets > now:
         ets = now
-    return fetch_span(list(station_ids), sts, ets)
+    ids, out = list(station_ids), []
+    for i in range(0, len(ids), STATIONS_PER_REQUEST):
+        out += fetch_span(ids[i:i + STATIONS_PER_REQUEST], sts, ets)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
