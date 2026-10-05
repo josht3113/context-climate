@@ -26,6 +26,9 @@
   .speed .cc-tab{padding:6px 11px}
   .time-now{flex:none;min-width:96px;text-align:right;line-height:1.1}
   .time-now b{display:block;font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--tool-accent)}
+  .step-mode .cc-tab{padding:6px 11px;white-space:nowrap}
+  .transport.by-day #timeRange{opacity:0.35;pointer-events:none}
+  .transport.by-day .time-now b{color:#5FC3CD}
   .time-now span{font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--color-text-muted)}
 
   input[type=range]{-webkit-appearance:none;appearance:none;height:6px;border-radius:100px;outline:none;cursor:pointer;margin:0}
@@ -121,6 +124,10 @@
 
   <div class="transport">
     <button class="play" id="playBtn" aria-label="Play">&#9654;</button>
+    <div class="cc-tab-bar step-mode">
+      <button class="cc-tab active" data-step="hour">By hour</button>
+      <button class="cc-tab" data-step="day">By day</button>
+    </div>
     <div class="cc-tab-bar speed">
       <button class="cc-tab" data-sp="0.5">0.5&times;</button>
       <button class="cc-tab active" data-sp="1">1&times;</button>
@@ -128,7 +135,7 @@
       <button class="cc-tab" data-sp="4">4&times;</button>
     </div>
     <input type="range" id="timeRange" min="0" max="1439" value="330" aria-label="Time of day">
-    <div class="time-now"><b id="timeNow">5:30 AM</b><span>Solar time</span></div>
+    <div class="time-now"><b id="timeNow">5:30 AM</b><span id="timeKey">Solar time</span></div>
   </div>
 
   <div class="sky-col">
@@ -233,7 +240,8 @@ const PRESETS=[ {v:0,nm:'Equator',dg:'0\u00b0'}, {v:TILT,nm:'Tropic',dg:'23.5\u0
   {v:40.8,nm:'New York',dg:'41\u00b0N'}, {v:90-TILT,nm:'Arctic Circle',dg:'66.5\u00b0N'}, {v:90,nm:'North Pole',dg:'90\u00b0N'} ];
 let LAT=40.8, dayOfYear=172, timeMin=330, playing=false, speed=1;
 const VIEW0={az:158, el:24};   // behind and above the observer, looking south-southeast: east on the left
-let VIEW={...VIEW0}, locked=false;   // dragging turns the dome unless the view is locked
+let VIEW={...VIEW0}, locked=false;
+let stepMode='hour';   // 'hour': play/step move the clock.  'day': clock is held, play/step move through the year   // dragging turns the dome unless the view is locked
 
 // ── 3D dome: x = east, y = north, z = up; orthographic camera looking toward VIEW.az, tilted down by VIEW.el ──
 let K,SX,SY,EL,RV,UV,FV;
@@ -466,7 +474,7 @@ function drawNoonAngle(dec){
 }
 
 // ── readout + card ──
-function fmtDay(n){ const d=new Date(Date.UTC(2025,0,1)); d.setUTCDate(n); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+' '+d.getUTCDate(); }
+function fmtDay(n){ const d=new Date(Date.UTC(2025,0,1)); d.setUTCDate(Math.floor(n)); return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]+' '+d.getUTCDate(); }
 function fmtTime(min){ let h=Math.floor(min/60), m=Math.floor(min%60); const ap=h>=12?'PM':'AM'; let hh=h%12; if(hh===0)hh=12; return hh+':'+String(m).padStart(2,'0')+' '+ap; }
 function fmtLat(v){ const a=Math.abs(v); const s=(Math.round(a*10)/10).toFixed(a%1===0?0:1); return v===0?'0\u00b0':s+'\u00b0'+(v>0?'N':'S'); }
 function fmtHM(h){ const tm=Math.round(h*60); return Math.floor(tm/60)+'h '+String(tm%60).padStart(2,'0')+'m'; }
@@ -478,7 +486,8 @@ function updateReadout(dec){
   else{ $('roRise').textContent=compass16(ra)+' '+Math.round(ra)+'\u00b0'; $('roSet').textContent=compass16(360-ra)+' '+Math.round(360-ra)+'\u00b0'; $('roDay').textContent=fmtHM(dl); }
   $('roNoon').textContent = na<=0 ? 'Below horizon' : na>=89.95 ? '90\u00b0 \u00b7 Overhead' : na.toFixed(1)+'\u00b0 '+(noonAz(LAT,dec)===180?'S':'N');
   $('seasonNow').textContent=fmtDay(dayOfYear);
-  $('timeNow').textContent=fmtTime(timeMin);
+  if(stepMode==='day'){ $('timeNow').textContent=fmtDay(dayOfYear); $('timeKey').textContent=fmtTime(timeMin)+' held'; }
+  else { $('timeNow').textContent=fmtTime(timeMin); $('timeKey').textContent='Solar time'; }
 }
 
 function presetFor(v){ return PRESETS.find(p=>Math.abs(p.v-v)<0.05); }
@@ -547,8 +556,24 @@ const playBtn=$('playBtn');
 function stopPlay(){ if(playing){ playing=false; playBtn.innerHTML='&#9654;'; } }
 playBtn.addEventListener('click',()=>{ playing=!playing; playBtn.innerHTML=playing?'&#10074;&#10074;':'&#9654;'; });
 
-function stepTime(){ let h=Math.floor(timeMin/60)+1; if(h>=24) h=0; timeMin=h*60; timeRange.value=timeMin; syncFills(); stopPlay(); render(); }
+function stepTime(){
+  if(stepMode==='day'){ let d=Math.floor(dayOfYear)+1; if(d>365) d=1; dayOfYear=d; season.value=d; }
+  else { let h=Math.floor(timeMin/60)+1; if(h>=24) h=0; timeMin=h*60; timeRange.value=timeMin; }
+  syncFills(); stopPlay(); render();
+}
 document.addEventListener('keydown',e=>{ if(e.code==='Space'||e.key===' '){ e.preventDefault(); stepTime(); } });
+function syncHint(){
+  document.querySelector('.step-hint').innerHTML = 'Press <b>space</b> or <b>click the sky</b> to step forward one '+(stepMode==='day'?'day':'hour') + (locked ? '' : ' &middot; <b>drag</b> the dome to turn it');
+}
+document.querySelectorAll('[data-step]').forEach(b=>b.addEventListener('click',()=>{
+  if(b.dataset.step===stepMode) return;
+  stepMode=b.dataset.step; stopPlay();
+  if(stepMode==='hour'){ dayOfYear=Math.round(dayOfYear); if(dayOfYear>365) dayOfYear=1; season.value=dayOfYear; }
+  document.querySelectorAll('[data-step]').forEach(x=>x.classList.toggle('active',x===b));
+  document.querySelector('.transport').classList.toggle('by-day',stepMode==='day');
+  timeRange.disabled = stepMode==='day';
+  syncHint(); syncFills(); render();
+}));
 
 // ── rotate view (off by default) ──
 const lockBtn=$('lockBtn'), resetBtn=$('resetBtn');
@@ -559,7 +584,7 @@ function syncViewBtns(){
   $('shackle').setAttribute('d', locked ? 'M5 7.5V5a3 3 0 0 1 6 0v2.5' : 'M5 7.5V5a3 3 0 0 1 6 0');
   canvas.classList.toggle('rotating',!locked);
   resetBtn.hidden = locked || viewIsDefault();
-  document.querySelector('.step-hint').innerHTML = 'Press <b>space</b> or <b>click the sky</b> to step forward one hour' + (locked ? '' : ' &middot; <b>drag</b> the dome to turn it');
+  syncHint();
 }
 lockBtn.addEventListener('click',()=>{ locked=!locked; syncViewBtns(); });
 resetBtn.addEventListener('click',()=>{ VIEW={...VIEW0}; syncViewBtns(); render(); });
@@ -597,8 +622,15 @@ let last=0;
 function loop(ts){
   if(playing){
     const dt=Math.min(0.1,(ts-last)/1000||0);            // cap: returning to a hidden tab must not jump the clock
-    timeMin=(timeMin+dt*(1440/22)*speed)%1440;            // a full day in ~22 s at 1x
-    timeRange.value=timeMin; syncFills(); render();
+    if(stepMode==='day'){
+      dayOfYear += dt*(365/30)*speed;                        // a full year in ~30 s at 1x
+      if(dayOfYear>=366) dayOfYear-=365;
+      season.value=Math.floor(dayOfYear);
+    } else {
+      timeMin=(timeMin+dt*(1440/22)*speed)%1440;            // a full day in ~22 s at 1x
+      timeRange.value=timeMin;
+    }
+    syncFills(); render();
   }
   last=ts; requestAnimationFrame(loop);
 }
