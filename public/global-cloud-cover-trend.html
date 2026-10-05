@@ -10,11 +10,11 @@
   :root { --tool-accent: var(--accent-climate); }
 
   .cc-wrap {
-    max-width: 900px;
+    max-width: 920px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 18px;
   }
 
   .cc-header { display: flex; flex-direction: column; gap: 6px; text-align: center; }
@@ -26,11 +26,12 @@
     align-items: center;
     justify-content: center;
   }
+  .cc-segmented-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .chart-box {
     position: relative;
     width: 100%;
-    height: 420px;
+    height: 440px;
     background: var(--color-surface);
   }
   .chart-box canvas { width: 100% !important; height: 100% !important; }
@@ -38,42 +39,91 @@
   .cc-loading, .cc-error {
     text-align: center;
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--color-text-muted);
     padding: 60px 0;
   }
   .cc-error { color: var(--accent-seasons); }
 
-  .cc-footer-row {
-    display: flex;
-    justify-content: center;
+  /* Data-quality note: sits directly above the chart */
+  .cc-data-note {
+    display: none;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-left: 3px solid var(--tool-accent);
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
   }
-
-  .cc-citation {
-    text-align: center;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    color: var(--color-text-muted);
-    line-height: 1.6;
-    max-width: 720px;
-    margin: 0 auto;
+  .cc-data-note.is-visible { display: flex; }
+  .cc-data-note strong { color: var(--color-text-primary); font-weight: 600; }
+  .cc-hatch-swatch {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 18px;
+    border: 1px solid rgba(232,228,217,0.22);
+    border-radius: 2px;
+    background-color: rgba(232,228,217,0.05);
+    background-image: repeating-linear-gradient(135deg,
+      rgba(232,228,217,0.22) 0 1px, transparent 1px 6px);
   }
 
   .cc-backfill-notice {
     display: none;
     text-align: center;
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--color-text-secondary);
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: 10px 16px;
-    max-width: 620px;
+  }
+
+  .cc-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  @media (max-width: 760px) {
+    .cc-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .cc-stat-grid .cc-stat-chip { padding: 10px 16px; }
+  .cc-stat-grid .cc-stat-note { font-size: 14px; }
+  .cc-stat-unit {
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+
+  .cc-footer-row { display: flex; justify-content: center; }
+
+  .cc-citation {
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+    line-height: 1.6;
+    max-width: 760px;
     margin: 0 auto;
   }
 
-  #png-export-canvas { display: none; }
+  #export-host {
+    position: fixed;
+    left: -20000px;
+    top: 0;
+    width: 1404px;
+    height: 640px;
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -89,19 +139,24 @@
 
   <div class="cc-controls-row">
     <div class="cc-tab-bar" id="view-tabs" role="tablist" aria-label="Time resolution">
-      <button class="cc-tab is-active" data-view="annual">Annual</button>
-      <button class="cc-tab" data-view="monthly">Monthly</button>
+      <button class="cc-tab is-active" role="tab" aria-selected="true" data-view="annual">Annual</button>
+      <button class="cc-tab" role="tab" aria-selected="false" data-view="monthly">Monthly</button>
     </div>
 
     <div class="cc-segmented" id="mode-segmented" role="tablist" aria-label="Value type">
-      <button class="cc-segmented-btn is-active" data-mode="anomaly">Anomaly</button>
-      <button class="cc-segmented-btn" data-mode="absolute">Absolute %</button>
+      <button class="cc-segmented-btn is-active" role="tab" aria-selected="true" data-mode="anomaly">Anomaly</button>
+      <button class="cc-segmented-btn" role="tab" aria-selected="false" data-mode="absolute">Absolute %</button>
     </div>
 
     <button class="cc-btn cc-btn-sm" id="png-export-btn">&#8595; PNG</button>
   </div>
 
   <div class="cc-backfill-notice" id="backfill-notice"></div>
+
+  <div class="cc-data-note" id="data-note">
+    <span class="cc-hatch-swatch" aria-hidden="true"></span>
+    <span id="data-note-text"></span>
+  </div>
 
   <div class="cc-panel">
     <div class="chart-box" id="chart-box">
@@ -110,7 +165,7 @@
     </div>
   </div>
 
-  <div class="cc-stat-row" id="stat-row" style="justify-content:center;"></div>
+  <div class="cc-stat-grid" id="stat-row"></div>
 
   <div class="cc-footer-row">
     <div class="cc-tag" id="last-updated-tag">&nbsp;</div>
@@ -120,42 +175,50 @@
 
 </div>
 
-<canvas id="png-export-canvas" width="1600" height="1200"></canvas>
+<div id="export-host" aria-hidden="true"><canvas id="export-chart-canvas"></canvas></div>
 
 <script>
 (function () {
+  // ── Data-quality flag ───────────────────────────────────────────
+  // Source record drops abruptly in Jan 1990 and recovers around 2000.
+  // Months in this window are shaded, drawn dimmed, and left out of the
+  // baseline and the trend fit. The baseline and trend start on the first
+  // January after FLAG_END, so moving FLAG_END moves both automatically.
+  const FLAG_START = '1990-01';
+  const FLAG_END   = '1999-12';
+  const BASE_END_YEAR = 2020;
+  const MIN_BASE_YEARS = 15;   // per calendar month, else anomalies are withheld
+
   const OPAQUE_BG = '#262B27';
-  const ACCENT = '#D08425';       // --accent-climate (canvas can't resolve var())
-  const ACCENT_MUTED = 'rgba(208, 132, 37, 0.35)';
-  const TREND_LINE = '#E8E4D9';   // --color-text-primary, dashed
-  const ZERO_LINE = 'rgba(232, 228, 217, 0.25)';
+  const PAGE_BG = '#1E2320';
+  const ACCENT = '#D08425';
+  const ACCENT_DIM = 'rgba(208, 132, 37, 0.32)';
+  const ACCENT_MONTHLY = 'rgba(208, 132, 37, 0.38)';
+  const ACCENT_MONTHLY_DIM = 'rgba(208, 132, 37, 0.13)';
+  const TREND_LINE = '#E8E4D9';
+  const TEXT_PRIMARY = '#E8E4D9';
   const TEXT_SECONDARY = '#A6A499';
   const TEXT_MUTED = '#948F82';
+  const GRID = 'rgba(232,228,217,0.07)';
+  const ZERO_LINE = 'rgba(232,228,217,0.40)';
+  const HATCH_FILL = 'rgba(232,228,217,0.035)';
+  const HATCH_LINE = 'rgba(232,228,217,0.085)';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
   let doc = null;
+  let series = null;   // derived, see deriveSeries()
   let chart = null;
-  let state = { view: 'annual', mode: 'anomaly' };
+  const state = { view: 'annual', mode: 'anomaly' };
 
-  const opaqueBgPlugin = {
-    id: 'opaqueBg',
-    beforeDraw(c) {
-      const ctx = c.ctx;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-over';
-      ctx.fillStyle = OPAQUE_BG;
-      ctx.fillRect(0, 0, c.width, c.height);
-      ctx.restore();
-    }
-  };
-
-  // ── Continuous time axes ──────────────────────────────────────────
-  // The underlying data can have real gaps (deep history still being
-  // backfilled). Chart.js's category axis spaces every label equally
-  // regardless of true elapsed time, so if we only pass the months/years
-  // that HAVE data, a multi-year gap gets silently bridged into a smooth
-  // (and totally misleading) connecting line. Building the full
-  // continuous range and inserting explicit nulls for missing periods
-  // (with spanGaps:false) makes Chart.js draw a real visual break instead.
+  // ── Helpers ─────────────────────────────────────────────────────
+  const ymNum = s => { const [y, m] = s.split('-').map(Number); return y * 12 + (m - 1); };
+  const isFlaggedYM = s => ymNum(s) >= ymNum(FLAG_START) && ymNum(s) <= ymNum(FLAG_END);
+  const FLAG_Y0 = Number(FLAG_START.slice(0, 4));
+  const FLAG_Y1 = Number(FLAG_END.slice(0, 4));
+  const isFlaggedYear = y => y >= FLAG_Y0 && y <= FLAG_Y1;
+  const BASE_START_YEAR = Number(FLAG_END.slice(0, 4)) + 1;
+  const fmtYM = s => { const [y, m] = s.split('-'); return `${MONTHS[Number(m) - 1]} ${y}`; };
+  const mean = a => a.reduce((s, v) => s + v, 0) / a.length;
 
   function monthRange(startYM, endYM) {
     let [y, m] = startYM.split('-').map(Number);
@@ -169,235 +232,562 @@
     return out;
   }
 
-  function yearRange(startY, endY) {
-    const out = [];
-    for (let y = startY; y <= endY; y++) out.push(y);
-    return out;
+  function fmtPP(v, digits = 2) {
+    if (v === null || v === undefined || Number.isNaN(v)) return '—';
+    const sign = v > 0 ? '+' : (v < 0 ? '−' : '');
+    return `${sign}${Math.abs(v).toFixed(digits)} pp`;
+  }
+  function fmtSigned(v, digits = 2) {
+    if (v === null || v === undefined || Number.isNaN(v)) return '—';
+    const sign = v > 0 ? '+' : (v < 0 ? '−' : '');
+    return `${sign}${Math.abs(v).toFixed(digits)}`;
   }
 
-  function rollingMean(values, window) {
+  // 2×12 centered moving average (standard centered 12-month mean).
+  // Requires all 13 months present; edges and gaps return null.
+  function centered12(values) {
     const out = new Array(values.length).fill(null);
-    for (let i = 0; i < values.length; i++) {
-      const start = Math.max(0, i - window + 1);
-      const slice = values.slice(start, i + 1).filter(v => v !== null && v !== undefined);
-      if (slice.length >= Math.min(window, i + 1)) {
-        out[i] = slice.reduce((a, b) => a + b, 0) / slice.length;
+    for (let i = 6; i < values.length - 6; i++) {
+      let s = 0, ok = true;
+      for (let k = -6; k <= 6; k++) {
+        const v = values[i + k];
+        if (v === null || v === undefined) { ok = false; break; }
+        s += (Math.abs(k) === 6 ? 0.5 : 1) * v;
       }
+      if (ok) out[i] = s / 12;
     }
     return out;
   }
 
-  function fmtPct(v, digits = 2) {
-    if (v === null || v === undefined || Number.isNaN(v)) return '—';
-    const sign = v > 0 ? '+' : '';
-    return `${sign}${v.toFixed(digits)}%`;
+  // ── Student-t quantile (for trend CI) ───────────────────────────
+  function lgamma(x) {
+    const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
+      -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+    let y = x, tmp = x + 5.5;
+    tmp -= (x + 0.5) * Math.log(tmp);
+    let ser = 1.000000000190015;
+    for (let j = 0; j < 6; j++) ser += c[j] / ++y;
+    return -tmp + Math.log(2.5066282746310005 * ser / x);
+  }
+  function betacf(a, b, x) {
+    const MAXIT = 200, EPS = 3e-14, FPMIN = 1e-300;
+    let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    d = 1 / d; let h = d;
+    for (let m = 1; m <= MAXIT; m++) {
+      const m2 = 2 * m;
+      let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d; h *= d * c;
+      aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+      d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+      c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+      d = 1 / d; const del = d * c; h *= del;
+      if (Math.abs(del - 1) < EPS) break;
+    }
+    return h;
+  }
+  function ibeta(a, b, x) {
+    if (x <= 0) return 0; if (x >= 1) return 1;
+    const bt = Math.exp(lgamma(a + b) - lgamma(a) - lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+    return x < (a + 1) / (a + b + 2) ? bt * betacf(a, b, x) / a : 1 - bt * betacf(b, a, 1 - x) / b;
+  }
+  function tCdf(t, df) {
+    const p = 0.5 * ibeta(df / 2, 0.5, df / (df + t * t));
+    return t >= 0 ? 1 - p : p;
+  }
+  function tQuantile(p, df) {
+    let lo = 0, hi = 1000;
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2;
+      if (tCdf(mid, df) < p) lo = mid; else hi = mid;
+    }
+    return (lo + hi) / 2;
   }
 
-  function buildDatasets() {
-    const valueKey = state.mode === 'anomaly' ? 'anomaly_pct' : 'mean_pct';
-    const yLabel = state.mode === 'anomaly'
-      ? 'Cloud cover anomaly (pct pts vs. 1991–2020 baseline)'
-      : 'Mean cloud cover (%)';
+  // OLS with lag-1 autocorrelation adjustment of the effective sample size
+  // (Santer et al. 2000): n_eff = n (1 − r1) / (1 + r1).
+  function olsTrend(xs, ys) {
+    const n = xs.length;
+    if (n < 8) return null;
+    const mx = mean(xs), my = mean(ys);
+    let sxx = 0, sxy = 0, syy = 0;
+    for (let i = 0; i < n; i++) {
+      sxx += (xs[i] - mx) ** 2;
+      sxy += (xs[i] - mx) * (ys[i] - my);
+      syy += (ys[i] - my) ** 2;
+    }
+    const slope = sxy / sxx;
+    const intercept = my - slope * mx;
+    const res = ys.map((y, i) => y - (intercept + slope * xs[i]));
+    const sse = res.reduce((s, r) => s + r * r, 0);
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { den += res[i] ** 2; if (i > 0) num += res[i] * res[i - 1]; }
+    const r1 = den > 0 ? num / den : 0;
+    const neff = r1 > 0 ? n * (1 - r1) / (1 + r1) : n;
+    const dfEff = Math.max(neff - 2, 1);
+    const se = Math.sqrt((sse / dfEff) / sxx);
+    const tq = tQuantile(0.975, dfEff);
+    return {
+      slope, intercept,
+      ciLow: slope - tq * se, ciHigh: slope + tq * se,
+      r2: syy > 0 ? 1 - sse / syy : 0,
+      n, r1, neff,
+      x0: xs[0], x1: xs[n - 1],
+    };
+  }
+
+  // ── Derive everything from the monthly means ────────────────────
+  function deriveSeries() {
+    const md = doc.metadata;
+    const sampleN = md.sample_points;
+    const byMonth = new Map(doc.monthly.map(r => [r.date, r]));
+    const months = monthRange(md.data_start, md.last_data_month);
+
+    // Monthly climatology over the clean baseline years
+    const climSum = new Array(12).fill(0), climN = new Array(12).fill(0);
+    doc.monthly.forEach(r => {
+      const y = Number(r.date.slice(0, 4)), m = Number(r.date.slice(5, 7)) - 1;
+      if (y >= BASE_START_YEAR && y <= BASE_END_YEAR && !isFlaggedYM(r.date)) {
+        climSum[m] += r.mean_pct; climN[m]++;
+      }
+    });
+    const baselineOK = climN.every(n => n >= MIN_BASE_YEARS);
+    const clim = climSum.map((s, i) => climN[i] ? s / climN[i] : null);
+
+    const monthly = months.map(d => {
+      const r = byMonth.get(d);
+      if (!r) return { date: d, mean: null, anom: null, flagged: isFlaggedYM(d), nPts: null };
+      const m = Number(d.slice(5, 7)) - 1;
+      return {
+        date: d,
+        mean: r.mean_pct,
+        anom: baselineOK ? r.mean_pct - clim[m] : null,
+        flagged: isFlaggedYM(d),
+        nPts: r.n_points ?? null,
+      };
+    });
+
+    // Annual = mean of available monthly values
+    const startY = Number(md.data_start.slice(0, 4));
+    const endY = Number(md.last_data_month.slice(0, 4));
+    const annual = [];
+    for (let y = startY; y <= endY; y++) {
+      const rows = monthly.filter(r => r.mean !== null && Number(r.date.slice(0, 4)) === y);
+      if (!rows.length) { annual.push({ year: y, mean: null, anom: null, nMonths: 0 }); continue; }
+      const mIdx = rows.map(r => Number(r.date.slice(5, 7)) - 1);
+      const minPts = Math.min(...rows.map(r => r.nPts ?? sampleN));
+      annual.push({
+        year: y,
+        mean: mean(rows.map(r => r.mean)),
+        anom: baselineOK ? mean(rows.map(r => r.anom)) : null,
+        nMonths: rows.length,
+        complete: rows.length === 12,
+        span: `${MONTHS[Math.min(...mIdx)]}–${MONTHS[Math.max(...mIdx)]}`,
+        flagged: isFlaggedYear(y),
+        minPts,
+      });
+    }
+
+    // Trend: complete, unflagged years from the baseline start onward
+    let trend = null;
+    if (baselineOK) {
+      const fit = annual.filter(a => a.complete && !a.flagged && a.year >= BASE_START_YEAR);
+      trend = olsTrend(fit.map(a => a.year), fit.map(a => a.anom));
+    }
+
+    // Size of the flagged offset: flagged years vs. up to 10 clean complete years each side
+    let offset = null;
+    const flagged = annual.filter(a => a.flagged && a.complete);
+    const before = annual.filter(a => a.complete && !a.flagged && a.year < FLAG_Y0 && a.year >= FLAG_Y0 - 10);
+    const after = annual.filter(a => a.complete && !a.flagged && a.year > FLAG_Y1 && a.year <= FLAG_Y1 + 10);
+    if (flagged.length && (before.length || after.length)) {
+      const sides = [];
+      if (before.length) sides.push(mean(before.map(a => a.mean)));
+      if (after.length) sides.push(mean(after.map(a => a.mean)));
+      offset = mean(flagged.map(a => a.mean)) - mean(sides);
+    }
+
+    return {
+      monthly, annual, trend, offset, baselineOK, sampleN,
+      baseLabel: `${BASE_START_YEAR}–${BASE_END_YEAR}`,
+    };
+  }
+
+  // ── Chart plugins ───────────────────────────────────────────────
+  const opaqueBgPlugin = {
+    id: 'opaqueBg',
+    beforeDraw(c) {
+      const ctx = c.ctx;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.fillStyle = OPAQUE_BG;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.restore();
+    }
+  };
+
+  // Hatched band behind the flagged period
+  const flagBandPlugin = {
+    id: 'flagBand',
+    beforeDatasetsDraw(c, args, opts) {
+      if (!opts || opts.i0 == null) return;
+      const x = c.scales.x, area = c.chartArea, ctx = c.ctx;
+      const step = c.data.labels.length > 1 ? x.getPixelForValue(1) - x.getPixelForValue(0) : 0;
+      const left = Math.max(area.left, x.getPixelForValue(opts.i0) - step / 2);
+      const right = Math.min(area.right, x.getPixelForValue(opts.i1) + step / 2);
+      if (right <= left) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(left, area.top, right - left, area.bottom - area.top);
+      ctx.clip();
+      ctx.fillStyle = HATCH_FILL;
+      ctx.fillRect(left, area.top, right - left, area.bottom - area.top);
+      ctx.strokeStyle = HATCH_LINE;
+      ctx.lineWidth = 1;
+      const gap = 9, h = area.bottom - area.top;
+      ctx.beginPath();
+      for (let s = left - h; s < right; s += gap) {
+        ctx.moveTo(s, area.bottom);
+        ctx.lineTo(s + h, area.top);
+      }
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.save();
+      ctx.fillStyle = TEXT_MUTED;
+      ctx.font = `700 ${opts.labelSize}px "Courier Prime", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      const cx = (left + right) / 2;
+      ctx.fillText('SOURCE', cx, area.top + 8);
+      ctx.fillText('DISCONTINUITY', cx, area.top + 8 + opts.labelSize * 1.25);
+      ctx.restore();
+    }
+  };
+
+  // ── Chart config ────────────────────────────────────────────────
+  function buildData() {
+    const s = series;
+    const anomaly = state.mode === 'anomaly';
 
     if (state.view === 'annual') {
-      const byYear = new Map(doc.annual.map(r => [r.year, r]));
-      const startY = Number(doc.metadata.data_start.slice(0, 4));
-      const endY = Number(doc.metadata.last_data_month.slice(0, 4));
-      const years = yearRange(startY, endY);
-      const labels = years.map(String);
-      const rows = years.map(y => byYear.get(y) || null);
-      const values = rows.map(r => r ? r[valueKey] : null);
+      // Partial years are seasonally biased in absolute terms, so absolute mode omits them
+      const rows = s.annual.map(a => (a.mean === null || (!anomaly && !a.complete)) ? null : a);
+      const labels = s.annual.map(a => String(a.year));
+      const values = rows.map(r => r ? (anomaly ? r.anom : r.mean) : null);
+      const flagAt = i => !!(rows[i] && rows[i].flagged);
 
       const datasets = [{
-        label: state.mode === 'anomaly' ? 'Annual anomaly' : 'Annual mean',
+        label: anomaly ? 'Annual anomaly' : 'Annual mean',
         data: values,
         borderColor: ACCENT,
-        backgroundColor: ACCENT_MUTED,
-        pointRadius: rows.map(r => r ? (r.complete ? 2.5 : 4) : 0),
-        pointStyle: rows.map(r => r ? (r.complete ? 'circle' : 'crossRot') : 'circle'),
-        pointBackgroundColor: ACCENT,
+        backgroundColor: ACCENT,
+        pointRadius: rows.map(r => r ? (r.complete ? 2.75 : 5) : 0),
+        pointHoverRadius: rows.map(r => r ? (r.complete ? 4.5 : 6) : 0),
+        pointStyle: rows.map(r => r && !r.complete ? 'crossRot' : 'circle'),
+        pointBorderWidth: rows.map(r => r && !r.complete ? 2 : 1),
+        pointBackgroundColor: rows.map((r, i) => flagAt(i) ? ACCENT_DIM : ACCENT),
+        pointBorderColor: rows.map((r, i) => flagAt(i) ? ACCENT_DIM : ACCENT),
         borderWidth: 2,
         tension: 0.15,
         spanGaps: false,
+        segment: {
+          borderColor: ctx => (flagAt(ctx.p0DataIndex) || flagAt(ctx.p1DataIndex)) ? ACCENT_DIM : ACCENT,
+        },
+        _rows: rows,
       }];
 
-      if (state.mode === 'anomaly' && doc.trend) {
-        const t = doc.trend;
-        const trendVals = years.map(y => {
-          if (y < t.fit_year_range[0] || y > t.fit_year_range[1]) return null;
-          return t.slope_pct_per_year * y + t.intercept_pct;
-        });
+      if (anomaly && s.trend) {
+        const t = s.trend;
         datasets.push({
-          label: 'Trend fit',
-          data: trendVals,
+          label: `Trend ${t.x0}–${t.x1}`,
+          data: s.annual.map(a => (a.year < t.x0 || a.year > t.x1) ? null : t.slope * a.year + t.intercept),
           borderColor: TREND_LINE,
+          backgroundColor: TREND_LINE,
           borderDash: [6, 4],
           borderWidth: 1.5,
           pointRadius: 0,
+          pointHoverRadius: 0,
           tension: 0,
           spanGaps: false,
         });
-        datasets.push({
-          label: 'Baseline (0)',
-          data: labels.map(() => 0),
-          borderColor: ZERO_LINE,
-          borderWidth: 1,
-          pointRadius: 0,
-          tension: 0,
-        });
       }
-
-      return { labels, datasets, yLabel };
+      return { labels, datasets, flagIdx: flagIndexRange(labels, true) };
     }
 
-    // monthly view
-    const byMonth = new Map(doc.monthly.map(r => [r.date, r]));
-    const months = monthRange(doc.metadata.data_start, doc.metadata.last_data_month);
-    const labels = months;
-    const rows = months.map(d => byMonth.get(d) || null);
-    const values = rows.map(r => r ? r[valueKey] : null);
-    const smoothed = rollingMean(values, 12);
+    // Monthly
+    const labels = s.monthly.map(r => r.date);
+    const values = s.monthly.map(r => anomaly ? r.anom : r.mean);
+    const smooth = centered12(values);
+    const flagAt = i => s.monthly[i] && s.monthly[i].flagged;
+    const segDim = (on, off) => ctx => (flagAt(ctx.p0DataIndex) || flagAt(ctx.p1DataIndex)) ? on : off;
 
     const datasets = [
       {
         label: 'Monthly',
         data: values,
-        borderColor: ACCENT_MUTED,
+        borderColor: ACCENT_MONTHLY,
+        backgroundColor: ACCENT_MONTHLY,
         borderWidth: 1,
         pointRadius: 0,
+        pointHoverRadius: 0,
         tension: 0.1,
         spanGaps: false,
+        segment: { borderColor: segDim(ACCENT_MONTHLY_DIM, ACCENT_MONTHLY) },
       },
       {
-        label: '12-month running mean',
-        data: smoothed,
+        label: '12-month centered mean',
+        data: smooth,
         borderColor: ACCENT,
+        backgroundColor: ACCENT,
         borderWidth: 2,
         pointRadius: 0,
+        pointHoverRadius: 3,
         tension: 0.15,
         spanGaps: false,
+        segment: { borderColor: segDim(ACCENT_DIM, ACCENT) },
       },
     ];
-
-    if (state.mode === 'anomaly') {
-      datasets.push({
-        label: 'Baseline (0)',
-        data: labels.map(() => 0),
-        borderColor: ZERO_LINE,
-        borderWidth: 1,
-        pointRadius: 0,
-        tension: 0,
-      });
-    }
-
-    return { labels, datasets, yLabel };
+    return { labels, datasets, flagIdx: flagIndexRange(labels, false) };
   }
 
-  function renderChart() {
-    const { labels, datasets, yLabel } = buildDatasets();
-    const ctx = document.getElementById('trend-chart').getContext('2d');
+  function flagIndexRange(labels, annual) {
+    const hit = labels.map(l => annual ? isFlaggedYear(Number(l)) : isFlaggedYM(l));
+    const i0 = hit.indexOf(true), i1 = hit.lastIndexOf(true);
+    return i0 < 0 ? { i0: null, i1: null } : { i0, i1 };
+  }
 
-    if (chart) chart.destroy();
-    chart = new Chart(ctx, {
+  function chartConfig({ exportMode = false } = {}) {
+    const { labels, datasets, flagIdx } = buildData();
+    const anomaly = state.mode === 'anomaly';
+    const annual = state.view === 'annual';
+    const f = exportMode ? 1.25 : 1;   // text scale for the export render
+    const yLabel = anomaly
+      ? `Anomaly (pp vs. ${series.baseLabel} mean)`
+      : 'Mean total cloud cover (%)';
+
+    // Labels: every 5th year on the annual axis; Januaries of every 5th year on the monthly axis
+    const tickLabel = (lab) => {
+      if (annual) return Number(lab) % 5 === 0 ? lab : '';
+      const [y, m] = lab.split('-');
+      return (m === '01' && Number(y) % 5 === 0) ? y : '';
+    };
+
+    return {
       type: 'line',
       data: { labels, datasets },
-      plugins: [opaqueBgPlugin],
+      plugins: [opaqueBgPlugin, flagBandPlugin],
       options: {
-        responsive: true,
+        responsive: !exportMode,
         maintainAspectRatio: false,
+        animation: exportMode ? false : { duration: 300 },
+        devicePixelRatio: exportMode ? EXPORT_SCALE : undefined,
         interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 4, right: 14 } },
         plugins: {
+          flagBand: { ...flagIdx, labelSize: Math.round(12 * f) },
           legend: {
-            labels: { color: TEXT_SECONDARY, font: { family: 'Public Sans', size: 12 } },
+            labels: {
+              color: TEXT_SECONDARY,
+              font: { family: 'Public Sans', size: Math.round(13 * f) },
+              boxWidth: Math.round(26 * f),
+              boxHeight: 2,
+              padding: Math.round(16 * f),
+              generateLabels(c) {
+                const items = Chart.defaults.plugins.legend.labels.generateLabels(c);
+                // plain line swatches using the series' primary colour
+                items.forEach(it => {
+                  const ds = c.data.datasets[it.datasetIndex];
+                  it.fillStyle = ds.borderColor;
+                  it.strokeStyle = ds.borderColor;
+                });
+                return items;
+              },
+            },
           },
           tooltip: {
+            enabled: !exportMode,
             backgroundColor: OPAQUE_BG,
-            borderColor: 'rgba(232,228,217,0.14)',
+            borderColor: 'rgba(232,228,217,0.22)',
             borderWidth: 1,
-            titleColor: '#E8E4D9',
+            padding: 10,
+            titleColor: TEXT_PRIMARY,
             bodyColor: TEXT_SECONDARY,
-            titleFont: { family: 'Public Sans', size: 12, weight: '600' },
-            bodyFont: { family: 'Public Sans', size: 12 },
+            footerColor: TEXT_MUTED,
+            titleFont: { family: 'Public Sans', size: 13, weight: '600' },
+            bodyFont: { family: 'Public Sans', size: 13 },
+            footerFont: { family: 'Public Sans', size: 12, weight: '400' },
+            boxWidth: 10,
+            boxHeight: 2,
+            filter: item => item.raw !== null && item.raw !== undefined,
+            callbacks: {
+              title: items => tooltipTitle(items),
+              label: item => tooltipLabel(item),
+              footer: items => tooltipFooter(items),
+            },
           },
         },
         scales: {
           x: {
-            grid: { color: 'rgba(232,228,217,0.06)' },
+            grid: {
+              color: ctx => (ctx.tick && tickLabel(labels[ctx.tick.value] ?? '') ? GRID : 'transparent'),
+            },
             ticks: {
               color: TEXT_MUTED,
-              font: { family: 'Courier Prime', size: 11 },
-              maxTicksLimit: state.view === 'annual' ? 12 : 10,
+              font: { family: 'Courier Prime', size: Math.round(12 * f) },
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (v) => tickLabel(labels[v]),
             },
           },
           y: {
-            grid: { color: 'rgba(232,228,217,0.06)' },
-            ticks: { color: TEXT_MUTED, font: { family: 'Courier Prime', size: 11 } },
+            grid: {
+              color: ctx => (anomaly && ctx.tick && ctx.tick.value === 0) ? ZERO_LINE : GRID,
+              lineWidth: ctx => (anomaly && ctx.tick && ctx.tick.value === 0) ? 1.25 : 1,
+            },
+            ticks: {
+              color: TEXT_MUTED,
+              font: { family: 'Courier Prime', size: Math.round(12 * f) },
+              callback: v => anomaly ? fmtSigned(v, Number.isInteger(v) ? 0 : 1) : `${v}`,
+            },
             title: {
               display: true,
               text: yLabel,
               color: TEXT_SECONDARY,
-              font: { family: 'Public Sans', size: 12 },
+              font: { family: 'Public Sans', size: Math.round(13 * f) },
             },
           },
         },
       },
-    });
+    };
   }
 
-  function renderStats() {
-    const row = document.getElementById('stat-row');
-    const t = doc.trend;
-    const lastComplete = [...doc.annual].reverse().find(r => r.complete);
-    const latestMonth = doc.monthly[doc.monthly.length - 1];
+  // ── Tooltip content ─────────────────────────────────────────────
+  function rowFor(index) {
+    return state.view === 'annual' ? series.annual[index] : series.monthly[index];
+  }
+  function tooltipTitle(items) {
+    if (!items.length) return '';
+    const r = rowFor(items[0].dataIndex);
+    if (state.view === 'annual') return r.complete ? String(r.year) : `${r.year} · ${r.span} only`;
+    return fmtYM(r.date);
+  }
+  function tooltipLabel(item) {
+    const v = item.raw;
+    const name = item.dataset.label;
+    if (state.mode === 'anomaly') return ` ${name}: ${fmtPP(v)}`;
+    return ` ${name}: ${v.toFixed(1)}%`;
+  }
+  function tooltipFooter(items) {
+    if (!items.length) return '';
+    const r = rowFor(items[0].dataIndex);
+    const lines = [];
+    if (state.mode === 'anomaly' && r.mean !== null) lines.push(`Mean cover ${r.mean.toFixed(1)}%`);
+    if (state.mode === 'absolute' && r.anom !== null && r.anom !== undefined) lines.push(`Anomaly ${fmtPP(r.anom)}`);
+    const pts = state.view === 'annual' ? r.minPts : r.nPts;
+    if (pts && pts < series.sampleN) lines.push(`${pts} of ${series.sampleN} points`);
+    if (r.flagged) lines.push('Source discontinuity period');
+    return lines;
+  }
 
+  function renderChart() {
+    const ctx = document.getElementById('trend-chart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, chartConfig());
+  }
+
+  // ── Stats ───────────────────────────────────────────────────────
+  function renderStats() {
+    const s = series;
+    const t = s.trend;
+    const lastComplete = [...s.annual].reverse().find(a => a.complete);
+    const latest = [...s.monthly].reverse().find(r => r.mean !== null);
+    const md = doc.metadata;
+    const totalMonths = s.monthly.length;
+    const haveMonths = s.monthly.filter(r => r.mean !== null).length;
+
+    const pp = v => (v === null || v === undefined) ? '—' : `${fmtSigned(v)}<span class="cc-stat-unit">pp</span>`;
     const chips = [
       {
-        label: 'Trend',
-        value: t ? `${fmtPct(t.slope_pct_per_decade, 2)} / decade` : '—',
-        note: t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)} · R² ${t.r_squared} · ${t.fit_year_range[0]}–${t.fit_year_range[1]}` : '',
+        label: t ? `Trend ${t.x0}–${t.x1}` : 'Trend',
+        value: t ? `${fmtSigned(t.slope * 10)}<span class="cc-stat-unit">pp / decade</span>` : '—',
+        note: t ? `95% CI ${fmtSigned(t.ciLow * 10)} to ${fmtSigned(t.ciHigh * 10)} · R² ${t.r2.toFixed(2)} · ${t.n} yrs` : 'Needs complete baseline years',
       },
       {
-        label: `Latest complete year (${lastComplete ? lastComplete.year : '—'})`,
-        value: lastComplete ? fmtPct(lastComplete.anomaly_pct) : '—',
-        note: lastComplete ? `${lastComplete.mean_pct.toFixed(1)}% mean cover` : '',
+        label: lastComplete ? `${lastComplete.year}` : 'Latest full year',
+        value: lastComplete ? pp(lastComplete.anom) : '—',
+        note: lastComplete ? `Latest full year · ${lastComplete.mean.toFixed(1)}% mean cover` : '',
       },
       {
-        label: 'Latest month',
-        value: latestMonth ? latestMonth.date : '—',
-        note: latestMonth ? `${latestMonth.mean_pct.toFixed(1)}% mean cover` : '',
+        label: latest ? fmtYM(latest.date) : 'Latest month',
+        value: latest ? pp(latest.anom) : '—',
+        note: latest ? `Latest month · ${latest.mean.toFixed(1)}% mean cover` : '',
       },
       {
         label: 'Sample',
-        value: `${doc.metadata.sample_points} points`,
-        note: `${doc.monthly.length} of ${monthRange(doc.metadata.data_start, doc.metadata.last_data_month).length} months so far`,
+        value: `${md.sample_points}<span class="cc-stat-unit">points</span>`,
+        note: md.backfill_complete === false
+          ? `${haveMonths} of ${totalMonths} months filled`
+          : 'Equal-area global grid',
       },
     ];
 
-    row.innerHTML = chips.map(c => `
+    document.getElementById('stat-row').innerHTML = chips.map(c => `
       <div class="cc-stat-chip">
         <div class="cc-stat-label">${c.label}</div>
-        <div class="cc-stat-value" style="font-size:22px;">${c.value}</div>
-        <div class="cc-stat-note" style="font-size:12px;">${c.note}</div>
+        <div class="cc-stat-value">${c.value}</div>
+        <div class="cc-stat-note">${c.note}</div>
       </div>
     `).join('');
   }
 
-  function renderFooter() {
+  function dataNoteText() {
+    const off = series.offset;
+    const size = off !== null ? `${fmtPP(off, 1)} ` : '';
+    return `<strong>${FLAG_Y0}–${FLAG_Y1}:</strong> abrupt ${size}offset in the source record, not a climate signal. ` +
+      `Shaded and dimmed; excluded from the ${series.baseLabel} baseline and the trend.`;
+  }
+  function dataNotePlain() {
+    return dataNoteText().replace(/<[^>]+>/g, '');
+  }
+
+  function renderNotes() {
+    const md = doc.metadata;
     document.getElementById('last-updated-tag').textContent =
-      `Last updated ${doc.metadata.last_updated_utc.slice(0, 10)} · baseline ${doc.metadata.baseline_period}`;
-    document.getElementById('citation-text').textContent = doc.metadata.citation;
+      `Last updated ${md.last_updated_utc.slice(0, 10)} · anomalies vs. ${series.baseLabel} monthly means`;
+    document.getElementById('citation-text').textContent = md.citation;
+
+    const dn = document.getElementById('data-note');
+    const anyFlagged = series.monthly.some(r => r.flagged && r.mean !== null);
+    dn.classList.toggle('is-visible', anyFlagged);
+    document.getElementById('data-note-text').innerHTML = dataNoteText();
 
     const notice = document.getElementById('backfill-notice');
-    if (doc.metadata.backfill_complete === false) {
-      const totalMonths = monthRange(doc.metadata.data_start, doc.metadata.last_data_month).length;
-      const haveMonths = doc.monthly.length;
-      notice.style.display = 'block';
-      notice.textContent = haveMonths < totalMonths
-        ? `Historical backfill in progress — ${haveMonths} of ${totalMonths} months in the ${doc.metadata.data_start}–${doc.metadata.last_data_month} range are filled in so far (gaps shown as breaks in the line). More is added automatically each day.`
-        : `Historical backfill in progress — data currently reaches back to ${doc.metadata.data_start}. More history is added automatically each day until it reaches 1980.`;
-    } else {
-      notice.style.display = 'none';
+    const totalMonths = series.monthly.length;
+    const haveMonths = series.monthly.filter(r => r.mean !== null).length;
+    const msgs = [];
+    if (md.backfill_complete === false) {
+      msgs.push(haveMonths < totalMonths
+        ? `Historical backfill in progress — ${haveMonths} of ${totalMonths} months in ${md.data_start} to ${md.last_data_month} are filled (gaps show as breaks in the line).`
+        : `Historical backfill in progress — data currently reaches back to ${md.data_start}.`);
     }
+    if (!series.baselineOK) {
+      msgs.push(`Anomalies and trend appear once ${series.baseLabel} is filled in.`);
+    }
+    notice.style.display = msgs.length ? 'block' : 'none';
+    notice.textContent = msgs.join(' ');
+  }
+
+  // ── Controls ────────────────────────────────────────────────────
+  function setMode(mode) {
+    state.mode = mode;
+    document.querySelectorAll('#mode-segmented .cc-segmented-btn').forEach(b => {
+      const on = b.dataset.mode === mode;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', String(on));
+    });
   }
 
   function wireControls() {
@@ -405,78 +795,28 @@
       const btn = e.target.closest('[data-view]');
       if (!btn) return;
       state.view = btn.dataset.view;
-      document.querySelectorAll('#view-tabs .cc-tab').forEach(b => b.classList.toggle('is-active', b === btn));
+      document.querySelectorAll('#view-tabs .cc-tab').forEach(b => {
+        const on = b === btn;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-selected', String(on));
+      });
       renderChart();
     });
     document.getElementById('mode-segmented').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-mode]');
-      if (!btn) return;
-      state.mode = btn.dataset.mode;
-      document.querySelectorAll('#mode-segmented .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+      if (!btn || btn.disabled) return;
+      setMode(btn.dataset.mode);
       renderChart();
     });
     document.getElementById('png-export-btn').addEventListener('click', exportPng);
   }
 
-  function exportPng() {
-    if (!chart) return;
-    const W = 1600, H = 1200;
-    const cnv = document.getElementById('png-export-canvas');
-    cnv.width = W; cnv.height = H;
-    const ctx = cnv.getContext('2d');
-
-    ctx.fillStyle = '#1E2320';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = '#948F82';
-    ctx.font = '600 22px "Courier Prime", monospace';
-    ctx.textBaseline = 'top';
-    ctx.fillText('CONTEXTCLIMATE · CLIMATE · GLOBAL DATA', 48, 44);
-
-    ctx.fillStyle = '#E8E4D9';
-    ctx.font = '700 52px "Zilla Slab", serif';
-    ctx.fillText('Global Cloud Cover Trend', 48, 80);
-
-    ctx.fillStyle = '#A6A499';
-    ctx.font = '400 24px "Public Sans", sans-serif';
-    const subtitle = `${state.view === 'annual' ? 'Annual' : 'Monthly'} · ${state.mode === 'anomaly' ? 'Anomaly vs. ' + doc.metadata.baseline_period + ' baseline' : 'Absolute mean cover'} · ERA5 reanalysis, ${doc.metadata.sample_points}-point global sample`;
-    ctx.fillText(subtitle, 48, 148);
-
-    const chartImg = new Image();
-    chartImg.onload = () => {
-      const chartY = 210, chartH = 620, chartX = 48, chartW = W - 96;
-      ctx.fillStyle = '#262B27';
-      ctx.fillRect(chartX, chartY, chartW, chartH);
-      ctx.drawImage(chartImg, chartX, chartY, chartW, chartH);
-
-      const t = doc.trend;
-      ctx.fillStyle = '#948F82';
-      ctx.font = '600 16px "Courier Prime", monospace';
-      ctx.fillText('TREND', 48, chartY + chartH + 40);
-      ctx.fillStyle = '#D08425';
-      ctx.font = '700 44px "Zilla Slab", serif';
-      const trendStr = t ? `${fmtPct(t.slope_pct_per_decade, 2)} per decade` : 'n/a';
-      ctx.fillText(trendStr, 48, chartY + chartH + 64);
-      ctx.fillStyle = '#A6A499';
-      ctx.font = '400 18px "Public Sans", sans-serif';
-      const ciStr = t ? `95% CI ${fmtPct(t.ci95_low_pct_per_decade)} to ${fmtPct(t.ci95_high_pct_per_decade)}, R² = ${t.r_squared}, n = ${t.n_years} complete years (${t.fit_year_range[0]}–${t.fit_year_range[1]})` : '';
-      ctx.fillText(ciStr, 48, chartY + chartH + 118);
-
-      ctx.fillStyle = '#948F82';
-      ctx.font = '400 14px "Public Sans", sans-serif';
-      const footerLines = wrapText(ctx, doc.metadata.citation, W - 96);
-      let fy = H - 24 * (footerLines.length + 1) - 20;
-      ctx.fillText(`Data: ${doc.metadata.source}`, 48, fy);
-      fy += 22;
-      footerLines.forEach(line => { ctx.fillText(line, 48, fy); fy += 20; });
-
-      const link = document.createElement('a');
-      link.download = `global-cloud-cover-${state.view}-${state.mode}.png`;
-      link.href = cnv.toDataURL('image/png');
-      link.click();
-    };
-    chartImg.src = chart.toBase64Image('image/png', 1.0);
-  }
+  // ── PNG export ──────────────────────────────────────────────────
+  // Fixed logical layout rendered at EXPORT_SCALE, independent of the
+  // viewer's devicePixelRatio. The chart is re-rendered off-screen at its
+  // export size (no stretching of the on-screen bitmap).
+  const EXPORT_SCALE = 3;
+  const EXP_W = 1500, EXP_CHART_W = 1404, EXP_CHART_H = 640;
 
   function wrapText(ctx, text, maxWidth) {
     const words = text.split(' ');
@@ -484,17 +824,140 @@
     let cur = '';
     words.forEach(w => {
       const test = cur ? cur + ' ' + w : w;
-      if (ctx.measureText(test).width > maxWidth && cur) {
-        lines.push(cur);
-        cur = w;
-      } else {
-        cur = test;
-      }
+      if (ctx.measureText(test).width > maxWidth && cur) { lines.push(cur); cur = w; }
+      else cur = test;
     });
     if (cur) lines.push(cur);
     return lines;
   }
 
+  function drawHatchSwatch(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(232,228,217,0.05)';
+    ctx.fillRect(x, y, w, h);
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.strokeStyle = 'rgba(232,228,217,0.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let s = x - h; s < x + w; s += 6) { ctx.moveTo(s, y + h); ctx.lineTo(s + h, y); }
+    ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(232,228,217,0.3)';
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+
+  async function exportPng() {
+    if (!series) return;
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
+    // 1. Render the chart off-screen at its final export size
+    const hostCanvas = document.getElementById('export-chart-canvas');
+    hostCanvas.width = EXP_CHART_W;
+    hostCanvas.height = EXP_CHART_H;
+    hostCanvas.style.width = EXP_CHART_W + 'px';
+    hostCanvas.style.height = EXP_CHART_H + 'px';
+    const expChart = new Chart(hostCanvas.getContext('2d'), chartConfig({ exportMode: true }));
+
+    // 2. Measure text to size the composite
+    const M = 48;
+    const meas = document.createElement('canvas').getContext('2d');
+    meas.font = '400 15px "Public Sans", sans-serif';
+    const citeLines = wrapText(meas, doc.metadata.citation, EXP_W - 2 * M);
+    meas.font = '400 19px "Public Sans", sans-serif';
+    const noteLines = series.monthly.some(r => r.flagged && r.mean !== null)
+      ? wrapText(meas, dataNotePlain(), EXP_W - 2 * M - 46) : [];
+
+    const headerH = 196;
+    const noteH = noteLines.length ? noteLines.length * 27 + 22 : 0;
+    const chartY = headerH + noteH;
+    const statsY = chartY + EXP_CHART_H + 34;
+    const statsH = 130;
+    const footY = statsY + statsH;
+    const EXP_H = footY + 30 + citeLines.length * 21 + 40;
+
+    const cnv = document.createElement('canvas');
+    cnv.width = EXP_W * EXPORT_SCALE;
+    cnv.height = EXP_H * EXPORT_SCALE;
+    const ctx = cnv.getContext('2d');
+    ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+
+    ctx.fillStyle = PAGE_BG;
+    ctx.fillRect(0, 0, EXP_W, EXP_H);
+    ctx.textBaseline = 'top';
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '700 20px "Courier Prime", monospace';
+    ctx.fillText('CONTEXTCLIMATE · CLIMATE · GLOBAL DATA', M, 44);
+
+    ctx.fillStyle = TEXT_PRIMARY;
+    ctx.font = '700 52px "Zilla Slab", serif';
+    ctx.fillText('Global Cloud Cover Trend', M, 78);
+
+    ctx.fillStyle = TEXT_SECONDARY;
+    ctx.font = '400 22px "Public Sans", sans-serif';
+    const ctxLine = `${state.view === 'annual' ? 'Annual' : 'Monthly'} · ` +
+      `${state.mode === 'anomaly' ? 'Anomaly vs. ' + series.baseLabel + ' monthly means' : 'Mean total cloud cover'} · ` +
+      `ERA5 reanalysis, ${doc.metadata.sample_points}-point global sample`;
+    ctx.fillText(ctxLine, M, 146);
+
+    if (noteLines.length) {
+      drawHatchSwatch(ctx, M, headerH + 3, 30, 20);
+      ctx.fillStyle = TEXT_SECONDARY;
+      ctx.font = '400 19px "Public Sans", sans-serif';
+      noteLines.forEach((ln, i) => ctx.fillText(ln, M + 46, headerH + i * 27));
+    }
+
+    ctx.fillStyle = OPAQUE_BG;
+    ctx.fillRect(M, chartY, EXP_CHART_W, EXP_CHART_H);
+    ctx.drawImage(hostCanvas, M, chartY, EXP_CHART_W, EXP_CHART_H);
+    expChart.destroy();
+
+    // Stat callouts
+    const t = series.trend;
+    const lastComplete = [...series.annual].reverse().find(a => a.complete);
+    const cols = [];
+    if (t) cols.push({
+      label: `TREND ${t.x0}–${t.x1}`,
+      value: `${fmtSigned(t.slope * 10)} pp / decade`,
+      note: `95% CI ${fmtSigned(t.ciLow * 10)} to ${fmtSigned(t.ciHigh * 10)} · R² ${t.r2.toFixed(2)} · ${t.n} yrs`,
+    });
+    if (lastComplete) cols.push({
+      label: `${lastComplete.year}`,
+      value: fmtPP(lastComplete.anom),
+      note: `${lastComplete.mean.toFixed(1)}% mean cover`,
+    });
+    const colW = (EXP_W - 2 * M) / 2;
+    cols.forEach((c, i) => {
+      const x = M + i * colW;
+      ctx.fillStyle = TEXT_MUTED;
+      ctx.font = '700 17px "Courier Prime", monospace';
+      ctx.fillText(c.label, x, statsY);
+      ctx.fillStyle = ACCENT;
+      ctx.font = '700 42px "Zilla Slab", serif';
+      ctx.fillText(c.value, x, statsY + 26);
+      ctx.fillStyle = TEXT_SECONDARY;
+      ctx.font = '400 18px "Public Sans", sans-serif';
+      ctx.fillText(c.note, x, statsY + 82);
+    });
+
+    ctx.fillStyle = TEXT_MUTED;
+    ctx.font = '400 15px "Public Sans", sans-serif';
+    ctx.fillText(`Data: ${doc.metadata.source} · updated ${doc.metadata.last_updated_utc.slice(0, 10)}`, M, footY);
+    citeLines.forEach((ln, i) => ctx.fillText(ln, M, footY + 26 + i * 21));
+
+    cnv.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = `global-cloud-cover-${state.view}-${state.mode}.png`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    }, 'image/png');
+  }
+
+  // ── Init ────────────────────────────────────────────────────────
   async function init() {
     try {
       const resp = await fetch('global-cloud-cover.json', { cache: 'no-store' });
@@ -502,13 +965,22 @@
       doc = await resp.json();
       if (!doc.monthly || !doc.monthly.length) throw new Error('No data in file yet');
 
+      series = deriveSeries();
+      if (!series.baselineOK) {
+        setMode('absolute');
+        document.querySelector('#mode-segmented [data-mode="anomaly"]').disabled = true;
+      }
+
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+
       document.getElementById('loading-msg').style.display = 'none';
       document.getElementById('trend-chart').style.display = 'block';
 
       wireControls();
       renderChart();
       renderStats();
-      renderFooter();
+      renderNotes();
+      window.__ccDebug = { series, FLAG_START, FLAG_END };
     } catch (err) {
       document.getElementById('loading-msg').outerHTML =
         `<div class="cc-error">Couldn't load global-cloud-cover.json (${err.message}).<br>` +
