@@ -50,6 +50,7 @@
   .view-btn:hover{color:var(--color-text-primary);border-color:var(--tool-accent)}
   .view-btn.on{color:#1E2320;background:var(--tool-accent);border-color:var(--tool-accent)}
   .view-btn[hidden]{display:none}
+  .view-btn{display:flex;align-items:center;gap:6px}
 
   /* rail */
   .rail{grid-column:2;grid-row:2 / span 2;display:flex;flex-direction:column;gap:11px;max-height:max(380px, calc(100vh - 62px));overflow-y:auto;padding-right:2px}
@@ -134,7 +135,7 @@
     <div class="canvas-wrap">
       <canvas id="sky" width="1000" height="620"></canvas>
       <div class="view-ctl">
-        <button class="view-btn" id="rotateBtn" aria-pressed="false">&#10227; Rotate view</button>
+        <button class="view-btn" id="lockBtn" aria-pressed="false"><svg class="lock-ico" width="13" height="14" viewBox="0 0 16 17" aria-hidden="true"><rect x="2.5" y="7.5" width="11" height="8.5" rx="1.6" fill="currentColor"/><path id="shackle" d="M5 7.5V5a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8"/></svg><span id="lockLabel">Lock view</span></button>
         <button class="view-btn" id="resetBtn" hidden>Reset</button>
       </div>
     </div>
@@ -174,7 +175,7 @@
       <div class="ro-item"><span class="ro-key">Daylight</span><span class="ro-val" id="roDay">&nbsp;</span></div>
     </div>
 
-    <p class="step-hint">Press <b>space</b> or <b>click the sky</b> to step forward &mdash; one hour at a time</p>
+    <p class="step-hint">Press <b>space</b> or <b>click the sky</b> to step forward one hour &middot; <b>drag</b> the dome to turn it</p>
 
     <div class="card">
       <div class="card-bar"></div>
@@ -232,7 +233,7 @@ const PRESETS=[ {v:0,nm:'Equator',dg:'0\u00b0'}, {v:TILT,nm:'Tropic',dg:'23.5\u0
   {v:40.8,nm:'New York',dg:'41\u00b0N'}, {v:90-TILT,nm:'Arctic Circle',dg:'66.5\u00b0N'}, {v:90,nm:'North Pole',dg:'90\u00b0N'} ];
 let LAT=40.8, dayOfYear=172, timeMin=330, playing=false, speed=1;
 const VIEW0={az:158, el:24};   // behind and above the observer, looking south-southeast: east on the left
-let VIEW={...VIEW0}, rotateOn=false;
+let VIEW={...VIEW0}, locked=false;   // dragging turns the dome unless the view is locked
 
 // ── 3D dome: x = east, y = north, z = up; orthographic camera looking toward VIEW.az, tilted down by VIEW.el ──
 let K,SX,SY,EL,RV,UV,FV;
@@ -550,18 +551,25 @@ function stepTime(){ let h=Math.floor(timeMin/60)+1; if(h>=24) h=0; timeMin=h*60
 document.addEventListener('keydown',e=>{ if(e.code==='Space'||e.key===' '){ e.preventDefault(); stepTime(); } });
 
 // ── rotate view (off by default) ──
-const rotateBtn=$('rotateBtn'), resetBtn=$('resetBtn');
+const lockBtn=$('lockBtn'), resetBtn=$('resetBtn');
 function viewIsDefault(){ return Math.abs(VIEW.az-VIEW0.az)<0.5 && Math.abs(VIEW.el-VIEW0.el)<0.5; }
-function syncViewBtns(){ rotateBtn.classList.toggle('on',rotateOn); rotateBtn.setAttribute('aria-pressed',rotateOn); canvas.classList.toggle('rotating',rotateOn); resetBtn.hidden=viewIsDefault(); }
-rotateBtn.addEventListener('click',()=>{ rotateOn=!rotateOn; syncViewBtns(); });
+function syncViewBtns(){
+  lockBtn.classList.toggle('on',locked); lockBtn.setAttribute('aria-pressed',locked);
+  $('lockLabel').textContent = locked ? 'View locked' : 'Lock view';
+  $('shackle').setAttribute('d', locked ? 'M5 7.5V5a3 3 0 0 1 6 0v2.5' : 'M5 7.5V5a3 3 0 0 1 6 0');
+  canvas.classList.toggle('rotating',!locked);
+  resetBtn.hidden = locked || viewIsDefault();
+  document.querySelector('.step-hint').innerHTML = 'Press <b>space</b> or <b>click the sky</b> to step forward one hour' + (locked ? '' : ' &middot; <b>drag</b> the dome to turn it');
+}
+lockBtn.addEventListener('click',()=>{ locked=!locked; syncViewBtns(); });
 resetBtn.addEventListener('click',()=>{ VIEW={...VIEW0}; syncViewBtns(); render(); });
 let drag=null;
-canvas.addEventListener('pointerdown',e=>{ drag={x:e.clientX,y:e.clientY,moved:false,az:VIEW.az,el:VIEW.el}; if(rotateOn){ canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); } });
+canvas.addEventListener('pointerdown',e=>{ drag={x:e.clientX,y:e.clientY,moved:false,az:VIEW.az,el:VIEW.el}; if(!locked){ canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); } });
 canvas.addEventListener('pointermove',e=>{
-  if(!drag||!rotateOn) return;
+  if(!drag) return;
   const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
-  if(Math.abs(dx)+Math.abs(dy)>4) drag.moved=true;
-  if(!drag.moved) return;
+  if(Math.abs(dx)+Math.abs(dy)>4) drag.moved=true;   // a drag is never a click, locked or not
+  if(!drag.moved||locked) return;
   const k=CW/canvas.getBoundingClientRect().width;
   VIEW.az=((drag.az+dx*k*0.35)%360+360)%360;
   VIEW.el=Math.max(6,Math.min(60,drag.el+dy*k*0.2));
