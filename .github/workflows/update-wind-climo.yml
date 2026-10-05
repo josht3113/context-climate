@@ -1,0 +1,54 @@
+name: Update wind climatology
+
+on:
+  schedule:
+    - cron: "41 9 3 * *"      # monthly, 3rd at 09:41 UTC
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "auto = incremental if every station file exists, else full"
+        type: choice
+        options: [auto, full, incremental]
+        default: auto
+      stations:
+        description: "Comma-separated ICAO ids (blank = all 40)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-wind-climo
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build station files
+        run: |
+          python scripts/build_wind_climo.py \
+            --mode "${{ inputs.mode || 'auto' }}" \
+            --stations "${{ inputs.stations }}" \
+            --out public/wind-climo
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git add public/wind-climo
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update wind climatology"
+            git pull --rebase
+            git push
+          fi
