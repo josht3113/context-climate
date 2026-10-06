@@ -101,6 +101,10 @@
   .card-text-wrap.open{opacity:1;margin-top:8px}
 
   .foot{grid-column:1/-1;grid-row:4;display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:8px}
+  .exports{flex:none;display:flex;align-items:center;gap:8px}
+  .exp-status{font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);white-space:nowrap}
+  body.capturing .app{pointer-events:none}
+  body.capturing .exports button{opacity:0.45}
   .foot-note{font-size:13px;color:var(--color-text-muted);font-style:italic;line-height:1.6;margin:0}
 
   @media (max-width:900px){
@@ -197,7 +201,12 @@
 
   <div class="foot">
     <p class="foot-note">Sun positions from the Spencer (1971) declination series and standard solar-geometry equations. Times are <b>solar time</b> (noon = Sun on the meridian). Sunrise and sunset are when the Sun&rsquo;s center crosses the horizon. Sky colors model atmospheric scattering as a function of the Sun&rsquo;s altitude.</p>
-    <button class="cc-btn cc-btn-sm" id="pngBtn">&darr; PNG</button>
+    <div class="exports">
+      <span class="exp-status" id="expStatus" aria-live="polite"></span>
+      <button class="cc-btn cc-btn-sm" id="pngBtn">&darr; PNG</button>
+      <button class="cc-btn cc-btn-sm" id="gifBtn">&darr; GIF</button>
+      <button class="cc-btn cc-btn-sm" id="mp4Btn">&darr; MP4</button>
+    </div>
   </div>
 </div>
 
@@ -229,7 +238,7 @@ function daylightHours(lat,dec){
 function compass16(az){ const n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']; return n[Math.round(((az%360)+360)%360/22.5)%16]; }
 
 // ── canvas ──
-const canvas=document.getElementById('sky'), ctx=canvas.getContext('2d');
+const canvas=document.getElementById('sky'); let ctx=canvas.getContext('2d');   // swapped to an offscreen context during exports
 const CW=1000, CH=620;
 let dpr=Math.min(2,window.devicePixelRatio||1);
 function setupCanvas(){ canvas.width=CW*dpr; canvas.height=CH*dpr; }
@@ -561,7 +570,7 @@ function stepTime(){
   else { let h=Math.floor(timeMin/60)+1; if(h>=24) h=0; timeMin=h*60; timeRange.value=timeMin; }
   syncFills(); stopPlay(); render();
 }
-document.addEventListener('keydown',e=>{ if(e.code==='Space'||e.key===' '){ e.preventDefault(); stepTime(); } });
+document.addEventListener('keydown',e=>{ if(e.code==='Space'||e.key===' '){ e.preventDefault(); if(!capturing) stepTime(); } });
 function syncHint(){
   document.querySelector('.step-hint').innerHTML = 'Press <b>space</b> or <b>click the sky</b> to step forward one '+(stepMode==='day'?'day':'hour') + (locked ? '' : ' &middot; <b>drag</b> the dome to turn it');
 }
@@ -620,7 +629,7 @@ window.addEventListener('resize',()=>{ if(cardOpen) cardTextWrap.style.maxHeight
 // ── animation: sweep the day ──
 let last=0;
 function loop(ts){
-  if(playing){
+  if(playing && !capturing){
     const dt=Math.min(0.1,(ts-last)/1000||0);            // cap: returning to a hidden tab must not jump the clock
     if(stepMode==='day'){
       dayOfYear += dt*(365/30)*speed;                        // a full year in ~30 s at 1x
@@ -635,31 +644,263 @@ function loop(ts){
   last=ts; requestAnimationFrame(loop);
 }
 
-// ── PNG export (fixed 3x, independent of screen dpr) ──
-$('pngBtn').addEventListener('click',()=>{
-  const PAD=24, HDR=84, FTR=30, ow=PAD*2+CW, oh=HDR+CH+FTR;
-  const EXPORT_SCALE=3, origDpr=dpr;
-  dpr=EXPORT_SCALE; setupCanvas(); render();
-  const off=document.createElement('canvas'); off.width=ow*EXPORT_SCALE; off.height=oh*EXPORT_SCALE;
-  const oc=off.getContext('2d'); oc.scale(EXPORT_SCALE,EXPORT_SCALE);
-  oc.fillStyle='#1E2320'; oc.fillRect(0,0,ow,oh);
-  oc.fillStyle='#F5A340'; oc.fillRect(0,0,ow,3);
-  oc.fillStyle='#E8E4D9'; oc.font='bold 24px "Zilla Slab",serif'; oc.fillText("The Sun's Path",PAD,36);
+// ══════════════ EXPORT: PNG · GIF · MP4 (self-contained, nothing fetched) ══════════════
+// Every export renders the dome into an offscreen canvas at a fixed scale, never the screen's dpr.
+const EX={PAD:24,HDR:84,FTR:30};
+const EXW=CW+EX.PAD*2, EXH=EX.HDR+CH+EX.FTR;                 // 1048 × 734 composition units
+const offCanvas=document.createElement('canvas'), offCtx=offCanvas.getContext('2d');
+let capturing=false;
+
+function renderOff(scale){
+  offCanvas.width=Math.round(CW*scale); offCanvas.height=Math.round(CH*scale);
+  const c0=ctx, d0=dpr; ctx=offCtx; dpr=scale;
+  try{ render(); } finally { ctx=c0; dpr=d0; }
+  return offCanvas;
+}
+function stampLine(){
   const p=presetFor(LAT), latLabel=(p?(p.full||p.nm)+' \u00b7 ':'Latitude ')+fmtLat(LAT);
-  oc.fillStyle='#A6A499'; oc.font='15px "Public Sans",sans-serif';
-  oc.fillText(`${latLabel} \u00b7 ${fmtDay(dayOfYear)}, ${fmtTime(timeMin)} solar time`,PAD,60);
+  return `${latLabel} \u00b7 ${fmtDay(dayOfYear)}, ${fmtTime(timeMin)} solar time`;
+}
+// header (title + live caption), the dome, provenance footer
+function compose(oc, s){
+  const {PAD,HDR,FTR}=EX;
+  oc.setTransform(s,0,0,s,0,0);
+  oc.fillStyle='#1E2320'; oc.fillRect(0,0,EXW,EXH);
+  oc.fillStyle='#F5A340'; oc.fillRect(0,0,EXW,3);
+  oc.textAlign='left'; oc.textBaseline='alphabetic';
+  oc.fillStyle='#E8E4D9'; oc.font='bold 24px "Zilla Slab",serif'; oc.fillText("The Sun's Path",PAD,36);
+  oc.fillStyle='#A6A499'; oc.font='16px "Public Sans",sans-serif'; oc.fillText(stampLine(),PAD,62);
   oc.fillStyle='#948F82'; oc.font='13px "Courier Prime",monospace';
-  oc.textAlign='right'; oc.fillText('contextclimate.io',ow-PAD,36); oc.textAlign='left';
+  oc.textAlign='right'; oc.fillText('contextclimate.io',EXW-PAD,36); oc.textAlign='left';
   oc.fillStyle='#262B27'; oc.fillRect(PAD,HDR,CW,CH);
-  oc.drawImage(canvas,PAD,HDR,CW,CH);
-  dpr=origDpr; setupCanvas(); render();
+  oc.drawImage(renderOff(s),PAD,HDR,CW,CH);
   oc.fillStyle='#948F82'; oc.font='13px "Courier Prime",monospace';
-  oc.fillText('Spencer (1971) declination series \u00b7 solar time',PAD,oh-11);
-  oc.fillStyle='#F5A340'; oc.fillRect(0,oh-2,ow,2);
-  const link=document.createElement('a');
-  link.download=`suns-path_lat${LAT}_${fmtDay(dayOfYear).replace(' ','-')}.png`;
-  link.href=off.toDataURL('image/png'); link.click();
+  oc.fillText('Spencer (1971) declination series \u00b7 solar time',PAD,EXH-11);
+  oc.fillStyle='#F5A340'; oc.fillRect(0,EXH-2,EXW,2);
+}
+
+// the animation an export captures follows the play mode:
+//   By hour → one day, from 30 min before sunrise to 30 min after sunset (or all 24 h with no sunrise/sunset)
+//   By day  → Jan 1 → Dec 31 at the held time of day
+function frameStates(n){
+  const out=[];
+  if(stepMode==='day'){ for(let k=0;k<n;k++) out.push({day:1+k*365/n, time:timeMin}); }
+  else{
+    const dl=daylightHours(LAT,declination(dayOfYear));
+    let a=0,b=1440;
+    if(dl>0.05&&dl<23.95){ a=Math.max(0,(12-dl/2-0.5)*60); b=Math.min(1440,(12+dl/2+0.5)*60); }
+    for(let k=0;k<n;k++) out.push({day:dayOfYear, time:a+(b-a)*k/(n-1)});
+  }
+  return out;
+}
+function slug(){
+  const p=presetFor(LAT), place=p?p.nm.toLowerCase().replace(/\s+/g,'-'):'lat'+fmtLat(LAT).replace('\u00b0','').toLowerCase();
+  return stepMode==='day' ? `suns-path_${place}_year_${fmtTime(timeMin).replace(/[: ]/g,'').toLowerCase()}`
+                          : `suns-path_${place}_${fmtDay(dayOfYear).replace(' ','-').toLowerCase()}`;
+}
+function saveBlob(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const expStatus=document.getElementById('expStatus');
+function beginCapture(){ capturing=true; stopPlay(); document.body.classList.add('capturing'); return {day:dayOfYear,time:timeMin}; }
+function endCapture(saved,msg){
+  dayOfYear=saved.day; timeMin=saved.time; capturing=false; document.body.classList.remove('capturing');
+  season.value=Math.floor(dayOfYear); timeRange.value=timeMin; syncFills(); render();
+  expStatus.textContent=msg||'';
+}
+const fmtMB=b=>(b/1048576).toFixed(b<1048576?2:1)+' MB';
+
+// ── PNG ──
+$('pngBtn').addEventListener('click',()=>{
+  if(capturing) return;
+  const S=3, c=document.createElement('canvas'); c.width=EXW*S; c.height=EXH*S;
+  compose(c.getContext('2d'),S); render(); expStatus.textContent='';
+  c.toBlob(b=>saveBlob(b,slug()+'.png'),'image/png');
 });
+
+// ── GIF: median-cut palette (255 colors + 1 transparent), LZW, inter-frame differencing ──
+function buildPalette(samples){
+  const hist=new Uint32Array(32768);
+  for(const d of samples) for(let i=0;i<d.length;i+=8) hist[((d[i]>>3)<<10)|((d[i+1]>>3)<<5)|(d[i+2]>>3)]++;
+  const bins=[]; for(let i=0;i<32768;i++) if(hist[i]) bins.push(i);
+  const ch=(b,a)=>a===0?(b>>10)&31:a===1?(b>>5)&31:b&31;
+  const mk=list=>{ let lo=[31,31,31],hi=[0,0,0],n=0; for(const b of list){ n+=hist[b]; for(let a=0;a<3;a++){ const v=ch(b,a); if(v<lo[a])lo[a]=v; if(v>hi[a])hi[a]=v; } } return {list,lo,hi,n}; };
+  const boxes=[mk(bins)];
+  while(boxes.length<255){
+    let bi=-1,best=-1;
+    boxes.forEach((bx,i)=>{ if(bx.list.length<2) return; const r=Math.max(bx.hi[0]-bx.lo[0],bx.hi[1]-bx.lo[1],bx.hi[2]-bx.lo[2]); const sc=r*Math.cbrt(bx.n); if(sc>best){best=sc;bi=i;} });
+    if(bi<0) break;
+    const bx=boxes[bi], rr=[0,1,2].map(a=>bx.hi[a]-bx.lo[a]), ax=rr.indexOf(Math.max(...rr));
+    bx.list.sort((p,q)=>ch(p,ax)-ch(q,ax));
+    let acc=0, cut=1; for(let i=0;i<bx.list.length;i++){ acc+=hist[bx.list[i]]; if(acc>=bx.n/2){ cut=Math.max(1,Math.min(bx.list.length-1,i+1)); break; } }
+    boxes.splice(bi,1,mk(bx.list.slice(0,cut)),mk(bx.list.slice(cut)));
+  }
+  const pal=boxes.map(bx=>{ let r=0,g=0,b=0; for(const q of bx.list){ const w=hist[q]; r+=(((q>>10)&31)*8+4)*w; g+=(((q>>5)&31)*8+4)*w; b+=((q&31)*8+4)*w; } return [r/bx.n|0,g/bx.n|0,b/bx.n|0]; });
+  while(pal.length<255) pal.push([0,0,0]);
+  const lut=new Uint8Array(32768);
+  for(let q=0;q<32768;q++){
+    const r=((q>>10)&31)*8+4, g=((q>>5)&31)*8+4, b=(q&31)*8+4; let bd=1e9,bk=0;
+    for(let k=0;k<255;k++){ const p=pal[k], dr=r-p[0], dg=g-p[1], db=b-p[2], d=2*dr*dr+4*dg*dg+db*db; if(d<bd){bd=d;bk=k;} }
+    lut[q]=bk;
+  }
+  return {pal,lut};
+}
+const BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5].map(v=>Math.round((v/16-0.47)*12));
+function lzw(idx,minCode){
+  const clear=1<<minCode, eoi=clear+1, out=[];
+  let codeSize=minCode+1, next=eoi+1, dict=new Map(), cur=0, nbits=0;
+  const emit=(c,sz)=>{ cur|=c<<nbits; nbits+=sz; while(nbits>=8){ out.push(cur&255); cur>>>=8; nbits-=8; } };
+  emit(clear,codeSize);
+  let ib=idx[0];
+  for(let i=1;i<idx.length;i++){
+    const k=idx[i], key=(ib<<8)|k, v=dict.get(key);
+    if(v!==undefined){ ib=v; continue; }
+    emit(ib,codeSize);
+    if(next===4096){ emit(clear,codeSize); dict=new Map(); next=eoi+1; codeSize=minCode+1; }
+    else { if(next>=(1<<codeSize)) codeSize++; dict.set(key,next); next++; }   // size check BEFORE the increment
+    ib=k;
+  }
+  emit(ib,codeSize); emit(eoi,codeSize); if(nbits>0) out.push(cur&255);
+  return out;
+}
+function gifFile(W,H,pal,frames){        // frames: {x,y,w,h,idx,delay(cs)}
+  const parts=[]; const B=a=>parts.push(Uint8Array.from(a)); const w16=v=>[v&255,(v>>8)&255];
+  B([71,73,70,56,57,97, ...w16(W), ...w16(H), 0xF7, 0, 0]);
+  const gct=new Uint8Array(768); pal.forEach((p,i)=>{ gct[i*3]=p[0]; gct[i*3+1]=p[1]; gct[i*3+2]=p[2]; }); parts.push(gct);
+  B([0x21,0xFF,0x0B, ...[...'NETSCAPE2.0'].map(c=>c.charCodeAt(0)), 3,1,0,0,0]);
+  for(const f of frames){
+    B([0x21,0xF9,4,(1<<2)|1, ...w16(f.delay), 255, 0]);                 // disposal 1 (keep), index 255 transparent
+    B([0x2C, ...w16(f.x), ...w16(f.y), ...w16(f.w), ...w16(f.h), 0, 8]);
+    const data=lzw(f.idx,8), blk=new Uint8Array(data.length+Math.ceil(data.length/255)+1); let o=0;
+    for(let i=0;i<data.length;i+=255){ const n=Math.min(255,data.length-i); blk[o++]=n; for(let j=0;j<n;j++) blk[o++]=data[i+j]; }
+    blk[o++]=0; parts.push(blk.subarray(0,o));
+  }
+  B([0x3B]);
+  return new Blob(parts,{type:'image/gif'});
+}
+async function exportGIF(){
+  if(capturing) return;
+  const saved=beginCapture();
+  try{
+    const GW=880, s=GW/EXW, GH=Math.round(EXH*s);
+    const N=stepMode==='day'?73:60, states=frameStates(N);
+    const c=document.createElement('canvas'); c.width=GW; c.height=GH;
+    const cc=c.getContext('2d',{willReadFrequently:true});
+    const rgba=[];
+    for(let k=0;k<N;k++){
+      dayOfYear=states[k].day; timeMin=states[k].time;
+      compose(cc,s); rgba.push(cc.getImageData(0,0,GW,GH).data);
+      if(k%4===0){ expStatus.textContent=`Rendering ${k+1}/${N}`; await tick(); }
+    }
+    expStatus.textContent='Building palette\u2026'; await tick();
+    const {pal,lut}=buildPalette(rgba.filter((_,i)=>i%6===0));
+    const frames=[]; let prev=null;
+    for(let k=0;k<N;k++){
+      const d=rgba[k], idx=new Uint8Array(GW*GH);
+      for(let y=0,j=0;y<GH;y++){ const brow=(y&3)<<2;
+        for(let x=0;x<GW;x++,j++){ const i=j<<2, o=BAYER[brow|(x&3)];          // fixed ordered dither: same pattern every frame
+          const r=Math.max(0,Math.min(255,d[i]+o)), g=Math.max(0,Math.min(255,d[i+1]+o)), b=Math.max(0,Math.min(255,d[i+2]+o));
+          idx[j]=lut[((r>>3)<<10)|((g>>3)<<5)|(b>>3)]; } }
+      const delay = k===N-1 ? 150 : 7;
+      if(!prev){ frames.push({x:0,y:0,w:GW,h:GH,idx,delay}); }
+      else{
+        let x0=GW,y0=GH,x1=-1,y1=-1;
+        for(let y=0;y<GH;y++){ const r=y*GW; for(let x=0;x<GW;x++) if(idx[r+x]!==prev[r+x]){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } }
+        if(x1<0){ frames.push({x:0,y:0,w:1,h:1,idx:Uint8Array.of(255),delay}); }
+        else{
+          const w=x1-x0+1, h=y1-y0+1, sub=new Uint8Array(w*h);
+          for(let y=0;y<h;y++){ const r=(y0+y)*GW+x0; for(let x=0;x<w;x++){ const v=idx[r+x]; sub[y*w+x]= v===prev[r+x]?255:v; } }
+          frames.push({x:x0,y:y0,w,h,idx:sub,delay});
+        }
+      }
+      prev=idx;
+      if(k%6===0){ expStatus.textContent=`Encoding ${k+1}/${N}`; await tick(); }
+    }
+    const blob=gifFile(GW,GH,pal,frames);
+    saveBlob(blob,slug()+'.gif');
+    endCapture(saved,`GIF saved \u00b7 ${fmtMB(blob.size)}`);
+  }catch(e){ console.error(e); endCapture(saved,'GIF export failed'); }
+}
+$('gifBtn').addEventListener('click',exportGIF);
+
+// ── MP4: WebCodecs encoder (H.264 preferred, VP9 fallback) + a minimal ISO-BMFF writer ──
+function mp4Mux({kind,codec,width,height,timescale,delta,samples,desc}){
+  const enc=new TextEncoder();
+  const cat=(...a)=>{ let n=0; for(const p of a) n+=p.length; const o=new Uint8Array(n); let i=0; for(const p of a){ o.set(p,i); i+=p.length; } return o; };
+  const u8=(...v)=>Uint8Array.from(v), u16=v=>u8((v>>8)&255,v&255), u32=v=>u8((v>>>24)&255,(v>>16)&255,(v>>8)&255,v&255);
+  const box=(t,...p)=>{ const body=cat(...p); return cat(u32(body.length+8),enc.encode(t),body); };
+  const full=(t,ver,flags,...p)=>box(t,u8(ver,(flags>>16)&255,(flags>>8)&255,flags&255),...p);
+  const N=samples.length, dur=N*delta, movieTS=1000, movieDur=Math.round(dur/timescale*1000);
+  const matrix=cat(u32(0x10000),u32(0),u32(0),u32(0),u32(0x10000),u32(0),u32(0),u32(0),u32(0x40000000));
+  let entry;
+  const visual=t=>cat(new Uint8Array(6),u16(1),u16(0),u16(0),new Uint8Array(12),u16(width),u16(height),u32(0x480000),u32(0x480000),u32(0),u16(1),new Uint8Array(32),u16(0x18),u16(0xFFFF));
+  if(kind==='avc') entry=box('avc1',visual(),box('avcC',desc));
+  else{ const m=codec.split('.'); entry=box('vp09',visual(),full('vpcC',1,0,u8(parseInt(m[1],10),parseInt(m[2],10),(parseInt(m[3],10)<<4)|(1<<1)|0,1,1,1),u16(0))); }
+  const keys=[]; samples.forEach((s,i)=>{ if(s.key) keys.push(i+1); });
+  const total=samples.reduce((a,s)=>a+s.data.length,0);
+  const ftyp=box('ftyp',enc.encode('isom'),u32(0x200),enc.encode('isom'),enc.encode('iso2'),enc.encode(kind==='avc'?'avc1':'vp09'),enc.encode('mp41'));
+  const moovFor=off=>box('moov',
+    full('mvhd',0,0,u32(0),u32(0),u32(movieTS),u32(movieDur),u32(0x10000),u16(0x100),u16(0),u32(0),u32(0),matrix,new Uint8Array(24),u32(2)),
+    box('trak',
+      full('tkhd',0,3,u32(0),u32(0),u32(1),u32(0),u32(movieDur),u32(0),u32(0),u16(0),u16(0),u16(0),u16(0),matrix,u32(width<<16),u32(height<<16)),
+      box('mdia',
+        full('mdhd',0,0,u32(0),u32(0),u32(timescale),u32(dur),u16(0x55C4),u16(0)),
+        full('hdlr',0,0,u32(0),enc.encode('vide'),u32(0),u32(0),u32(0),enc.encode('VideoHandler\0')),
+        box('minf',
+          full('vmhd',0,1,u16(0),u16(0),u16(0),u16(0)),
+          box('dinf',full('dref',0,0,u32(1),full('url ',0,1))),
+          box('stbl',
+            full('stsd',0,0,u32(1),entry),
+            full('stts',0,0,u32(1),u32(N),u32(delta)),
+            full('stss',0,0,u32(keys.length),...keys.map(u32)),
+            full('stsc',0,0,u32(1),u32(1),u32(N),u32(1)),
+            full('stsz',0,0,u32(0),u32(N),...samples.map(s=>u32(s.data.length))),
+            full('stco',0,0,u32(1),u32(off)))))));
+  const moovLen=moovFor(0).length, moov=moovFor(ftyp.length+moovLen+8);   // faststart: moov before mdat
+  return new Blob([ftyp,moov,u32(total+8),enc.encode('mdat'),...samples.map(s=>s.data)],{type:'video/mp4'});
+}
+async function exportMP4(){
+  if(capturing) return;
+  if(typeof VideoEncoder==='undefined'||typeof VideoFrame==='undefined'){ expStatus.textContent='MP4 export needs an up-to-date Chrome'; return; }
+  const W=1280, H=896, FPS=30, s=W/EXW;
+  const cands=[['avc1.640028','avc'],['avc1.4d0028','avc'],['avc1.42e028','avc'],['avc1.42001f','avc'],['vp09.00.40.08','vp9']];
+  let pick=null;
+  for(const [codec,kind] of cands){
+    const cfg={codec,width:W,height:H,bitrate:kind==='avc'?5e6:4e6,framerate:FPS};
+    if(kind==='avc') cfg.avc={format:'avc'};
+    try{ const r=await VideoEncoder.isConfigSupported(cfg); if(r.supported){ pick={cfg,kind,codec}; break; } }catch(e){}
+  }
+  if(!pick){ expStatus.textContent='This browser can\u2019t encode MP4 video'; return; }
+  const saved=beginCapture();
+  try{
+    const N=stepMode==='day'?365:240, states=frameStates(N);
+    const samples=[]; let desc=null, err=null;
+    const enc=new VideoEncoder({
+      output:(chunk,meta)=>{ const b=new Uint8Array(chunk.byteLength); chunk.copyTo(b); samples.push({data:b,key:chunk.type==='key',ts:chunk.timestamp});
+        const d=meta&&meta.decoderConfig&&meta.decoderConfig.description; if(d&&!desc) desc=new Uint8Array(d.buffer?d.buffer.slice(d.byteOffset,d.byteOffset+d.byteLength):d); },
+      error:e=>{ err=e; }
+    });
+    enc.configure(pick.cfg);
+    const c=document.createElement('canvas'); c.width=W; c.height=H; const cc=c.getContext('2d');
+    for(let k=0;k<N;k++){
+      if(err) throw err;
+      dayOfYear=states[k].day; timeMin=states[k].time;
+      compose(cc,s);
+      const vf=new VideoFrame(c,{timestamp:Math.round(k*1e6/FPS),duration:Math.round(1e6/FPS)});
+      enc.encode(vf,{keyFrame:k%60===0}); vf.close();
+      while(enc.encodeQueueSize>4) await new Promise(r=>setTimeout(r,4));
+      if(k%8===0){ expStatus.textContent=`Rendering ${k+1}/${N}`; await tick(); }
+    }
+    expStatus.textContent='Finishing video\u2026';
+    await enc.flush(); enc.close();
+    if(err) throw err;
+    if(pick.kind==='avc'&&!desc) throw new Error('encoder gave no avcC');
+    for(let i=1;i<samples.length;i++) if(samples[i].ts<samples[i-1].ts) throw new Error('reordered frames');   // no B-frames expected
+    const blob=mp4Mux({kind:pick.kind,codec:pick.codec,width:W,height:H,timescale:FPS*100,delta:100,samples,desc});
+    saveBlob(blob,slug()+'.mp4');
+    endCapture(saved,`MP4 saved \u00b7 ${fmtMB(blob.size)}`);
+  }catch(e){ console.error(e); endCapture(saved,'MP4 export failed'); }
+}
+$('mp4Btn').addEventListener('click',exportMP4);
 
 // ── init: a low morning Sun at the chosen latitude/season ──
 (function init(){
