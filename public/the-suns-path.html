@@ -278,7 +278,7 @@ setupCanvas(); canvas.style.aspectRatio=CW+'/'+CH;
 const PRESETS=[ {v:0,nm:'Equator',dg:'0\u00b0'}, {v:TILT,nm:'Tropic',dg:'23.5\u00b0N',full:'Tropic of Cancer'},
   {v:40.8,nm:'New York',dg:'41\u00b0N'}, {v:90-TILT,nm:'Arctic Circle',dg:'66.5\u00b0N'}, {v:90,nm:'North Pole',dg:'90\u00b0N'} ];
 let LAT=40.8, dayOfYear=172, timeMin=330, playing=false, speed=1;
-const VIEW0={az:158, el:24};   // behind and above the observer, looking south-southeast: east on the left
+const VIEW0={az:307, el:16};   // behind and above the observer, looking south-southeast: east on the left
 let VIEW={...VIEW0}, locked=false;
 let viewMode='dome';   // 'dome' | 'ground'
 let stepMode='hour';   // 'hour': play/step move the clock.  'day': clock is held, play/step move through the year   // dragging turns the dome unless the view is locked
@@ -367,7 +367,8 @@ const norm=v=>{ const n=Math.hypot(v[0],v[1],v[2]); return [v[0]/n,v[1]/n,v[2]/n
 // ── dome: orthographic camera looking toward VIEW.az, tilted down by VIEW.el; drawn into a box ──
 let K,SX,SY,EL,RV,UV,FV;
 const MAINBOX={x:0,y:0,w:CW,h:CH,mt:44,mb:56};
-const INSETBOX={x:CW-250,y:56,w:238,h:156,mt:10,mb:14};
+const INSETPANEL={x:12,y:CH-12-196,w:238,h:196};                       // lower-left: mini dome + Sun-now caption
+const INSETBOX={x:INSETPANEL.x,y:INSETPANEL.y,w:INSETPANEL.w,h:150,mt:10,mb:14};
 function setupView(box){
   const e=VIEW.el*D2R, a=VIEW.az*D2R;
   FV=[Math.cos(e)*Math.sin(a), Math.cos(e)*Math.cos(a), -Math.sin(e)];
@@ -454,7 +455,7 @@ function reserveOverlays(){
     const r=el.getBoundingClientRect(); if(!r.width) return;
     _labels.push({x0:(r.left-cr.left)*k-4, y0:(r.top-cr.top)*k-4, x1:(r.right-cr.left)*k+4, y1:(r.bottom-cr.top)*k+4});
   });
-  if(viewMode==='ground'){ const b=INSETBOX; _labels.push({x0:b.x-4,y0:b.y-4,x1:b.x+b.w+4,y1:b.y+b.h+4}); }
+  if(viewMode==='ground'){ const b=INSETPANEL; _labels.push({x0:b.x-4,y0:b.y-4,x1:b.x+b.w+4,y1:b.y+b.h+4}); }
 }
 
 // zenith: a small cross at 90° altitude; the word steps aside when the Sun is within 3° of it
@@ -559,14 +560,20 @@ function drawViewWedge(){
   ctx.beginPath(); ctx.arc(look.x,look.y,3.5,0,6.283); ctx.fillStyle='#5FC3CD'; ctx.fill();
 }
 function drawInset(S){
-  const b=INSETBOX;
+  const pn=INSETPANEL, b=INSETBOX;
   ctx.save();
-  ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(b.x,b.y,b.w,b.h,10); else ctx.rect(b.x,b.y,b.w,b.h);
-  ctx.fillStyle='rgba(20,24,21,0.86)'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.beginPath(); if(ctx.roundRect) ctx.roundRect(pn.x,pn.y,pn.w,pn.h,10); else ctx.rect(pn.x,pn.y,pn.w,pn.h);
+  ctx.fillStyle='rgba(20,24,21,0.88)'; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.18)'; ctx.lineWidth=1; ctx.stroke();
   ctx.clip();
   setupView(b);
   drawDomeScene(S,true);
   ctx.restore();
+  // Sun-now caption (canvas-drawn here, so it also appears in exports)
+  const cy=b.y+b.h;
+  ctx.beginPath(); ctx.moveTo(pn.x+10,cy); ctx.lineTo(pn.x+pn.w-10,cy); ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.font='700 13px "Courier Prime"'; ctx.fillStyle='#948F82'; ctx.fillText('SUN NOW',pn.x+14,cy+14);
+  ctx.font='700 18px "Zilla Slab",serif'; ctx.fillStyle='#FFD27A'; ctx.fillText(sunNowText(S.sun),pn.x+14,cy+33);
 }
 
 function drawRiseSet(dec){
@@ -924,6 +931,7 @@ function syncViewBtns(){
   resetBtn.hidden = locked || viewIsDefault();
   document.querySelectorAll('[data-vm]').forEach(b=>b.classList.toggle('on',b.dataset.vm===viewMode));
   $('faceBar').hidden = viewMode!=='ground';
+  document.querySelector('.sun-now').hidden = viewMode==='ground';
   document.querySelector('.rail').classList.toggle('ground',viewMode==='ground');
   const sk=$('skyBtn'); sk.classList.toggle('on',G.sky); sk.setAttribute('aria-pressed',G.sky);
   for(const [id,on] of [['gridBtn',gridOn],['trailBtn',trailOn]]){ $(id).classList.toggle('on',on); $(id).setAttribute('aria-pressed',on); }
@@ -1003,9 +1011,8 @@ function endDrag(){
 canvas.addEventListener('pointerup',endDrag);
 canvas.addEventListener('pointercancel',()=>{ if(drag&&drag.sun){ sunDrag=false; render(); } drag=null; canvas.classList.remove('dragging','dragging-sun'); });
 canvas.addEventListener('pointerleave',()=>canvas.classList.remove('over-sun'));
-function updateSunNow(sun){
-  $('sunNow').textContent=(sun.alt<0?'\u2212':'')+Math.abs(sun.alt).toFixed(1)+'\u00b0 \u00b7 '+compass16(sun.az)+' '+Math.round(sun.az)+'\u00b0';
-}
+function sunNowText(sun){ return (sun.alt<0?'\u2212':'')+Math.abs(sun.alt).toFixed(1)+'\u00b0 \u00b7 '+compass16(sun.az)+' '+Math.round(sun.az)+'\u00b0'; }
+function updateSunNow(sun){ $('sunNow').textContent=sunNowText(sun); }
 
 // ── collapsible explanation ──
 let cardOpen=false;
