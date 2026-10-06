@@ -15,6 +15,9 @@ into public/sst/ by deploy.yml):
 
 Frame encoding: gzip of NLAT*NLON signed bytes, row 0 = northernmost row,
 value = round(anomaly / SCALE), clipped to +/-127; -128 = land / missing.
+Real anomalies beyond +/-6.35 degC (strong El Nino coasts, marine heatwaves)
+are stored clipped and reported as a run notice, not a failure; the map
+reads +/-127 as "at least" that value.
 
 Modes
   (default)     daily refresh: pull new days, upgrade preliminary days to
@@ -52,6 +55,11 @@ NLON = int((LON_E - LON_W) / DEG)    # 700
 TROP = 20.0                          # tropical mean band, 20S-20N
 SCALE = 0.05                         # degC per count
 MISSING = -128
+ENC_MAX = 127 * SCALE                # +/-6.35 degC; cells beyond are stored clipped
+CORRUPT_ABS = 15.0                   # any anomaly this large = broken file
+CLIP_FRAC_MAX = 0.02                 # more clipped ocean cells than this = broken file
+DOM_LAT = LAT_N - DEG / 2 - np.arange(NLAT) * DEG      # north-first, as GridMap.domain
+DOM_LON = LON_W + DEG / 2 + np.arange(NLON) * DEG
 
 WINDOW_DAYS = 365                    # rolling daily window
 REFRESH_DAYS = 16                    # re-check this many recent days each run
@@ -82,6 +90,19 @@ FAILURES = []
 def fail(msg):
     FAILURES.append(msg)
     print('✗ ' + msg, flush=True)
+
+
+def notice(msg):
+    """Informational: shows as a run annotation but does not fail the run."""
+    print(f'::notice title=SST pipeline::{msg}', flush=True)
+
+
+def fmt_lat(v):
+    return f'{abs(v):.1f}{"N" if v >= 0 else "S"}'
+
+
+def fmt_lon(v):
+    return f'{v:.1f}E' if v <= 180 else f'{360 - v:.1f}W'
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -302,8 +323,22 @@ class Validator:
         m = float(np.mean(a))
         if abs(m) > 3.0:
             return f'{label}: domain-mean anomaly {m:+.2f} implausible'
-        if np.mean(np.abs(a) > 6.35) > 0.002:
-            return f'{label}: too many anomalies beyond the +/-6.35 encoding range'
+        peak = float(np.max(np.abs(a)))
+        if peak > CORRUPT_ABS:
+            return f'{label}: anomaly of {peak:.1f} degC exceeds the {CORRUPT_ABS:.0f} degC corruption limit'
+        clip = ocean & (np.abs(np.nan_to_num(anom_dom)) > ENC_MAX)
+        n_clip = int(clip.sum())
+        if n_clip / a.size > CLIP_FRAC_MAX:
+            return (f'{label}: {n_clip} cells ({n_clip / a.size:.1%}) beyond +/-{ENC_MAX:.2f} degC '
+                    f'-- more than {CLIP_FRAC_MAX:.0%} looks like a broken file')
+        if n_clip:
+            r, c = np.nonzero(clip)
+            v = anom_dom[clip]
+            notice(f'{label}: {n_clip} cells clipped at +/-{ENC_MAX:.2f} degC '
+                   f'({int((v > 0).sum())} warm, {int((v < 0).sum())} cold; '
+                   f'range {float(v.min()):+.2f}..{float(v.max()):+.2f}) within '
+                   f'{fmt_lat(DOM_LAT[r.max()])}-{fmt_lat(DOM_LAT[r.min()])}, '
+                   f'{fmt_lon(DOM_LON[c.min()])}-{fmt_lon(DOM_LON[c.max()])}')
         if self.ref_mask is None:
             self.ref_mask = ocean
         return None
@@ -434,11 +469,13 @@ def refresh_daily(data_dir, idx, clim, work, validator, bootstrap, today):
         fetched = list(ex.map(lambda x: (x, fetch_day(x, work)), todo))
 
     updated = 0
+    rejected = []
     for date, got in sorted(fetched, key=lambda r: r[0], reverse=True):
         if got is None:
             continue
         res = parse_day(date, got[0], got[1], clim, validator)
         if res is None:
+            rejected.append(date)
             continue
         entry, q = res
         old = have.get(entry['d'])
@@ -453,7 +490,12 @@ def refresh_daily(data_dir, idx, clim, work, validator, bootstrap, today):
         newest = max(dt.date.fromisoformat(e['d']) for e in idx['daily'])
         lag = (today - newest).days
         if lag > 5:
-            fail(f'daily: newest day {newest} is {lag} days old -- source may have stopped updating')
+            later = sorted(x for x in rejected if x > newest)
+            if later:
+                fail(f'daily: newest accepted day {newest} is {lag} days old -- '
+                     f'{len(later)} later day(s) posted but rejected ({later[0]} .. {later[-1]}), see above')
+            else:
+                fail(f'daily: newest day {newest} is {lag} days old -- source may have stopped updating')
     return updated
 
 
