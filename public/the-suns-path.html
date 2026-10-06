@@ -30,7 +30,7 @@
   .step-mode .cc-tab{padding:6px 10px;white-space:nowrap}
   .transport.by-day #timeRange{opacity:0.35;pointer-events:none}
   .transport.by-day .time-now b{color:#5FC3CD}
-  .time-now span{font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--color-text-muted)}
+  .time-now span{display:block;white-space:nowrap;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--color-text-muted)}
 
   input[type=range]{-webkit-appearance:none;appearance:none;height:6px;border-radius:100px;outline:none;cursor:pointer;margin:0}
   input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--color-text-primary);border:2px solid var(--tool-accent);cursor:pointer}
@@ -160,7 +160,7 @@
     </div>
     <button class="cc-tab now-btn" id="nowBtn" title="Today's date at the current solar time on Long Island">Now</button>
     <input type="range" id="timeRange" min="0" max="1439" value="330" aria-label="Time of day">
-    <div class="time-now"><b id="timeNow">5:30 AM</b><span id="timeKey">Solar time</span></div>
+    <div class="time-now" title="Solar time, with the matching clock time on Long Island (73.1°W)"><b id="timeNow">5:30 AM</b><span id="timeKey">Solar time</span></div>
   </div>
 
   <div class="sky-col">
@@ -834,7 +834,7 @@ function updateReadout(dec){
   $('roNoon').textContent = na<=0 ? 'Below horizon' : na>=89.95 ? '90\u00b0 \u00b7 Overhead' : na.toFixed(1)+'\u00b0 '+(noonAz(LAT,dec)===180?'S':'N');
   $('seasonNow').textContent=fmtDay(dayOfYear);
   if(stepMode==='day'){ $('timeNow').textContent=fmtDay(dayOfYear); $('timeKey').textContent=fmtTime(timeMin)+' held'; }
-  else { $('timeNow').textContent=fmtTime(timeMin); $('timeKey').textContent='Solar time'; }
+  else { $('timeNow').textContent=fmtTime(timeMin); $('timeKey').textContent='Solar \u00b7 '+clockFor(dayOfYear,timeMin); }
 }
 
 function presetFor(v){ return PRESETS.find(p=>Math.abs(p.v-v)<0.05); }
@@ -910,11 +910,21 @@ const HOME_LON=-73.1;
 function eqTimeMin(N,hr){ const g=2*Math.PI/365*(N-1+(hr-12)/24);
   return 229.18*(0.000075+0.001868*Math.cos(g)-0.032077*Math.sin(g)-0.014615*Math.cos(2*g)-0.040849*Math.sin(2*g)); }
 function dayIndex(d){ return Math.round((Date.UTC(2025,d.getUTCMonth(),d.getUTCDate())-Date.UTC(2025,0,1))/86400000)+1; }   // same non-leap calendar as the Date slider
+function nthSunday(y,m,n){ const w=new Date(Date.UTC(y,m,1)).getUTCDay(); return 1+((7-w)%7)+7*(n-1); }
+function isDST(ms){ const y=new Date(ms-5*3600000).getUTCFullYear();
+  return ms>=Date.UTC(y,2,nthSunday(y,2,2),7) && ms<Date.UTC(y,10,nthSunday(y,10,1),6); }   // 2 AM local, 2nd Sun Mar → 1st Sun Nov
+function clockFor(N,solarMin){
+  const n=Math.floor(N), eot=eqTimeMin(n,solarMin/60);
+  const ms=Date.UTC(2026,0,1)+(n-1)*86400000+Math.round(solarMin-HOME_LON*4-eot)*60000;   // UTC, to the nearest minute
+  const dst=isDST(ms), loc=new Date(ms+(dst?-4:-5)*3600000);
+  const h=loc.getUTCHours(), m=loc.getUTCMinutes(); let hh=h%12; if(hh===0) hh=12;
+  return hh+':'+String(m).padStart(2,'0')+' '+(h<12?'AM':'PM')+' '+(dst?'EDT':'EST');
+}
 function jumpToNow(){
   const now=Date.now(), mean=new Date(now+HOME_LON/15*3600000);                     // local mean solar time
   const eot=eqTimeMin(dayIndex(mean), mean.getUTCHours()+mean.getUTCMinutes()/60);
   const sol=new Date(mean.getTime()+eot*60000);                                     // apparent solar time
-  dayOfYear=Math.min(365,dayIndex(sol)); timeMin=sol.getUTCHours()*60+sol.getUTCMinutes();
+  dayOfYear=Math.min(365,dayIndex(sol)); timeMin=sol.getUTCHours()*60+sol.getUTCMinutes()+sol.getUTCSeconds()/60;
   season.value=dayOfYear; timeRange.value=timeMin; syncFills(); stopPlay(); render();
 }
 $('nowBtn').addEventListener('click',jumpToNow);
