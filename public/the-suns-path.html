@@ -48,6 +48,8 @@
   #sky{width:100%;height:auto;display:block;cursor:pointer;touch-action:auto}
   #sky.rotating{cursor:grab;touch-action:none}
   #sky.rotating.dragging{cursor:grabbing}
+  #sky.over-sun{cursor:pointer}
+  #sky.dragging-sun{cursor:grabbing}
   .view-ctl{position:absolute;top:10px;right:10px;display:flex;gap:6px}
   .view-btn{font-family:var(--font-body);font-size:13px;font-weight:600;padding:6px 12px;border-radius:var(--radius-md);border:1px solid var(--color-border-hover);background:rgba(20,24,21,0.82);color:var(--color-text-secondary);cursor:pointer}
   .view-btn:hover{color:var(--color-text-primary);border-color:var(--tool-accent)}
@@ -434,8 +436,14 @@ function render(){
   S.field = S.starA>0 ? starField(H) : null;
   if(viewMode==='ground'){ renderGround(S); drawInset(S); }
   else { setupView(MAINBOX); drawDomeScene(S,false); }
+  if(sunDrag && sun.alt>-0.5){ const q=sunScreen(S.sunV); if(q) label(fmtTime(timeMin),q.x+(q.x>CW-120?-22:22),q.y-22,{font:'700 16px "Public Sans"',fill:'#FFE3A8',align:q.x>CW-120?'right':'left',force:true,pad:4}); }
   updateReadout(dec);
   updateSunNow(sun);
+}
+// screen position of a sky direction in the main view (null if off-screen in the ground view)
+function sunScreen(v){
+  if(viewMode==='ground'){ setupGround(); const p=GP(v); return (p&&p.x>=0&&p.x<=CW&&p.y>=0&&p.y<=CH)?p:null; }
+  setupView(MAINBOX); return P(v);
 }
 
 function reserveOverlays(){
@@ -447,6 +455,16 @@ function reserveOverlays(){
     _labels.push({x0:(r.left-cr.left)*k-4, y0:(r.top-cr.top)*k-4, x1:(r.right-cr.left)*k+4, y1:(r.bottom-cr.top)*k+4});
   });
   if(viewMode==='ground'){ const b=INSETBOX; _labels.push({x0:b.x-4,y0:b.y-4,x1:b.x+b.w+4,y1:b.y+b.h+4}); }
+}
+
+// zenith: a small cross at 90° altitude; the word steps aside when the Sun is within 3° of it
+function drawZenithMark(p,sunAlt){
+  if(!p||p.x<0||p.x>CW||p.y<0||p.y>CH) return;
+  ctx.beginPath(); ctx.moveTo(p.x-7,p.y); ctx.lineTo(p.x+7,p.y); ctx.moveTo(p.x,p.y-7); ctx.lineTo(p.x,p.y+7);
+  ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=1.6; ctx.stroke();
+  if(sunAlt>87) return;
+  const o={font:'700 13px "Courier Prime"',fill:'rgba(255,255,255,0.88)'};
+  label('ZENITH',p.x,p.y-15,o) || label('ZENITH',p.x+12,p.y,{...o,align:'left'}) || label('ZENITH',p.x,p.y+16,o);
 }
 
 // ══════════════ DOME ══════════════
@@ -494,6 +512,7 @@ function drawDomeScene(S,mini){
     return;
   }
   if(trailOn){ for(const t of trailPoints(dec,S.H)){ const p=P(t.v); drawTrailDot(p,6); if(t.lab) label(t.lab,p.x,p.y-15,{font:'700 13px "Courier Prime"',fill:'rgba(255,236,200,0.85)'}); } }
+  drawZenithMark(P([0,0,1]),sun.alt);
   drawNoonAngle(dec);
   for(let az=0; az<360; az+=45){
     const c=compass16(az), p=P(scl(vec(0,az),1.09)), big=az%90===0;
@@ -681,6 +700,7 @@ function renderGround(S){
     if(G.sky){ const q=GP(vec(0,az)); const dx=q.x-GCX, dy=q.y-GCY, d=Math.hypot(dx,dy); p.x=GCX+dx/d*(d+18); p.y=GCY+dy/d*(d+18); }
     lab(compass16(az),p.x,p.y,{font:(big?'700 20px':'700 15px')+' "Courier Prime"',fill:big?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.7)',force:big});
   }
+  drawZenithMark(GP([0,0,1]),sun.alt);
   if(gridOn) labelGroundGrid();
   if(S.field) labelPolaris(S.field);
   const na=noonAltitude(LAT,dec);
@@ -877,7 +897,8 @@ function stepTime(){
 }
 document.addEventListener('keydown',e=>{ if(e.code==='Space'||e.key===' '){ e.preventDefault(); if(!capturing) stepTime(); } });
 function syncHint(){
-  document.querySelector('.step-hint').innerHTML = 'Press <b>space</b> or <b>click the sky</b> to step forward one '+(stepMode==='day'?'day':'hour') + (locked ? '' : (viewMode==='ground'?' &middot; <b>drag</b> to look around':' &middot; <b>drag</b> the dome to turn it'));
+  document.querySelector('.step-hint').innerHTML = '<b>Space</b> or <b>click</b>: next '+(stepMode==='day'?'day':'hour')+' &middot; <b>drag the Sun</b> along its path'
+    + (locked ? '' : (viewMode==='ground' ? ' &middot; <b>drag the sky</b> to look around' : ' &middot; <b>drag the sky</b> to turn the dome'));
 }
 document.querySelectorAll('[data-step]').forEach(b=>b.addEventListener('click',()=>{
   if(b.dataset.step===stepMode) return;
@@ -926,10 +947,40 @@ document.querySelectorAll('[data-face]').forEach(b=>b.addEventListener('click',(
 $('skyBtn').addEventListener('click',()=>{ G.sky=!G.sky; syncViewBtns(); render(); });
 $('gridBtn').addEventListener('click',()=>{ gridOn=!gridOn; syncViewBtns(); render(); });
 $('trailBtn').addEventListener('click',()=>{ trailOn=!trailOn; syncViewBtns(); render(); });
-let drag=null;
-canvas.addEventListener('pointerdown',e=>{ drag={x:e.clientX,y:e.clientY,moved:false,az:VIEW.az,el:VIEW.el,gaz:G.az,galt:G.alt}; if(!locked){ canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); } });
+let drag=null, sunDrag=false;
+function toCanvas(e){ const r=canvas.getBoundingClientRect(), k=CW/r.width; return {x:(e.clientX-r.left)*k, y:(e.clientY-r.top)*k, k}; }
+// today's path in 2-minute steps, above the horizon only, with screen positions
+function pathSamples(){
+  const dec=declination(dayOfYear), out=[];
+  for(let t=0;t<1440;t+=2){ const s=sunAltAz(LAT,dec,15*(t/60-12)); if(s.alt<0) continue; const q=sunScreen(vec(s.alt,s.az)); if(q) out.push({t,x:q.x,y:q.y}); }
+  return out;
+}
+function sunHit(c,touch){
+  const dec=declination(dayOfYear), s=sunAltAz(LAT,dec,15*(timeMin/60-12));
+  if(s.alt<=-0.5) return false;
+  const q=sunScreen(vec(s.alt,s.az)); return !!q && Math.hypot(q.x-c.x,q.y-c.y)<=(touch?34:24);
+}
+function pathHit(c){ let best=null,bd=12; for(const p of pathSamples()){ const d=Math.hypot(p.x-c.x,p.y-c.y); if(d<bd){bd=d;best=p;} } return best; }
+function moveSunTo(c){
+  // nearest path point within 3 h of the current time, so the Sun slides along the path instead of jumping across it
+  let best=null,bd=1e9;
+  for(const p of pathSamples()){ const dt=Math.abs(((p.t-timeMin)%1440+2160)%1440-720); if(dt>180) continue; const d=Math.hypot(p.x-c.x,p.y-c.y); if(d<bd){bd=d;best=p;} }
+  if(best){ timeMin=best.t; timeRange.value=timeMin; syncFills(); render(); }
+}
+canvas.addEventListener('pointerdown',e=>{
+  const c=toCanvas(e), touch=e.pointerType==='touch';
+  drag={x:e.clientX,y:e.clientY,moved:false,az:VIEW.az,el:VIEW.el,gaz:G.az,galt:G.alt,sun:false};
+  let hit=sunHit(c,touch);
+  if(!hit){ const p=pathHit(c); if(p){ timeMin=p.t; timeRange.value=timeMin; syncFills(); hit=true; } }
+  if(hit){ drag.sun=true; sunDrag=true; stopPlay(); canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging-sun'); render(); return; }
+  if(!locked){ canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); }
+});
 canvas.addEventListener('pointermove',e=>{
-  if(!drag) return;
+  if(!drag){                                                    // hover: grab hand over the Sun or its path
+    const c=toCanvas(e), over=sunHit(c,false)||!!pathHit(c);
+    canvas.classList.toggle('over-sun',over); return;
+  }
+  if(drag.sun){ moveSunTo(toCanvas(e)); return; }
   const dx=e.clientX-drag.x, dy=e.clientY-drag.y;
   if(Math.abs(dx)+Math.abs(dy)>4) drag.moved=true;   // a drag is never a click, locked or not
   if(!drag.moved||locked) return;
@@ -945,9 +996,13 @@ canvas.addEventListener('pointermove',e=>{
   }
   syncViewBtns(); render();
 });
-function endDrag(){ if(drag&&!drag.moved) stepTime(); drag=null; canvas.classList.remove('dragging'); }
+function endDrag(){
+  if(drag&&drag.sun){ sunDrag=false; drag=null; canvas.classList.remove('dragging-sun'); render(); return; }
+  if(drag&&!drag.moved) stepTime(); drag=null; canvas.classList.remove('dragging');
+}
 canvas.addEventListener('pointerup',endDrag);
-canvas.addEventListener('pointercancel',()=>{ drag=null; canvas.classList.remove('dragging'); });
+canvas.addEventListener('pointercancel',()=>{ if(drag&&drag.sun){ sunDrag=false; render(); } drag=null; canvas.classList.remove('dragging','dragging-sun'); });
+canvas.addEventListener('pointerleave',()=>canvas.classList.remove('over-sun'));
 function updateSunNow(sun){
   $('sunNow').textContent=(sun.alt<0?'\u2212':'')+Math.abs(sun.alt).toFixed(1)+'\u00b0 \u00b7 '+compass16(sun.az)+' '+Math.round(sun.az)+'\u00b0';
 }
