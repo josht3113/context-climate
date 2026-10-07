@@ -285,8 +285,8 @@ details.deeper > summary:focus-visible{ outline:2px solid var(--tool-accent); ou
           <button class="cc-btn primary" id="btn-fire">Fire</button>
           <button class="cc-btn" id="btn-correct">Correct the aim</button>
         </div>
-        <label class="check" style="margin-top:10px"><input type="checkbox" id="show-norot" checked> Show the still-Earth path</label>
-        <label class="check"><input type="checkbox" id="show-both" > Draw both frames at once</label>
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="show-norot" checked> Show the intended path</label>
+        <label class="check"><input type="checkbox" id="show-space"> Show the path through space</label>
       </div>
 
       <!-- STORMS controls -->
@@ -465,7 +465,7 @@ var C = {
   grat:'rgba(232,228,217,0.09)', gratMaj:'rgba(232,228,217,0.16)',
   equator:'rgba(109,150,216,0.55)', glow:'rgba(60,163,174,0.20)',
   text:'#E8E4D9', muted:'#948F82', sec:'#A6A499', accent:'#3CA3AE',
-  real:'#E8794A', norot:'#9AA39B', sky:'#6D96D8', target:'#D8B24A',
+  real:'#E8794A', norot:'#9AA39B', aim:'#C9D0C8', sky:'#6D96D8', target:'#D8B24A',
   hemiN:'#E8794A', hemiS:'#A08CC6', star:'#E8E4D9'
 };
 
@@ -480,9 +480,9 @@ var S = {
   focus:null,            // [lat,lon] clicked point (spin mode)
   spinRate:52, spinRuler:true, spinParcels:false, spinRiders:true, spinStars:true,
   proj:'jet', speed:250, durT:21600,
-  launch:null, target:null, bearing:45,
+  launch:null, target:null, launchName:null, targetName:null, bearing:45,
   flight:null, ghost:null, flightT:0, flightDur:0,
-  showNorot:true, showBoth:false,
+  showNorot:true, showSpace:false,
   lowLat:30, lowLon:-52, stormCor:true, stormFric:true, stormIso:true,
   parcels:[], demo:[], tour:-1
 };
@@ -682,6 +682,10 @@ function drawTrack(track, upto, color, opts){
     var q = spun ? pxSpun(t[0],t[1],t[2], opts.spunNow ? theta() : t[3]) : px(t[0],t[1],t[2]);
     if (q[2]>0){ if(pen) ctx.lineTo(q[0],q[1]); else { ctx.moveTo(q[0],q[1]); pen=true; } last=[q[0],q[1]]; }
     else { pen=false; last=null; }
+  }
+  if (opts.casing){                       // dark under-stroke so a dashed line reads over land
+    ctx.save(); ctx.setLineDash([]); ctx.shadowBlur=0; ctx.lineWidth=wid+2.8;
+    ctx.strokeStyle='rgba(10,15,14,0.72)'; ctx.stroke(); ctx.restore();
   }
   ctx.stroke();
   ctx.restore();
@@ -950,8 +954,56 @@ function solveAim(){
   }
   return best;
 }
+/* reference cities: two north–south pairs, one per hemisphere */
+var CITIES = [
+  { n:'New York City', p:fromLL( 40.71, -74.01) },
+  { n:'Miami',         p:fromLL( 25.76, -80.19) },
+  { n:'Lima',          p:fromLL(-12.05, -77.04) },
+  { n:'Santiago',      p:fromLL(-33.45, -70.67) }
+];
+var CITY_SNAP = 16;                                    // px: a click this close lands exactly on the city
+function cityNear(sx, sy){
+  setCam(camEarth(), S.camLat);
+  var best=null, bd=CITY_SNAP;
+  for (var i=0;i<CITIES.length;i++){
+    var q=pxv(CITIES[i].p);
+    if (q[2] <= 0.04) continue;
+    var d=Math.hypot(q[0]-sx, q[1]-sy);
+    if (d < bd){ bd=d; best=CITIES[i]; }
+  }
+  return best;
+}
+function drawCities(){
+  setCam(camEarth(), S.camLat);
+  ctx.save();
+  ctx.font = 'bold 13px "Courier Prime", ui-monospace, monospace';
+  for (var i=0;i<CITIES.length;i++){
+    var c=CITIES[i], q=pxv(c.p);
+    if (q[2] <= 0.04) continue;
+    var x=q[0], y=q[1];
+    ctx.fillStyle=C.text; ctx.strokeStyle='rgba(10,15,14,0.9)'; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.arc(x,y,3.4,0,6.2832); ctx.fill(); ctx.stroke();
+    var w=ctx.measureText(c.n).width, left = x-15-w > 6;
+    label(left ? x-15 : x+15, y, c.n, C.text, left ? 'right' : 'left', 13, 'bold');
+    ctx.font = 'bold 13px "Courier Prime", ui-monospace, monospace';
+  }
+  ctx.restore();
+}
+/* the straight (great-circle) line from the launch site to the target, painted on the ground */
+function aimTrack(){
+  if (!S.launch) return null;
+  if (!S.target) return S.ghost;
+  var a=S.launch, b=S.target, om=Math.acos(Math.max(-1,Math.min(1,dot(a,b)))), out=[], N=160;
+  if (om < 1e-9) return [[a[0],a[1],a[2]]];
+  for (var i=0;i<=N;i++){
+    var t=i/N, s0=Math.sin((1-t)*om)/Math.sin(om), s1=Math.sin(t*om)/Math.sin(om);
+    out.push([a[0]*s0+b[0]*s1, a[1]*s0+b[1]*s1, a[2]*s0+b[2]*s1]);
+  }
+  return out;
+}
 function drawLaunch(){
   var spun = S.frame==='space', n = S.flight ? Math.max(2, Math.round(S.flightT/S.flightDur*S.flight.length)) : 0;
+  drawCities();
   setCam(camEarth(), S.camLat);
   // aim point / target
   if (S.target){
@@ -963,16 +1015,25 @@ function drawLaunch(){
       ctx.moveTo(q[0]+3,q[1]); ctx.lineTo(q[0]+11,q[1]);
       ctx.moveTo(q[0],q[1]-11); ctx.lineTo(q[0],q[1]-3);
       ctx.moveTo(q[0],q[1]+3); ctx.lineTo(q[0],q[1]+11); ctx.stroke();
-      label(q[0]+14,q[1]-9,'TARGET',C.target,'left',10,'bold');
+      // put the label above or below the crosshair, whichever is farther from the projectile
+      var ty = -22;
+      if (S.flight){
+        var hd=S.flight[Math.min(S.flight.length-1, n-1)], hq=[q[0],q[1]], hp=pxv([hd[0],hd[1],hd[2]]);
+        if (hp[2]>0 && Math.hypot(hp[0]-hq[0], hp[1]-(hq[1]-22)) < Math.hypot(hp[0]-hq[0], hp[1]-(hq[1]+22))) ty = 22;
+        q=hq;
+      }
+      label(q[0],q[1]+ty,'TARGET',C.target,'center',13,'bold');
     }
   }
   if (S.flight){
-    // In the sky frame, draw the launch pad's OWN trip through space, so the gap between
-    // where the flight starts and where the pad is now reads as rotation, not as a bug.
-    if (spun && S.launch){
+    // Optional: the flight's path through space, plus the launch pad's OWN trip through space,
+    // so the gap between where that path starts and where the pad is now reads as rotation.
+    // Inertial content uses the sky camera: camLon in space view, camStars() in ground view.
+    var skyCam = spun ? S.camLon : camStars();
+    if (S.showSpace && S.launch){
       var th0=S.flight[0][3], thNow=theta(), turned=(thNow-th0)*R2D;
       if (turned > 1){
-        setCam(camFor(true), S.camLat);
+        setCam(skyCam, S.camLat);
         var tail=null, pen=false, st=120;
         ctx.save(); ctx.setLineDash([2,4]); ctx.lineWidth=1.7;
         ctx.strokeStyle='rgba(60,163,174,0.85)'; ctx.beginPath();
@@ -988,29 +1049,35 @@ function drawLaunch(){
           ctx.beginPath(); ctx.arc(tail[0],tail[1],5.5,0,6.2832); ctx.stroke(); ctx.restore();
           var toRight = tail[0] < W*0.45;
           var lx = tail[0] + (toRight ? 11 : -11), al = toRight ? 'left' : 'right';
-          label(lx, tail[1], 'LAUNCH SITE, '+fmtDur(S.flightT)+' AGO', C.accent, al, 10.5, 'bold');
+          label(lx, tail[1], 'LAUNCH SITE, '+fmtDur(S.flightT)+' AGO', C.accent, al, 13, 'bold');
         }
       }
     }
-    if (S.showNorot && S.ghost){
-      var gl = drawTrack(S.ghost, n, C.norot, {spun:spun, spunNow:true, width:1.8, dash:[5,5]});
-      if (gl && n>=S.ghost.length-1){
-        ctx.strokeStyle=C.norot; ctx.lineWidth=1.4;
-        ctx.beginPath(); ctx.arc(gl[0],gl[1],5,0,6.2832); ctx.stroke();
-        label(gl[0], gl[1]-12, 'AIM POINT', C.norot, 'center', 9.5);
+    // the intended path: a dashed straight line to the target, painted on the ground
+    if (S.showNorot){
+      var aim = aimTrack();
+      if (aim){
+        var gl = drawTrack(aim, undefined, C.aim, {spun:spun, spunNow:true, width:2.2, dash:[8,6], casing:true});
+        if (gl && !S.target){
+          ctx.strokeStyle=C.aim; ctx.lineWidth=1.4;
+          ctx.beginPath(); ctx.arc(gl[0],gl[1],5,0,6.2832); ctx.stroke();
+          label(gl[0], gl[1]-15, 'AIM POINT', C.aim, 'center', 13, 'bold');
+        }
       }
     }
-    if (S.showBoth)
-      drawTrack(S.flight, n, spun?C.real:C.sky, {spun:!spun, width:1.5, glow:false, dash:[1,4]});
-    var last = drawTrack(S.flight, n, spun?C.sky:C.real, {spun:spun, width:2.6, glow:true});
-    if (last) marker(last[0],last[1], spun?C.sky:C.real, 3.6, true);
+    if (S.showSpace)
+      drawTrack(S.flight, n, C.sky, spun ? {spun:true, width:2.4, glow:true}
+                                         : {spun:true, cam:skyCam, width:1.7, dash:[1,4]});
+    // the apparent path: what an observer on the ground sees — always drawn
+    var last = drawTrack(S.flight, n, C.real, {spun:false, width:2.8, glow:true});
+    if (last) marker(last[0],last[1], C.real, 3.6, true);
     setCam(camEarth(), S.camLat);          // the launch site is a place: it rides with the ground
     var q0=pxv(S.launch||[S.flight[0][0],S.flight[0][1],S.flight[0][2]]);
-    if (q0[2]>0){ marker(q0[0],q0[1],C.text,2.6); label(q0[0]+9,q0[1]+10,'LAUNCH',C.sec,'left',10); }
+    if (q0[2]>0){ marker(q0[0],q0[1],C.text,2.6); label(q0[0]+10,q0[1]+13,'LAUNCH',C.text,'left',13,'bold'); }
   } else if (S.launch){
     setCam(camEarth(), S.camLat);
     var qa=pxv(S.launch);
-    if (qa[2]>0){ marker(qa[0],qa[1],C.text,3,true); label(qa[0]+11,qa[1]+11,'LAUNCH SITE',C.sec,'left',10); }
+    if (qa[2]>0){ marker(qa[0],qa[1],C.text,3,true); label(qa[0]+12,qa[1]+14,'LAUNCH SITE',C.text,'left',13,'bold'); }
   }
 }
 
@@ -1169,9 +1236,12 @@ var MODE_CAPTION = {
 };
 function updateLegend(){
   if (S.mode==='launch'){
-    var L=[{c:S.frame==='space'?C.sky:C.real, t:S.frame==='space'?'PATH THROUGH SPACE':'PATH OVER THE GROUND', line:true}];
-    if (S.showNorot) L.push({c:C.norot, t:'IF EARTH STOOD STILL', line:true, dash:true});
-    if (S.frame==='space' && S.flight) L.push({c:C.accent, t:'WHERE THE LAUNCH SITE WENT', line:true, dash:true});
+    var L=[{c:C.real, t:'APPARENT PATH', line:true}];
+    if (S.showNorot) L.push({c:C.aim, t:'INTENDED PATH', line:true, dash:true});
+    if (S.showSpace){
+      L.push({c:C.sky, t:'PATH THROUGH SPACE', line:true, dash:S.frame!=='space'});
+      if (S.flight) L.push({c:C.accent, t:'WHERE THE LAUNCH SITE WENT', line:true, dash:true});
+    }
     if (S.target) L.push({c:C.target, t:'TARGET', line:false});
     legend(L);
   } else if (S.mode==='storms'){
@@ -1205,7 +1275,8 @@ function refreshReadout(){
     var sp=projSpec();
     var out=[['Projectile', sp.name],['Speed', sp.v+' <small>m/s</small> · '+Math.round(sp.v*3.6).toLocaleString()+' <small>km/h</small>']];
     els.roTitle.textContent='This flight';
-    if (S.launch) out.push(['Launch site', fmtLL(S.launch)]);
+    if (S.launch) out.push(['Launch site', S.launchName || fmtLL(S.launch)]);
+    if (S.target && S.targetName) out.push(['Target', S.targetName]);
     if (S.flight){
       var idx=Math.max(1,Math.round(S.flightT/S.flightDur*(S.flight.length-1)));
       var t=S.flight[idx], g=S.ghost[idx];
@@ -1313,10 +1384,11 @@ var TOUR = [
   { k:'Step 4 of 6', t:'Aim at Reykjavík from Newfoundland.', d:'',
     go:function(){ applyMode('launch'); setFrame('ground'); S.proj='jet'; $('proj').value='jet';
       $('speed-field').hidden=true;
-      S.launch=fromLL(47.5,-52.7); S.target=fromLL(64.1,-21.9); S.zoom=0.52; lookAt(-38,52);
+      S.launch=fromLL(47.5,-52.7); S.target=fromLL(64.1,-21.9); S.launchName=S.targetName=null; S.zoom=0.52; lookAt(-38,52);
+      S.showSpace=false; $('show-space').checked=false;
       S.showNorot=true; $('show-norot').checked=true; fireLaunch(); } },
   { k:'Step 5 of 6', t:'Same flight, seen from the stars.', d:'',
-    go:function(){ if(!S.flight) TOUR[3].go(); setFrame('space'); } },
+    go:function(){ if(!S.flight) TOUR[3].go(); setFrame('space'); S.showSpace=true; $('show-space').checked=true; } },
   { k:'Step 6 of 6', t:'This is why storms turn.', d:'',
     go:function(){ applyMode('storms'); setFrame('ground'); S.lowLat=25; S.lowLon=-58; $('low-lat').value=25;
       $('low-v').textContent=lowLabel(); S.zoom=0.66; lookAt(-52,16); seedStorm(); } }
@@ -1423,8 +1495,8 @@ cv.addEventListener('pointermove', function(e){
 cv.addEventListener('pointerup', function(e){
   cv.classList.remove('dragging');
   if (drag && drag.moved<5){
-    var r=cv.getBoundingClientRect(), p=unproject(e.clientX-r.left, e.clientY-r.top);
-    if (p) onGlobeClick(p);
+    var r=cv.getBoundingClientRect(), sx=e.clientX-r.left, sy=e.clientY-r.top, p=unproject(sx, sy);
+    if (p) onGlobeClick(p, sx, sy);
   }
   drag=null;
 });
@@ -1435,12 +1507,15 @@ cv.addEventListener('wheel', function(e){
   resize();
 }, {passive:false});
 
-function onGlobeClick(p){
+function onGlobeClick(p, sx, sy){
   if (S.mode==='spin'){ S.focus=p; refreshReadout(); }
   else if (S.mode==='launch'){
-    if (!S.launch || S.target){ S.launch=p; S.target=null; S.flight=null; S.ghost=null; els.verdictWrap.hidden=true;
+    var city = (sx!==undefined) ? cityNear(sx, sy) : null;
+    if (city) p = city.p.slice();
+    if (!S.launch || S.target){ S.launch=p; S.launchName=city?city.n:null; S.target=null; S.targetName=null;
+      S.flight=null; S.ghost=null; els.verdictWrap.hidden=true;
       setCaption('The long shot','Launch site set.','Click a target, or press <b>Fire</b>.'); }
-    else { S.target=p; fireLaunch();
+    else { S.target=p; S.targetName=city?city.n:null; fireLaunch();
       setCaption('The long shot','Aimed straight at the target.',''); }
     updateLegend(); refreshReadout();
   }
@@ -1484,7 +1559,7 @@ $('proj').addEventListener('change', function(){
 $('speed').addEventListener('input', function(){ S.speed=+this.value; $('speed-v').textContent=S.speed+' m/s'; refreshReadout(); });
 $('dur').addEventListener('input', function(){ syncDur(); refreshReadout(); });
 $('btn-fire').addEventListener('click', function(){
-  if (!S.launch) S.launch=fromLL(45,-70);
+  if (!S.launch){ S.launch=fromLL(45,-70); S.launchName=null; }
   els.verdictWrap.hidden=true; fireLaunch(); updateLegend();
 });
 $('btn-correct').addEventListener('click', function(){
@@ -1504,7 +1579,7 @@ $('btn-correct').addEventListener('click', function(){
   }
 });
 $('show-norot').addEventListener('change', function(){ S.showNorot=this.checked; updateLegend(); });
-$('show-both').addEventListener('change', function(){ S.showBoth=this.checked; });
+$('show-space').addEventListener('change', function(){ S.showSpace=this.checked; updateLegend(); });
 
 /* ── storms panel ── */
 $('low-lat').addEventListener('input', function(){
@@ -1552,7 +1627,8 @@ window.CG = { S:S, fly:fly, fromLL:fromLL, launchVec:launchVec, bearingTo:bearin
   eastAt:eastAt, northAt:northAt, coriolisF:coriolisF, applyMode:applyMode, fireLaunch:fireLaunch,
   solveAim:solveAim, seedStorm:seedStorm, stepStorm:stepStorm, draw:draw, resize:resize,
   syncFrameButtons:syncFrameButtons, setFrame:setFrame, lookAt:lookAt, stateAt:stateAt, rk4:rk4, R_E:R_E, OM:OM,
-  setCam:setCam, px:px, pxSpun:pxSpun, camEarth:camEarth, camFor:camFor, theta:theta, landIn:LAND_IN };
+  setCam:setCam, px:px, pxSpun:pxSpun, camEarth:camEarth, camFor:camFor, camStars:camStars, theta:theta, landIn:LAND_IN,
+  cities:CITIES, cityNear:cityNear, onGlobeClick:onGlobeClick, gotoTour:gotoTour };
 requestAnimationFrame(tick);
 })();
 </script>
