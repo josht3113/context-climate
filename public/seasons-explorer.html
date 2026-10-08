@@ -79,12 +79,17 @@
   .sp-link[hidden]{display:none}
 
   .tl{grid-column:1/-1;display:grid;grid-template-columns:196px minmax(0,1fr);gap:12px;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:8px 12px 6px;min-height:0}
-  .tl-left{display:flex;flex-direction:column;justify-content:center;gap:10px}
+  .tl-left{display:flex;flex-direction:column;justify-content:center;gap:8px}
   .tl-row{display:flex;align-items:center;gap:12px}
   .play{flex:none;width:48px;height:48px;border-radius:50%;border:2px solid var(--tool-accent);background:rgba(214,126,96,0.16);color:var(--tool-accent);font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center}
   .play:hover{background:rgba(214,126,96,0.28)}
   .date{font-family:var(--font-display);font-size:28px;font-weight:700;line-height:1;color:var(--color-text-primary);white-space:nowrap}
   .speed .cc-tab{padding:4px 11px;font-size:13px}
+  .exports{display:flex;gap:6px}
+  .exports button{font-family:var(--font-body);font-size:13px;font-weight:600;padding:4px 10px;border-radius:var(--radius-md);border:1px solid var(--color-border-hover);background:transparent;color:var(--color-text-secondary);cursor:pointer}
+  .exports button:hover{color:var(--color-text-primary);border-color:var(--tool-accent)}
+  .exports button:disabled{opacity:0.45;cursor:default}
+  .exp-status{font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);white-space:nowrap}
   .tl-curve{position:relative;min-width:0}
   .tl-curve canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:pointer;touch-action:none}
   .snap{position:absolute;top:0;transform:translateX(-50%);display:flex;align-items:baseline;gap:7px;line-height:1.2;padding:4px 12px;border-radius:var(--radius-md);border:1.5px solid var(--tool-accent);background:rgba(214,126,96,0.16);color:var(--color-text-primary);cursor:pointer;z-index:2;white-space:nowrap}
@@ -99,6 +104,7 @@
   <header class="top">
     <span class="cc-eyebrow">Seasons</span>
     <h1 class="cc-title">Seasons Explorer</h1>
+    <span class="exp-status" id="expStatus" aria-live="polite"></span>
     <p class="prov" id="prov">Sun: Astronomical Almanac formulae, 2026 &middot; eccentricity 0.017 (ESSRT 2026) &middot; Natural Earth coastlines &middot; NASA city lights &middot; not to scale &middot; globe at local solar noon</p>
   </header>
 
@@ -132,6 +138,7 @@
     <div class="tl-left">
       <div class="tl-row"><button class="play" id="playBtn" aria-label="Play">&#9654;</button><span class="date" id="dateNow"></span></div>
       <div class="cc-tab-bar speed"><button class="cc-tab" data-sp="0.5">&frac12;&times;</button><button class="cc-tab active" data-sp="1">1&times;</button><button class="cc-tab" data-sp="2">2&times;</button><button class="cc-tab" data-sp="4">4&times;</button></div>
+      <div class="exports"><button id="pngBtn">&darr; PNG</button><button id="gifBtn">&darr; GIF</button><button id="mp4Btn">&darr; MP4</button></div>
     </div>
     <div class="tl-curve" id="tlWrap"><canvas id="tl"></canvas></div>
   </section>
@@ -273,7 +280,7 @@ function orbitCam(W,H){
   const raw=p=>{ const s=D/(D-dot(p,C)); return {x:s*dot(p,Rt), y:-s*dot(p,Up), s, z:dot(p,C)}; };
   let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
   for(let i=0;i<72;i++){ const a=i*5*D2R, q=raw([1.02*Math.cos(a),1.02*Math.sin(a),0]); x0=Math.min(x0,q.x); x1=Math.max(x1,q.x); y0=Math.min(y0,q.y); y1=Math.max(y1,q.y); }
-  const mx=96, mt=58, mb=70;
+  const mx=96, mt=capturing?14:58, mb=capturing?14:70;
   const K=Math.min((W-2*mx)/(x1-x0), (H-mt-mb-60)/Math.max(0.001,y1-y0), H*0.95);
   const ox=W/2-K*(x0+x1)/2, oy=mt+30+(H-mt-mb-60)/2-K*(y0+y1)/2;
   const P=p=>{ const q=raw(p); return {x:ox+K*q.x, y:oy+K*q.y, s:q.s, z:q.z}; };
@@ -331,13 +338,13 @@ function drawAxis(ctx,cam,cx,cy,rad,alpha,ext,polaris){
   ctx.strokeStyle='rgba(232,228,217,0.55)'; ctx.lineWidth=1.3; ctx.stroke(); ctx.restore();
   return {x:cx+ux*(L2+12), y:cy+uy*(L2+12), ux, uy};
 }
-function renderOrbit(){
-  const o=CV.orbit, ctx=o.ctx, W=o.W, H=o.H;
+function renderOrbit(o){
+  o=o||CV.orbit; const ctx=o.ctx, W=o.W, H=o.H;
   ctx.setTransform(o.d,0,0,o.d,0,0);
   const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.75); bg.addColorStop(0,'#121722'); bg.addColorStop(1,'#07090D');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H); drawStars(ctx,W,H,STARS_O);
   const cam=orbitCam(W,H), P=cam.P; ORB={cam,W,H};
-  const lab=labeler(ctx,W,H,overlayBoxes('orbitWrap',o.c));
+  const lab=labeler(ctx,W,H,capturing?[]:overlayBoxes('orbitWrap',o.c));
   // orbit samples
   const pts=[]; for(let N=1;N<=366;N+=1) pts.push({N,p:P(posAt(N))});
   // ecliptic plane
@@ -401,8 +408,8 @@ function globeCam(){
   return {C,R,U};
 }
 const _ob=document.createElement('canvas'), _ox=_ob.getContext('2d'), _lb=document.createElement('canvas'), _lx=_lb.getContext('2d');
-function renderGlobe(){
-  const o=CV.globe, ctx=o.ctx, W=o.W, H=o.H, d=o.d;
+function renderGlobe(o){
+  o=o||CV.globe; const ctx=o.ctx, W=o.W, H=o.H, d=o.d;
   ctx.setTransform(d,0,0,d,0,0);
   const bg=ctx.createRadialGradient(W/2,H/2,0,W/2,H/2,Math.max(W,H)*0.75); bg.addColorStop(0,'#111622'); bg.addColorStop(1,'#06080C');
   ctx.fillStyle=bg; ctx.fillRect(0,0,W,H); drawStars(ctx,W,H,STARS_G);
@@ -413,7 +420,8 @@ function renderGlobe(){
   const geoV=(lat,lon)=>{ const p=lat*D2R, h=(lon-OBS_LON)*D2R; return add(add(scl(A,Math.cos(p)*Math.cos(h)),scl(B,Math.cos(p)*Math.sin(h))),scl(Nv,Math.sin(p))); };
   const latV=(lat,h)=>geoV(lat,OBS_LON+h);
   GLB={gx,gy,gr,cam,F,pr,latV};
-  const lab=labeler(ctx,W,H,overlayBoxes('globeWrap',o.c));
+  const boxX=10;                                                      // exports: direct-rays box, fixed top-left so it never jumps mid-animation
+  const lab=labeler(ctx,W,H,capturing?[{x0:boxX-4,y0:6,x1:boxX+142,y1:70}]:overlayBoxes('globeWrap',o.c));
 
   // sunlight: parallel rays aimed along the observer's noon meridian
   const O=latV(st.lat,0);
@@ -465,7 +473,7 @@ function renderGlobe(){
     ctx.restore();
   }
   // shading + city lights, per pixel at reduced resolution
-  const n=Math.round(clamp(2*gr,60,460));
+  const n=Math.round(capturing?clamp(2*gr*d,60,1800):clamp(2*gr,60,460));
   _ob.width=n; _ob.height=n; _lb.width=n; _lb.height=n;
   const si=_ox.createImageData(n,n), li=_lx.createImageData(n,n), sp=si.data, lp=li.data;
   for(let j=0;j<n;j++){ const y=-((j+0.5)/n*2-1);
@@ -556,12 +564,16 @@ function renderGlobe(){
   for(const r of refLabels){ const o1={font:'700 13px '+FM,fill:r.col,align:'right'}; lab(r.txt,r.best.x-6,r.best.y-9,o1) || lab(r.txt,r.best.x-6,r.best.y+10,o1) || lab(r.txt,r.best.x-60,r.best.y-9,o1); }
   for(const t of [200,160,230,130,250]){ const v=[0,Math.cos(t*D2R),Math.sin(t*D2R)], s=pr(v); if(s.z<0.15) continue;
     if(lab('CIRCLE OF ILLUMINATION',s.x+8,s.y,{font:'700 13px '+FM,fill:'rgba(255,240,215,0.82)',align:'left'})) break; }
-  $('directVal').textContent=fmtLat(F.dec);
+  if(capturing){ const bw=138,bh=56,bx=boxX,by=10;
+    ctx.fillStyle='rgba(14,17,22,0.86)'; ctx.strokeStyle='rgba(232,228,217,0.26)'; ctx.lineWidth=1; ctx.fillRect(bx,by,bw,bh); ctx.strokeRect(bx+0.5,by+0.5,bw-1,bh-1);
+    ctx.textAlign='right'; ctx.textBaseline='alphabetic'; ctx.fillStyle='#A6A499'; ctx.font='700 13px '+FM; ctx.fillText('DIRECT RAYS',bx+bw-12,by+20);
+    ctx.fillStyle=C_DIRECT; ctx.font='700 22px '+FD; ctx.fillText(fmtLat(F.dec),bx+bw-12,by+46); }
+  else $('directVal').textContent=fmtLat(F.dec);
 }
 
 // ══════════════ NOON PANEL ══════════════
-function renderNoon(){
-  const o=CV.noon, ctx=o.ctx, W=o.W, H=o.H;
+function renderNoon(o){
+  o=o||CV.noon; const ctx=o.ctx, W=o.W, H=o.H;
   ctx.setTransform(o.d,0,0,o.d,0,0);
   const dec=frame().dec, alt=noonAlt(st.lat,dec), fromS=st.lat>=dec, gy=H*0.78;
   const day=alt>0;
@@ -612,20 +624,25 @@ function renderNoon(){
     const ma=a/2, lx=x0+dir*Math.cos(ma)*(ar+24), ly=gy-Math.sin(ma)*(ar+24)-2;
     lab(alt.toFixed(1)+'°',lx,ly,{font:'700 18px '+FB,fill:'#fff',force:true,pad:4});
   }
-  // readouts
-  const dl=daylight(st.lat,dec), hm=Math.round(dl*60);
-  $('roAlt').textContent= alt<=0?'Below horizon':alt>=89.95?'90° overhead':alt.toFixed(1)+'° '+(fromS?'S':'N');
-  $('roDay').textContent=Math.floor(hm/60)+'h '+String(hm%60).padStart(2,'0')+'m';
-  const c=2*Math.PI*15, f=clamp(dl/24,0,1), arc=$('dlArc');
-  arc.setAttribute('stroke-dasharray',(f*c).toFixed(2)+' '+c.toFixed(2)); arc.setAttribute('transform','rotate('+(-90-f*180)+' 20 20)');
-  $('roInt').innerHTML=Math.round(100*Math.max(0,Math.sin(alt*D2R)))+'%<span class="ro-unit"> of overhead</span>';
-  $('roDist').innerHTML=(sunAt(st.N).R*149.598).toFixed(1)+'<span class="ro-unit"> million km</span>';
+  if(capturing) return;
+  const v=readoutVals();
+  $('roAlt').textContent=v.alt; $('roDay').textContent=v.day;
+  const c=2*Math.PI*15, arc=$('dlArc');
+  arc.setAttribute('stroke-dasharray',(v.f*c).toFixed(2)+' '+c.toFixed(2)); arc.setAttribute('transform','rotate('+(-90-v.f*180)+' 20 20)');
+  $('roInt').innerHTML=v.int+'<span class="ro-unit"> of overhead</span>';
+  $('roDist').innerHTML=v.dist+'<span class="ro-unit"> million km</span>';
+}
+function readoutVals(){
+  const dec=frame().dec, alt=noonAlt(st.lat,dec), fromS=st.lat>=dec, dl=daylight(st.lat,dec), hm=Math.round(dl*60);
+  return {alt:alt<=0?'Below horizon':alt>=89.95?'90\u00b0 overhead':alt.toFixed(1)+'\u00b0 '+(fromS?'S':'N'),
+    day:Math.floor(hm/60)+'h '+String(hm%60).padStart(2,'0')+'m', f:clamp(dl/24,0,1),
+    int:Math.round(100*Math.max(0,Math.sin(alt*D2R)))+'%', dist:(sunAt(st.N).R*149.598).toFixed(1)};
 }
 
 // ══════════════ TIMELINE ══════════════
 let TLG=null;
-function renderTL(){
-  const o=CV.tl, ctx=o.ctx, W=o.W, H=o.H;
+function renderTL(o){
+  o=o||CV.tl; const ctx=o.ctx, W=o.W, H=o.H;
   ctx.setTransform(o.d,0,0,o.d,0,0);
   ctx.fillStyle='#262B27'; ctx.fillRect(0,0,W,H);
   const x0=6, x1=W-6, top=40, bot=H-20;
@@ -639,6 +656,9 @@ function renderTL(){
     if(m%2===0){ ctx.fillStyle='rgba(255,255,255,0.025)'; ctx.fillRect(xa,top,xb-xa,bot-top); }
     ctx.beginPath(); ctx.moveTo(xa,bot); ctx.lineTo(xa,bot+4); ctx.strokeStyle='rgba(232,228,217,0.3)'; ctx.lineWidth=1; ctx.stroke();
     lab(MON[m].toUpperCase(),(xa+xb)/2,bot+11,{font:'700 13px '+FM,fill:'rgba(232,228,217,0.62)',force:true,pad:1}); }
+  if(capturing){ for(const ev of EVENTS){ const t=ev.nm.toUpperCase()+' \u00b7 '+fmtDate(ev.N).toUpperCase(); ctx.font='700 14px '+FM;
+      const w=ctx.measureText(t).width, x=clamp(X(ev.N),w/2+4,W-w/2-4), on=Math.abs(st.N-ev.N)<0.6;
+      lab(t,x,18,{font:'700 14px '+FM,fill:on?'#FFFFFF':'#E9A68C',force:true}); } }
   const curve=[]; for(let N=1;N<=366;N+=1) curve.push([X(N),Y(declOf(N,st.eps))]);
   // event guides
   for(const ev of EVENTS){ const x=X(ev.N); ctx.save(); ctx.setLineDash([2,4]); ctx.beginPath(); ctx.moveTo(x,top-10); ctx.lineTo(x,bot); ctx.strokeStyle='rgba(214,126,96,0.45)'; ctx.lineWidth=1.2; ctx.stroke(); ctx.restore(); }
@@ -664,13 +684,14 @@ function renderTL(){
   lab(t,cx+(right?12:-12),cy+(dec>0?14:-14),{font:'700 16px '+FB,fill:'#FFD0B5',align:right?'left':'right',force:true});
   if(EVENTS[0].N && X(EVENTS[0].N)>330) lab('LATITUDE OF DIRECT RAYS',x0+4,14,{font:'700 13px '+FM,fill:'rgba(232,228,217,0.7)',align:'left',force:true});
   // snap buttons
-  document.querySelectorAll('.snap').forEach((b,i)=>{ const ev=EVENTS[i], bw=b.offsetWidth, x=clamp(X(ev.N),bw/2,W-bw/2); b.style.left=x+'px'; b.classList.toggle('on',Math.abs(st.N-ev.N)<0.6); });
+  if(!capturing) document.querySelectorAll('.snap').forEach((b,i)=>{ const ev=EVENTS[i], bw=b.offsetWidth, x=clamp(X(ev.N),bw/2,W-bw/2); b.style.left=x+'px'; b.classList.toggle('on',Math.abs(st.N-ev.N)<0.6); });
 }
 
 // ══════════════ render scheduling ══════════════
-let pending=false;
+let pending=false, capturing=false;
 function requestRender(){ if(!pending){ pending=true; requestAnimationFrame(()=>{ pending=false; renderAll(); }); } }
 function renderAll(){
+  if(capturing) return;
   sizeAll();
   $('dateNow').textContent=fmtDate(st.N);
   $('obsLat').textContent=fmtLat(st.lat);
@@ -764,6 +785,244 @@ let last=0;
 function loop(ts){ const dt=Math.min(0.1,(ts-last)/1000||0); last=ts;
   if(st.playing){ setN(st.N+dt*(365/24)*st.speed); }
   requestAnimationFrame(loop); }
+
+
+// ══════════════ EXPORT: PNG · GIF · MP4 (self-contained, nothing fetched) ══════════════
+// Every export re-renders each panel at a fixed scale into its own offscreen canvas — never the screen's pixel ratio.
+const EXW=1280, EXH=720;
+const EXL={orbit:{x:16,y:76,w:470,h:426}, globe:{x:498,y:76,w:470,h:426}, noon:{x:980,y:76,w:284,h:262}, ro:{x:980,y:348,w:284,h:154}, tl:{x:16,y:514,w:1248,h:170}};
+const PROV_TEXT='Sun: Astronomical Almanac formulae, 2026 · eccentricity 0.017 (ESSRT 2026) · Natural Earth coastlines · NASA city lights · not to scale · globe at local solar noon';
+const OFF={}; for(const k of ['orbit','globe','noon','tl']){ const c=document.createElement('canvas'); OFF[k]={c,ctx:c.getContext('2d')}; }
+function renderPanel(k,s){
+  const L=EXL[k], o=OFF[k], w=Math.round(L.w*s), h=Math.round(L.h*s);
+  o.W=L.w; o.H=L.h; o.d=s; if(o.c.width!==w||o.c.height!==h){ o.c.width=w; o.c.height=h; }
+  ({orbit:renderOrbit,globe:renderGlobe,noon:renderNoon,tl:renderTL})[k](o); return o.c;
+}
+function placeName(){ const a=Math.abs(st.lat), so=st.lat<0;
+  if(a<0.05) return 'Equator'; if(a>89.95) return so?'South Pole':'North Pole';
+  if(!so&&Math.abs(a-LI_LAT)<0.05) return 'Long Island';
+  if(st.eps>0.6&&Math.abs(a-st.eps)<0.05) return so?'Tropic of Capricorn':'Tropic of Cancer';
+  if(st.eps>0.6&&Math.abs(a-(90-st.eps))<0.05) return so?'Antarctic Circle':'Arctic Circle';
+  return 'Observer'; }
+const stampLine=()=>placeName()+' · '+fmtLat(st.lat)+' · '+fmtDate(st.N)+' · axis tilt '+st.eps.toFixed(1)+'°';
+function rr(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+function drawReadouts(c,L){
+  const v=readoutVals(), cw=L.w/2, ch=L.h/2;
+  rr(c,L.x,L.y,L.w,L.h,6); c.fillStyle='#262B27'; c.fill(); c.strokeStyle='rgba(232,228,217,0.14)'; c.lineWidth=1; c.stroke();
+  c.beginPath(); c.moveTo(L.x+cw,L.y); c.lineTo(L.x+cw,L.y+L.h); c.moveTo(L.x,L.y+ch); c.lineTo(L.x+L.w,L.y+ch); c.stroke();
+  const cell=(i,key,val,unit,dial)=>{ const x=L.x+(i%2)*cw+12, y=L.y+Math.floor(i/2)*ch;
+    c.textAlign='left'; c.textBaseline='alphabetic'; c.fillStyle='#948F82'; c.font='700 13px '+FM; c.fillText(key,x,y+24);
+    let vx=x;
+    if(dial!=null){ const cx=x+11, cy=y+ch-22, r=9; c.lineWidth=5; c.strokeStyle='#3E4A66'; c.beginPath(); c.arc(cx,cy,r,0,6.283); c.stroke();
+      if(dial>0){ c.strokeStyle=C_OBS; c.beginPath(); c.arc(cx,cy,r,-Math.PI/2-dial*Math.PI,-Math.PI/2+dial*Math.PI); c.stroke(); } vx=x+28; }
+    c.fillStyle='#E8E4D9'; c.font='700 21px '+FD; c.fillText(val,vx,y+ch-14);
+    if(unit){ const w=c.measureText(val).width; c.fillStyle='#A6A499'; c.font='500 13px '+FB; c.fillText(unit,vx+w+5,y+ch-14); } };
+  cell(0,'NOON SUN',v.alt); cell(1,'DAYLIGHT',v.day,null,v.f); cell(2,'INTENSITY',v.int,'of overhead'); cell(3,'EARTH–SUN',v.dist,'million km');
+}
+function compose(oc,s){
+  oc.setTransform(s,0,0,s,0,0);
+  oc.fillStyle='#1E2320'; oc.fillRect(0,0,EXW,EXH);
+  oc.fillStyle=C_ACC; oc.fillRect(0,0,EXW,3);
+  oc.textAlign='left'; oc.textBaseline='alphabetic';
+  oc.fillStyle='#E8E4D9'; oc.font='700 26px '+FD; oc.fillText('Seasons Explorer',16,38);
+  oc.fillStyle='#A6A499'; oc.font='500 16px '+FB; oc.fillText(stampLine(),16,62);
+  oc.textAlign='right'; oc.fillStyle='#948F82'; oc.font='700 13px '+FM; oc.fillText('contextclimate.io',EXW-16,38);
+  for(const k of ['orbit','globe','noon','tl']){ const L=EXL[k], c=renderPanel(k,s);
+    oc.setTransform(s,0,0,s,0,0); oc.save(); rr(oc,L.x,L.y,L.w,L.h,6); oc.clip(); oc.drawImage(c,L.x,L.y,L.w,L.h); oc.restore();
+    rr(oc,L.x+0.5,L.y+0.5,L.w-1,L.h-1,6); oc.strokeStyle='rgba(232,228,217,0.14)'; oc.lineWidth=1; oc.stroke(); }
+  drawReadouts(oc,EXL.ro);
+  oc.textAlign='left'; oc.textBaseline='alphabetic'; oc.fillStyle='#948F82'; oc.font='400 13px '+FB; oc.fillText(PROV_TEXT,16,EXH-14);
+  oc.fillStyle=C_ACC; oc.fillRect(0,EXH-2,EXW,2);
+}
+function slug(year){
+  const p=placeName()==='Observer'?'lat'+fmtLat(st.lat).replace('°','').toLowerCase():placeName().toLowerCase().replace(/\s+/g,'-');
+  return 'seasons-explorer_'+p+'_'+(year?'year':fmtDate(st.N).replace(' ','-').toLowerCase())+(Math.abs(st.eps-TILT0)>0.01?'_tilt-'+st.eps:'');
+}
+const yearStates=n=>Array.from({length:n},(_,k)=>1.5+k*365/n);          // Jan 1 → Dec 31
+function saveBlob(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); }
+const tick=()=>new Promise(r=>setTimeout(r,0));
+const expStatus=$('expStatus'), expBtns=['pngBtn','gifBtn','mp4Btn'].map($);
+const fmtMB=b=>(b/1048576).toFixed(b<1048576?2:1)+' MB';
+function beginCapture(){ stopPlay(); capturing=true; expBtns.forEach(b=>b.disabled=true); return st.N; }
+function endCapture(N,msg){ st.N=N; capturing=false; expBtns.forEach(b=>b.disabled=false); expStatus.textContent=msg||''; renderAll(); }
+
+// ── PNG: 3840 × 2160 ──
+$('pngBtn').addEventListener('click',()=>{
+  if(capturing) return;
+  const N0=beginCapture(), S=3, c=document.createElement('canvas'); c.width=EXW*S; c.height=EXH*S;
+  try{ compose(c.getContext('2d'),S); const name=slug(false)+'.png';
+    c.toBlob(b=>{ saveBlob(b,name); endCapture(N0,'PNG saved · '+fmtMB(b.size)); },'image/png'); }
+  catch(e){ console.error(e); endCapture(N0,'PNG export failed'); }
+});
+// ── GIF: median-cut palette (255 colors + 1 transparent), LZW, inter-frame differencing ──
+function buildPalette(samples){
+  const hist=new Uint32Array(32768);
+  for(const d of samples) for(let i=0;i<d.length;i+=8) hist[((d[i]>>3)<<10)|((d[i+1]>>3)<<5)|(d[i+2]>>3)]++;
+  const bins=[]; for(let i=0;i<32768;i++) if(hist[i]) bins.push(i);
+  const ch=(b,a)=>a===0?(b>>10)&31:a===1?(b>>5)&31:b&31;
+  const mk=list=>{ let lo=[31,31,31],hi=[0,0,0],n=0; for(const b of list){ n+=hist[b]; for(let a=0;a<3;a++){ const v=ch(b,a); if(v<lo[a])lo[a]=v; if(v>hi[a])hi[a]=v; } } return {list,lo,hi,n}; };
+  const boxes=[mk(bins)];
+  while(boxes.length<255){
+    let bi=-1,best=-1;
+    boxes.forEach((bx,i)=>{ if(bx.list.length<2) return; const r=Math.max(bx.hi[0]-bx.lo[0],bx.hi[1]-bx.lo[1],bx.hi[2]-bx.lo[2]); const sc=r*Math.cbrt(bx.n); if(sc>best){best=sc;bi=i;} });
+    if(bi<0) break;
+    const bx=boxes[bi], rr=[0,1,2].map(a=>bx.hi[a]-bx.lo[a]), ax=rr.indexOf(Math.max(...rr));
+    bx.list.sort((p,q)=>ch(p,ax)-ch(q,ax));
+    let acc=0, cut=1; for(let i=0;i<bx.list.length;i++){ acc+=hist[bx.list[i]]; if(acc>=bx.n/2){ cut=Math.max(1,Math.min(bx.list.length-1,i+1)); break; } }
+    boxes.splice(bi,1,mk(bx.list.slice(0,cut)),mk(bx.list.slice(cut)));
+  }
+  const pal=boxes.map(bx=>{ let r=0,g=0,b=0; for(const q of bx.list){ const w=hist[q]; r+=(((q>>10)&31)*8+4)*w; g+=(((q>>5)&31)*8+4)*w; b+=((q&31)*8+4)*w; } return [r/bx.n|0,g/bx.n|0,b/bx.n|0]; });
+  while(pal.length<255) pal.push([0,0,0]);
+  const lut=new Uint8Array(32768);
+  for(let q=0;q<32768;q++){
+    const r=((q>>10)&31)*8+4, g=((q>>5)&31)*8+4, b=(q&31)*8+4; let bd=1e9,bk=0;
+    for(let k=0;k<255;k++){ const p=pal[k], dr=r-p[0], dg=g-p[1], db=b-p[2], d=2*dr*dr+4*dg*dg+db*db; if(d<bd){bd=d;bk=k;} }
+    lut[q]=bk;
+  }
+  return {pal,lut};
+}
+const BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5].map(v=>Math.round((v/16-0.47)*12));
+function lzw(idx,minCode){
+  const clear=1<<minCode, eoi=clear+1, out=[];
+  let codeSize=minCode+1, next=eoi+1, dict=new Map(), cur=0, nbits=0;
+  const emit=(c,sz)=>{ cur|=c<<nbits; nbits+=sz; while(nbits>=8){ out.push(cur&255); cur>>>=8; nbits-=8; } };
+  emit(clear,codeSize);
+  let ib=idx[0];
+  for(let i=1;i<idx.length;i++){
+    const k=idx[i], key=(ib<<8)|k, v=dict.get(key);
+    if(v!==undefined){ ib=v; continue; }
+    emit(ib,codeSize);
+    if(next===4096){ emit(clear,codeSize); dict=new Map(); next=eoi+1; codeSize=minCode+1; }
+    else { if(next>=(1<<codeSize)) codeSize++; dict.set(key,next); next++; }   // size check BEFORE the increment
+    ib=k;
+  }
+  emit(ib,codeSize); emit(eoi,codeSize); if(nbits>0) out.push(cur&255);
+  return out;
+}
+function gifFile(W,H,pal,frames){        // frames: {x,y,w,h,idx,delay(cs)}
+  const parts=[]; const B=a=>parts.push(Uint8Array.from(a)); const w16=v=>[v&255,(v>>8)&255];
+  B([71,73,70,56,57,97, ...w16(W), ...w16(H), 0xF7, 0, 0]);
+  const gct=new Uint8Array(768); pal.forEach((p,i)=>{ gct[i*3]=p[0]; gct[i*3+1]=p[1]; gct[i*3+2]=p[2]; }); parts.push(gct);
+  B([0x21,0xFF,0x0B, ...[...'NETSCAPE2.0'].map(c=>c.charCodeAt(0)), 3,1,0,0,0]);
+  for(const f of frames){
+    B([0x21,0xF9,4,(1<<2)|1, ...w16(f.delay), 255, 0]);                 // disposal 1 (keep), index 255 transparent
+    B([0x2C, ...w16(f.x), ...w16(f.y), ...w16(f.w), ...w16(f.h), 0, 8]);
+    const data=lzw(f.idx,8), blk=new Uint8Array(data.length+Math.ceil(data.length/255)+1); let o=0;
+    for(let i=0;i<data.length;i+=255){ const n=Math.min(255,data.length-i); blk[o++]=n; for(let j=0;j<n;j++) blk[o++]=data[i+j]; }
+    blk[o++]=0; parts.push(blk.subarray(0,o));
+  }
+  B([0x3B]);
+  return new Blob(parts,{type:'image/gif'});
+}
+function mp4Mux({kind,codec,width,height,timescale,delta,samples,desc}){
+  const enc=new TextEncoder();
+  const cat=(...a)=>{ let n=0; for(const p of a) n+=p.length; const o=new Uint8Array(n); let i=0; for(const p of a){ o.set(p,i); i+=p.length; } return o; };
+  const u8=(...v)=>Uint8Array.from(v), u16=v=>u8((v>>8)&255,v&255), u32=v=>u8((v>>>24)&255,(v>>16)&255,(v>>8)&255,v&255);
+  const box=(t,...p)=>{ const body=cat(...p); return cat(u32(body.length+8),enc.encode(t),body); };
+  const full=(t,ver,flags,...p)=>box(t,u8(ver,(flags>>16)&255,(flags>>8)&255,flags&255),...p);
+  const N=samples.length, dur=N*delta, movieTS=1000, movieDur=Math.round(dur/timescale*1000);
+  const matrix=cat(u32(0x10000),u32(0),u32(0),u32(0),u32(0x10000),u32(0),u32(0),u32(0),u32(0x40000000));
+  let entry;
+  const visual=t=>cat(new Uint8Array(6),u16(1),u16(0),u16(0),new Uint8Array(12),u16(width),u16(height),u32(0x480000),u32(0x480000),u32(0),u16(1),new Uint8Array(32),u16(0x18),u16(0xFFFF));
+  if(kind==='avc') entry=box('avc1',visual(),box('avcC',desc));
+  else{ const m=codec.split('.'); entry=box('vp09',visual(),full('vpcC',1,0,u8(parseInt(m[1],10),parseInt(m[2],10),(parseInt(m[3],10)<<4)|(1<<1)|0,1,1,1),u16(0))); }
+  const keys=[]; samples.forEach((s,i)=>{ if(s.key) keys.push(i+1); });
+  const total=samples.reduce((a,s)=>a+s.data.length,0);
+  const ftyp=box('ftyp',enc.encode('isom'),u32(0x200),enc.encode('isom'),enc.encode('iso2'),enc.encode(kind==='avc'?'avc1':'vp09'),enc.encode('mp41'));
+  const moovFor=off=>box('moov',
+    full('mvhd',0,0,u32(0),u32(0),u32(movieTS),u32(movieDur),u32(0x10000),u16(0x100),u16(0),u32(0),u32(0),matrix,new Uint8Array(24),u32(2)),
+    box('trak',
+      full('tkhd',0,3,u32(0),u32(0),u32(1),u32(0),u32(movieDur),u32(0),u32(0),u16(0),u16(0),u16(0),u16(0),matrix,u32(width<<16),u32(height<<16)),
+      box('mdia',
+        full('mdhd',0,0,u32(0),u32(0),u32(timescale),u32(dur),u16(0x55C4),u16(0)),
+        full('hdlr',0,0,u32(0),enc.encode('vide'),u32(0),u32(0),u32(0),enc.encode('VideoHandler\0')),
+        box('minf',
+          full('vmhd',0,1,u16(0),u16(0),u16(0),u16(0)),
+          box('dinf',full('dref',0,0,u32(1),full('url ',0,1))),
+          box('stbl',
+            full('stsd',0,0,u32(1),entry),
+            full('stts',0,0,u32(1),u32(N),u32(delta)),
+            full('stss',0,0,u32(keys.length),...keys.map(u32)),
+            full('stsc',0,0,u32(1),u32(1),u32(N),u32(1)),
+            full('stsz',0,0,u32(0),u32(N),...samples.map(s=>u32(s.data.length))),
+            full('stco',0,0,u32(1),u32(off)))))));
+  const moovLen=moovFor(0).length, moov=moovFor(ftyp.length+moovLen+8);   // faststart: moov before mdat
+  return new Blob([ftyp,moov,u32(total+8),enc.encode('mdat'),...samples.map(s=>s.data)],{type:'video/mp4'});
+}
+
+// ── GIF: one year, 73 frames at 1024 × 576 ──
+async function exportGIF(){
+  if(capturing) return;
+  const N0=beginCapture();
+  try{
+    const GW=1024, s=GW/EXW, GH=Math.round(EXH*s), states=yearStates(73), NF=states.length;
+    const c=document.createElement('canvas'); c.width=GW; c.height=GH; const cc=c.getContext('2d',{willReadFrequently:true});
+    const rgba=[];
+    for(let k=0;k<NF;k++){ st.N=states[k]; compose(cc,s); rgba.push(cc.getImageData(0,0,GW,GH).data);
+      if(k%3===0){ expStatus.textContent='Rendering '+(k+1)+'/'+NF; await tick(); } }
+    expStatus.textContent='Building palette…'; await tick();
+    const {pal,lut}=buildPalette(rgba.filter((_,i)=>i%6===0));
+    const frames=[]; let prev=null;
+    for(let k=0;k<NF;k++){
+      const d=rgba[k], idx=new Uint8Array(GW*GH);
+      for(let y=0,j=0;y<GH;y++){ const brow=(y&3)<<2;
+        for(let x=0;x<GW;x++,j++){ const i=j<<2, o=BAYER[brow|(x&3)];
+          const r=Math.max(0,Math.min(255,d[i]+o)), g=Math.max(0,Math.min(255,d[i+1]+o)), b=Math.max(0,Math.min(255,d[i+2]+o));
+          idx[j]=lut[((r>>3)<<10)|((g>>3)<<5)|(b>>3)]; } }
+      const delay=k===NF-1?150:10;
+      if(!prev) frames.push({x:0,y:0,w:GW,h:GH,idx,delay});
+      else{ let x0=GW,y0=GH,x1=-1,y1=-1;
+        for(let y=0;y<GH;y++){ const r=y*GW; for(let x=0;x<GW;x++) if(idx[r+x]!==prev[r+x]){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } }
+        if(x1<0) frames.push({x:0,y:0,w:1,h:1,idx:Uint8Array.of(255),delay});
+        else{ const w=x1-x0+1, h=y1-y0+1, sub=new Uint8Array(w*h);
+          for(let y=0;y<h;y++){ const r=(y0+y)*GW+x0; for(let x=0;x<w;x++){ const v=idx[r+x]; sub[y*w+x]=v===prev[r+x]?255:v; } }
+          frames.push({x:x0,y:y0,w,h,idx:sub,delay}); } }
+      prev=idx;
+      if(k%6===0){ expStatus.textContent='Encoding '+(k+1)+'/'+NF; await tick(); }
+    }
+    const blob=gifFile(GW,GH,pal,frames); saveBlob(blob,slug(true)+'.gif');
+    endCapture(N0,'GIF saved · '+fmtMB(blob.size));
+  }catch(e){ console.error(e); endCapture(N0,'GIF export failed'); }
+}
+$('gifBtn').addEventListener('click',exportGIF);
+
+// ── MP4: one year, a day per frame at 1920 × 1080, 30 fps (WebCodecs; H.264, VP9 fallback) ──
+async function exportMP4(){
+  if(capturing) return;
+  if(typeof VideoEncoder==='undefined'||typeof VideoFrame==='undefined'){ expStatus.textContent='MP4 export needs an up-to-date Chrome'; return; }
+  const W=1920, H=1080, FPS=30, s=W/EXW;
+  const cands=[['avc1.640028','avc'],['avc1.4d0028','avc'],['avc1.42e028','avc'],['vp09.00.40.08','vp9']];
+  let pick=null;
+  for(const [codec,kind] of cands){ const cfg={codec,width:W,height:H,bitrate:kind==='avc'?8e6:6e6,framerate:FPS}; if(kind==='avc') cfg.avc={format:'avc'};
+    try{ const r=await VideoEncoder.isConfigSupported(cfg); if(r.supported){ pick={cfg,kind,codec}; break; } }catch(e){} }
+  if(!pick){ expStatus.textContent='This browser can’t encode MP4 video'; return; }
+  const N0=beginCapture();
+  try{
+    const states=yearStates(365), NF=states.length, samples=[]; let desc=null, err=null;
+    const enc=new VideoEncoder({
+      output:(chunk,meta)=>{ const b=new Uint8Array(chunk.byteLength); chunk.copyTo(b); samples.push({data:b,key:chunk.type==='key',ts:chunk.timestamp});
+        const d=meta&&meta.decoderConfig&&meta.decoderConfig.description; if(d&&!desc) desc=new Uint8Array(d.buffer?d.buffer.slice(d.byteOffset,d.byteOffset+d.byteLength):d); },
+      error:e=>{ err=e; } });
+    enc.configure(pick.cfg);
+    const c=document.createElement('canvas'); c.width=W; c.height=H; const cc=c.getContext('2d');
+    for(let k=0;k<NF;k++){
+      if(err) throw err;
+      st.N=states[k]; compose(cc,s);
+      const vf=new VideoFrame(c,{timestamp:Math.round(k*1e6/FPS),duration:Math.round(1e6/FPS)});
+      enc.encode(vf,{keyFrame:k%60===0}); vf.close();
+      while(enc.encodeQueueSize>4) await new Promise(r=>setTimeout(r,4));
+      if(k%8===0){ expStatus.textContent='Rendering '+(k+1)+'/'+NF; await tick(); }
+    }
+    expStatus.textContent='Finishing video…';
+    await enc.flush(); enc.close(); if(err) throw err;
+    if(pick.kind==='avc'&&!desc) throw new Error('encoder gave no avcC');
+    for(let i=1;i<samples.length;i++) if(samples[i].ts<samples[i-1].ts) throw new Error('reordered frames');
+    const blob=mp4Mux({kind:pick.kind,codec:pick.codec,width:W,height:H,timescale:FPS*100,delta:100,samples,desc});
+    saveBlob(blob,slug(true)+'.mp4');
+    endCapture(N0,'MP4 saved · '+fmtMB(blob.size));
+  }catch(e){ console.error(e); endCapture(N0,'MP4 export failed'); }
+}
+$('mp4Btn').addEventListener('click',exportMP4);
 
 new ResizeObserver(requestRender).observe(document.querySelector('.app'));
 buildMask();
