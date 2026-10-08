@@ -193,15 +193,6 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Orbital Mechanics', 'Interactive'],
-            title:       'Planetary Retrograde Motion',
-            description: 'Watch apparent retrograde motion emerge from the geometry of orbits, and trace the looping path it draws across the sky.',
-            footerTags:  ['Astronomy', 'Orbital Mechanics'],
-            to:          '/earthandspace/planetary-retrograde',
-            thumb:       '/PlanetaryRetrograde_thumbnail.png',
-            status:      'live',
-          },
-          {
             tags:        ['Space Travel', 'Interactive'],
             title:       'Mission to Mars',
             description: "Launch a rover toward Mars by timing your departure just right to meet the target at the perfect location. Watch the rover sweep a real Hohmann transfer ellipse, and see exactly how many days a mistimed launch misses by.",
@@ -305,6 +296,15 @@ const SECTIONS = [
             footerTags:  ['Celestial Observation', 'Circumpolar Stars'],
             to:          '/earthandspace/turning-sky',
             thumb:       '/TheTurningSky_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Orbital Mechanics', 'Interactive'],
+            title:       'Planetary Retrograde Motion',
+            description: 'Watch apparent retrograde motion emerge from the geometry of orbits, and trace the looping path it draws across the sky.',
+            footerTags:  ['Astronomy', 'Orbital Mechanics'],
+            to:          '/earthandspace/planetary-retrograde',
+            thumb:       '/PlanetaryRetrograde_thumbnail.png',
             status:      'live',
           },
           {
