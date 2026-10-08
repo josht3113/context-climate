@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Foucault Pendulum</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<style>
+:root {
+  --tool-accent: var(--accent-earth);
+  /* content colors */
+  --cw: #E0893A;          /* clockwise / Northern Hemisphere */
+  --ccw: #A08CC6;         /* counterclockwise / Southern Hemisphere */
+  --none: #A6A499;        /* no turning */
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body { padding: 10px 16px 10px; min-height: 0; overflow-x: hidden; }
+
+.topbar, .layout { max-width: 1640px; margin-left: auto; margin-right: auto; }
+.topbar { display: flex; align-items: center; gap: 18px; margin-bottom: 10px; flex-wrap: wrap; }
+.brand { display: flex; flex-direction: column; line-height: 1.1; }
+.brand .cc-title { font-size: 26px; }
+.brand .cc-eyebrow { font-size: 12px; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.presets .cc-btn { padding: 7px 12px; }
+.topbar .spacer { flex: 1; }
+.mode-seg .cc-segmented-btn { padding: 11px 20px; font-size: 13px; }
+#notesBtn { padding: 7px 12px; }
+
+.layout { display: flex; gap: 16px; align-items: flex-start; }
+.stage { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+.stage-box { position: relative; }
+#floor { display: block; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cell { position: relative; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); cursor: pointer; }
+.cell.is-active { border-color: var(--tool-accent); box-shadow: 0 0 0 1px var(--tool-accent); }
+.cell canvas { display: block; }
+.cell select { position: absolute; top: 6px; left: 6px; font-size: 13px; padding: 4px 8px; z-index: 2; }
+.cell .slotnum { position: absolute; top: 9px; right: 10px; font-size: 13px; color: var(--color-text-muted); }
+
+.transport { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#playBtn { min-width: 108px; font-size: 15px; padding: 10px 16px; }
+.speed-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); margin-left: 6px; }
+#speedSeg .cc-segmented-btn { padding: 10px 11px; letter-spacing: 0.05em; }
+#speedSeg { margin-left: auto; }
+.view-ctl { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.view-ctl .cc-segmented-btn { padding: 7px 12px; }
+.view-note { font-size: 13px; color: var(--color-text-muted); }
+.floor-tag { position: absolute; top: 2px; left: 0; font-size: 13px; color: var(--color-text-muted); }
+.cc-segmented-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.cc-segmented-btn:disabled:hover { background: var(--color-surface); color: var(--color-text-secondary); }
+
+.col-mid { display: flex; flex-direction: column; gap: 10px; flex: 0 0 320px; width: 320px; }
+.col-plot { flex: 1 1 360px; min-width: 340px; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
+.globe-panel { padding: 10px 12px 12px; }
+.globe-panel canvas { display: block; cursor: ns-resize; touch-action: none; }
+.lat-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.lat-row label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-muted); }
+.lat-row input[type=range] { flex: 1; min-width: 0; accent-color: var(--tool-accent); }
+.lat-val { font-family: var(--font-mono); font-size: 17px; min-width: 76px; text-align: right; white-space: nowrap; }
+
+.stats { display: grid; grid-template-columns: 0.9fr 1.4fr 0.9fr; gap: 8px; }
+.stats .cc-stat-chip { padding: 8px 10px; }
+.stats .cc-stat-label { font-size: 12px; }
+.stats .cc-stat-value { font-size: 22px; line-height: 1.15; }
+.stats .sub { font-family: var(--font-body); font-size: 13px; color: var(--color-text-secondary); }
+
+.plot-panel { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: #262B27; }
+.plot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.plot-head .cc-eyebrow { color: var(--color-text-secondary); }
+#plot { display: block; }
+.rec-row { display: flex; gap: 8px; align-items: center; }
+#recordBtn { font-size: 15px; padding: 11px 22px; }
+#recordBtn:disabled { filter: grayscale(0.7) brightness(0.7); cursor: not-allowed; }
+.rec-hint { font-size: 13px; color: var(--color-text-muted); }
+.rec-last { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-secondary); min-height: 20px; }
+
+.notes { position: fixed; inset: 0; background: rgba(15,18,16,0.72); display: none; align-items: center; justify-content: center; z-index: 50; }
+.notes.on { display: flex; }
+.notes .cc-panel { max-width: 560px; width: calc(100% - 32px); }
+.notes h2 { font-family: var(--font-display); font-size: 22px; margin: 0 0 10px; }
+.notes ul { margin: 0 0 14px; padding-left: 18px; font-size: 14px; color: var(--color-text-secondary); }
+.notes li { margin-bottom: 6px; }
+.notes .src { font-size: 13px; color: var(--color-text-muted); margin-bottom: 14px; }
+
+@media (max-width: 1180px) {
+  .layout { flex-wrap: wrap; }
+  .col-plot { max-width: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="cc-eyebrow">Observing the Sky</span>
+    <span class="cc-title">Foucault Pendulum</span>
+  </div>
+  <div class="presets" id="presets"></div>
+  <div class="spacer"></div>
+  <div class="cc-segmented mode-seg" role="tablist">
+    <button class="cc-segmented-btn is-active" data-mode="single">One pendulum</button>
+    <button class="cc-segmented-btn" data-mode="compare">Compare latitudes</button>
+  </div>
+  <button class="cc-btn cc-btn-sm" id="notesBtn">Notes</button>
+</header>
+
+<main class="layout">
+  <section class="stage">
+    <div class="stage-box" id="stageBox">
+      <span class="floor-tag" id="floorTag">Viewed from above</span>
+      <canvas id="floor"></canvas>
+      <div class="view-ctl" id="viewCtl">
+        <div class="cc-segmented" id="viewSeg">
+          <button class="cc-segmented-btn is-active" data-view="ground">Ground</button>
+          <button class="cc-segmented-btn" data-view="space">Space</button>
+        </div>
+        <span class="view-note" id="viewNote">poles only</span>
+      </div>
+      <div class="compare-grid" id="compareGrid" hidden></div>
+    </div>
+    <div class="transport">
+      <button class="cc-btn primary" id="playBtn">▶ Play</button>
+      <button class="cc-btn" id="resetBtn">Reset</button>
+      <div class="cc-segmented" id="speedSeg">
+        <button class="cc-segmented-btn" data-speed="0.25">15 min/s</button>
+        <button class="cc-segmented-btn is-active" data-speed="1">1 hr/s</button>
+        <button class="cc-segmented-btn" data-speed="4">4 hr/s</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="col-mid">
+    <div class="cc-panel globe-panel">
+      <canvas id="globe"></canvas>
+      <div class="lat-row">
+        <label for="latSlider">Latitude</label>
+        <input type="range" id="latSlider" min="-90" max="90" step="0.1" value="40.8">
+        <span class="lat-val" id="latVal">40.8° N</span>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="cc-stat-chip"><span class="cc-stat-label">Elapsed</span><span class="cc-stat-value" id="stTime">0 h</span><span class="sub" id="stTimeSub">00 min</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Turned</span><span class="cc-stat-value" id="stTurn">0.0°</span><span class="sub" id="stTurnSub">—</span></div>
+      <div class="cc-stat-chip"><span class="cc-stat-label">Pegs</span><span class="cc-stat-value" id="stPegs">0 / 24</span><span class="sub">down</span></div>
+    </div>
+  </section>
+
+  <section class="col-plot">
+    <div class="cc-panel plot-panel">
+      <div class="plot-head"><span class="cc-eyebrow">Turning rate vs. latitude</span><button class="cc-btn cc-btn-sm" id="clearBtn">Clear</button></div>
+      <canvas id="plot"></canvas>
+      <div class="rec-row">
+        <button class="cc-btn primary" id="recordBtn" disabled>Record this run</button>
+        <span class="rec-hint" id="recHint">Run at least 1 hr to record</span>
+      </div>
+      <div class="rec-last" id="recLast"></div>
+    </div>
+  </section>
+</main>
+
+<div class="notes" id="notes">
+  <div class="cc-panel">
+    <h2>Notes</h2>
+    <ul>
+      <li>Turning rate = 15.04°/hr × sin(latitude). 15.04°/hr is one turn per sidereal day (23 h 56 min 4 s).</li>
+      <li>Swing tempo on screen is fixed so the swing stays visible at every playback speed. Real Foucault pendulums swing once every 10–20 s (the Panthéon pendulum, 67 m long: about 16 s).</li>
+      <li>Idealized pendulum: no air drag or energy loss and a perfectly straight swing. Real exhibits use a drive to keep swinging.</li>
+      <li>24 pegs, 15° apart, placed 7.5° either side of the starting swing direction.</li>
+      <li>Recorded rate = degrees turned ÷ hours elapsed for that run.</li>
+    </ul>
+    <div class="src">Land outlines: Natural Earth 1:50m via world-atlas. Site latitudes: Panthéon, Paris 48.85° N · Long Island 40.8° N · Sydney 33.87° S.</div>
+    <button class="cc-btn" id="notesClose">Close</button>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ───────── constants ───────── */
+const SIDEREAL_H = 23.9344696;
+const OMEGA = 360 / SIDEREAL_H;          // °/hr, Earth's rotation
+const NPEG = 24;
+const PEG_AZ = Array.from({length: NPEG}, (_, k) => 7.5 + 15 * k);
+const SWING_PERIOD_S = 2.2;              // on-screen swing tempo (wall seconds)
+const TRACE_WINDOW_H = 4;                // fading trace length (sim hours)
+const TRACE_STEP_H = 0.05;
+const RECORD_MIN_H = 1;
+const GLOBE_DLON = 62;                   // patch sits this far east of globe center
+
+const C = {
+  cw: '#E0893A', ccw: '#A08CC6', none: '#A6A499',
+  accent: '#3CA3AE',
+  floorIn: '#30372F', floorOut: '#262B27',
+  ring: 'rgba(232,228,217,0.22)', tick: 'rgba(232,228,217,0.35)',
+  text: '#E8E4D9', text2: '#A6A499', muted: '#948F82',
+  peg: '#D2B46E', pegTop: '#F0DCA2', pegDown: '#8E7C52',
+  bobHi: '#EEF2F4', bobLo: '#6E777E',
+  surface: '#262B27'
+};
+
+const SITES = [
+  {id: 'np',  name: 'North Pole',  lat: 90,     lon: -73.1},
+  {id: 'par', name: 'Paris',       lat: 48.85,  lon: 2.35},
+  {id: 'li',  name: 'Long Island', lat: 40.8,   lon: -73.1},
+  {id: 'eq',  name: 'Equator',     lat: 0,      lon: -78.5},
+  {id: 'syd', name: 'Sydney',      lat: -33.87, lon: 151.21},
+  {id: 'sp',  name: 'South Pole',  lat: -90,    lon: -73.1},
+];
+const SLOT_OPTIONS = [
+  {lat: 90, label: 'North Pole · 90° N'}, {lat: 75}, {lat: 60},
+  {lat: 48.85, label: 'Paris · 48.85° N', lon: 2.35}, {lat: 45},
+  {lat: 40.8, label: 'Long Island · 40.8° N', lon: -73.1},
+  {lat: 30}, {lat: 15}, {lat: 0, label: 'Equator · 0°', lon: -78.5},
+  {lat: -15}, {lat: -30}, {lat: -33.87, label: 'Sydney · 33.87° S', lon: 151.21},
+  {lat: -45}, {lat: -60}, {lat: -75}, {lat: -90, label: 'South Pole · 90° S'},
+];
+
+/* ───────── physics ───────── */
+const sinD = d => Math.sin(d * Math.PI / 180);
+function rate(lat) {                     // °/hr, + = clockwise viewed from above
+  if (Math.abs(lat) < 1e-9) return 0;
+  return OMEGA * sinD(lat);
+}
+function turned(lat, t) { return rate(lat) * t; }
+function pegDownTime(lat, k) {           // sim hours until peg k is knocked over
+  const r = rate(lat);
+  if (Math.abs(r) < 1e-12) return Infinity;
+  const b = PEG_AZ[k] % 180;
+  const dist = r > 0 ? b : 180 - b;
+  return dist / Math.abs(r);
+}
+function pegsDown(lat, t) {
+  let n = 0;
+  for (let k = 0; k < NPEG; k++) if (t >= pegDownTime(lat, k)) n++;
+  return n;
+}
+
+/* ───────── state ───────── */
+const S = {
+  mode: 'single', view: 'ground',
+  t: 0, playing: false, speed: 1, phase: Math.PI / 2,
+  lat: 40.8, lon: -73.1,
+  slots: [{lat: 90, lon: -73.1}, {lat: 40.8, lon: -73.1}, {lat: 0, lon: -78.5}, {lat: -33.87, lon: 151.21}],
+  sel: 0,
+  fell: [new Map(), new Map(), new Map(), new Map(), new Map()], // index 4 = single
+  records: [],
+  hover: -1,
+  lastRecorded: null,
+};
+const activeLat = () => S.mode === 'single' ? S.lat : S.slots[S.sel].lat;
+const activeLon = () => S.mode === 'single' ? S.lon : S.slots[S.sel].lon;
+const isPole = lat => Math.abs(Math.abs(lat) - 90) < 1e-6;
+
+/* ───────── formatting ───────── */
+function fmtLat(lat) {
+  const a = Math.abs(lat);
+  if (a < 1e-9) return '0°';
+  return String(+a.toFixed(2)) + '° ' + (lat > 0 ? 'N' : 'S');
+}
+function fmtElapsed(t) {
+  const totalMin = Math.floor(t * 60 + 1e-6);
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return `${h} h ${String(m).padStart(2, '0')} min`;
+}
+function dirWord(r) { return r > 1e-9 ? 'clockwise' : r < -1e-9 ? 'counterclockwise' : 'no turning'; }
+function dirColor(r) { return r > 1e-9 ? C.cw : r < -1e-9 ? C.ccw : C.none; }
+
+/* ───────── canvas helpers ───────── */
+const DPR = () => Math.min(2, window.devicePixelRatio || 1);
+function sizeCanvas(cv, w, h) {
+  const d = DPR();
+  cv.width = Math.round(w * d); cv.height = Math.round(h * d);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(d, 0, 0, d, 0, 0);
+  return ctx;
+}
+function arrowHead(ctx, x, y, ang, size, color) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-size, -size * 0.55); ctx.lineTo(-size, size * 0.55); ctx.closePath();
+  ctx.fillStyle = color; ctx.fill(); ctx.restore();
+}
+const pol = (r, azDeg) => { const a = azDeg * Math.PI / 180; return [r * Math.sin(a), -r * Math.cos(a)]; };
+
+/* ───────── floor drawing ───────── */
+function drawFloor(ctx, W, H, opt) {
+  const {lat, t, view, fell, compact, oy = 0, ob = 0} = opt;
+  const now = performance.now();
+  const size = Math.min(W, H - oy - ob);
+  const cx = W / 2, cy = oy + (H - oy - ob) / 2;
+  const R = size * 0.475;
+  const Rp = R * 0.80;                 // peg ring
+  const A = Rp - Math.max(5, size * 0.016); // swing amplitude
+  const alpha = turned(lat, t);
+  const r = rate(lat);
+  const floorRot = view === 'space' ? -alpha : 0;
+  const swingAz = view === 'space' ? 0 : alpha;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // floor disc
+  const g = ctx.createRadialGradient(cx, cy, R * 0.1, cx, cy, R);
+  g.addColorStop(0, C.floorIn); g.addColorStop(1, C.floorOut);
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = C.ring; ctx.stroke();
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(floorRot * Math.PI / 180);
+
+  // ticks every 15°
+  for (let a = 0; a < 360; a += 15) {
+    const major = a % 90 === 0;
+    const [x1, y1] = pol(R * (major ? 0.90 : 0.935), a), [x2, y2] = pol(R * 0.975, a);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = C.tick; ctx.lineWidth = major ? 2 : 1; ctx.stroke();
+  }
+  // compass letters (upright)
+  const lf = compact ? 14 : 17;
+  ctx.font = `700 ${lf}px "Courier Prime", monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  [['N', 0], ['E', 90], ['S', 180], ['W', 270]].forEach(([s, a]) => {
+    const [x, y] = pol(R * 0.865 - (compact ? 2 : 4), a);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(-floorRot * Math.PI / 180);
+    ctx.fillStyle = s === 'N' ? C.text : 'rgba(232,228,217,0.7)';
+    ctx.fillText(s, 0, 0); ctx.restore();
+  });
+
+  // start direction (dashed)
+  ctx.setLineDash([5, 5]); ctx.lineWidth = 1.2; ctx.strokeStyle = 'rgba(232,228,217,0.42)';
+  ctx.beginPath(); ctx.moveTo(...pol(A, 0)); ctx.lineTo(...pol(A, 180)); ctx.stroke();
+  ctx.setLineDash([]);
+  if (!compact) {
+    const [sx, sy] = pol(A * 0.62, 0);
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(-floorRot * Math.PI / 180);
+    ctx.font = '13px "Public Sans", sans-serif'; ctx.fillStyle = 'rgba(232,228,217,0.62)';
+    ctx.textAlign = 'right'; ctx.fillText('start', -8, 0); ctx.restore();
+  }
+
+  // trace (fading rosette)
+  ctx.lineCap = 'round';
+  const nSteps = Math.floor(TRACE_WINDOW_H / TRACE_STEP_H);
+  for (let j = nSteps; j >= 0; j--) {
+    const tj = t - j * TRACE_STEP_H;
+    if (tj < 0) continue;
+    const age = (t - tj) / TRACE_WINDOW_H;
+    const a = 0.5 * Math.pow(1 - age, 1.6) + 0.03;
+    const az = turned(lat, tj);
+    ctx.strokeStyle = `rgba(60,163,174,${a.toFixed(3)})`;
+    ctx.lineWidth = j === 0 ? 2 : 1.2;
+    ctx.beginPath(); ctx.moveTo(...pol(A, az)); ctx.lineTo(...pol(A, az + 180)); ctx.stroke();
+  }
+
+  // pegs
+  const pr = Math.max(3.6, size * 0.0125);
+  for (let k = 0; k < NPEG; k++) {
+    const az = PEG_AZ[k];
+    const down = t >= pegDownTime(lat, k);
+    let p = 0;
+    if (down) {
+      if (!fell.has(k)) fell.set(k, now);
+      p = Math.min(1, (now - fell.get(k)) / 380);
+    } else fell.delete(k);
+    ctx.save();
+    ctx.rotate(az * Math.PI / 180);
+    ctx.translate(0, -Rp);
+    if (p <= 0) {
+      ctx.beginPath(); ctx.arc(0, 0, pr, 0, Math.PI * 2);
+      ctx.fillStyle = C.peg; ctx.fill();
+      ctx.beginPath(); ctx.arc(-pr * 0.25, -pr * 0.25, pr * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = C.pegTop; ctx.fill();
+    } else {
+      // toppling outward: capsule growing from a dot to its full length
+      const len = pr * 3.4 * p;
+      ctx.beginPath();
+      ctx.moveTo(-pr * 0.85, 0); ctx.lineTo(-pr * 0.85, -len);
+      ctx.arc(0, -len, pr * 0.85, Math.PI, 0);
+      ctx.lineTo(pr * 0.85, 0); ctx.arc(0, 0, pr * 0.85, 0, Math.PI);
+      ctx.fillStyle = p < 1 ? C.peg : C.pegDown; ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+
+  // floor turning arrow (space view only)
+  if (view === 'space' && Math.abs(r) > 0) {
+    const ccwFloor = r > 0;          // floor turns opposite to the apparent swing
+    const rr = R + 8, a0 = 25, a1 = 65;
+    ctx.save(); ctx.translate(cx, cy);
+    ctx.strokeStyle = 'rgba(232,228,217,0.8)'; ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, rr, (a0 - 90) * Math.PI / 180, (a1 - 90) * Math.PI / 180);
+    ctx.stroke();
+    const endAz = ccwFloor ? a0 : a1;
+    const [ex, ey] = pol(rr, endAz);
+    const ea = endAz * Math.PI / 180;
+    const tang = ccwFloor ? Math.atan2(-Math.sin(ea), -Math.cos(ea)) : Math.atan2(Math.sin(ea), Math.cos(ea));
+    arrowHead(ctx, ex + Math.cos(tang) * 4, ey + Math.sin(tang) * 4, tang, 10, 'rgba(232,228,217,0.9)');
+    ctx.restore();
+  }
+
+  // pendulum: cable + bob (screen frame)
+  const s = A * Math.sin(S.phase);
+  const [bx, by] = pol(s, swingAz);
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.strokeStyle = 'rgba(232,228,217,0.55)'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(bx, by); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fillStyle = C.text2; ctx.fill();
+  const br = Math.max(7, size * 0.026);
+  ctx.beginPath(); ctx.arc(bx + 3, by + 4, br, 0, Math.PI * 2); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
+  const bg = ctx.createRadialGradient(bx - br * 0.35, by - br * 0.35, br * 0.1, bx, by, br);
+  bg.addColorStop(0, C.bobHi); bg.addColorStop(1, C.bobLo);
+  ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fillStyle = bg; ctx.fill();
+  ctx.restore();
+}
+
+/* ───────── single-mode floor canvas ───────── */
+const floorCv = document.getElementById('floor');
+let floorCtx, stageSize = 520;
+const grid = document.getElementById('compareGrid');
+const cells = [];
+
+function buildCompare() {
+  grid.innerHTML = '';
+  cells.length = 0;
+  for (let i = 0; i < 4; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    const sel = document.createElement('select');
+    sel.className = 'cc-select';
+    const num = document.createElement('span'); num.className = 'slotnum'; num.textContent = 'from above';
+    const cv = document.createElement('canvas');
+    cell.append(cv, sel, num);
+    grid.appendChild(cell);
+    sel.addEventListener('click', e => e.stopPropagation());
+    sel.addEventListener('change', () => {
+      const lat = parseFloat(sel.value);
+      const opt = SLOT_OPTIONS.find(o => Math.abs(o.lat - lat) < 1e-6);
+      S.slots[i].lat = lat;
+      if (opt && opt.lon !== undefined) S.slots[i].lon = opt.lon;
+      S.sel = i;
+      latChanged();
+    });
+    cell.addEventListener('click', () => { S.sel = i; syncUI(); globeDirty = true; requestDraw(); });
+    cells.push({cell, sel, cv, ctx: null});
+  }
+}
+function fillSlotSelect(i) {
+  const {sel} = cells[i];
+  const lat = S.slots[i].lat;
+  sel.innerHTML = '';
+  let found = false;
+  SLOT_OPTIONS.forEach(o => {
+    const op = document.createElement('option');
+    op.value = o.lat; op.textContent = o.label || fmtLat(o.lat);
+    if (Math.abs(o.lat - lat) < 1e-6) { op.selected = true; found = true; }
+    sel.appendChild(op);
+  });
+  if (!found) {
+    const op = document.createElement('option');
+    op.value = lat; op.textContent = fmtLat(lat); op.selected = true;
+    sel.insertBefore(op, sel.firstChild);
+  }
+}
+
+/* ───────── globe ───────── */
+const globeCv = document.getElementById('globe');
+let globeCtx, GW = 296, GH = 284, globeDirty = true;
+let landMask = null, maskW = 0, maskH = 0;
+let globeBase = null, globeBaseLon = null, globeBaseR = 0;
+
+function loadMask() {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+    const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+    const d = x.getImageData(0, 0, img.width, img.height).data;
+    maskW = img.width; maskH = img.height;
+    landMask = new Uint8Array(maskW * maskH);
+    for (let i = 0; i < landMask.length; i++) landMask[i] = d[i * 4] > 127 ? 1 : 0;
+    globeBase = null; globeDirty = true; requestDraw();
+  };
+  img.src = 'data:image/png;base64,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';
+}
+function geom() {
+  const R = Math.min(GW * 0.34, (GH - 40) / 2.6);
+  return {R, cx: GW * 0.38, cy: GH - R - 22};
+}
+function renderGlobeBase(lonC, R) {
+  const d = DPR();
+  const n = Math.ceil(2 * R * d);
+  const c = document.createElement('canvas'); c.width = n; c.height = n;
+  const x = c.getContext('2d');
+  const im = x.createImageData(n, n);
+  const L = [-0.45, 0.55, 0.70]; const Ln = Math.hypot(...L); L[0] /= Ln; L[1] /= Ln; L[2] /= Ln;
+  for (let py = 0; py < n; py++) {
+    for (let px = 0; px < n; px++) {
+      const u = (px + 0.5) / n * 2 - 1, v = 1 - (py + 0.5) / n * 2;
+      const rr = u * u + v * v;
+      if (rr > 1) continue;
+      const z = Math.sqrt(1 - rr);
+      const lat = Math.asin(v) * 180 / Math.PI;
+      let lon = lonC + Math.atan2(u, z) * 180 / Math.PI;
+      lon = ((lon + 180) % 360 + 360) % 360 - 180;
+      let land = 0;
+      if (landMask) {
+        const mx = Math.min(maskW - 1, Math.floor((lon + 180) / 360 * maskW));
+        const my = Math.min(maskH - 1, Math.floor((90 - lat) / 180 * maskH));
+        land = landMask[my * maskW + mx];
+      }
+      const lit = 0.45 + 0.55 * Math.max(0, u * L[0] + v * L[1] + z * L[2]);
+      const limb = 0.75 + 0.25 * z;
+      const base = land ? [112, 124, 92] : [40, 70, 80];
+      const k = lit * limb;
+      const i = (py * n + px) * 4;
+      im.data[i] = base[0] * k; im.data[i + 1] = base[1] * k; im.data[i + 2] = base[2] * k;
+      im.data[i + 3] = rr > 0.985 ? Math.round(255 * (1 - rr) / 0.015) : 255;
+    }
+  }
+  x.putImageData(im, 0, 0);
+  return c;
+}
+function proj(lat, dlon, R, cx, cy) {
+  const la = lat * Math.PI / 180, lo = dlon * Math.PI / 180;
+  return {x: cx + R * Math.cos(la) * Math.sin(lo), y: cy - R * Math.sin(la), z: Math.cos(la) * Math.cos(lo)};
+}
+function drawGlobe() {
+  const ctx = globeCtx;
+  const {R, cx, cy} = geom();
+  const lat = activeLat();
+  const lonC = activeLon() - GLOBE_DLON;
+  ctx.clearRect(0, 0, GW, GH);
+
+  if (!globeBase || globeBaseLon !== lonC || globeBaseR !== R) {
+    globeBase = renderGlobeBase(lonC, R); globeBaseLon = lonC; globeBaseR = R;
+  }
+  ctx.drawImage(globeBase, cx - R, cy - R, 2 * R, 2 * R);
+
+  // graticule
+  ctx.strokeStyle = 'rgba(232,228,217,0.12)'; ctx.lineWidth = 0.8;
+  for (let la = -60; la <= 60; la += 30) {
+    const y = cy - R * sinD(la), hw = R * Math.cos(la * Math.PI / 180);
+    ctx.beginPath(); ctx.moveTo(cx - hw, y); ctx.lineTo(cx + hw, y); ctx.stroke();
+  }
+  for (let m = -90; m <= 90; m += 30) {
+    ctx.beginPath();
+    for (let la = -90; la <= 90; la += 3) {
+      const p = proj(la, m, R, cx, cy);
+      la === -90 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
+  }
+  // equator a little stronger
+  ctx.strokeStyle = 'rgba(232,228,217,0.28)';
+  ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
+
+  // highlighted latitude circle
+  if (!isPole(lat)) {
+    const y = cy - R * sinD(lat), hw = R * Math.cos(lat * Math.PI / 180);
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(60,163,174,0.75)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(cx - hw, y); ctx.lineTo(cx + hw, y); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // spin axis + rotation arrow
+  ctx.strokeStyle = 'rgba(232,228,217,0.3)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(cx, cy + R); ctx.lineTo(cx, cy - R); ctx.stroke();
+  ctx.strokeStyle = 'rgba(232,228,217,0.8)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx, cy + R); ctx.lineTo(cx, cy + R + 10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy - R - 26); ctx.stroke();
+  arrowHead(ctx, cx, cy - R - 28, -Math.PI / 2, 8, 'rgba(232,228,217,0.9)');
+  // eastward spin ellipse around the axis
+  const ey = cy - R - 14, erx = 15, ery = 4.5;
+  ctx.strokeStyle = 'rgba(232,228,217,0.8)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(cx, ey, erx, ery, 0, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke(); // front (lower) half
+  ctx.beginPath(); ctx.ellipse(cx, ey, erx, ery, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+  arrowHead(ctx, cx + erx * Math.cos(Math.PI * 0.15), ey + ery * Math.sin(Math.PI * 0.15), -0.35, 6, 'rgba(232,228,217,0.9)');
+  ctx.font = '13px "Public Sans", sans-serif'; ctx.fillStyle = 'rgba(232,228,217,0.75)';
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText('spin axis', cx - 20, cy - R - 22);
+
+  // patch geometry (3D → screen)
+  const d = GLOBE_DLON * Math.PI / 180;
+  const la = lat * Math.PI / 180;
+  const sl = Math.sin(la), cl = Math.cos(la), sd = Math.sin(d), cd = Math.cos(d);
+  const P = {x: cx + R * cl * sd, y: cy - R * sl};
+  const U = {x: cl * sd, y: -sl};            // local up (screen)
+  const N = {x: -sl * sd, y: -cl};           // local north (screen)
+  const E = {x: cd, y: 0};                   // local east (screen)
+  const L = R * 0.55;
+
+  // floor slab
+  const a = R * 0.11, b = R * 0.11;
+  ctx.beginPath();
+  [[1, 1], [1, -1], [-1, -1], [-1, 1]].forEach(([i, j], q) => {
+    const x = P.x + i * a * N.x + j * b * E.x, y = P.y + i * a * N.y + j * b * E.y;
+    q ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.closePath(); ctx.fillStyle = '#C9B88A'; ctx.fill();
+  ctx.strokeStyle = '#1E2320'; ctx.lineWidth = 1; ctx.stroke();
+
+  // local-up guide
+  ctx.setLineDash([2, 4]); ctx.strokeStyle = 'rgba(232,228,217,0.35)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(P.x - U.x * L, P.y - U.y * L); ctx.lineTo(P.x + U.x * L, P.y + U.y * L); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Earth's spin, copied to the floor
+  const Sx = P.x, Sy = P.y - L;
+  ctx.strokeStyle = 'rgba(232,228,217,0.85)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(P.x, P.y); ctx.lineTo(Sx, Sy + 6); ctx.stroke();
+  arrowHead(ctx, Sx, Sy, -Math.PI / 2, 8, 'rgba(232,228,217,0.95)');
+
+  // twist part (component along local up)
+  const Tx = P.x + U.x * L * sl, Ty = P.y + U.y * L * sl;
+  const tw = Math.abs(sl) > 0.004;
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(232,228,217,0.6)'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(Sx, Sy); ctx.lineTo(Tx, Ty); ctx.stroke(); ctx.setLineDash([]);
+  const twCol = sl > 0 ? C.cw : C.ccw;
+  if (tw) {
+    const ang = Math.atan2(Ty - P.y, Tx - P.x);
+    ctx.strokeStyle = twCol; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(P.x, P.y); ctx.lineTo(Tx - Math.cos(ang) * 6, Ty - Math.sin(ang) * 6); ctx.stroke();
+    arrowHead(ctx, Tx, Ty, ang, 10, twCol);
+  }
+
+  // labels
+  ctx.font = '13px "Public Sans", sans-serif'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(232,228,217,0.85)'; ctx.textAlign = 'left';
+  let spinLy = Sy + 2;
+  ctx.fillText("Earth's spin", Sx + 8, Math.max(9, spinLy));
+  ctx.fillStyle = tw ? twCol : C.none;
+  const twLabel = tw ? 'floor twist' : 'floor twist: none';
+  let lx = Math.max(Tx, P.x) + 12, ly = tw ? (P.y + Ty) / 2 : P.y + 16;
+  if (Math.abs(ly - spinLy) < 16) ly = spinLy + 18;
+  if (ly < cy - R + 6 || ly > cy + R - 6) lx = Math.max(lx, cx + 26);
+  if (!tw) { lx = P.x - ctx.measureText(twLabel).width / 2; ly = P.y + 26; }
+  lx = Math.min(lx, GW - ctx.measureText(twLabel).width - 2);
+  ly = Math.min(GH - 8, Math.max(9, ly));
+  if (!tw) {
+    const w = ctx.measureText(twLabel).width;
+    ctx.fillStyle = 'rgba(30,35,32,0.85)'; ctx.fillRect(lx - 4, ly - 10, w + 8, 20);
+    ctx.fillStyle = C.none;
+  }
+  ctx.fillText(twLabel, lx, ly);
+}
+
+/* ───────── plot ───────── */
+const plotCv = document.getElementById('plot');
+let plotCtx, PW = 380, PH = 250;
+const PM = {l: 50, r: 14, t: 16, b: 36};
+const YMAX = 16;
+const px = lat => PM.l + (lat + 90) / 180 * (PW - PM.l - PM.r);
+const py = v => PM.t + (YMAX - v) / (2 * YMAX) * (PH - PM.t - PM.b);
+function drawPlot() {
+  const ctx = plotCtx;
+  ctx.clearRect(0, 0, PW, PH);
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, PW, PH);
+  // region shading
+  ctx.fillStyle = 'rgba(224,137,58,0.06)'; ctx.fillRect(PM.l, py(YMAX), PW - PM.l - PM.r, py(0) - py(YMAX));
+  ctx.fillStyle = 'rgba(160,140,198,0.06)'; ctx.fillRect(PM.l, py(0), PW - PM.l - PM.r, py(-YMAX) - py(0));
+  // grid
+  ctx.font = '13px "Courier Prime", monospace';
+  ctx.textBaseline = 'middle';
+  for (let v = -15; v <= 15; v += 5) {
+    ctx.strokeStyle = v === 0 ? 'rgba(232,228,217,0.45)' : 'rgba(232,228,217,0.09)';
+    ctx.lineWidth = v === 0 ? 1.4 : 1;
+    ctx.beginPath(); ctx.moveTo(PM.l, py(v)); ctx.lineTo(PW - PM.r, py(v)); ctx.stroke();
+    ctx.fillStyle = 'rgba(232,228,217,0.62)'; ctx.textAlign = 'right';
+    ctx.fillText(v > 0 ? '+' + v : v < 0 ? '−' + Math.abs(v) : '0', PM.l - 8, py(v));
+  }
+  ctx.textBaseline = 'top';
+  for (let l = -90; l <= 90; l += 30) {
+    ctx.strokeStyle = l === 0 ? 'rgba(232,228,217,0.25)' : 'rgba(232,228,217,0.09)';
+    ctx.beginPath(); ctx.moveTo(px(l), PM.t); ctx.lineTo(px(l), PH - PM.b); ctx.stroke();
+    ctx.fillStyle = 'rgba(232,228,217,0.62)'; ctx.textAlign = 'center';
+    ctx.fillText(l === 0 ? '0°' : Math.abs(l) + '°' + (l > 0 ? 'N' : 'S'), px(l), PH - PM.b + 6);
+  }
+  // axis units + region labels
+  ctx.font = '13px "Public Sans", sans-serif';
+  ctx.fillStyle = 'rgba(232,228,217,0.62)'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.save(); ctx.translate(12, (PM.t + PH - PM.b) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('°/hr', 0, 0); ctx.restore();
+  ctx.fillStyle = C.cw; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('clockwise ↻', PM.l + 6, PM.t + 4);
+  ctx.fillStyle = C.ccw; ctx.textBaseline = 'bottom';
+  ctx.fillText('counterclockwise ↺', PM.l + 6, PH - PM.b - 4);
+
+  // points
+  S.records.forEach((rec, i) => {
+    const x = px(rec.lat), y = py(rec.rate);
+    ctx.beginPath(); ctx.arc(x, y, i === S.hover ? 7 : 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = dirColor(rec.rate); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#1E2320'; ctx.stroke();
+  });
+  if (S.hover >= 0 && S.records[S.hover]) {
+    const rec = S.records[S.hover];
+    const txt = `${fmtLat(rec.lat)} · ${Math.abs(rec.rate).toFixed(1)}°/hr`;
+    ctx.font = '14px "Courier Prime", monospace';
+    const w = ctx.measureText(txt).width + 14;
+    let x = px(rec.lat) + 10, y = py(rec.rate) - 30;
+    if (x + w > PW - 2) x = px(rec.lat) - 10 - w;
+    if (y < 2) y = py(rec.rate) + 10;
+    ctx.fillStyle = 'rgba(30,35,32,0.95)'; ctx.strokeStyle = 'rgba(232,228,217,0.3)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(x, y, w, 22, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.text; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(txt, x + 7, y + 11);
+  }
+}
+plotCv.addEventListener('pointermove', e => {
+  const r = plotCv.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = -1, bd = 12;
+  S.records.forEach((rec, i) => { const dd = Math.hypot(px(rec.lat) - x, py(rec.rate) - y); if (dd < bd) { bd = dd; best = i; } });
+  if (best !== S.hover) { S.hover = best; drawPlot(); }
+});
+plotCv.addEventListener('pointerleave', () => { if (S.hover !== -1) { S.hover = -1; drawPlot(); } });
+
+/* ───────── UI wiring ───────── */
+const $ = id => document.getElementById(id);
+const presetsEl = $('presets');
+SITES.forEach(s => {
+  const b = document.createElement('button');
+  b.className = 'cc-btn'; b.textContent = s.name; b.dataset.site = s.id;
+  b.addEventListener('click', () => setLat(s.lat, s.lon));
+  presetsEl.appendChild(b);
+});
+function setLat(lat, lon) {
+  lat = Math.max(-90, Math.min(90, lat));
+  if (S.mode === 'single') { S.lat = lat; if (lon !== undefined) S.lon = lon; }
+  else { S.slots[S.sel].lat = lat; if (lon !== undefined) S.slots[S.sel].lon = lon; }
+  latChanged();
+}
+function latChanged() {
+  if (!isPole(activeLat()) && S.view === 'space') setView('ground');
+  resetRun(true);
+  globeDirty = true;
+  syncUI();
+}
+function resetRun(keepPlaying) {
+  S.t = 0; S.phase = Math.PI / 2;
+  S.fell.forEach(m => m.clear());
+  if (!keepPlaying) S.playing = false;
+  syncUI(); requestDraw();
+}
+function setView(v) {
+  S.view = v;
+  document.querySelectorAll('#viewSeg .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
+  requestDraw();
+}
+function setMode(m) {
+  S.mode = m;
+  document.querySelectorAll('.mode-seg .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b.dataset.mode === m));
+  floorCv.hidden = m !== 'single';
+  grid.hidden = m !== 'compare';
+  if (m === 'compare') setView('ground');
+  resetRun(false);
+  layout();
+  globeDirty = true;
+  syncUI();
+}
+document.querySelectorAll('.mode-seg .cc-segmented-btn').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+document.querySelectorAll('#speedSeg .cc-segmented-btn').forEach(b => b.addEventListener('click', () => {
+  S.speed = parseFloat(b.dataset.speed);
+  document.querySelectorAll('#speedSeg .cc-segmented-btn').forEach(x => x.classList.toggle('is-active', x === b));
+}));
+document.querySelectorAll('#viewSeg .cc-segmented-btn').forEach(b => b.addEventListener('click', () => {
+  if (b.disabled) return; setView(b.dataset.view);
+}));
+$('playBtn').addEventListener('click', () => { S.playing = !S.playing; syncUI(); requestDraw(); });
+$('resetBtn').addEventListener('click', () => resetRun(false));
+$('latSlider').addEventListener('input', e => setLat(parseFloat(e.target.value)));
+$('recordBtn').addEventListener('click', record);
+$('clearBtn').addEventListener('click', () => { S.records = []; S.lastRecorded = null; S.hover = -1; syncUI(); drawPlot(); });
+$('notesBtn').addEventListener('click', () => $('notes').classList.add('on'));
+$('notesClose').addEventListener('click', () => $('notes').classList.remove('on'));
+$('notes').addEventListener('click', e => { if (e.target.id === 'notes') $('notes').classList.remove('on'); });
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !/INPUT|SELECT|BUTTON/.test(document.activeElement.tagName)) {
+    e.preventDefault(); S.playing = !S.playing; syncUI(); requestDraw();
+  }
+  if (e.key === 'Escape') $('notes').classList.remove('on');
+});
+
+// globe drag sets latitude
+let dragging = false;
+function globeLat(e) {
+  const r = globeCv.getBoundingClientRect();
+  const {R, cy} = geom();
+  const v = (cy - (e.clientY - r.top)) / R;
+  let lat = Math.asin(Math.max(-1, Math.min(1, v))) * 180 / Math.PI;
+  if (Math.abs(lat) > 88.5) lat = Math.sign(lat) * 90;
+  return Math.round(lat * 10) / 10;
+}
+globeCv.addEventListener('pointerdown', e => { dragging = true; globeCv.setPointerCapture(e.pointerId); setLat(globeLat(e)); });
+globeCv.addEventListener('pointermove', e => { if (dragging) setLat(globeLat(e)); });
+globeCv.addEventListener('pointerup', () => { dragging = false; });
+globeCv.addEventListener('pointercancel', () => { dragging = false; });
+
+function record() {
+  if (S.t < RECORD_MIN_H) return;
+  const lats = S.mode === 'single' ? [S.lat] : S.slots.map(s => s.lat);
+  const seen = new Set();
+  lats.forEach(lat => {
+    const key = lat.toFixed(2);
+    if (seen.has(key)) return; seen.add(key);
+    const measured = turned(lat, S.t) / S.t;
+    const rec = {lat, rate: Math.abs(measured) < 1e-9 ? 0 : measured};
+    const i = S.records.findIndex(r => Math.abs(r.lat - lat) < 0.05);
+    if (i >= 0) S.records[i] = rec; else S.records.push(rec);
+    S.lastRecorded = rec;
+  });
+  S.lastCount = seen.size;
+  syncUI(); drawPlot();
+}
+
+function syncUI() {
+  const lat = activeLat();
+  $('playBtn').textContent = S.playing ? '❚❚ Pause' : '▶ Play';
+  $('latSlider').value = lat;
+  $('latVal').textContent = fmtLat(lat);
+  document.querySelectorAll('#presets .cc-btn').forEach(b => {
+    const s = SITES.find(x => x.id === b.dataset.site);
+    b.classList.toggle('is-active', Math.abs(s.lat - lat) < 1e-6);
+  });
+  const spaceBtn = document.querySelector('#viewSeg [data-view="space"]');
+  spaceBtn.disabled = !(S.mode === 'single' && isPole(lat));
+  $('viewNote').hidden = !spaceBtn.disabled;
+  $('viewCtl').hidden = S.mode !== 'single';
+  $('floorTag').hidden = S.mode !== 'single';
+  if (S.mode === 'compare') {
+    cells.forEach((c, i) => { c.cell.classList.toggle('is-active', i === S.sel); fillSlotSelect(i); });
+  }
+  const rb = $('recordBtn');
+  rb.textContent = S.mode === 'single' ? 'Record this run' : 'Record all four';
+  rb.disabled = S.t < RECORD_MIN_H;
+  $('recHint').textContent = S.t < RECORD_MIN_H ? 'Run at least 1 hr to record' : '';
+  const lr = S.lastRecorded;
+  if (!lr) $('recLast').textContent = S.records.length ? '' : '';
+  else if (S.mode === 'compare' && S.lastCount > 1) $('recLast').textContent = `Recorded ${S.lastCount} latitudes · ${S.records.length} points`;
+  else $('recLast').textContent = `Recorded ${fmtLat(lr.lat)} → ${Math.abs(lr.rate).toFixed(1)}°/hr ${lr.rate === 0 ? '' : dirWord(lr.rate)}`.trim();
+  updateStats();
+}
+function updateStats() {
+  const lat = activeLat();
+  const a = turned(lat, S.t);
+  const totalMin = Math.floor(S.t * 60 + 1e-6);
+  $('stTime').textContent = Math.floor(totalMin / 60) + ' h';
+  $('stTimeSub').textContent = String(totalMin % 60).padStart(2, '0') + ' min';
+  $('stTurn').textContent = Math.abs(a).toFixed(1) + '°';
+  $('stTurn').style.color = S.t > 0 ? dirColor(rate(lat)) : C.text;
+  $('stTurnSub').textContent = S.t > 0 ? dirWord(rate(lat)) : '—';
+  $('stPegs').textContent = pegsDown(lat, S.t) + ' / 24';
+  const rb = $('recordBtn');
+  if (rb.disabled !== (S.t < RECORD_MIN_H)) {
+    rb.disabled = S.t < RECORD_MIN_H;
+    $('recHint').textContent = S.t < RECORD_MIN_H ? 'Run at least 1 hr to record' : '';
+  }
+}
+
+/* ───────── layout ───────── */
+function layout() {
+  const top = document.querySelector('.topbar').getBoundingClientRect().bottom;
+  const transportH = 52;
+  const availH = window.innerHeight - top - transportH - 14;
+  const wide = window.innerWidth > 1180;
+  const availW = wide ? window.innerWidth - 32 - 320 - 360 - 32 : window.innerWidth - 32;
+  stageSize = Math.max(340, Math.min(720, Math.floor(Math.min(availH, availW))));
+  document.querySelector('.stage').style.width = stageSize + 'px';
+  floorCtx = sizeCanvas(floorCv, stageSize, stageSize);
+  const cellW = Math.floor((stageSize - 6) / 2);
+  grid.style.width = stageSize + 'px';
+  cells.forEach(c => { c.ctx = sizeCanvas(c.cv, cellW - 2, cellW - 2); });
+  GW = 296; GH = 284;
+  globeCtx = sizeCanvas(globeCv, GW, GH);
+  globeBase = null; globeDirty = true;
+  const plotW = Math.max(320, Math.min(492, document.querySelector('.col-plot').clientWidth - 30));
+  PW = plotW; PH = Math.max(220, Math.min(330, stageSize - 150));
+  plotCtx = sizeCanvas(plotCv, PW, PH);
+  drawPlot();
+  requestDraw();
+}
+window.addEventListener('resize', layout);
+
+/* ───────── loop ───────── */
+let lastWall = performance.now(), drawPending = false, rafId = 0;
+function requestDraw() { drawPending = true; if (!rafId) rafId = requestAnimationFrame(frame); }
+function frame(now) {
+  rafId = 0;
+  const dt = Math.min(0.1, (now - lastWall) / 1000);
+  lastWall = now;
+  if (S.playing) {
+    S.t += dt * S.speed;
+    S.phase += dt * 2 * Math.PI / SWING_PERIOD_S;
+    updateStats();
+  }
+  render();
+  if (S.playing || animatingPegs()) rafId = requestAnimationFrame(frame);
+  else drawPending = false;
+}
+function animatingPegs() {
+  const now = performance.now();
+  return S.fell.some(m => { for (const v of m.values()) if (now - v < 400) return true; return false; });
+}
+function render() {
+  if (S.mode === 'single') {
+    drawFloor(floorCtx, stageSize, stageSize, {lat: S.lat, t: S.t, view: S.view, fell: S.fell[4]});
+  } else {
+    cells.forEach((c, i) => {
+      const w = parseFloat(c.cv.style.width);
+      const ctx = c.ctx; const lat = S.slots[i].lat;
+      drawFloor(ctx, w, w, {lat, t: S.t, view: 'ground', fell: S.fell[i], compact: true, oy: 30, ob: 6});
+      // per-floor readout
+      const a = turned(lat, S.t), r = rate(lat);
+      ctx.font = '16px "Courier Prime", monospace'; ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'left'; ctx.fillStyle = S.t > 0 ? dirColor(r) : C.text2;
+      ctx.fillText(`${Math.abs(a).toFixed(1)}° ${S.t > 0 ? (r > 0 ? '↻' : r < 0 ? '↺' : '') : ''}`, 8, w - 8);
+      ctx.textAlign = 'right'; ctx.fillStyle = C.text2;
+      ctx.fillText(`${pegsDown(lat, S.t)}/24 pegs`, w - 8, w - 8);
+    });
+  }
+  if (globeDirty) { drawGlobe(); globeDirty = false; }
+}
+
+/* ───────── init ───────── */
+buildCompare();
+layout();
+syncUI();
+loadMask();
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { globeDirty = true; drawPlot(); requestDraw(); });
+
+// test/tinker hook
+window.FP = {S, rate, turned, pegDownTime, pegsDown, OMEGA, setLat, setMode, setView, record, resetRun, render, step(h) { S.t += h; updateStats(); render(); }};
+})();
+</script>
+</body>
+</html>
