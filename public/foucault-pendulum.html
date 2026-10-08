@@ -165,7 +165,8 @@ body { padding: 10px 16px 10px; min-height: 0; overflow-x: hidden; }
     <h2>Notes</h2>
     <ul>
       <li>Turning rate = 15.04°/hr × sin(latitude). 15.04°/hr is one turn per sidereal day (23 h 56 min 4 s).</li>
-      <li>Swing tempo on screen is fixed so the swing stays visible at every playback speed. Real Foucault pendulums swing once every 10–20 s (the Panthéon pendulum, 67 m long: about 16 s).</li>
+      <li>Swing tempo on screen is set for visibility and speeds up with playback speed (2.2 s, 1.1 s, 0.55 s per swing). Real Foucault pendulums swing once every 10–20 s (the Panthéon pendulum, 67 m long: about 16 s).</li>
+      <li>A peg falls when the bob reaches it. At faster playback the swing turns noticeably between visits, so a peg can fall slightly behind the current swing line.</li>
       <li>Idealized pendulum: no air drag or energy loss and a perfectly straight swing. Real exhibits use a drive to keep swinging.</li>
       <li>24 pegs, 15° apart, placed 7.5° either side of the starting swing direction.</li>
       <li>Recorded rate = degrees turned ÷ hours elapsed for that run.</li>
@@ -184,7 +185,7 @@ const SIDEREAL_H = 23.9344696;
 const OMEGA = 360 / SIDEREAL_H;          // °/hr, Earth's rotation
 const NPEG = 24;
 const PEG_AZ = Array.from({length: NPEG}, (_, k) => 7.5 + 15 * k);
-const SWING_PERIOD_S = 2.2;              // on-screen swing tempo (wall seconds)
+const SWING_PERIOD_S = {0.25: 2.2, 1: 1.1, 4: 0.55}; // on-screen swing period (wall s) per playback speed
 const TRACE_WINDOW_H = 4;                // fading trace length (sim hours)
 const TRACE_STEP_H = 0.05;
 const RECORD_MIN_H = 1;
@@ -231,6 +232,10 @@ function pegDownTime(lat, k) {           // sim hours until peg k is knocked ove
   const b = PEG_AZ[k] % 180;
   const dist = r > 0 ? b : 180 - b;
   return dist / Math.abs(r);
+}
+// Which end of the swing line reaches peg k: + end (bob at +A, azimuth α) or − end (α + 180°)
+function pegOnPlusEnd(lat, k) {
+  return rate(lat) > 0 ? PEG_AZ[k] < 180 : PEG_AZ[k] >= 180;
 }
 function pegsDown(lat, t) {
   let n = 0;
@@ -358,12 +363,8 @@ function drawFloor(ctx, W, H, opt) {
   const pr = Math.max(3.6, size * 0.0125);
   for (let k = 0; k < NPEG; k++) {
     const az = PEG_AZ[k];
-    const down = t >= pegDownTime(lat, k);
     let p = 0;
-    if (down) {
-      if (!fell.has(k)) fell.set(k, now);
-      p = Math.min(1, (now - fell.get(k)) / 380);
-    } else fell.delete(k);
+    if (fell.has(k)) p = Math.min(1, (now - fell.get(k)) / 380);
     ctx.save();
     ctx.rotate(az * Math.PI / 180);
     ctx.translate(0, -Rp);
@@ -851,7 +852,7 @@ function updateStats() {
   $('stTurn').textContent = Math.abs(a).toFixed(1) + '°';
   $('stTurn').style.color = S.t > 0 ? dirColor(rate(lat)) : C.text;
   $('stTurnSub').textContent = S.t > 0 ? dirWord(rate(lat)) : '—';
-  $('stPegs').textContent = pegsDown(lat, S.t) + ' / 24';
+  $('stPegs').textContent = activeFell().size + ' / 24';
   const rb = $('recordBtn');
   if (rb.disabled !== (S.t < RECORD_MIN_H)) {
     rb.disabled = S.t < RECORD_MIN_H;
@@ -892,13 +893,32 @@ function frame(now) {
   lastWall = now;
   if (S.playing) {
     S.t += dt * S.speed;
-    S.phase += dt * 2 * Math.PI / SWING_PERIOD_S;
+    const p0 = S.phase;
+    S.phase += dt * 2 * Math.PI / (SWING_PERIOD_S[S.speed] || 1.1);
+    // bob reaches an end of its swing: knock any pegs the line has passed on that side
+    const TAU = 2 * Math.PI;
+    if (Math.floor((S.phase - Math.PI / 2) / TAU) > Math.floor((p0 - Math.PI / 2) / TAU)) bobAtEnd(true, now);
+    if (Math.floor((S.phase - 3 * Math.PI / 2) / TAU) > Math.floor((p0 - 3 * Math.PI / 2) / TAU)) bobAtEnd(false, now);
     updateStats();
   }
   render();
   if (S.playing || animatingPegs()) rafId = requestAnimationFrame(frame);
   else drawPending = false;
 }
+function knockPending(lat, fell, plusEnd, now) {
+  for (let k = 0; k < NPEG; k++) {
+    if (fell.has(k) || S.t < pegDownTime(lat, k)) continue;
+    if (plusEnd === null || pegOnPlusEnd(lat, k) === plusEnd) {
+      fell.set(k, now);
+      if (window.FP && FP.onKnock) FP.onKnock(lat, k, plusEnd);
+    }
+  }
+}
+function bobAtEnd(plusEnd, now) {
+  if (S.mode === 'single') knockPending(S.lat, S.fell[4], plusEnd, now);
+  else S.slots.forEach((sl, i) => knockPending(sl.lat, S.fell[i], plusEnd, now));
+}
+const activeFell = () => S.mode === 'single' ? S.fell[4] : S.fell[S.sel];
 function animatingPegs() {
   const now = performance.now();
   return S.fell.some(m => { for (const v of m.values()) if (now - v < 400) return true; return false; });
@@ -917,7 +937,7 @@ function render() {
       ctx.textAlign = 'left'; ctx.fillStyle = S.t > 0 ? dirColor(r) : C.text2;
       ctx.fillText(`${Math.abs(a).toFixed(1)}° ${S.t > 0 ? (r > 0 ? '↻' : r < 0 ? '↺' : '') : ''}`, 8, w - 8);
       ctx.textAlign = 'right'; ctx.fillStyle = C.text2;
-      ctx.fillText(`${pegsDown(lat, S.t)}/24 pegs`, w - 8, w - 8);
+      ctx.fillText(`${S.fell[i].size}/24 pegs`, w - 8, w - 8);
     });
   }
   if (globeDirty) { drawGlobe(); globeDirty = false; }
@@ -931,7 +951,7 @@ loadMask();
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { globeDirty = true; drawPlot(); requestDraw(); });
 
 // test/tinker hook
-window.FP = {S, rate, turned, pegDownTime, pegsDown, OMEGA, setLat, setMode, setView, record, resetRun, render, step(h) { S.t += h; updateStats(); render(); }};
+window.FP = {S, rate, turned, pegDownTime, pegsDown, OMEGA, setLat, setMode, setView, record, resetRun, render, step(h) { S.t += h; bobAtEnd(null, performance.now() - 1000); updateStats(); render(); }};
 })();
 </script>
 </body>
