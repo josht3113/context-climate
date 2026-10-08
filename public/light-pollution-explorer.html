@@ -38,7 +38,7 @@ body { padding: 10px 14px 10px; min-height: 0; overflow: auto; }
   background: rgba(30,35,32,0.82); padding: 2px 8px; border-radius: var(--radius-sm); }
 
 /* compare picker (right-hand column inside the sky box) */
-#pickBox { position: absolute; z-index: 3; top: 8px; right: 8px; max-height: calc(100% - 16px); width: 156px; display: flex; flex-direction: column; gap: 5px;
+#pickBox { position: absolute; z-index: 3; top: 8px; right: 8px; max-height: calc(100% - 52px); width: 156px; display: flex; flex-direction: column; gap: 5px;
   padding: 8px 9px; background: rgba(38,43,39,0.94); border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow-y: auto; }
 .pick-head { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ref); display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
 .pick-head::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--ref); box-shadow: 0 0 0 2px rgba(201,167,240,0.25); flex: 0 0 auto; }
@@ -74,6 +74,15 @@ body { padding: 10px 14px 10px; min-height: 0; overflow: auto; }
 .ro-name { font-family: var(--font-display); font-weight: 600; font-size: 17px; color: var(--color-text-primary); }
 .ro-sub { font-family: var(--font-body); font-size: 13px; color: #8f8b80; margin-left: 6px; }
 
+/* PNG download buttons */
+.dl { position: absolute; z-index: 4; padding: 3px 9px 3px 8px; font-size: 12px; font-family: var(--font-mono); font-weight: 700;
+  letter-spacing: .06em; background: rgba(38,43,39,0.92); color: var(--color-text-primary); border-color: var(--color-border-hover); }
+.dl:hover { border-color: var(--tool-accent); }
+.dl[disabled] { opacity: .55; cursor: progress; }
+.dl.tr { top: 6px; right: 6px; } .dl.br { bottom: 8px; right: 8px; }
+#mapBox .dl.tr { top: 8px; right: 8px; }
+.top-actions { display: flex; gap: 8px; align-items: center; }
+
 /* tooltip + sources */
 #tip { position: fixed; z-index: 50; pointer-events: none; background: rgba(24,28,26,0.95); border: 1px solid var(--color-border-hover);
   border-radius: var(--radius-md); padding: 6px 10px; font-size: 14px; color: var(--color-text-primary); display: none; white-space: nowrap; line-height: 1.35; }
@@ -96,25 +105,31 @@ body { padding: 10px 14px 10px; min-height: 0; overflow: auto; }
       <div class="cc-eyebrow">Human Impacts · The Night Sky</div>
       <div class="cc-title">Light Pollution Explorer</div>
     </div>
-    <button id="srcBtn" class="cc-btn cc-btn-sm" aria-expanded="false">Sources</button>
+    <div class="top-actions">
+      <button class="cc-btn cc-btn-sm" data-dl="all" title="Download the whole tool as a PNG">↓ PNG · whole tool</button>
+      <button id="srcBtn" class="cc-btn cc-btn-sm" aria-expanded="false">Sources</button>
+    </div>
   </header>
 
   <main class="grid">
     <section class="col">
       <div class="box" id="mapBox">
         <canvas id="map"></canvas>
+        <button class="cc-btn dl tr" data-dl="map" title="Download the map with its scale as a PNG">↓ PNG</button>
         <div class="box-tag map-tag">Sky brightness overhead · Long Island</div>
       </div>
-      <div class="box" id="legendBox"><canvas id="legend"></canvas></div>
+      <div class="box" id="legendBox"><canvas id="legend"></canvas><button class="cc-btn dl tr" data-dl="legend" title="Download the color scale as a PNG">↓ PNG</button></div>
       <div class="box" id="profBox">
         <div class="cell"><canvas id="inset"></canvas></div>
-        <div class="cell"><canvas id="profile"></canvas><div class="box-tag">Catskills → Manhattan → Montauk</div></div>
+        <div class="cell"><canvas id="profile"></canvas><div class="box-tag">Catskills → Manhattan → Montauk</div>
+          <button class="cc-btn dl tr" data-dl="profile" title="Download the profile and locator map as a PNG">↓ PNG</button></div>
       </div>
     </section>
 
     <section class="col">
       <div class="box" id="skyBox">
         <canvas id="sky"></canvas>
+        <button class="cc-btn dl br" data-dl="sky" title="Download the sky comparison with its readouts as a PNG">↓ PNG</button>
         <div class="sky-ctrl l">
           <div class="cc-segmented" role="group" aria-label="Season">
             <button class="cc-segmented-btn is-active" data-season="summer">Summer</button>
@@ -183,7 +198,15 @@ function b64u8(s) { const b = atob(s), a = new Uint8Array(b.length); for (let i 
 const b64u16 = s => { const u = b64u8(s); return new Uint16Array(u.buffer, u.byteOffset, u.length >> 1); };
 function fmtX(B) { return B < 1.995 ? B.toFixed(2) + '×' : B < 9.95 ? B.toFixed(1) + '×' : Math.round(B) + '×'; }
 function fmtXs(B) { return B < 1.995 ? B.toFixed(2) : B < 9.95 ? B.toFixed(1) : String(Math.round(B)); }
+let EXP = null;        // export render target: { scale, sizes: {canvasId: [w, h]}, out: {} }
 function fitCanvas(cv) {
+  if (EXP && EXP.sizes[cv.id]) {           // fixed export resolution, never the screen's dpr
+    const [w, h] = EXP.sizes[cv.id], dpr = EXP.scale, c = document.createElement('canvas');
+    c.width = Math.round(w * dpr); c.height = Math.round(h * dpr);
+    const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    EXP.out[cv.id] = c;
+    return { ctx, w, h, dpr };
+  }
   const r = cv.getBoundingClientRect(), dpr = Math.max(1, window.devicePixelRatio || 1);
   const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
   if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
@@ -447,6 +470,7 @@ function drawContours(ctx, V) {
       const x = gx(p[0]), y = gy(p[1]);
       if (x < V.ox + 22 || x > V.ox + V.W - 22 || y < V.oy + 14 || y > V.oy + V.H - 12) continue;
       if (x > V.ox + V.W - 330 && y > V.oy + V.H - 34) continue;
+      if (y < V.oy + 40 && Math.abs(x - V.x(-73.99) - 60) < 120) continue;
       let sc = 1e9;
       for (const q of placed) sc = Math.min(sc, Math.hypot(q[0] - x, q[1] - y));
       for (const q of towns) sc = Math.min(sc, Math.hypot(q[0] - x, q[1] - y) * 1.4);
@@ -667,8 +691,9 @@ function drawProfile() {
   // km scale
   ctx.font = MONO(13, 400); ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = 'rgba(232,228,217,0.6)';
   const kx = X(dmin + 50) - X(dmin);
-  ctx.fillRect(R - kx, top - 12, kx, 1.5); ctx.fillRect(R - kx, top - 15, 1, 6); ctx.fillRect(R - 1, top - 15, 1, 6);
-  ctx.fillText('50 km', R - kx - 6, top - 8);
+  const kR = EXP ? R : R - 66;
+  ctx.fillRect(kR - kx, top - 12, kx, 1.5); ctx.fillRect(kR - kx, top - 15, 1, 6); ctx.fillRect(kR - 1, top - 15, 1, 6);
+  ctx.fillText('50 km', kR - kx - 6, top - 8);
   // hover / selection
   if (state.profHover != null) {
     const i = state.profHover, xx = X(T.d[i]);
@@ -748,7 +773,7 @@ function mwAt(l, b) {           // bilinear, l,b radians
 
 function buildSkyGeometry() {
   const { w, h, dpr } = fitCanvas(skyCv);
-  const pickW = ($('#pickBox').offsetWidth || 156) + 16;
+  const pickW = EXP ? 0 : ($('#pickBox').offsetWidth || 156) + 16;
   const availW = w - pickW;
   const R = Math.max(60, Math.min(availW / 2 - 24, h / 2 - 26));
   const cx = availW / 2 + 4, cy = h / 2 + 2;
@@ -883,11 +908,13 @@ function drawSky() {
   const yA = G.cy - Math.sqrt(Math.max(0, G.R * G.R - (splitX - G.cx) ** 2));
   const yB = 2 * G.cy - yA;
   ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(splitX - 1, yA, 2, yB - yA);
+  if (!EXP) {
   ctx.beginPath(); ctx.arc(splitX, G.cy, 13, 0, 7); ctx.fillStyle = '#E8E4D9'; ctx.fill();
   ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
   ctx.fillStyle = '#1E2320'; ctx.beginPath();
   ctx.moveTo(splitX - 9, G.cy); ctx.lineTo(splitX - 3, G.cy - 5); ctx.lineTo(splitX - 3, G.cy + 5); ctx.closePath();
   ctx.moveTo(splitX + 9, G.cy); ctx.lineTo(splitX + 3, G.cy - 5); ctx.lineTo(splitX + 3, G.cy + 5); ctx.closePath(); ctx.fill();
+  }
   // side tags at the bottom of the dome
   ctx.font = MONO(13, 700); ctx.textBaseline = 'middle';
   const ty = G.cy + G.R - 16;
@@ -983,6 +1010,173 @@ $('#srcBtn').addEventListener('click', e => {
 });
 document.addEventListener('click', e => { if (!$('#srcPop').contains(e.target) && e.target !== $('#srcBtn')) { $('#srcPop').classList.remove('on'); $('#srcBtn').setAttribute('aria-expanded', false); } });
 
+/* ═════════════════════════ PNG export ═════════════════════════ */
+const EXPORT_SCALE = 3;           // fixed, independent of the viewing screen
+const C = { bg: '#1E2320', surf: '#262B27', surf2: '#2C322D', line: 'rgba(232,228,217,0.16)', t1: '#E8E4D9', t2: '#A6A499', t3: '#948F82', sky: '#121513' };
+function seasonText() { return (state.season === 'summer' ? 'Summer sky · ' : 'Winter sky · ') + SEASONS[state.season].label + ' · seen from 40.8°N'; }
+function siteLine(tag, s) { return `${tag}: ${s.name} (${s.sub}) — ${fmtX(s.B)} natural · ${muOf(s.B).toFixed(2)} mag/arcsec²`; }
+const SRC_LINE = 'Sky brightness: D. Lorenz Light Pollution Atlas 2025 (VIIRS 2025) · Stars: HYG v4.1 · Milky Way: ESA/Gaia/DPAC · Coastline: © OpenStreetMap · contextclimate.io';
+
+/* render the requested live canvases into fixed-size offscreen canvases */
+function renderPanels(sizes) {
+  const hold = { hp: state.hoverPt, hb: state.hoverB, ph: state.profHover, sh: state.skyHover };
+  state.hoverPt = null; state.hoverB = null; state.profHover = null; state.skyHover = null;
+  EXP = { scale: EXPORT_SCALE, sizes, out: {} };
+  try {
+    if (sizes.map) drawMap();
+    if (sizes.legend) drawLegend();
+    if (sizes.inset) drawInset();
+    if (sizes.profile) drawProfile();
+    if (sizes.sky) { SKY = null; drawSky(); }
+    return EXP.out;
+  } finally {
+    EXP = null;
+    Object.assign(state, { hoverPt: hold.hp, hoverB: hold.hb, profHover: hold.ph, skyHover: hold.sh });
+    mapField = null; insetField = null; SKY = null;
+    drawAll();
+  }
+}
+
+/* composition helpers — all coordinates in logical px, scaled by EXPORT_SCALE */
+function sheet(w, h, scale) {
+  const c = document.createElement('canvas'); c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+  const ctx = c.getContext('2d'); ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, w, h);
+  return { c, ctx };
+}
+function card(ctx, x, y, w, h, fill = C.surf) {
+  ctx.beginPath(); roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 6); ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.stroke();
+}
+function place(ctx, src, x, y, w, h) { ctx.drawImage(src, x, y, w, h); }
+function header(ctx, x, y, title, lines) {
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.font = MONO(12, 700); ctx.fillStyle = C.t3; ctx.fillText('LIGHT POLLUTION EXPLORER', x, y + 12);
+  ctx.font = '700 26px "Zilla Slab", serif'; ctx.fillStyle = C.t1; ctx.fillText(title, x, y + 40);
+  ctx.font = FONT(15, 500); ctx.fillStyle = C.t2;
+  lines.forEach((l, i) => ctx.fillText(l, x, y + 64 + i * 21));
+  return y + 64 + (lines.length - 1) * 21 + 14;
+}
+const MEAS = document.createElement('canvas').getContext('2d');
+function footLines(maxW) {
+  MEAS.font = MONO(13, 400);
+  const parts = SRC_LINE.split(' · '), lines = [];
+  let cur = '';
+  for (const p of parts) { const t = cur ? cur + ' · ' + p : p; if (MEAS.measureText(t).width > maxW && cur) { lines.push(cur); cur = p; } else cur = t; }
+  lines.push(cur); return lines;
+}
+const footH = maxW => footLines(maxW).length * 18 + 12;
+function footer(ctx, x, y, maxW) {
+  ctx.font = MONO(13, 400); ctx.fillStyle = C.t3; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  footLines(maxW).forEach((l, i) => ctx.fillText(l, x, y + i * 18));
+}
+function tag(ctx, x, y, txt) {
+  ctx.font = MONO(12, 700); const tw = ctx.measureText(txt.toUpperCase()).width + 16;
+  ctx.fillStyle = 'rgba(30,35,32,0.85)'; ctx.fillRect(x, y, tw, 21);
+  ctx.fillStyle = '#b9b5a8'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.fillText(txt.toUpperCase(), x + 8, y + 11);
+}
+function drawTable(ctx, x, y, w) {
+  const cols = ['× natural', 'mag/arcsec²', 'faintest ★', 'stars seen'];
+  const nameW = w * 0.32, cw = (w - nameW) / 4;
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = MONO(12, 700); ctx.fillStyle = C.t3; ctx.textAlign = 'right';
+  cols.forEach((t, i) => ctx.fillText(t.toUpperCase(), x + nameW + cw * (i + 1), y + 14));
+  const rows = [[state.mine, VIS.L, '#3CA3AE', 'YOUR SKY'], [state.ref, VIS.R, '#C9A7F0', 'COMPARE']];
+  rows.forEach(([s, v, col, lab], k) => {
+    const ry = y + 26 + k * 38;
+    ctx.fillStyle = C.line; ctx.fillRect(x, ry - 2, w, 1);
+    ctx.beginPath(); ctx.arc(x + 6, ry + 18, 5, 0, 7); ctx.fillStyle = col; ctx.fill();
+    ctx.textAlign = 'left'; ctx.font = MONO(11, 700); ctx.fillStyle = col; ctx.fillText(lab, x + 18, ry + 10);
+    ctx.font = '600 17px "Zilla Slab", serif'; ctx.fillStyle = C.t1;
+    let nm = s.name; while (ctx.measureText(nm).width > nameW - 26 && nm.length > 4) nm = nm.slice(0, -2);
+    if (nm !== s.name) nm = nm.trimEnd() + '…';
+    ctx.fillText(nm, x + 18, ry + 30);
+    const mu = muOf(s.B), vals = [fmtXs(s.B), mu.toFixed(2), nelmOf(mu).toFixed(1), v ? v.count.toLocaleString() : '—'];
+    ctx.font = MONO(20, 700); ctx.textAlign = 'right'; ctx.fillStyle = C.t1;
+    vals.forEach((t, i) => ctx.fillText(t, x + nameW + cw * (i + 1), ry + 28));
+  });
+  return y + 26 + 2 * 38;
+}
+const slug = s => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+function save(canvas, name) {
+  return new Promise(res => canvas.toBlob(b => {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); res(b);
+  }, 'image/png'));
+}
+
+const EXPORTS = {
+  map() {
+    const W = 1240, P = 20, mw = W - 2 * P, mh = 520, lh = 84;
+    const out = renderPanels({ map: [mw, mh], legend: [mw, lh] });
+    const H = 108 + mh + 10 + lh + 20 + footH(mw);
+    const { c, ctx } = sheet(W, H, EXPORT_SCALE);
+    let y = header(ctx, P, 14, 'Sky Brightness Overhead · Long Island', [`× natural sky brightness overhead (1× = 22.0 mag/arcsec²)   ·   ● Your sky: ${state.mine.name}`]);
+    card(ctx, P, y, mw, mh); place(ctx, out.map, P, y, mw, mh); y += mh + 10;
+    card(ctx, P, y, mw, lh); place(ctx, out.legend, P, y, mw, lh); y += lh + 26;
+    footer(ctx, P, y, mw);
+    return [c, 'light-pollution_map.png'];
+  },
+  legend() {
+    const W = 1240, P = 20, lw = W - 2 * P, lh = 84;
+    const out = renderPanels({ legend: [lw, lh] });
+    const { c, ctx } = sheet(W, 92 + lh + 20 + footH(lw), EXPORT_SCALE);
+    let y = header(ctx, P, 14, 'Night-Sky Brightness Scale', []);
+    card(ctx, P, y, lw, lh); place(ctx, out.legend, P, y, lw, lh);
+    footer(ctx, P, y + lh + 26, lw);
+    return [c, 'light-pollution_scale.png'];
+  },
+  profile() {
+    const W = 1240, P = 20, ih = 210, iw = 220, pw = W - 2 * P - iw;
+    const out = renderPanels({ inset: [iw, ih], profile: [pw, ih] });
+    const { c, ctx } = sheet(W, 92 + ih + 20 + footH(W - 2 * P), EXPORT_SCALE);
+    let y = header(ctx, P, 14, 'Sky Brightness Profile · Catskills → Manhattan → Montauk', []);
+    card(ctx, P, y, W - 2 * P, ih);
+    place(ctx, out.inset, P, y, iw, ih); place(ctx, out.profile, P + iw, y, pw, ih);
+    ctx.fillStyle = C.line; ctx.fillRect(P + iw, y + 1, 1, ih - 2);
+    footer(ctx, P, y + ih + 26, W - 2 * P);
+    return [c, 'light-pollution_profile.png'];
+  },
+  sky() {
+    const W = 900, P = 20, sw = W - 2 * P, sh = 760;
+    const out = renderPanels({ sky: [sw, sh] });
+    const H = 130 + sh + 10 + 112 + 20 + footH(sw);
+    const { c, ctx } = sheet(W, H, EXPORT_SCALE);
+    let y = header(ctx, P, 14, 'Night Sky Comparison', [`Left — Your sky: ${state.mine.name}   ·   Right — Compare: ${state.ref.name}`, seasonText()]);
+    card(ctx, P, y, sw, sh, C.sky); place(ctx, out.sky, P, y, sw, sh); y += sh + 10;
+    card(ctx, P, y, sw, 112); drawTable(ctx, P + 14, y + 10, sw - 28); y += 112 + 26;
+    footer(ctx, P, y, sw);
+    return [c, `light-pollution_sky_${slug(state.mine.name)}_vs_${slug(state.ref.name)}.png`];
+  },
+  all() {
+    const P = 20, G = 10, LW = 960, RW = 640, W = P * 2 + LW + G + RW;
+    const mh = 430, lh = 84, ph = 200, iw = 200, sh = mh + G + lh + G + ph - 112 - G;
+    const out = renderPanels({ map: [LW, mh], legend: [LW, lh], inset: [iw, ph], profile: [LW - iw, ph], sky: [RW, sh] });
+    const H = 112 + mh + G + lh + G + ph + 20 + footH(W - 2 * P);
+    const { c, ctx } = sheet(W, H, 2);
+    let y = header(ctx, P, 14, 'Light Pollution Explorer', [siteLine('Your sky', state.mine) + '   ·   ' + seasonText(), siteLine('Compare', state.ref)]);
+    const xL = P, xR = P + LW + G;
+    card(ctx, xL, y, LW, mh); place(ctx, out.map, xL, y, LW, mh);
+    card(ctx, xL, y + mh + G, LW, lh); place(ctx, out.legend, xL, y + mh + G, LW, lh);
+    const yp = y + mh + G + lh + G;
+    card(ctx, xL, yp, LW, ph); place(ctx, out.inset, xL, yp, iw, ph); place(ctx, out.profile, xL + iw, yp, LW - iw, ph);
+    ctx.fillStyle = C.line; ctx.fillRect(xL + iw, yp + 1, 1, ph - 2);
+    tag(ctx, xL + iw + 10, yp + 8, 'Catskills → Manhattan → Montauk');
+    card(ctx, xR, y, RW, sh, C.sky); place(ctx, out.sky, xR, y, RW, sh);
+    card(ctx, xR, y + sh + G, RW, 112); drawTable(ctx, xR + 14, y + sh + G + 10, RW - 28);
+    footer(ctx, P, yp + ph + 26, W - 2 * P);
+    return [c, `light-pollution-explorer_${slug(state.mine.name)}_vs_${slug(state.ref.name)}.png`];
+  },
+};
+document.querySelectorAll('[data-dl]').forEach(btn => btn.addEventListener('click', async () => {
+  if (!MW || !state.ref) return;
+  const all = document.querySelectorAll('[data-dl]'), txt = btn.textContent;
+  all.forEach(b => b.disabled = true); btn.textContent = 'Rendering…';
+  await new Promise(r => setTimeout(r, 30));
+  try { const [c, name] = EXPORTS[btn.dataset.dl](); await save(c, name); }
+  finally { all.forEach(b => b.disabled = false); btn.textContent = txt; }
+}));
+
 /* ═════════════════════════ draw loop ═════════════════════════ */
 function drawAll() {
   drawMap(); drawLegend(); drawInset(); drawProfile(); drawSky(); updateReadouts();
@@ -1001,7 +1195,7 @@ if (document.fonts && document.fonts.load) {
   setTimeout(start, 1800);
   document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', () => { if (started && MW) { mapField = null; drawAll(); } });
 } else start();
-window.__LP = { state, setRef, setMine, pickTransect, D, nelmOf, muOf, get VIS() { return VIS; }, get SKY() { return SKY; } };
+window.__LP = { state, setRef, setMine, pickTransect, D, nelmOf, muOf, EXPORTS, get VIS() { return VIS; }, get SKY() { return SKY; } };
 })();
 </script>
 </body>
