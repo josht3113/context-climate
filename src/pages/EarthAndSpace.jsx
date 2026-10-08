@@ -284,10 +284,10 @@ const SECTIONS = [
         ],
       },
 
-      // ── Observing the Sky ────────────────────────────────────────────────────
+      // ── Observing The Sky & Earth Motions ────────────────────────────────────
       {
         key:   'observing-sky',
-        label: 'Observing the Sky',
+        label: 'Observing The Sky & Earth Motions',
         cards: [
           {
             tags:        ['Apparent Motion', 'Interactive'],
@@ -305,6 +305,24 @@ const SECTIONS = [
             footerTags:  ['Celestial Observation', 'Circumpolar Stars'],
             to:          '/earthandspace/turning-sky',
             thumb:       '/TheTurningSky_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ["Earth's Rotation", 'Interactive'],
+            title:       'Foucault Pendulum',
+            description: 'Time-lapse a Foucault pendulum at any latitude and compare how fast, and which way, its swing turns from pole to equator.',
+            footerTags:  ["Earth's Rotation", 'Latitude', 'Evidence'],
+            to:          '/earthandspace/foucault-pendulum',
+            thumb:       '/foucault_pendulum_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Atmospheric Circulation', 'Interactive'],
+            title:       'The Coriolis Effect',
+            description: 'Observe how movement in a rotating frame causes changes in the trajectory of objects travelling over long distances and influences storm circulation patterns.',
+            footerTags:  ['Coriolis Effect', 'Rotating Reference Frames'],
+            to:          '/earthandspace/coriolis-effect',
+            thumb:       '/CoriolisEffect_thumbnail.png',
             status:      'live',
           },
         ],
@@ -469,15 +487,6 @@ const SECTIONS = [
         footerTags:  ['Air Density', 'Altitude', 'Atmospheric Physics'],
         to:          '/earthandspace/homerun-derby',
         thumb:       'homerun-derby_thumbnail.png',
-        status:      'live',
-      },
-      {
-        tags:        ['Atmospheric Circulation', 'Interactive'],
-        title:       'The Coriolis Effect',
-        description: 'Observe how movement in a rotating frame causes changes in the trajectory of objects travelling over long distances and influences storm circulation patterns.',
-        footerTags:  ['Coriolis Effect', 'Rotating Reference Frames'],
-        to:          '/earthandspace/coriolis-effect',
-        thumb:       '/CoriolisEffect_thumbnail.png',
         status:      'live',
       },
       {
