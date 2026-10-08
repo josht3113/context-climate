@@ -117,6 +117,7 @@ import PlanetaryWindBelts          from './pages/PlanetaryWindBelts'
 import DopplerShiftChallenge       from './pages/DopplerShiftChallenge'
 import FoucaultPendulum            from './pages/FoucaultPendulum'
 import SeasonsExplorer             from './pages/SeasonsExplorer'
+import LightPollutionExplorer      from './pages/LightPollutionExplorer'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -269,6 +270,7 @@ export default function App() {
           <Route path="/earthandspace/doppler-shift-challenge"     element={<DopplerShiftChallenge />}      />
           <Route path="/earthandspace/foucault-pendulum"           element={<FoucaultPendulum />}           />
           <Route path="/earthandspace/seasons-explorer"            element={<SeasonsExplorer />}            />
+          <Route path="/earthandspace/light-pollution-explorer"    element={<LightPollutionExplorer />}     />
         </Routes>
       </main>
       <footer style={{
