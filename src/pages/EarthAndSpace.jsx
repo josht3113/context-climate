@@ -325,6 +325,15 @@ const SECTIONS = [
             thumb:       '/CoriolisEffect_thumbnail.png',
             status:      'live',
           },
+          {
+            tags:        ['Seasons', 'Interactive'],
+            title:       'Seasons Explorer',
+            description: 'Move Earth around its orbit and watch the direct rays sweep between the tropics, with noon Sun angle, daylight and intensity for any latitude. Change the axial tilt to see how the seasons respond.',
+            footerTags:  ['Axial Tilt', 'Insolation', 'Solstices & Equinoxes'],
+            to:          '/earthandspace/seasons-explorer',
+            thumb:       '/seasons_explorer_thumbnail.png',
+            status:      'live',
+          },
         ],
       },
 
