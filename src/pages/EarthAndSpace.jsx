@@ -334,6 +334,15 @@ const SECTIONS = [
             thumb:       '/seasons_explorer_thumbnail.png',
             status:      'live',
           },
+          {
+            tags:        ['Human Impacts', 'Interactive'],
+            title:       'Light Pollution Explorer',
+            description: 'Map the sky glow across Long Island, then compare your night sky with the Catskills and the darkest places on Earth.',
+            footerTags:  ['Sky Glow', 'Limiting Magnitude', 'Milky Way'],
+            to:          '/earthandspace/light-pollution-explorer',
+            thumb:       '/light_pollution_explorer_thumbnail.png',
+            status:      'live',
+          },
         ],
       },
 
