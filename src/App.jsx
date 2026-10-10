@@ -12,6 +12,7 @@ import PrecipSnow                  from './pages/PrecipSnow'
 import NortheastClimate            from './pages/NortheastClimate'
 import Hurricanes                  from './pages/Hurricanes'
 import TropicalACE                 from './pages/TropicalACE'
+import FallFoliage                 from './pages/FallFoliage'
 import TideWatch                   from './pages/TideWatch'
 import Solar                       from './pages/Solar'
 import SolarCalendar               from './pages/SolarCalendar'
@@ -166,6 +167,7 @@ export default function App() {
           <Route path="/enso"                                element={<ENSO />}                    />
           <Route path="/hurricanes"                          element={<Hurricanes />}              />
           <Route path="/tropical-ace"                        element={<TropicalACE />}             />
+          <Route path="/fall-foliage"                        element={<FallFoliage />}             />
           <Route path="/tide-watch"                          element={<TideWatch />}               />
           <Route path="/solar"                               element={<Solar />}                   />
           <Route path="/solar-calendar"                      element={<SolarCalendar />}           />
