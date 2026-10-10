@@ -13,7 +13,15 @@ Imagery and data: CC BY 4.0, PhenoCam Network (fair use policy, Aug 2025).
 Selection (all automatic, all reported by --diagnose):
   * deciduous broadleaf ROIs only (veg_type DB)
   * site location names one of NY, VT, NH, ME, MA, CT, RI, PA, NJ
-  * one ROI per site: the one with the most qualifying autumns
+  * sites often carry several DB ROIs: successive ones after a camera was
+    replaced or re-aimed (harvardbarn2 DB_1000 -> DB_2000), or concurrent
+    ones over different parts of one view. Each autumn is taken whole from
+    a single ROI, so no curve mixes two fields of view:
+      - ROIs are ranked by qualifying autumns, then roi_id >= 1000 first,
+        then lower roi_id;
+      - a past autumn comes from the highest-ranked ROI that qualifies for
+        it; the current autumn from the ROI with the most points this year.
+    The ROI used for each year is recorded ("rois").
   * a past autumn qualifies with >= MIN_PTS valid points between 1 Sep and
     15 Nov; a site needs >= MIN_YEARS qualifying past autumns to be kept.
     The current year is kept whenever it has any points (it is partial).
@@ -28,10 +36,11 @@ Output (--out, default public/): phenocam-foliage.json
     "window": {"start": "08-01", "end": "12-15"},
     "current_year": YYYY,
     "sites": [
-      { "site", "roi", "name", "state", "lat", "lon", "elev",
+      { "site", "roi" (top-ranked ROI), "name", "state", "lat", "lon", "elev",
         "ack",                      # site acknowledgement text, if published
         "first", "last",            # first / last valid date in the series
-        "years": { "YYYY": [[day_offset_from_Aug1, gcc, rcc], ...] } }
+        "years": { "YYYY": [[day_offset_from_Aug1, gcc, rcc], ...] },
+        "rois":  { "YYYY": "DB_1000", ... } }
     ]
   }
 
@@ -65,6 +74,8 @@ STATES = {
     "MA": "Massachusetts", "CT": "Connecticut", "RI": "Rhode Island",
     "PA": "Pennsylvania", "NJ": "New Jersey",
 }
+# Sites whose PhenoCam location text names no state.
+STATE_OVERRIDES = {"caryinstitute2": "NY"}   # Millbrook, NY
 WINDOW_START = (8, 1)     # Aug 1  -> offset 0
 WINDOW_END = (12, 15)     # Dec 15
 QUAL_START = (9, 1)       # qualification window for a past autumn
@@ -188,22 +199,52 @@ def parse_series(text):
     return header, rows
 
 
-def autumns(rows, current_year):
-    """Group rows into {year: [[offset, gcc, rcc], ...]} inside the window,
-    and report which past years qualify."""
-    years, qual_counts = {}, {}
+def autumn_points(rows):
+    """{year: [[offset, gcc, rcc], ...]} inside the window, plus
+    {year: count of points in the Sep 1 - Nov 15 qualification window}."""
+    years, qual = {}, {}
     for d, g, rc in rows:
         if not (md_ge(d, WINDOW_START) and md_le(d, WINDOW_END)):
             continue
         off = (d - dt.date(d.year, *WINDOW_START)).days
         years.setdefault(d.year, []).append([off, round(g, 4), round(rc, 4)])
         if md_ge(d, QUAL_START) and md_le(d, QUAL_END):
-            qual_counts[d.year] = qual_counts.get(d.year, 0) + 1
-    qualifying = sorted(y for y, n in qual_counts.items()
-                        if n >= MIN_PTS and y != current_year)
-    keep = {y: pts for y, pts in years.items()
-            if y in qualifying or y == current_year}
-    return keep, qualifying
+            qual[d.year] = qual.get(d.year, 0) + 1
+    return years, qual
+
+
+def n_qual(r, cy):
+    return sum(1 for y, n in r["qual"].items() if n >= MIN_PTS and y != cy)
+
+
+def rank(rois, cy):
+    return sorted(rois, key=lambda r: (-n_qual(r, cy),
+                                       r["roi_id"] < 1000, r["roi_id"]))
+
+
+def assemble(rois, cy):
+    """Combine one site's ROIs into one set of autumns, each autumn taken
+    whole from a single ROI. rois: [{roi_id, rows, years, qual}, ...]."""
+    order = rank([r for r in rois if r["rows"]], cy)
+    years, used = {}, {}
+    for y in sorted({y for r in order for y in r["years"]}):
+        if y == cy:
+            cand = [r for r in order if r["years"].get(y)]
+            # max() keeps the first maximal element, i.e. the higher-ranked ROI
+            best = max(cand, key=lambda r: len(r["years"][y])) if cand else None
+        else:
+            cand = [r for r in order if r["qual"].get(y, 0) >= MIN_PTS]
+            best = cand[0] if cand else None
+        if best:
+            years[y] = best["years"][y]
+            used[y] = "DB_%04d" % best["roi_id"]
+    return {
+        "years": years, "rois": used,
+        "qualifying": sorted(y for y in years if y != cy),
+        "primary": order[0]["roi_id"] if order else None,
+        "first": min(r["rows"][0][0] for r in order) if order else None,
+        "last": max(r["rows"][-1][0] for r in order) if order else None,
+    }
 
 
 # ---------------------------------------------------------------- build
@@ -241,7 +282,7 @@ def load_candidates():
             continue
         desc = (pick(s, "site_description", "Location", "location",
                      "description") or pick(r, "description") or "")
-        st = state_of(desc)
+        st = state_of(desc) or STATE_OVERRIDES.get(site)
         rec = {"site": site, "roi_id": roi_id, "lat": lat, "lon": lon,
                "elev": fnum(pick(s, "elev", "Elev")), "name": desc.strip(),
                "state": st,
@@ -261,61 +302,58 @@ def build(today, diagnose=False):
             f"'{u['name']}'")
 
     cy = today.year
-    per_site = {}
-    report = []
+    by_site, meta, report = {}, {}, []
     for i, c in enumerate(sorted(cands, key=lambda c: (c["site"], c["roi_id"]))):
         if i:
             time.sleep(PAUSE)
         url = SERIES_URL.format(site=c["site"], veg="DB", roi=c["roi_id"])
         try:
-            header, rows = parse_series(fetch(url))
+            _, rows = parse_series(fetch(url))
         except urllib.error.HTTPError as e:
-            report.append((c, None, [], f"HTTP {e.code}"))
+            report.append((c, None, 0, f"HTTP {e.code}"))
             continue
         except Exception as e:  # noqa: BLE001
-            report.append((c, None, [], f"error: {e}"))
+            report.append((c, None, 0, f"error: {e}"))
             continue
-        years, qual = autumns(rows, cy)
-        report.append((c, rows, qual, "ok"))
-        if not rows:
-            continue
-        best = per_site.get(c["site"])
-        key = (len(qual), rows[-1][0], -c["roi_id"])
-        if best is None or key > best["key"]:
-            per_site[c["site"]] = {"key": key, "c": c, "rows": rows,
-                                   "years": years, "qual": qual}
+        years, qual = autumn_points(rows)
+        r = {"roi_id": c["roi_id"], "rows": rows, "years": years, "qual": qual}
+        report.append((c, rows, n_qual(r, cy), "ok"))
+        by_site.setdefault(c["site"], []).append(r)
+        meta.setdefault(c["site"], c)
 
     log("")
+    log("Per ROI:")
     log(f"{'site':24} {'roi':8} {'st':3} {'autumns':>7} {'first':10}  "
         f"{'last':10} {'age':>5}  status")
-    for c, rows, qual, status in report:
+    for c, rows, nq, status in report:
         if rows:
             first, last = rows[0][0], rows[-1][0]
             age = (today - last).days
             tag = "LIVE" if age <= LIVE_DAYS else "stale"
             log(f"{c['site']:24} DB_{c['roi_id']:04d} {c['state']:3} "
-                f"{len(qual):7d} {first} {last} {age:5d}d  {tag}")
+                f"{nq:7d} {first} {last} {age:5d}d  {tag}")
         else:
             log(f"{c['site']:24} DB_{c['roi_id']:04d} {c['state']:3} "
                 f"{'-':>7} {'-':10}  {'-':10} {'-':>5}   {status}")
 
     kept = []
-    for site, b in sorted(per_site.items()):
-        if len(b["qual"]) < MIN_YEARS:
+    for site in sorted(by_site):
+        a = assemble(by_site[site], cy)
+        if len(a["qualifying"]) < MIN_YEARS:
             continue
-        g = sorted(p[1] for pts in b["years"].values() for p in pts)
+        g = sorted(p[1] for pts in a["years"].values() for p in pts)
         med = g[len(g) // 2]
         if not (0.25 <= med <= 0.6):
             log(f"WARNING: {site} median gcc {med:.3f} out of range — dropped")
             continue
-        c = b["c"]
+        c = meta[site]
         kept.append({
-            "site": site, "roi": f"DB_{c['roi_id']:04d}", "name": c["name"],
+            "site": site, "roi": "DB_%04d" % a["primary"], "name": c["name"],
             "state": c["state"], "lat": c["lat"], "lon": c["lon"],
             "elev": c["elev"], "ack": c["ack"],
-            "first": b["rows"][0][0].isoformat(),
-            "last": b["rows"][-1][0].isoformat(),
-            "years": {str(y): pts for y, pts in sorted(b["years"].items())},
+            "first": a["first"].isoformat(), "last": a["last"].isoformat(),
+            "years": {str(y): p for y, p in sorted(a["years"].items())},
+            "rois": {str(y): v for y, v in sorted(a["rois"].items())},
         })
 
     live = [k for k in kept
@@ -324,8 +362,12 @@ def build(today, diagnose=False):
     log(f"Sites kept: {len(kept)} (>= {MIN_YEARS} qualifying autumns); "
         f"live this season: {len(live)}")
     for k in kept:
-        log(f"  {k['site']:24} {k['roi']}  {k['state']}  "
-            f"{len(k['years'])} autumns  last {k['last']}")
+        age = (today - dt.date.fromisoformat(k["last"])).days
+        used = sorted(set(k["rois"].values()))
+        cur = k["rois"].get(str(cy), "-")
+        log(f"  {k['site']:24} {k['state']}  {len(k['years']):2d} autumns  "
+            f"last {k['last']} {'LIVE ' if age <= LIVE_DAYS else 'stale'}  "
+            f"{cy}: {cur:7}  ROIs {'+'.join(used)}")
 
     if diagnose:
         return None
@@ -390,21 +432,63 @@ def selftest():
     check("header lat", hdr.get("lat"), "42.5378")
     # dropped: NA gcc, outlier flag 1, image_count 0
     check("valid rows", len(rows), 5)
-    yrs, qual = autumns(rows, 2026)
-    check("thin past year does not qualify", qual, [])
-    check("thin past year dropped from output", list(yrs), [])
-    yrs2, _ = autumns(rows, 2024)
-    check("current year kept even if thin", list(yrs2), [2024])
+    yrs, qual = autumn_points(rows)
     check("window excludes Jul 30 and Dec 18",
-          [p[0] for p in yrs2[2024]], [0, 45, 136])
-    check("Aug 1 offset", yrs2[2024][0], [0, 0.419, 0.331])
-    many = [(dt.date(2023, 9, 1) + dt.timedelta(days=3 * i), 0.4, 0.35)
-            for i in range(MIN_PTS)]
-    _, q = autumns(many, 2026)
-    check("full past year qualifies", q, [2023])
+          [p[0] for p in yrs[2024]], [0, 45, 136])
+    check("Aug 1 offset", yrs[2024][0], [0, 0.419, 0.331])
+    check("qualification count (Sep 15 only)", qual, {2024: 1})
+
+    def autumn(y, g, n=MIN_PTS, start=(9, 1)):
+        d0 = dt.date(y, *start)
+        return [(d0 + dt.timedelta(days=3 * i), g, 0.35) for i in range(n)]
+
+    def roi(rid, rows):
+        y, q = autumn_points(rows)
+        return {"roi_id": rid, "rows": sorted(rows), "years": y, "qual": q}
+
+    # thin past autumn is dropped, thin current autumn is kept
+    a = assemble([roi(1000, rows)], 2026)
+    check("thin past autumn dropped", a["years"], {})
+    a = assemble([roi(1000, rows)], 2024)
+    check("thin current autumn kept", list(a["years"]), [2024])
+
+    # camera replaced: DB_1000 2018-2021, DB_2000 2022-current (like
+    # harvardbarn2) -> one continuous run, each autumn from its own ROI
+    old = roi(1000, sum((autumn(y, 0.40) for y in range(2018, 2022)), []))
+    new = roi(2000, sum((autumn(y, 0.45) for y in range(2022, 2026)), [])
+              + autumn(2026, 0.45, n=10))
+    a = assemble([old, new], 2026)
+    check("succession: all autumns", sorted(a["years"]), list(range(2018, 2027)))
+    check("succession: ROI per year", [a["rois"][y] for y in (2021, 2022, 2026)],
+          ["DB_1000", "DB_2000", "DB_2000"])
+    check("succession: no mixing within a year",
+          {p[1] for p in a["years"][2021]} | {p[1] for p in a["years"][2022]},
+          {0.40, 0.45})
+    check("succession: last date from newest ROI", a["last"],
+          dt.date(2026, 9, 1) + dt.timedelta(days=27))
+
+    # replaced mid-autumn (like NEON BART, 2025-10-05): neither half
+    # qualifies, so that autumn is left out rather than spliced
+    pre = roi(1000, sum((autumn(y, 0.40) for y in range(2017, 2025)), [])
+              + autumn(2025, 0.40, n=11))
+    post = roi(2000, autumn(2025, 0.47, n=14, start=(10, 5))
+               + autumn(2026, 0.47, n=12))
+    a = assemble([pre, post], 2026)
+    check("mid-autumn swap: 2025 not spliced", 2025 in a["years"], False)
+    check("mid-autumn swap: current year from new ROI", a["rois"][2026], "DB_2000")
+
+    # concurrent ROIs with equal records (like harvard DB_0001 / DB_1000):
+    # the 1000-series ROI is used every year, never alternating
+    r1 = roi(1, sum((autumn(y, 0.41) for y in range(2015, 2020)), []))
+    r2 = roi(1000, sum((autumn(y, 0.42) for y in range(2015, 2020)), []))
+    a = assemble([r1, r2], 2026)
+    check("concurrent: 1000-series preferred", set(a["rois"].values()), {"DB_1000"})
+    check("concurrent: primary", a["primary"], 1000)
+
     check("state: full name", state_of("Harvard Forest, Petersham, Massachusetts"), "MA")
     check("state: abbreviation", state_of("Arbutus Lake, Newcomb, NY"), "NY")
     check("state: outside region", state_of("Dover, Delaware"), None)
+    check("state: override", STATE_OVERRIDES.get("caryinstitute2"), "NY")
     check("state: Main Street is not Maine", state_of("12 Main Street, Ohio"), None)
     check("box", (in_box(42.5, -72.2), in_box(45.5, -60.0)), (True, False))
     log("selftest " + ("passed" if not fails else f"FAILED ({fails})"))
