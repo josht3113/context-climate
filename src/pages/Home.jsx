@@ -108,6 +108,14 @@ const SECTIONS = [
         to:         '/tide-watch',
         thumb:      '/TideWatch_thumbnail.png',
       },
+      {
+        tags:       ['Northeast', 'Updates Daily'],
+        title:      'Fall Foliage',
+        description:'Canopy greenness and redness from tower cameras at 16 Northeast forests and cities, this autumn plotted against every autumn on record.',
+        footerTags: ['PhenoCam Network', 'Peak Color', 'Greendown'],
+        to:         '/fall-foliage',
+        thumb:      '/FallFoliage_thumbnail.png',
+      },
     ],
   },
   {
