@@ -1,0 +1,69 @@
+name: Update PhenoCam foliage data
+
+# Daily refresh through the autumn season (Sep-Nov), when the current-year
+# canopy curves are moving. Outside the season the data barely changes, so a
+# single run on the 1st of each other month keeps the archive current.
+# A failed download or validation never overwrites the committed file.
+
+on:
+  schedule:
+    - cron: '25 11 * 9-11 *'
+    - cron: '25 11 1 1-8,12 *'
+  workflow_dispatch:
+    inputs:
+      diagnose:
+        description: 'Report candidate cameras and how recent their data is, then stop'
+        type: boolean
+        default: false
+
+concurrency:
+  group: phenocam-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Self-test
+        run: python3 scripts/build_phenocam_data.py --selftest
+
+      - name: Diagnose camera coverage
+        if: ${{ inputs.diagnose }}
+        run: python3 scripts/build_phenocam_data.py --diagnose
+
+      - name: Build PhenoCam data
+        if: ${{ !inputs.diagnose }}
+        run: python3 scripts/build_phenocam_data.py --out public
+
+      - name: Commit and push
+        if: ${{ !inputs.diagnose }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/phenocam-foliage.json
+          if git diff --cached --quiet; then
+            echo "No change in the data file — nothing to commit."
+            exit 0
+          fi
+          git commit -m "PhenoCam foliage data ($(date -u +%Y-%m-%d))"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "${{ github.ref_name }}" && git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying."
+            sleep 6
+          done
+          echo "Could not push after 3 attempts."
+          exit 1
