@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fall Foliage</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="map-base.js"></script>
+<style>
+  :root {
+    --tool-accent: var(--accent-live);
+    --click-text: #F2EEE3;
+    /* Content colours — canopy greenness, canopy redness, compared year */
+    --c-green: #6CC04A;
+    --c-red:   #E5603A;
+    --c-cmp:   #E8B931;
+  }
+
+  /* Shared component classes set `display`, and author rules beat the UA
+     `[hidden]` rule, so the attribute silently does nothing without this. */
+  [hidden] { display: none !important; }
+
+  body { padding: 28px 20px 48px; }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+
+  header.page { margin-bottom: 18px; }
+  .cc-title { margin: 6px 0 8px; }
+  .cc-subtitle { max-width: 80ch; margin: 0; }
+
+  /* ── Controls (above the visuals) ─────────────────────────── */
+  .controls {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 22px;
+    margin: 20px 0 18px;
+  }
+  .ctl { display: flex; flex-direction: column; gap: 6px; }
+  .ctl .cc-btn-row-label { margin: 0; }
+  .ctl .cc-select {
+    font-size: 17px; font-weight: 600; color: var(--click-text);
+    padding: 9px 14px; min-width: 250px;
+  }
+  #cmpSel { min-width: 150px; }
+  .cc-btn { font-size: 16px; font-weight: 600; color: var(--click-text); }
+
+  #status { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-muted); margin: 0 0 14px; }
+  #status.err { color: var(--accent-seasons); }
+
+  /* ── Layout ───────────────────────────────────────────────── */
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .panel-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .panel-title { font-family: var(--font-display); font-weight: 700; font-size: 21px; margin: 0; color: var(--color-text-primary); }
+  .panel-unit { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; color: var(--color-text-muted); white-space: nowrap; }
+
+  /* Map */
+  .map-panel { position: sticky; top: 16px; }
+  #mapHolder { position: relative; }
+  #mapCanvas { display: block; width: 100%; border-radius: var(--radius-md); cursor: pointer; }
+  .ramp { margin-top: 14px; }
+  .ramp-bar { height: 12px; border-radius: var(--radius-sm); }
+  .ramp-ticks { position: relative; height: 18px; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); }
+  .ramp-ticks span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .ramp-ticks span:first-child { transform: none; }
+  .ramp-ticks span:last-child { transform: translateX(-100%); }
+  .symkey { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); }
+  .symkey span { display: inline-flex; align-items: center; gap: 7px; }
+  .sym { width: 12px; height: 12px; display: inline-block; flex-shrink: 0; }
+  .sym.live { border-radius: 50%; background: #B9B4A7; }
+  .sym.arch { border-radius: 50%; border: 3px solid #B9B4A7; }
+  .sym.urb  { border-radius: 2px; background: #B9B4A7; }
+
+  /* Site header + stats */
+  .site-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
+  .site-name { font-family: var(--font-display); font-weight: 700; font-size: 28px; line-height: 1.1; margin: 0; }
+  .site-place { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-secondary); letter-spacing: 0.04em; }
+  .badge {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
+    padding: 3px 9px; border-radius: var(--radius-sm); align-self: center;
+  }
+  .badge.live { background: rgba(42,168,126,0.16); color: #63D3A9; border: 1px solid rgba(42,168,126,0.5); }
+  .badge.arch { background: rgba(232,228,217,0.06); color: var(--color-text-secondary); border: 1px solid var(--color-border-hover); }
+
+  .cc-stat-row { margin-bottom: 14px; }
+  .cc-stat-chip { flex: 1 1 190px; gap: 3px; padding: 10px 16px; }
+  .cc-stat-value { font-size: 30px; line-height: 1.05; }
+  .chip-sub { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-muted); line-height: 1.45; }
+
+  /* Charts */
+  .chart-block + .chart-block { margin-top: 18px; }
+  .chart-holder { position: relative; height: 290px; }
+  .chart-holder canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  .cc-legend-row { justify-content: flex-start; margin-top: 14px; }
+  .cc-legend-chip { font-size: 13px; color: var(--color-text-secondary); }
+  .sw { width: 22px; height: 0; border-top: 3px solid; flex-shrink: 0; }
+  .sw.dash { border-top-style: dashed; border-top-width: 2px; }
+  .sw.two { border: none; height: 3px; background: linear-gradient(90deg, var(--c-green) 50%, var(--c-red) 50%); }
+
+  .tip {
+    position: absolute; pointer-events: none; z-index: 20;
+    background: var(--color-surface-2); border: 1px solid var(--color-border-hover);
+    border-radius: var(--radius-md); padding: 7px 11px;
+    font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+    color: var(--color-text-primary); white-space: nowrap;
+  }
+  .tip b { font-weight: 700; }
+  .tip .k { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 7px; vertical-align: 0; }
+  .tip .muted { color: var(--color-text-muted); }
+
+  .actions { margin: 22px 0 6px; }
+  .cc-source-note { max-width: 104ch; text-align: left; font-style: normal; font-size: 13.5px; }
+  .cc-source-note p { margin: 0 0 8px; }
+  .cc-source-note b { color: var(--color-text-secondary); font-weight: 600; }
+  .cc-source-note a { color: var(--color-text-secondary); }
+
+  @media (max-width: 960px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+    .map-panel { max-width: 520px; position: static; }
+    .chart-holder { height: 250px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <div class="cc-eyebrow">PhenoCam Network · Northeast US</div>
+    <h1 class="cc-title">Fall Foliage</h1>
+    <p class="cc-subtitle">Canopy greenness and redness through autumn from tower cameras at 16 Northeast sites — this year against every autumn on record.</p>
+  </header>
+
+  <div class="controls">
+    <div class="ctl">
+      <label class="cc-btn-row-label" for="siteSel">Site</label>
+      <select class="cc-select" id="siteSel"></select>
+    </div>
+    <div class="ctl">
+      <label class="cc-btn-row-label" for="cmpSel">Compare year</label>
+      <select class="cc-select" id="cmpSel"></select>
+    </div>
+    <div class="ctl">
+      <span class="cc-btn-row-label">Past autumns</span>
+      <button class="cc-btn is-active" id="pastBtn" aria-pressed="true">Shown</button>
+    </div>
+  </div>
+
+  <p id="status">Loading…</p>
+
+  <div class="grid" id="main" hidden>
+    <section class="cc-panel map-panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Sites</h2>
+        <span class="panel-unit">TYPICAL PEAK RED</span>
+      </div>
+      <div id="mapHolder"><canvas id="mapCanvas"></canvas><div class="tip" id="mapTip" hidden></div></div>
+      <div class="ramp">
+        <div class="ramp-bar" id="rampBar"></div>
+        <div class="ramp-ticks" id="rampTicks"></div>
+      </div>
+      <div class="symkey">
+        <span><i class="sym live"></i>Live this autumn</span>
+        <span><i class="sym arch"></i>Archive only</span>
+        <span><i class="sym urb"></i>Urban</span>
+      </div>
+    </section>
+
+    <div>
+      <div class="site-head">
+        <h2 class="site-name" id="siteName"></h2>
+        <span class="site-place" id="sitePlace"></span>
+        <span class="badge" id="siteBadge"></span>
+      </div>
+
+      <div class="cc-stat-row" id="statRow"></div>
+
+      <section class="cc-panel">
+        <div class="chart-block">
+          <div class="panel-head">
+            <h2 class="panel-title">Greenness</h2>
+            <span class="panel-unit">Δ GCC FROM AUGUST MEDIAN</span>
+          </div>
+          <div class="chart-holder"><canvas id="gCanvas"></canvas><div class="tip" id="gTip" hidden></div></div>
+        </div>
+        <div class="chart-block">
+          <div class="panel-head">
+            <h2 class="panel-title">Redness</h2>
+            <span class="panel-unit">Δ RCC FROM AUGUST MEDIAN</span>
+          </div>
+          <div class="chart-holder"><canvas id="rCanvas"></canvas><div class="tip" id="rTip" hidden></div></div>
+        </div>
+        <div class="cc-legend-row" id="legend"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="cc-btn-row actions" style="justify-content:flex-start">
+    <button class="cc-btn primary" id="pngBtn" disabled>↓ Download PNG</button>
+  </div>
+
+  <footer class="cc-source-note" id="footer"></footer>
+</div>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════════════
+// CONSTANTS — must match ref_foliage.py (Python reference)
+// ════════════════════════════════════════════════════════════════════
+const DATA_URL = 'phenocam-foliage.json';
+const N = 137;              // day offsets 0..136 = Aug 1 .. Dec 15
+const AUG = [0, 30];        // baseline window (inclusive)
+const MAX_GAP = 12;         // no interpolation across longer gaps (days)
+const HALF = 4;             // running-mean half width (days) → 9-day mean
+const PEAK = [31, 121];     // Sep 1 .. Nov 30
+const MIN_BASE = 3;         // Aug points needed to baseline a year
+const MIN_YRS = 3;          // years needed at a day for the median
+const LIVE_DAYS = 7;
+const MONTHS = [[0, 'Aug'], [31, 'Sep'], [61, 'Oct'], [92, 'Nov'], [122, 'Dec']];
+const RAMP_LO = 61, RAMP_HI = 112;   // Oct 1 .. Nov 21 — typical-peak colour scale
+const RAMP = ['#F4D35E', '#EE9B3B', '#DD5A2F', '#B5302C', '#7E1E2E'];
+
+const C = {
+  bg: '#1E2320', surface: '#262B27', surface2: '#2C322D',
+  text: '#E8E4D9', text2: '#A6A499', muted: '#948F82',
+  grid: 'rgba(232,228,217,0.08)', gridStrong: 'rgba(232,228,217,0.22)',
+  past: 'rgba(232,228,217,0.17)', median: 'rgba(232,228,217,0.88)',
+  green: '#6CC04A', red: '#E5603A', cmp: '#E8B931', live: '#2AA87E',
+};
+const MONO = '"Courier Prime", monospace';
+const SANS = '"Public Sans", sans-serif';
+const DISPLAY = '"Zilla Slab", serif';
+
+// ════════════════════════════════════════════════════════════════════
+// MATH — mirrors ref_foliage.py line for line
+// ════════════════════════════════════════════════════════════════════
+function median(v) {
+  const s = v.slice().sort((a, b) => a - b), n = s.length, h = n >> 1;
+  return n % 2 ? s[h] : (s[h - 1] + s[h]) / 2;
+}
+function baseline(pts, k) {
+  const v = pts.filter(p => p[0] >= AUG[0] && p[0] <= AUG[1]).map(p => p[k]);
+  return v.length >= MIN_BASE ? median(v) : null;
+}
+function daily(pts, k, base) {
+  const out = new Array(N).fill(null);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (b[0] - a[0] > MAX_GAP) continue;
+    for (let d = a[0]; d <= b[0]; d++) {
+      const t = b[0] !== a[0] ? (d - a[0]) / (b[0] - a[0]) : 0;
+      out[d] = a[k] + t * (b[k] - a[k]) - base;
+    }
+  }
+  if (pts.length === 1) out[pts[0][0]] = pts[0][k] - base;
+  return out;
+}
+function smooth(arr) {
+  const out = new Array(N).fill(null);
+  for (let d = 0; d < N; d++) {
+    if (arr[d] === null) continue;
+    let s = 0, n = 0;
+    for (let j = Math.max(0, d - HALF); j < Math.min(N, d + HALF + 1); j++)
+      if (arr[j] !== null) { s += arr[j]; n++; }
+    out[d] = s / n;
+  }
+  return out;
+}
+
+function analyse(site, cy) {
+  const yrs = {};
+  for (const [ys, pts] of Object.entries(site.years)) {
+    const bg = baseline(pts, 1), br = baseline(pts, 2);
+    if (bg === null || br === null) continue;
+    yrs[+ys] = {
+      pts: pts.map(p => [p[0], p[1] - bg, p[2] - br]),
+      g: daily(pts, 1, bg), r: daily(pts, 2, br),
+      roi: site.rois ? site.rois[ys] : null,
+    };
+  }
+  const all = Object.keys(yrs).map(Number).sort((a, b) => a - b);
+  const past = all.filter(y => y !== cy);
+  const med = {};
+  for (const k of ['g', 'r']) {
+    const raw = new Array(N).fill(null);
+    for (let d = 0; d < N; d++) {
+      const v = [];
+      for (const y of past) if (yrs[y][k][d] !== null) v.push(yrs[y][k][d]);
+      raw[d] = v.length >= MIN_YRS ? median(v) : null;
+    }
+    med[k] = smooth(raw);
+  }
+  const peaks = [];
+  for (const y of past) {
+    const s = smooth(yrs[y].r);
+    let best = null, bd = null, n = 0;
+    for (let d = PEAK[0]; d <= PEAK[1]; d++) {
+      if (s[d] === null) continue;
+      n++;
+      if (best === null || s[d] >= best) { best = s[d]; bd = d; }   // tie → later day
+    }
+    if (n >= 30) peaks.push(bd);
+  }
+  let mmin = null;
+  for (let d = PEAK[0]; d < N; d++)
+    if (med.g[d] !== null && (mmin === null || med.g[d] < mmin)) mmin = med.g[d];
+
+  const res = { site, yrs, all, past, med, peaks, typPeak: peaks.length ? median(peaks) : null, mmin, cur: null };
+  if (yrs[cy] && mmin) {
+    const s = smooth(yrs[cy].g);
+    let t = -1;
+    for (let d = 0; d < N; d++) if (s[d] !== null) t = d;
+    if (t >= 0) {
+      const v = s[t];
+      const at = past.map(y => smooth(yrs[y].g)[t]).filter(a => a !== null);
+      res.cur = {
+        t, v, frac: v / mmin,
+        typFrac: med.g[t] !== null ? med.g[t] / mmin : null,
+        rank: 1 + at.filter(a => a < v).length, of: 1 + at.length,
+      };
+    }
+  }
+  // y-ranges from the plotted points (all years), always including zero
+  for (const k of [1, 2]) {
+    let lo = 0, hi = 0;
+    for (const y of all) for (const p of yrs[y].pts) { if (p[k] < lo) lo = p[k]; if (p[k] > hi) hi = p[k]; }
+    const pad = (hi - lo) * 0.08 || 0.01;
+    res[k === 1 ? 'yg' : 'yr'] = [lo - pad, hi + pad];
+  }
+  return res;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// FORMATTING
+// ════════════════════════════════════════════════════════════════════
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function dayLabel(d) {
+  const t = new Date(Date.UTC(2001, 7, 1) + Math.floor(d + 0.5) * 864e5);
+  return MON[t.getUTCMonth()] + ' ' + t.getUTCDate();
+}
+function isoLabel(iso, withYear) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return MON[m - 1] + ' ' + d + (withYear ? ', ' + y : '');
+}
+const fmtD = v => (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(3);
+const pct = v => (v < 0 ? '−' : '') + Math.round(Math.abs(v) * 100) + '%';
+const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th','st','nd','rd'][n % 10] || 'th');
+function rampColor(d) {
+  if (d === null) return '#8A867B';
+  const t = Math.max(0, Math.min(1, (d - RAMP_LO) / (RAMP_HI - RAMP_LO))) * (RAMP.length - 1);
+  const i = Math.min(RAMP.length - 2, Math.floor(t)), f = t - i;
+  const a = hex(RAMP[i]), b = hex(RAMP[i + 1]);
+  return `rgb(${a.map((x, j) => Math.round(x + (b[j] - x) * f)).join(',')})`;
+}
+function hex(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+
+// ════════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════════
+const st = { data: null, cy: null, gen: null, sites: [], sel: 0, cmp: null, hover: null, hoverDay: null, past: true, mapHover: null };
+const $ = id => document.getElementById(id);
+const cur = () => st.sites[st.sel];
+function isLive(a) {
+  const last = new Date(a.site.last + 'T00:00:00Z');
+  return a.cur !== null && (st.gen - last) / 864e5 <= LIVE_DAYS;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// CHART DRAWING — pure functions of (ctx, W, H); reused by PNG export
+// ════════════════════════════════════════════════════════════════════
+const M = { l: 62, r: 64, t: 12, b: 30 };
+function chartGeom(W, H, yr) {
+  const pw = W - M.l - M.r, ph = H - M.t - M.b;
+  return {
+    pw, ph,
+    X: d => M.l + d / (N - 1) * pw,
+    Y: v => M.t + (yr[1] - v) / (yr[1] - yr[0]) * ph,
+    D: x => (x - M.l) / pw * (N - 1),
+  };
+}
+function niceTicks(lo, hi) {
+  const mag = Math.pow(10, Math.floor(Math.log10((hi - lo) / 5)));
+  let best = null;
+  for (const m of [0.5, 1, 2, 2.5, 5, 10]) {
+    const step = m * mag, out = [];
+    for (let i = Math.ceil(lo / step - 1e-9); i * step <= hi + 1e-12; i++) out.push(i === 0 ? 0 : i * step);
+    if (out.length >= 4 && out.length <= 7) { best = { out, step }; break; }
+    if (!best || out.length >= 3) best = { out, step };
+  }
+  const dec = Math.max(0, Math.ceil(-Math.log10(best.step) - 1e-9) + (Math.abs(best.step / Math.pow(10, Math.floor(Math.log10(best.step))) - 2.5) < 1e-9 ? 1 : 0));
+  best.dec = dec;
+  return best;
+}
+function polyPts(ctx, pts, k, X, Y) {
+  ctx.beginPath();
+  let pen = false, prev = null;
+  for (const p of pts) {
+    if (!pen || p[0] - prev > MAX_GAP) ctx.moveTo(X(p[0]), Y(p[k]));
+    else ctx.lineTo(X(p[0]), Y(p[k]));
+    pen = true; prev = p[0];
+  }
+  ctx.stroke();
+}
+function polyDaily(ctx, arr, X, Y) {
+  ctx.beginPath();
+  let pen = false;
+  for (let d = 0; d < N; d++) {
+    if (arr[d] === null) { pen = false; continue; }
+    if (!pen) ctx.moveTo(X(d), Y(arr[d])); else ctx.lineTo(X(d), Y(arr[d]));
+    pen = true;
+  }
+  ctx.stroke();
+}
+function lastDaily(arr) { for (let d = N - 1; d >= 0; d--) if (arr[d] !== null) return d; return -1; }
+
+function drawChart(ctx, W, H, a, kind, view) {
+  const k = kind === 'g' ? 1 : 2, yr = kind === 'g' ? a.yg : a.yr;
+  const G = chartGeom(W, H, yr), { X, Y } = G;
+  const col = kind === 'g' ? C.green : C.red;
+  ctx.save();
+  ctx.fillStyle = C.surface; ctx.fillRect(0, 0, W, H);
+
+  // grid
+  ctx.lineWidth = 1;
+  const yt = niceTicks(yr[0], yr[1]);
+  ctx.font = '13px ' + MONO; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const v of yt.out) {
+    const y = Math.round(Y(v)) + 0.5;
+    ctx.strokeStyle = v === 0 ? C.gridStrong : C.grid;
+    ctx.beginPath(); ctx.moveTo(M.l, y); ctx.lineTo(W - M.r, y); ctx.stroke();
+    ctx.fillStyle = C.text2;
+    ctx.fillText(v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(yt.dec), M.l - 8, y);
+  }
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  for (const [d, lab] of MONTHS) {
+    const x = Math.round(X(d)) + 0.5;
+    ctx.strokeStyle = C.grid;
+    ctx.beginPath(); ctx.moveTo(x, M.t); ctx.lineTo(x, H - M.b); ctx.stroke();
+    ctx.fillStyle = C.text2; ctx.fillText(lab, x + 5, H - M.b + 8);
+  }
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(M.l, M.t, G.pw, G.ph); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+  // past autumns
+  if (view.past) {
+    ctx.strokeStyle = C.past; ctx.lineWidth = 1.2;
+    for (const y of a.past) if (y !== view.cmp && y !== view.hover) polyPts(ctx, a.yrs[y].pts, k, X, Y);
+  }
+  // median
+  ctx.strokeStyle = C.median; ctx.lineWidth = 2; ctx.setLineDash([7, 5]);
+  polyDaily(ctx, a.med[kind], X, Y); ctx.setLineDash([]);
+  // compared / hovered year
+  for (const y of [view.cmp, view.hover]) {
+    if (y === null || !a.yrs[y] || y === st.cy) continue;
+    ctx.strokeStyle = y === view.cmp ? C.cmp : 'rgba(232,228,217,0.75)';
+    ctx.lineWidth = 2; polyPts(ctx, a.yrs[y].pts, k, X, Y);
+  }
+  // current year
+  if (a.yrs[st.cy]) {
+    ctx.strokeStyle = col; ctx.lineWidth = 2.6;
+    polyPts(ctx, a.yrs[st.cy].pts, k, X, Y);
+  }
+  // typical peak marker (redness panel)
+  if (kind === 'r' && a.typPeak !== null) {
+    const d = Math.floor(a.typPeak + 0.5), v = a.med.r[d];
+    if (v !== null) {
+      const x = X(d), y = Y(v);
+      ctx.fillStyle = C.text; ctx.strokeStyle = C.surface; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x - 7, y - 17); ctx.lineTo(x + 7, y - 17); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+  }
+  // crosshair
+  if (view.day !== null && view.day !== undefined) {
+    const x = Math.round(X(view.day)) + 0.5;
+    ctx.strokeStyle = 'rgba(232,228,217,0.45)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, M.t); ctx.lineTo(x, H - M.b); ctx.stroke();
+  }
+  ctx.restore();
+
+  // end dots + direct labels (outside the clip so labels can sit in the right margin)
+  const labels = [];
+  if (a.yrs[st.cy]) {
+    const p = a.yrs[st.cy].pts[a.yrs[st.cy].pts.length - 1];
+    ctx.fillStyle = col; ctx.strokeStyle = C.surface; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(p[0]), Y(p[k]), 5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    labels.push({ x: X(p[0]) + 9, y: Y(p[k]), t: String(st.cy), c: C.text });
+  }
+  const md = lastDaily(a.med[kind]);
+  if (md >= 0) labels.push({ x: X(md) + 6, y: Y(a.med[kind][md]), t: 'Median', c: C.text2 });
+  if (view.cmp !== null && a.yrs[view.cmp]) {
+    const p = a.yrs[view.cmp].pts[a.yrs[view.cmp].pts.length - 1];
+    labels.push({ x: X(p[0]) + 6, y: Y(p[k]), t: String(view.cmp), c: C.cmp });
+  }
+  // keep labels from overlapping vertically
+  labels.sort((p, q) => p.y - q.y);
+  for (let i = 1; i < labels.length; i++)
+    if (Math.abs(labels[i].y - labels[i - 1].y) < 15 && Math.abs(labels[i].x - labels[i - 1].x) < 60)
+      labels[i].y = labels[i - 1].y + 15;
+  ctx.font = '700 13px ' + MONO; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const L of labels) {
+    const x = Math.min(L.x, W - ctx.measureText(L.t).width - 4);
+    ctx.lineWidth = 4; ctx.strokeStyle = C.surface; ctx.strokeText(L.t, x, L.y);
+    ctx.fillStyle = L.c; ctx.fillText(L.t, x, L.y);
+  }
+  ctx.restore();
+  return G;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MAP
+// ════════════════════════════════════════════════════════════════════
+const MAP_BOUNDS = { west: -80.6, east: -66.9, north: 47.5, south: 39.4 };
+// Dark basemap: this page's own copy of the shared tokens
+Object.assign(MAP.COLORS, {
+  water: '#1A1E1B', landUS: '#323832', landForeign: '#2A2F2B',
+  coast: '#666D66', admin1: '#4C534C', intl: '#5E655E',
+});
+let basemap = null, mapGeo = null;
+
+function layoutMap(CW) {
+  const dims = MAP.computeDims(MAP_BOUNDS, CW);
+  const P = MAP.makeProjection(MAP_BOUNDS, dims);
+  const pts = st.sites.map((a, i) => {
+    const [x, y] = P(a.site.lon, a.site.lat);
+    return { i, x0: x, y0: y, x, y };
+  });
+  // nudge apart markers that would overlap (Boston, New York)
+  for (let it = 0; it < 60; it++) {
+    let moved = false;
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+      const p = pts[i], q = pts[j];
+      let dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy);
+      if (d >= 17) continue;
+      if (d < 0.01) { dx = 1; dy = 0; d = 1; }
+      const push = (17 - d) / 2;
+      p.x -= dx / d * push; p.y -= dy / d * push; q.x += dx / d * push; q.y += dy / d * push;
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  return { dims, P, pts };
+}
+
+function drawMap(ctx, geo, opts) {
+  const { dims, P, pts } = geo;
+  ctx.save();
+  MAP.renderBase(ctx, basemap, P, dims, MAP_BOUNDS);
+  for (const p of pts) if (Math.hypot(p.x - p.x0, p.y - p.y0) > 3) {
+    ctx.strokeStyle = 'rgba(232,228,217,0.45)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p.x0, p.y0); ctx.lineTo(p.x, p.y); ctx.stroke();
+    ctx.fillStyle = 'rgba(232,228,217,0.7)'; ctx.beginPath(); ctx.arc(p.x0, p.y0, 1.6, 0, Math.PI * 2); ctx.fill();
+  }
+  const order = pts.slice().sort((p, q) => (p.i === opts.sel) - (q.i === opts.sel));
+  for (const p of order) {
+    const a = st.sites[p.i], c = rampColor(a.typPeak), live = isLive(a), urban = a.site.group === 'urban';
+    const R = 7;
+    ctx.beginPath();
+    if (urban) ctx.rect(p.x - R + 0.5, p.y - R + 0.5, 2 * R - 1, 2 * R - 1);
+    else ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
+    if (live) {
+      ctx.fillStyle = c; ctx.fill();
+      ctx.strokeStyle = '#1A1E1B'; ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      ctx.fillStyle = '#262B27'; ctx.fill();
+      ctx.strokeStyle = c; ctx.lineWidth = 3; ctx.stroke();
+    }
+    if (p.i === opts.sel) {
+      ctx.beginPath();
+      if (urban) ctx.rect(p.x - R - 4, p.y - R - 4, 2 * R + 8, 2 * R + 8); else ctx.arc(p.x, p.y, R + 4.5, 0, Math.PI * 2);
+      ctx.strokeStyle = C.text; ctx.lineWidth = 2; ctx.stroke();
+    }
+  }
+  ctx.font = '700 13px ' + MONO; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const placed = [];
+  for (const i of [opts.sel, opts.hover]) {
+    if (i === null || i === undefined || placed.includes(i)) continue;
+    placed.push(i);
+    const p = pts.find(q => q.i === i), a = st.sites[i], w = ctx.measureText(a.site.short).width;
+    const cands = [[p.x + 15, p.y], [p.x - 15 - w, p.y], [p.x - w / 2, p.y - 19], [p.x - w / 2, p.y + 19]];
+    let best = null, bs = Infinity;
+    cands.forEach(([x, y], ci) => {
+      if (x < 3 || x + w > dims.CW - 3 || y < 9 || y > dims.CH - 9) return;
+      let score = ci * 0.01;
+      for (const q of pts) if (q.i !== i && q.x > x - 9 && q.x < x + w + 9 && q.y > y - 16 && q.y < y + 16) score += 1;
+      if (score < bs) { bs = score; best = [x, y]; }
+    });
+    if (!best) best = cands[0];
+    ctx.lineWidth = 4; ctx.strokeStyle = '#1A1E1B'; ctx.strokeText(a.site.short, best[0], best[1]);
+    ctx.fillStyle = C.text; ctx.fillText(a.site.short, best[0], best[1]);
+  }
+  ctx.restore();
+}
+
+function sizeCanvas(cv, w, h) {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+function renderMap() {
+  const cv = $('mapCanvas'), CW = cv.parentElement.clientWidth;
+  if (!CW) return;
+  mapGeo = layoutMap(CW);
+  const ctx = sizeCanvas(cv, CW, mapGeo.dims.CH);
+  drawMap(ctx, mapGeo, { sel: st.sel, hover: st.mapHover });
+}
+
+function mapHit(e) {
+  if (!mapGeo) return null;
+  const r = $('mapCanvas').getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = null, bd = 15;
+  for (const p of mapGeo.pts) { const d = Math.hypot(p.x - x, p.y - y); if (d < bd) { bd = d; best = p.i; } }
+  return best;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// RENDER
+// ════════════════════════════════════════════════════════════════════
+const geoms = {};
+function renderCharts() {
+  const a = cur(), view = { past: st.past, cmp: st.cmp, hover: st.hover, day: st.hoverDay };
+  for (const kind of ['g', 'r']) {
+    const cv = $(kind + 'Canvas'), W = cv.parentElement.clientWidth, H = cv.parentElement.clientHeight;
+    if (!W) continue;
+    geoms[kind] = drawChart(sizeCanvas(cv, W, H), W, H, a, kind, view);
+  }
+}
+
+function statChips(a) {
+  const chips = [];
+  if (a.cur) {
+    const t = dayLabel(a.cur.t);
+    chips.push({ l: `Greendown, ${st.cy}`, v: pct(a.cur.frac),
+      s: `of the typical autumn drop · typical by ${t}: ${a.cur.typFrac === null ? '—' : pct(a.cur.typFrac)}` });
+    chips.push({ l: `Rank on ${t}`, v: `${ordinal(a.cur.rank)} of ${a.cur.of}`,
+      s: 'autumns, furthest along first' });
+  } else {
+    chips.push({ l: `${st.cy}`, v: 'No images', s: `camera's last image ${isoLabel(a.site.last, true)}` });
+  }
+  chips.push({ l: 'Typical peak red', v: a.typPeak === null ? '—' : dayLabel(a.typPeak),
+    s: `median of ${a.peaks.length} autumns` });
+  chips.push({ l: 'Record', v: `${a.all.length} autumns`,
+    s: `${a.all[0]}–${a.all[a.all.length - 1]} · latest image ${isoLabel(a.site.last, !a.cur)}` });
+  return chips;
+}
+
+function renderSite() {
+  const a = cur(), live = isLive(a);
+  $('siteName').textContent = a.site.short;
+  $('sitePlace').textContent = a.site.place + (a.site.group === 'urban' ? ' · urban' : '');
+  const b = $('siteBadge');
+  b.className = 'badge ' + (live ? 'live' : 'arch');
+  b.textContent = live ? 'LIVE · DATA THROUGH ' + isoLabel(a.site.last).toUpperCase() : 'ARCHIVE';
+  $('statRow').innerHTML = statChips(a).map(c =>
+    `<div class="cc-stat-chip"><span class="cc-stat-label">${c.l}</span><span class="cc-stat-value">${c.v}</span><span class="chip-sub">${c.s}</span></div>`).join('');
+
+  const cs = $('cmpSel'), years = a.past.slice().reverse();
+  cs.innerHTML = '<option value="">None</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+  if (st.cmp !== null && !a.yrs[st.cmp]) st.cmp = null;
+  cs.value = st.cmp === null ? '' : String(st.cmp);
+  renderLegend();
+  renderFooter();
+  renderCharts();
+  renderMap();
+}
+
+function renderLegend() {
+  const a = cur(), p = a.past;
+  const items = [];
+  if (a.yrs[st.cy]) items.push(`<span class="cc-legend-chip"><i class="sw two"></i>${st.cy}</span>`);
+  items.push(`<span class="cc-legend-chip"><i class="sw dash" style="border-color:${C.median}"></i>Median ${p[0]}–${p[p.length - 1]}</span>`);
+  if (st.past) items.push(`<span class="cc-legend-chip"><i class="sw" style="border-color:rgba(232,228,217,0.3);border-top-width:2px"></i>Past autumns</span>`);
+  if (st.cmp !== null) items.push(`<span class="cc-legend-chip"><i class="sw" style="border-color:${C.cmp}"></i>${st.cmp}</span>`);
+  if (a.typPeak !== null) items.push(`<span class="cc-legend-chip">▼ Typical peak red</span>`);
+  $('legend').innerHTML = items.join('');
+}
+
+const NETWORK_ACK = 'Data were provided by the PhenoCam Network, which has been supported by the National Science Foundation, the Long-Term Agroecosystem Research (LTAR) network which is supported by the United States Department of Agriculture (USDA), the U.S. Department of Energy, the U.S. Geological Survey, the Northeastern States Research Cooperative, and the USA National Phenology Network. We thank the PhenoCam Network collaborators, including site PIs and technicians, for publicly sharing their data.';
+function renderFooter() {
+  const a = cur(), s = a.site;
+  const rois = [...new Set(Object.values(s.rois || {}))].join(', ');
+  $('footer').innerHTML = `
+    <p><b>Data:</b> PhenoCam Network provisional ROI time series — 3-day, 90th-percentile green and red chromatic coordinates (GCC, RCC) over deciduous-broadleaf regions of interest. Imagery and data under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>. Site <code>${s.site}</code> (${rois}), ${s.name}.${s.ack ? ' ' + s.ack : ''}</p>
+    <p>${NETWORK_ACK}</p>
+    <p><b>Methods:</b> Richardson et al. 2018, <i>Sci. Data</i> 5:180028; Seyednasrollah et al. 2019, <i>Sci. Data</i> 6:222; Young et al. 2025, <i>Earth Syst. Sci. Data Discuss.</i>, doi:10.5194/essd-2025-120.</p>
+    <p><b>Why change from August:</b> each autumn is plotted as the change from its own August median because a camera replacement or re-aimed view shifts a site's absolute GCC and RCC by about as much as the autumn signal itself — at Shale Hills, median August GCC moved from 0.368 to 0.409 with a 2016 camera change, against a typical autumn drop of 0.064. Subtracting each year's own August level keeps years from different cameras on one axis.</p>
+    <p><b>Definitions:</b> median = daily median of past autumns (≥ ${MIN_YRS} years), 9-day running mean. Greendown = this year's change in GCC from August as a share of the median curve's lowest point. Rank compares 9-day-mean GCC change on the same date. Typical peak red = median date of each past autumn's highest 9-day-mean RCC change, Sep 1 – Nov 30.</p>
+    <p>Data through ${isoLabel(s.last, true)} · file updated ${st.data.generated.slice(0, 10)}.</p>`;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// INTERACTION
+// ════════════════════════════════════════════════════════════════════
+function nearestYear(a, kind, d, py, G) {
+  const k = kind === 'g' ? 'g' : 'r';
+  let best = null, bd = 12;
+  for (const y of a.past) {
+    if (!st.past && y !== st.cmp) continue;
+    const v = a.yrs[y][k][Math.round(d)];
+    if (v === null) continue;
+    const dist = Math.abs(G.Y(v) - py);
+    if (dist < bd) { bd = dist; best = y; }
+  }
+  return best;
+}
+
+function showTip(kind, e) {
+  const a = cur(), G = geoms[kind], cv = $(kind + 'Canvas');
+  if (!G) return;
+  const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  const d = G.D(px);
+  if (d < 0 || d > N - 1) { hideTips(); return; }
+  const day = Math.round(d);
+  st.hoverDay = day;
+  st.hover = nearestYear(a, kind, day, py, G);
+  renderCharts();
+  for (const kk of ['g', 'r']) {
+    const tip = $(kk + 'Tip'), arr = kk === 'g' ? 'g' : 'r';
+    const rows = [];
+    const colr = kk === 'g' ? C.green : C.red;
+    if (a.yrs[st.cy] && a.yrs[st.cy][arr][day] !== null)
+      rows.push(`<span class="k" style="background:${colr}"></span>${st.cy}  <b>${fmtD(a.yrs[st.cy][arr][day])}</b>`);
+    if (a.med[arr][day] !== null)
+      rows.push(`<span class="k" style="background:${C.median}"></span>Median  <b>${fmtD(a.med[arr][day])}</b>`);
+    for (const y of [st.cmp, st.hover]) {
+      if (y === null || (y === st.hover && y === st.cmp)) continue;
+      const v = a.yrs[y] && a.yrs[y][arr][day];
+      if (v !== null && v !== undefined)
+        rows.push(`<span class="k" style="background:${y === st.cmp ? C.cmp : 'rgba(232,228,217,0.75)'}"></span>${y}  <b>${fmtD(v)}</b>`);
+    }
+    if (!rows.length) { tip.hidden = true; continue; }
+    tip.innerHTML = `<span class="muted">${dayLabel(day)} · Δ ${kk === 'g' ? 'GCC' : 'RCC'}</span><br>` + rows.join('<br>');
+    tip.hidden = false;
+    const holder = tip.parentElement, gx = geoms[kk].X(day);
+    const tw = tip.offsetWidth, left = gx + 14 + tw > holder.clientWidth ? gx - 14 - tw : gx + 14;
+    tip.style.left = left + 'px'; tip.style.top = (kk === kind ? Math.max(4, Math.min(py - 20, holder.clientHeight - tip.offsetHeight - 4)) : 8) + 'px';
+  }
+}
+function hideTips() {
+  st.hoverDay = null; st.hover = null;
+  $('gTip').hidden = true; $('rTip').hidden = true;
+  renderCharts();
+}
+for (const kind of ['g', 'r']) {
+  const cv = $(kind + 'Canvas');
+  cv.addEventListener('mousemove', e => showTip(kind, e));
+  cv.addEventListener('mouseleave', hideTips);
+  cv.addEventListener('click', () => {
+    st.cmp = st.hover !== null ? (st.hover === st.cmp ? null : st.hover) : null;
+    $('cmpSel').value = st.cmp === null ? '' : String(st.cmp);
+    renderLegend(); renderCharts();
+  });
+}
+
+$('siteSel').addEventListener('change', e => { st.sel = +e.target.value; renderSite(); });
+$('cmpSel').addEventListener('change', e => { st.cmp = e.target.value ? +e.target.value : null; renderLegend(); renderCharts(); });
+$('pastBtn').addEventListener('click', () => {
+  st.past = !st.past;
+  const b = $('pastBtn');
+  b.classList.toggle('is-active', st.past); b.setAttribute('aria-pressed', st.past);
+  b.textContent = st.past ? 'Shown' : 'Hidden';
+  renderLegend(); renderCharts();
+});
+
+const mapCv = $('mapCanvas');
+mapCv.addEventListener('mousemove', e => {
+  const h = mapHit(e);
+  if (h !== st.mapHover) { st.mapHover = h; renderMap(); }
+  const tip = $('mapTip');
+  if (h === null) { tip.hidden = true; mapCv.style.cursor = 'default'; return; }
+  mapCv.style.cursor = 'pointer';
+  const a = st.sites[h], p = mapGeo.pts.find(q => q.i === h);
+  tip.innerHTML = `<b>${a.site.short}</b> · ${a.site.place}<br><span class="muted">Typical peak red</span> <b>${a.typPeak === null ? '—' : dayLabel(a.typPeak)}</b><br><span class="muted">${isLive(a) ? 'Live · ' + a.all.length + ' autumns' : 'Archive · last image ' + isoLabel(a.site.last, true)}</span>`;
+  tip.hidden = false;
+  const W = mapCv.clientWidth, tw = tip.offsetWidth;
+  tip.style.left = Math.max(4, Math.min(W - tw - 4, p.x - tw / 2)) + 'px';
+  tip.style.top = (p.y > 90 ? p.y - tip.offsetHeight - 16 : p.y + 16) + 'px';
+});
+mapCv.addEventListener('mouseleave', () => { st.mapHover = null; $('mapTip').hidden = true; renderMap(); });
+mapCv.addEventListener('click', e => {
+  const h = mapHit(e);
+  if (h === null || h === st.sel) return;
+  st.sel = h; $('siteSel').value = String(h); renderSite();
+});
+
+// ════════════════════════════════════════════════════════════════════
+// PNG EXPORT — composed off-screen at a fixed scale, independent of dpr
+// ════════════════════════════════════════════════════════════════════
+const EXPORT_SCALE = 3;
+function downloadPNG() {
+  const a = cur(), S = EXPORT_SCALE, PAD = 28, EW = 1100, CH = 300, HDR = 142, GAP = 46, FTR = 64;
+  const ow = EW + PAD * 2, oh = HDR + CH * 2 + GAP + 28 + FTR;
+  const off = document.createElement('canvas'); off.width = ow * S; off.height = oh * S;
+  const c = off.getContext('2d'); c.scale(S, S);
+  c.fillStyle = C.bg; c.fillRect(0, 0, ow, oh);
+  c.fillStyle = C.live; c.fillRect(0, 0, ow, 3);
+  c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  c.fillStyle = C.text; c.font = '700 28px ' + DISPLAY;
+  c.fillText(`Fall Foliage · ${a.site.short}`, PAD, 44);
+  c.textAlign = 'right'; c.fillStyle = C.muted; c.font = '13px ' + MONO;
+  c.fillText('contextclimate.io', ow - PAD, 44);
+  c.textAlign = 'left'; c.fillStyle = C.text2; c.font = '15px ' + MONO;
+  c.fillText(`${a.site.place} · PhenoCam ${a.site.site} · ${a.all.length} autumns ${a.all[0]}–${a.all[a.all.length - 1]} · change from August median`, PAD, 70);
+  const chips = statChips(a).map(ch => `${ch.l}: ${ch.v}`).join('   ·   ');
+  c.fillStyle = C.text; c.font = '700 15px ' + SANS; c.fillText(chips, PAD, 96);
+
+  const view = { past: st.past, cmp: st.cmp, hover: null, day: null };
+  [['g', 'GREENNESS · Δ GCC'], ['r', 'REDNESS · Δ RCC']].forEach(([kind, lab], i) => {
+    const y0 = HDR + i * (CH + GAP);
+    c.save(); c.translate(PAD, y0);
+    drawChart(c, EW, CH, a, kind, view);
+    c.fillStyle = C.muted; c.font = '12px ' + MONO; c.textAlign = 'left'; c.textBaseline = 'top';
+    c.fillText(lab, M.l, -18);
+    c.restore();
+  });
+  // legend line
+  let lx = PAD + M.l, ly = HDR + CH * 2 + GAP + 22;
+  const leg = [];
+  if (a.yrs[st.cy]) leg.push([C.green, C.red, String(st.cy), false]);
+  leg.push([C.median, null, `Median ${a.past[0]}–${a.past[a.past.length - 1]}`, true]);
+  if (st.past) leg.push(['rgba(232,228,217,0.35)', null, 'Past autumns', false]);
+  if (st.cmp !== null) leg.push([C.cmp, null, String(st.cmp), false]);
+  c.font = '13px ' + MONO; c.textBaseline = 'middle';
+  for (const [c1, c2, t, dash] of leg) {
+    c.lineWidth = 3; c.setLineDash(dash ? [6, 4] : []);
+    c.strokeStyle = c1; c.beginPath(); c.moveTo(lx, ly); c.lineTo(lx + (c2 ? 11 : 22), ly); c.stroke();
+    if (c2) { c.strokeStyle = c2; c.beginPath(); c.moveTo(lx + 11, ly); c.lineTo(lx + 22, ly); c.stroke(); }
+    c.setLineDash([]);
+    c.fillStyle = C.text2; c.fillText(t, lx + 30, ly);
+    lx += 30 + c.measureText(t).width + 26;
+  }
+  if (a.typPeak !== null) { c.fillStyle = C.text2; c.fillText('▼ Typical peak red ' + dayLabel(a.typPeak), lx, ly); }
+  c.fillStyle = C.muted; c.font = '12px ' + MONO; c.textBaseline = 'alphabetic';
+  c.fillText(`Data: PhenoCam Network (CC BY 4.0), provisional 3-day 90th-percentile GCC/RCC; through ${isoLabel(a.site.last, true)}. Each autumn relative to its own August median.`, PAD, oh - 30);
+  c.fillText('Richardson et al. 2018; Seyednasrollah et al. 2019; Young et al. 2025.', PAD, oh - 13);
+  const link = document.createElement('a');
+  link.download = `fall-foliage-${a.site.site}-${st.cy}.png`;
+  link.href = off.toDataURL('image/png'); link.click();
+}
+$('pngBtn').addEventListener('click', downloadPNG);
+
+// ════════════════════════════════════════════════════════════════════
+// INIT — ?site=<phenocam site name>
+// ════════════════════════════════════════════════════════════════════
+function buildRamp() {
+  const stops = RAMP.map((c, i) => `${c} ${i / (RAMP.length - 1) * 100}%`).join(',');
+  $('rampBar').style.background = `linear-gradient(90deg, ${stops})`;
+  $('rampTicks').innerHTML = [61, 75, 92, RAMP_HI].map(d =>
+    `<span style="left:${(d - RAMP_LO) / (RAMP_HI - RAMP_LO) * 100}%">${dayLabel(d)}</span>`).join('');
+}
+
+async function init() {
+  try {
+    const [data, base] = await Promise.all([
+      fetch(DATA_URL).then(r => { if (!r.ok) throw new Error('could not load ' + DATA_URL + ' (HTTP ' + r.status + ')'); return r.json(); }),
+      MAP.loadBasemap('regional').catch(() => null),
+    ]);
+    basemap = base;
+    st.data = data; st.cy = data.current_year; st.gen = new Date(data.generated);
+    st.sites = data.sites.map(s => analyse(s, st.cy));
+    // live first, then forest before urban, then alphabetical
+    const order = st.sites.map((a, i) => i);
+    const sel = $('siteSel');
+    const group = (g, lab) => {
+      const ids = order.filter(i => st.sites[i].site.group === g)
+        .sort((i, j) => (isLive(st.sites[j]) - isLive(st.sites[i])) || st.sites[i].site.short.localeCompare(st.sites[j].site.short));
+      if (!ids.length) return '';
+      return `<optgroup label="${lab}">` + ids.map(i => {
+        const a = st.sites[i];
+        return `<option value="${i}">${a.site.short} — ${a.site.place}${isLive(a) ? '' : ' (archive)'}</option>`;
+      }).join('') + '</optgroup>';
+    };
+    sel.innerHTML = group('forest', 'Forest') + group('urban', 'Urban');
+    const q = new URLSearchParams(location.search).get('site');
+    const qi = st.sites.findIndex(a => a.site.site === q);
+    st.sel = qi >= 0 ? qi : Math.max(0, st.sites.findIndex(a => a.site.site === 'harvard'));
+    sel.value = String(st.sel);
+    buildRamp();
+    $('status').hidden = true; $('main').hidden = false; $('pngBtn').disabled = false;
+    renderSite();
+    new ResizeObserver(() => { renderCharts(); renderMap(); }).observe($('main'));
+  } catch (err) {
+    $('status').textContent = 'Error: ' + err.message;
+    $('status').classList.add('err');
+  }
+}
+init();
+</script>
+</body>
+</html>
