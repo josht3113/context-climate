@@ -119,6 +119,10 @@ MIN_YEARS = 3
 MIN_SITES = 3             # fewer than this -> refuse to write
 LIVE_DAYS = 7             # "live" = a valid point within this many days
 PAUSE = 1.0               # seconds between series downloads
+FETCH_TIMEOUT = 30        # seconds per request
+MAX_CONSEC_FAIL = 5       # this many failed downloads in a row -> abort
+BUDGET_MIN = 22           # abort (writing nothing) past this many minutes,
+                          # inside the workflow's 30-minute job limit
 
 
 # ---------------------------------------------------------------- helpers
@@ -127,7 +131,7 @@ def log(msg):
     print(msg, flush=True)
 
 
-def fetch(url, timeout=60, retries=3):
+def fetch(url, timeout=FETCH_TIMEOUT, retries=3):
     last = None
     for attempt in range(1, retries + 1):
         try:
@@ -140,7 +144,8 @@ def fetch(url, timeout=60, retries=3):
             last = e
         except Exception as e:  # noqa: BLE001 — network errors vary
             last = e
-        time.sleep(3 * attempt)
+        if attempt < retries:
+            time.sleep(5 * attempt)
     raise RuntimeError(f"download failed after {retries} tries: {url} ({last})")
 
 
@@ -337,19 +342,46 @@ def build(today, diagnose=False):
             f"'{u['name']}'")
 
     cy = today.year
+    if not diagnose:
+        # Normal runs only need the published sites (and the cameras merged
+        # into them); --diagnose still surveys every candidate.
+        wanted = set(CURATED) | {k for k, v in SITE_MERGE.items() if v in CURATED}
+        cands = [c for c in cands if c["site"] in wanted]
+        log(f"Downloading {len(cands)} ROIs for the {len(CURATED)} published sites")
+    else:
+        log(f"Downloading all {len(cands)} candidate ROIs (diagnose)")
     by_site, meta, report = {}, {}, []
-    for i, c in enumerate(sorted(cands, key=lambda c: (c["site"], c["roi_id"]))):
+    t0, consec = time.monotonic(), 0
+    todo = sorted(cands, key=lambda c: (c["site"], c["roi_id"]))
+    for i, c in enumerate(todo):
+        if (time.monotonic() - t0) / 60 > BUDGET_MIN:
+            raise RuntimeError(f"time budget of {BUDGET_MIN} min used up after "
+                               f"{i} of {len(todo)} downloads; PhenoCam is "
+                               "responding too slowly — nothing written")
         if i:
             time.sleep(PAUSE)
         url = SERIES_URL.format(site=c["site"], veg="DB", roi=c["roi_id"])
+        tag = f"[{i + 1:>2}/{len(todo)}] {c['site']} DB_{c['roi_id']:04d}"
+        t1 = time.monotonic()
+        rows = None
         try:
             _, rows = parse_series(fetch(url))
-        except urllib.error.HTTPError as e:
+        except urllib.error.HTTPError as e:      # only 404 reaches here
+            log(f"{tag}  HTTP {e.code} ({time.monotonic() - t1:.1f}s)")
             report.append((c, None, 0, f"HTTP {e.code}"))
-            continue
-        except Exception as e:  # noqa: BLE001
+            consec = 0
+        except Exception as e:  # noqa: BLE001  — timeouts, 5xx after retries
+            log(f"{tag}  FAILED ({time.monotonic() - t1:.0f}s): {e}")
             report.append((c, None, 0, f"error: {e}"))
+            consec += 1
+            if consec >= MAX_CONSEC_FAIL:
+                raise RuntimeError(f"{consec} downloads failed in a row — "
+                                   "PhenoCam is not responding; nothing "
+                                   "written, try again later")
+        if rows is None:
             continue
+        consec = 0
+        log(f"{tag}  ok {time.monotonic() - t1:.1f}s, {len(rows)} rows")
         years, qual = autumn_points(rows)
         parent = SITE_MERGE.get(c["site"], c["site"])
         label = "DB_%04d" % c["roi_id"]
