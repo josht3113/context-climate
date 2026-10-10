@@ -36,11 +36,13 @@ Output (--out, default public/): phenocam-foliage.json
     "window": {"start": "08-01", "end": "12-15"},
     "current_year": YYYY,
     "sites": [
-      { "site", "roi" (top-ranked ROI), "name", "state", "lat", "lon", "elev",
+      { "site", "short", "place", "group" ("forest" | "urban"),
+        "roi" (top-ranked ROI), "name", "state", "lat", "lon", "elev",
         "ack",                      # site acknowledgement text, if published
         "first", "last",            # first / last valid date in the series
         "years": { "YYYY": [[day_offset_from_Aug1, gcc, rcc], ...] },
-        "rois":  { "YYYY": "DB_1000", ... } }
+        "rois":  { "YYYY": "DB_1000" | "<merged site>:DB_1000", ... } }
+  Only the CURATED sites are written; --diagnose reports every candidate.
     ]
   }
 
@@ -76,6 +78,38 @@ STATES = {
 }
 # Sites whose PhenoCam location text names no state.
 STATE_OVERRIDES = {"caryinstitute2": "NY"}   # Millbrook, NY
+
+# A replacement camera registered as a new site name: its ROIs are folded
+# into the original site, under the same one-ROI-per-autumn rule.
+SITE_MERGE = {
+    "caryinstitute2": "caryinstitute",      # Cary Institute, new camera 2024
+    "arbutuslakeinlet": "arbutuslake",      # Huntington Wildlife Forest
+}
+
+# Sites published to the tool: site -> (display name, place, group).
+# Chosen Oct 2026 from the diagnose table: one camera per location, forest
+# canopy first, every live forest site with a usable record, archive sites
+# only where no live camera covers the area, plus an urban group.
+# Left out: silaslittle (noise 3-4x every other site, Aug GCC 0.54),
+# the other Harvard Forest cameras, and short or dead records.
+CURATED = {
+    "harvard":             ("Harvard Forest",  "Petersham, MA",     "forest"),
+    "proctor":             ("Proctor Maple",   "Underhill, VT",     "forest"),
+    "bbc7":                ("Bartlett Forest", "Bartlett, NH",      "forest"),
+    "arbutuslake":         ("Adirondacks",     "Newcomb, NY",       "forest"),
+    "huyckpreserveny":     ("Huyck Preserve",  "Rensselaerville, NY", "forest"),
+    "caryinstitute":       ("Cary Institute",  "Millbrook, NY",     "forest"),
+    "ldeocam":             ("Lamont-Doherty",  "Palisades, NY",     "forest"),
+    "parkschoolbuffalo":   ("Buffalo",         "Snyder, NY",        "forest"),
+    "shalehillsczo":       ("Shale Hills",     "Central PA",        "forest"),
+    "templefieldstation1": ("Temple Ambler",   "Ambler, PA",        "forest"),
+    "bbc5":                ("Woods Hole",      "Woods Hole, MA",    "forest"),
+    "acadia":              ("Acadia",          "Bar Harbor, ME",    "forest"),
+    "bostoncommon":        ("Boston Common",   "Boston, MA",        "urban"),
+    "bostonu":             ("Boston University", "Boston, MA",      "urban"),
+    "worcester":           ("Worcester",       "Worcester, MA",     "urban"),
+    "cuny":                ("New York City",   "Manhattan, NY",     "urban"),
+}
 WINDOW_START = (8, 1)     # Aug 1  -> offset 0
 WINDOW_END = (12, 15)     # Dec 15
 QUAL_START = (9, 1)       # qualification window for a past autumn
@@ -237,11 +271,12 @@ def assemble(rois, cy):
             best = cand[0] if cand else None
         if best:
             years[y] = best["years"][y]
-            used[y] = "DB_%04d" % best["roi_id"]
+            used[y] = best.get("label", "DB_%04d" % best["roi_id"])
     return {
         "years": years, "rois": used,
         "qualifying": sorted(y for y in years if y != cy),
-        "primary": order[0]["roi_id"] if order else None,
+        "primary": (order[0].get("label", "DB_%04d" % order[0]["roi_id"])
+                    if order else None),
         "first": min(r["rows"][0][0] for r in order) if order else None,
         "last": max(r["rows"][-1][0] for r in order) if order else None,
     }
@@ -316,10 +351,18 @@ def build(today, diagnose=False):
             report.append((c, None, 0, f"error: {e}"))
             continue
         years, qual = autumn_points(rows)
-        r = {"roi_id": c["roi_id"], "rows": rows, "years": years, "qual": qual}
+        parent = SITE_MERGE.get(c["site"], c["site"])
+        label = "DB_%04d" % c["roi_id"]
+        if parent != c["site"]:
+            label = f"{c['site']}:{label}"
+        r = {"roi_id": c["roi_id"], "label": label, "rows": rows,
+             "years": years, "qual": qual}
         report.append((c, rows, n_qual(r, cy), "ok"))
-        by_site.setdefault(c["site"], []).append(r)
-        meta.setdefault(c["site"], c)
+        by_site.setdefault(parent, []).append(r)
+        if c["site"] == parent:
+            meta[parent] = c
+        else:
+            meta.setdefault(parent, c)
 
     log("")
     log("Per ROI:")
@@ -348,13 +391,22 @@ def build(today, diagnose=False):
             continue
         c = meta[site]
         kept.append({
-            "site": site, "roi": "DB_%04d" % a["primary"], "name": c["name"],
+            "site": site, "roi": a["primary"], "name": c["name"],
             "state": c["state"], "lat": c["lat"], "lon": c["lon"],
             "elev": c["elev"], "ack": c["ack"],
             "first": a["first"].isoformat(), "last": a["last"].isoformat(),
             "years": {str(y): p for y, p in sorted(a["years"].items())},
             "rois": {str(y): v for y, v in sorted(a["rois"].items())},
         })
+
+    published = []
+    for k in kept:
+        if k["site"] in CURATED:
+            short, place, group = CURATED[k["site"]]
+            published.append({"site": k["site"], "short": short,
+                              "place": place, "group": group,
+                              **{x: v for x, v in k.items() if x != "site"}})
+    missing = sorted(set(CURATED) - {p["site"] for p in published})
 
     live = [k for k in kept
             if (today - dt.date.fromisoformat(k["last"])).days <= LIVE_DAYS]
@@ -369,10 +421,15 @@ def build(today, diagnose=False):
             f"last {k['last']} {'LIVE ' if age <= LIVE_DAYS else 'stale'}  "
             f"{cy}: {cur:7}  ROIs {'+'.join(used)}")
 
+    log("")
+    log(f"Published (curated): {len(published)} of {len(CURATED)}")
+    for m in missing:
+        log(f"  WARNING: curated site {m} did not qualify this run")
+
     if diagnose:
         return None
-    if len(kept) < MIN_SITES:
-        raise RuntimeError(f"only {len(kept)} sites qualified "
+    if len(published) < MIN_SITES:
+        raise RuntimeError(f"only {len(published)} curated sites qualified "
                            f"(need {MIN_SITES}); not writing")
     return {
         "generated": dt.datetime.now(dt.timezone.utc)
@@ -380,7 +437,7 @@ def build(today, diagnose=False):
         "window": {"start": "%02d-%02d" % WINDOW_START,
                    "end": "%02d-%02d" % WINDOW_END},
         "current_year": cy,
-        "sites": kept,
+        "sites": published,
     }
 
 
@@ -483,7 +540,22 @@ def selftest():
     r2 = roi(1000, sum((autumn(y, 0.42) for y in range(2015, 2020)), []))
     a = assemble([r1, r2], 2026)
     check("concurrent: 1000-series preferred", set(a["rois"].values()), {"DB_1000"})
-    check("concurrent: primary", a["primary"], 1000)
+    check("concurrent: primary", a["primary"], "DB_1000")
+
+    # replacement camera under a new site name (like caryinstitute2): folded
+    # into the parent, labelled with its own site, current year from it
+    old_cam = roi(1000, sum((autumn(y, 0.36) for y in range(2008, 2024)), []))
+    new_cam = roi(1000, autumn(2025, 0.40) + autumn(2026, 0.40, n=12))
+    new_cam["label"] = "caryinstitute2:DB_1000"
+    a = assemble([old_cam, new_cam], 2026)
+    check("merge: record spans both cameras", (min(a["years"]), max(a["years"])),
+          (2008, 2026))
+    check("merge: new camera labelled", a["rois"][2026], "caryinstitute2:DB_1000")
+    check("merge: primary stays the long record", a["primary"], "DB_1000")
+    check("merge map", SITE_MERGE["caryinstitute2"], "caryinstitute")
+    check("curated sites all have names and groups",
+          all(len(v) == 3 and v[2] in ("forest", "urban") for v in CURATED.values()),
+          True)
 
     check("state: full name", state_of("Harvard Forest, Petersham, Massachusetts"), "MA")
     check("state: abbreviation", state_of("Arbutus Lake, Newcomb, NY"), "NY")
