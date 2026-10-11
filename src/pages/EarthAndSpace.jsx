@@ -184,6 +184,15 @@ const SECTIONS = [
             thumb:       '/light_pollution_explorer_thumbnail.png',
             status:      'live',
           },
+          {
+            tags:        ['Seasons', 'Interactive'],
+            title:       'Angle of Insolation',
+            description: 'Tilt a board under a flashlight, aim sunlight at a globe, and follow noon sunlight on Long Island through the year — measure how angle spreads energy over area.',
+            footerTags:  ['Insolation', 'Intensity', 'Duration'],
+            to:          '/earthandspace/angle-of-insolation',
+            thumb:       '/angle_of_insolation_thumbnail.png',
+            status:      'live',
+          },
         ],
       },
 
