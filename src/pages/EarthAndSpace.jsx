@@ -543,6 +543,15 @@ const SECTIONS = [
         thumb:       '/planetary-wind-belts_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Scattering', 'Interactive'],
+        title:       'Sky Color',
+        description: 'Lower the Sun from noon to twilight and watch the sky change color, then compare a clear Long Island day, the June 2023 wildfire smoke, Mars, and a world with no air.',
+        footerTags:  ['Scattering', 'Path Length', 'Sunsets'],
+        to:          '/earthandspace/sky-color',
+        thumb:       '/sky_color_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
