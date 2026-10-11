@@ -19,6 +19,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .top h1 { margin: 0; font-size: 24px; white-space: nowrap; }
 .tabs .cc-segmented-btn { font-size: 13px; padding: 11px 24px; }
 .top .spacer { flex: 1; }
+.x-link { padding: 6px 12px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; color: var(--tool-accent); border-color: var(--tool-accent); }
 .exp { display: flex; align-items: center; gap: 6px; }
 .exp .cc-btn { padding: 6px 12px; font-size: 13px; }
 .exp .cc-btn:disabled { opacity: .4; cursor: default; }
@@ -86,6 +87,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
     </div>
     <div class="spacer"></div>
     <span id="status"></span>
+    <a class="cc-btn x-link" id="seLink" target="_top" href="#">Seasons Explorer &rarr;</a>
     <div class="exp">
       <button class="cc-btn" id="bPNG">↓ PNG</button>
       <button class="cc-btn" id="bGIF">↓ GIF</button>
@@ -143,15 +145,17 @@ function label(ctx, t, x, y, o = {}) {
 function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 
 /* ── Sun position (Astronomical Almanac low-precision series), 2026 ── */
-const LAT = 40.8, LON = -73.1;
+const LAT = 40.8, LON = -73.1, TILT = 23.5;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MDAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const SNAPS = [{ d: 79, t: 'Mar 20' }, { d: 172, t: 'Jun 21' }, { d: 265, t: 'Sep 22' }, { d: 355, t: 'Dec 21' }];
+const SNAP_DEC = { 79: 0, 172: TILT, 265: 0, 355: -TILT };   // solstice/equinox days: declination at the event itself
 function decl(day) { // day of year 1..365, local noon on Long Island (~17:00 UT)
+  if (day in SNAP_DEC) return SNAP_DEC[day];
   const n = 9496.5 + (day - 1) + 17 / 24;
   const L = 280.460 + 0.9856474 * n, g = (357.528 + 0.9856003 * n) * DEG;
   const lam = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * DEG;
-  const eps = (23.439 - 0.0000004 * n) * DEG;
+  const eps = TILT * DEG;
   return Math.asin(Math.sin(eps) * Math.sin(lam)) / DEG;
 }
 function todayDOY() { const n = new Date(), m = n.getMonth(); let d = 0; for (let i = 0; i < m; i++) d += MDAYS[i]; return d + Math.min(n.getDate(), MDAYS[m]); }
@@ -482,7 +486,7 @@ function earthLayer(R, dec, pr) {
     const latLine = lat => ({ type: 'LineString', coordinates: d3.range(-180, 181, 3).map(l => [l, lat]) });
     c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 1.2; c.beginPath(); path(latLine(0)); c.stroke();
     c.setLineDash([5, 4]); c.strokeStyle = 'rgba(255,255,255,0.5)'; c.lineWidth = 1;
-    c.beginPath(); for (const l of [23.44, -23.44, 66.56, -66.56]) path(latLine(l)); c.stroke(); c.setLineDash([]);
+    c.beginPath(); for (const l of [TILT, -TILT, 90 - TILT, TILT - 90]) path(latLine(l)); c.stroke(); c.setLineDash([]);
   }
   // sunlight: Lambert shading — Sun is exactly to the right (+x), so brightness depends on x only
   c.save(); c.beginPath(); c.arc(C, C, R, 0, Math.PI * 2); c.clip();
@@ -534,7 +538,7 @@ function drawGlobe(ctx, W, H, o) {
   ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(232,228,217,0.35)'; ctx.beginPath(); ctx.moveTo(np[0], np[1]); ctx.lineTo(cx - ax[0] * R, cy - ax[1] * R); ctx.stroke(); ctx.setLineDash([]);
   label(ctx, 'N', np[0] + ax[0] * R * 0.24, np[1] + ax[1] * R * 0.24, { font: `700 15px ${FB}` });
   // latitude labels on the night-side limb
-  for (const [lt, t] of [[0, 'Equator'], [23.44, '23.5°N'], [-23.44, '23.5°S'], [66.56, '66.5°N'], [-66.56, '66.5°S']]) {
+  for (const [lt, t] of [[0, 'Equator'], [TILT, '23.5°N'], [-TILT, '23.5°S'], [90 - TILT, '66.5°N'], [TILT - 90, '66.5°S']]) {
     const b = (180 - (lt - dec)) * DEG; // where this latitude meets the left (midnight) limb
     const lx = cx + R * Math.cos(b), ly = cy - R * Math.sin(b);
     label(ctx, t, lx - 8, ly, { font: `600 13px ${FM}`, align: 'right', color: lt === 0 ? 'rgba(240,238,230,0.9)' : 'rgba(232,228,217,0.72)', halo: false });
@@ -1018,7 +1022,14 @@ function loop(t) {
   if (animated && !document.hidden) { clock += dt; draw(); }
   requestAnimationFrame(loop);
 }
-function refresh(full) { if (full) renderControls(); renderCard(); updateExportButtons(); draw(); }
+function refresh(full) { if (full) renderControls(); renderCard(); updateExportButtons(); updateLink(); draw(); }
+const SEASONS_ROUTE = '/earthandspace/seasons-explorer';
+function routeHref(route, q) { let hash = false; try { hash = (window.top.location.hash || '').startsWith('#/'); } catch (e) {} return (hash ? '/#' : '') + route + q; }
+function updateLink() { document.getElementById('seLink').href = routeHref(SEASONS_ROUTE, S.tab === 'flash' ? '' : '?day=' + S.day); }
+// query parameters from this page or, when iframed, from the parent's hash route
+function urlParams() { const p = new URLSearchParams(location.search);
+  try { const h = window.top.location.hash || '', i = h.indexOf('?'); if (i >= 0) new URLSearchParams(h.slice(i + 1)).forEach((v, k) => { if (!p.has(k)) p.set(k, v); }); } catch (e) {}
+  return p; }
 
 /* pointer: drag the board (Flashlight) or the probe (Globe) */
 let drag = null;
@@ -1042,7 +1053,7 @@ function applyDrag(p) {
     const G = HIT.globe; if (!G) return;
     const beta = Math.atan2(-(p[1] - G.cy), p[0] - G.cx) / DEG;
     let lat = clamp(beta + G.dec, -90, 90);
-    for (const s of [0, 23.44, -23.44, 66.56, -66.56, 40.8, 90, -90]) if (Math.abs(lat - s) < 0.8) lat = s;
+    for (const s of [0, TILT, -TILT, 90 - TILT, TILT - 90, 40.8, 90, -90]) if (Math.abs(lat - s) < 0.8) lat = s;
     S.probe = Math.round(lat * 10) / 10; renderCard(); draw();
   }
 }
@@ -1111,7 +1122,7 @@ function compose(c, scale, phase) {
   drawCardCanvas(c, sx + sw + 12, sy, cw, sh, cardModel());
   c.textAlign = 'left'; c.font = `500 12px ${FM}`; c.fillStyle = '#948F82';
   const foot = S.tab === 'ground' ? 'Model: 1000 W/m² sunlight beam, no atmosphere' + (S.chart === 'year' && S.measured && !S.gCompare ? ' · Measured: NASA POWER climatology 2001–2025, 40.8°N 73.1°W' : '') :
-    S.tab === 'globe' ? 'Sun position: Astronomical Almanac low-precision formulae · axial tilt 23.44°' : 'Beam: 100 energy units over 10 squares when the board faces the light';
+    S.tab === 'globe' ? 'Sun position: Astronomical Almanac low-precision formulae · axial tilt 23.5°' : 'Beam: 100 energy units over 10 squares when the board faces the light';
   c.fillText(foot, 18, EH - 16);
 }
 function slug() { return 'angle-of-insolation-' + S.tab + (S.tab === 'flash' ? (S.fCompare ? '-compare' : '-' + S.angle + 'deg') : S.tab === 'ground' && S.gCompare ? '-jun-dec' : '-' + dateLabel(S.day).toLowerCase().replace(' ', '')); }
@@ -1286,8 +1297,11 @@ document.getElementById('bGIF').onclick = exportGIF;
 document.getElementById('bMP4').onclick = exportMP4;
 
 /* ═══════════════════════════════ INIT ══════════════════════════════ */
+{ const p = urlParams(), t = p.get('tab'), d = parseInt(p.get('day'), 10);
+  if (['flash', 'globe', 'ground'].includes(t)) { S.tab = t; document.querySelectorAll('#tabs [data-tab]').forEach(x => x.classList.toggle('is-active', x.dataset.tab === t)); }
+  if (d >= 1 && d <= 365) S.day = d; }
 (async function init() {
-  renderControls(); renderCard(); updateExportButtons();
+  renderControls(); renderCard(); updateExportButtons(); updateLink();
   try { await Promise.all([`700 16px ${FD}`, `600 14px ${FB}`, `700 14px ${FB}`, `700 14px ${FM}`, `500 14px ${FM}`].map(f => document.fonts.load(f))); } catch (e) {}
   resize(); requestAnimationFrame(loop);
   try {
