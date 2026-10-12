@@ -661,6 +661,15 @@ const SECTIONS = [
         thumb:       '/SeafloorSpreading_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Glacial Landforms', 'Interactive'],
+        title:       'Long Island Glacial Terrain',
+        description: 'Zoom from the continental shelf down to 1 m lidar to trace the Harbor Hill and Ronkonkoma moraines, the outwash plain, kettles and meltwater channels. Switch to the Landforms view, drop sea level to the last glacial maximum, and draw elevation profiles.',
+        footerTags:  ['Moraines', 'Kettles', 'Outwash Plain'],
+        to:          '/earthandspace/long-island-glacial-terrain',
+        thumb:       '/long_island_glacial_terrain_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
