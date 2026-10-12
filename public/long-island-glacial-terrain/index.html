@@ -68,6 +68,13 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:10px 0 4px;height
 .drawer header b{font:600 15px var(--display);color:var(--text)}
 .drawer canvas{flex:1;width:100%;min-height:0}
 .hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);z-index:4;background:rgba(30,35,32,.9);border:1px solid var(--accent);color:var(--text);border-radius:8px;padding:7px 12px;font-size:14px}
+.tbtn:disabled{opacity:.4;cursor:not-allowed}
+#v3{position:absolute;inset:0;z-index:1;background:radial-gradient(ellipse at 60% 40%,#2a332d 0%,#1a201c 55%,#121714 100%);touch-action:none}
+#v3 canvas{display:block;width:100%;height:100%;cursor:grab}
+#v3 canvas:active{cursor:grabbing}
+#v3busy{position:absolute;left:calc(50% + 164px);top:50%;transform:translate(-50%,-50%);font:600 16px var(--body);color:var(--text-2);background:rgba(30,35,32,.9);border:1px solid var(--line);border-radius:10px;padding:12px 18px}
+.v3row{display:flex;gap:8px;margin-top:8px}
+.v3row .tbtn{flex:1}
 @media (max-width:760px){
   .rail{top:auto;bottom:0;left:0;right:0;width:auto;max-height:46%;overflow:auto;padding:0 16px 16px}
   .brand .sub{display:none}
@@ -75,6 +82,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:10px 0 4px;height
   .modes button{padding:8px 12px;font-size:14px}
   .drawer{left:16px;bottom:48%}
   .res{top:auto;bottom:48%;right:16px}
+  #v3busy{left:50%;top:30%}
   .scale{bottom:auto;top:120px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
@@ -82,6 +90,7 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:10px 0 4px;height
 
 <div id="app">
   <canvas id="map" aria-label="Shaded relief map of Long Island and the surrounding sea floor"></canvas>
+  <div id="v3" hidden><div id="v3busy">Building 3D…</div></div>
 
   <div class="bar">
     <div class="brand"><h1>Long Island Glacial Terrain</h1><div class="sub">2024 lidar · 1 m / 5 m · NAD83 UTM 18N</div></div>
@@ -92,12 +101,13 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:10px 0 4px;height
     <div class="tools">
       <button class="tbtn" id="bLabels" aria-pressed="true">Labels</button>
       <button class="tbtn" id="bProfile" aria-pressed="false">Profile</button>
+      <button class="tbtn" id="b3d" aria-pressed="false">3D</button>
       <button class="tbtn" id="bPng">Download PNG</button>
     </div>
   </div>
 
   <div class="rail">
-    <section class="card">
+    <section class="card" id="cWins">
       <h2 class="eyebrow">1 m lidar windows</h2>
       <div class="wins" id="wins"></div>
     </section>
@@ -111,7 +121,12 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:10px 0 4px;height
       <canvas id="lg" width="560" height="28"></canvas>
       <div class="lg-lab" id="lgLab"></div>
     </section>
-    <section class="card">
+    <section class="card" id="c3d" hidden>
+      <div class="sl-head"><h2 class="eyebrow" style="margin:0">Vertical exaggeration</h2><span class="sl-val" id="vev">×10</span></div>
+      <input type="range" id="ve" min="0" max="10" step="1" value="6" aria-label="Vertical exaggeration">
+      <div class="v3row"><button class="tbtn" id="b3reset">Reset view</button><button class="tbtn" id="b3top">Top down</button></div>
+    </section>
+    <section class="card" id="cRead">
       <dl class="read">
         <dt>Elev.</dt><dd class="big" id="rE">—</dd>
         <dt>Lat/Lon</dt><dd id="rLL">—</dd>
@@ -141,6 +156,7 @@ const cv=document.getElementById("map");let ctx=cv.getContext("2d");
 let W=0,H=0,dpr=1,sdpr=1;
 const view={cx:668000,cy:4520000,s:120};
 let mode="r",sea=0,showLabels=true,profMode=false,prof=null,activeWin=null;
+let uiK=1,drawFrames=true,is3D=false;
 const have={};for(const k in D.tiles){have[k]=new Set(D.tiles[k].map(t=>t[0]+"_"+t[1]));}
 
 /* ---------- tile cache ---------- */
@@ -159,7 +175,8 @@ function evict(){if(cache.size<=30)return;const arr=[...cache.entries()].filter(
 
 /* ---------- elevation grids ---------- */
 const grids=[];
-function loadGrid(g){return new Promise(res=>{const im=new Image();im.onload=()=>{
+function gridReady(g){if(g.ready)return Promise.resolve(g);if(!g.p){g.started=true;loadGrid(g)}return g.p}
+function loadGrid(g){return g.p=new Promise(res=>{const im=new Image();im.onerror=()=>res(g);im.onload=()=>{
   const c=document.createElement("canvas");c.width=g.w;c.height=g.h;const x=c.getContext("2d",{willReadFrequently:true});x.drawImage(im,0,0);
   const d=x.getImageData(0,0,g.w,g.h).data;const n=g.w*g.h;g.E=new Float32Array(n);g.C=new Uint8Array(n);
   for(let p=0,q=0;p<n;p++,q+=4){g.E[p]=(d[q]*256+d[q+1])/10-1000;g.C[p]=d[q+2]}
@@ -215,7 +232,7 @@ function render(){raf=0;frame++;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoot
       if(sea<0){ctx.globalCompositeOperation="color";ctx.drawImage(g.ov,X,Y,GW,GH);ctx.globalCompositeOperation="screen";ctx.globalAlpha=0.55;ctx.drawImage(g.ov,X,Y,GW,GH);ctx.globalAlpha=1;ctx.globalCompositeOperation="source-over"}
       else ctx.drawImage(g.ov,X,Y,GW,GH)}}
   ctx.restore();
-  drawWinFrames(fine);
+  if(drawFrames)drawWinFrames(fine);
   if(showLabels)drawLabels();
   drawProfileLine();
   evict();updScale(lv,fine);}
@@ -248,36 +265,44 @@ function updScale(lv,fine){const r=fine&&D.wins.some(w=>w.tiles.length&&inBox(w.
   document.getElementById("scT").textContent=d>=1000?(d/1000)+" km":d+" m";document.getElementById("scB").style.width=(d/view.s)+"px"}
 
 /* ---------- profile ---------- */
-function drawProfileLine(){if(!prof)return;ctx.save();ctx.lineWidth=2.5;ctx.strokeStyle="#fff";ctx.shadowColor="rgba(0,0,0,.6)";ctx.shadowBlur=4;
+function drawProfileLine(){if(!prof)return;const k=uiK;ctx.save();ctx.lineWidth=2.5*k;ctx.strokeStyle="#fff";ctx.shadowColor="rgba(0,0,0,.6)";ctx.shadowBlur=4*k;
   ctx.beginPath();ctx.moveTo(sx(prof.a[0]),sy(prof.a[1]));ctx.lineTo(sx(prof.b[0]),sy(prof.b[1]));ctx.stroke();ctx.shadowBlur=0;
-  for(const[p,t]of[[prof.a,"A"],[prof.b,"B"]]){const X=sx(p[0]),Y=sy(p[1]);ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(X,Y,9,0,7);ctx.fill();
-    ctx.fillStyle="#1E2320";ctx.font="700 12px 'Public Sans',sans-serif";ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t,X,Y+.5)}
-  if(prof.hover!=null){const x=prof.a[0]+(prof.b[0]-prof.a[0])*prof.hover,y=prof.a[1]+(prof.b[1]-prof.a[1])*prof.hover;ctx.fillStyle=getCss("--warm");ctx.beginPath();ctx.arc(sx(x),sy(y),5,0,7);ctx.fill()}
+  for(const[p,t]of[[prof.a,"A"],[prof.b,"B"]]){const X=sx(p[0]),Y=sy(p[1]);ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(X,Y,9*k,0,7);ctx.fill();
+    ctx.fillStyle="#1E2320";ctx.font=`700 ${12*k}px 'Public Sans',sans-serif`;ctx.textAlign="center";ctx.textBaseline="middle";ctx.fillText(t,X,Y+.5*k)}
+  if(prof.hover!=null){const x=prof.a[0]+(prof.b[0]-prof.a[0])*prof.hover,y=prof.a[1]+(prof.b[1]-prof.a[1])*prof.hover;ctx.fillStyle=getCss("--warm");ctx.beginPath();ctx.arc(sx(x),sy(y),5*k,0,7);ctx.fill()}
   ctx.restore()}
 const pc=document.getElementById("pc"),px=pc.getContext("2d");
 function sampleProfile(){const[a,b]=[prof.a,prof.b];for(const g of grids){if(g.started)continue;const bx=[Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.max(a[0],b[0]),Math.max(a[1],b[1])];if(bx[2]>=g.x0&&bx[0]<=g.x0+g.w*g.res&&bx[3]>=g.ytop-g.h*g.res&&bx[1]<=g.ytop){g.started=true;loadGrid(g)}}const L=Math.hypot(b[0]-a[0],b[1]-a[1]);const n=Math.max(2,Math.min(900,Math.round(L/4)));
   const pts=[];for(let k=0;k<=n;k++){const t=k/n;const v=elevAt(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t);pts.push(v?{e:v.e,c:v.c,res:v.res}:null)}prof.L=L;prof.pts=pts}
 function drawProfile(){if(!prof||!prof.pts||!(prof.L>=1))return;const r=pc.getBoundingClientRect();const w=r.width,h=r.height;pc.width=w*dpr;pc.height=h*dpr;
-  px.setTransform(dpr,0,0,dpr,0,0);px.clearRect(0,0,w,h);const ok=prof.pts.filter(Boolean);if(!ok.length)return;
+  px.setTransform(dpr,0,0,dpr,0,0);px.clearRect(0,0,w,h);const st=plotProfile(px,0,0,w,h,prof.hover);
+  if(st)document.getElementById("pInfo").textContent=profText(st)}
+function profText(st){return `${st.km.toFixed(2)} km · vertical exaggeration ×${st.ve>=10?Math.round(st.ve):st.ve.toFixed(1)} · sampled at ${st.rs} m`}
+/* chart into any 2D context, inside the rect (ox,oy,w,h) in CSS px */
+function plotProfile(c,ox,oy,w,h,hover){const ok=prof.pts.filter(Boolean);if(!ok.length)return null;
   let lo=Math.min(...ok.map(p=>p.e)),hi=Math.max(...ok.map(p=>p.e));if(sea!==0){lo=Math.min(lo,sea);hi=Math.max(hi,sea)}
   const pad=Math.max(2,(hi-lo)*0.08);lo-=pad;hi+=pad;const L=46,R=10,Tp=6,B=22;const pw=w-L-R,ph=h-Tp-B;
-  const X=t=>L+t*pw,Y=e=>Tp+(hi-e)/(hi-lo)*ph;
-  px.font="12px 'Courier Prime',monospace";px.fillStyle=getCss("--text-2");px.strokeStyle="rgba(255,255,255,.08)";px.lineWidth=1;
-  const step=niceStep((hi-lo)/4);for(let e=Math.ceil(lo/step)*step;e<=hi;e+=step){px.beginPath();px.moveTo(L,Y(e));px.lineTo(w-R,Y(e));px.stroke();px.textAlign="right";px.textBaseline="middle";px.fillText(e+" m",L-6,Y(e))}
-  const km=prof.L/1000,xs=niceStep(km/6);px.textAlign="center";px.textBaseline="top";for(let d=0;d<=km+1e-9;d+=xs){px.fillText((xs<1?d.toFixed(1):Math.round(d))+" km",X(d/km),h-B+5)}
+  const X=t=>ox+L+t*pw,Y=e=>oy+Tp+(hi-e)/(hi-lo)*ph;
+  c.save();c.font="12px 'Courier Prime',monospace";c.fillStyle=getCss("--text-2");c.strokeStyle="rgba(255,255,255,.08)";c.lineWidth=1;
+  const step=niceStep((hi-lo)/4);for(let e=Math.ceil(lo/step)*step;e<=hi;e+=step){c.beginPath();c.moveTo(ox+L,Y(e));c.lineTo(ox+w-R,Y(e));c.stroke();c.textAlign="right";c.textBaseline="middle";c.fillText(+e.toFixed(6)+" m",ox+L-6,Y(e))}
+  const km=prof.L/1000,xs=niceStep(km/6);c.textAlign="center";c.textBaseline="top";for(let d=0;d<=km+1e-9;d+=xs){c.fillText((xs<1?d.toFixed(1):Math.round(d))+" km",X(d/km),oy+h-B+5)}
   const n=prof.pts.length-1;
+  // ground fill
+  c.beginPath();let started=false;for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p)continue;const t=k/n;if(!started){c.moveTo(X(t),Y(p.e));started=true}else c.lineTo(X(t),Y(p.e))}
+  c.lineTo(X(1),oy+Tp+ph);c.lineTo(X(0),oy+Tp+ph);c.closePath();c.fillStyle="rgba(201,186,140,.28)";c.fill();
   // water fill
-  px.beginPath();let started=false;for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p)continue;const t=k/n;if(!started){px.moveTo(X(t),Y(p.e));started=true}else px.lineTo(X(t),Y(p.e))}
-  px.lineTo(X(1),Tp+ph);px.lineTo(X(0),Tp+ph);px.closePath();px.fillStyle="rgba(201,186,140,.28)";px.fill();
-  if(sea!==0||ok.some(p=>p.e<0)){const lvl=sea;px.save();px.beginPath();for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p)continue;const t=k/n;px.rect(X(t)-pw/n/2-0.5,Y(lvl),pw/n+1,Math.max(0,Y(Math.min(p.e,lvl))-Y(lvl)))}
-    px.fillStyle="rgba(74,140,176,.55)";px.fill();px.restore();
-    px.strokeStyle="rgba(120,190,220,.9)";px.setLineDash([4,3]);px.beginPath();px.moveTo(L,Y(lvl));px.lineTo(w-R,Y(lvl));px.stroke();px.setLineDash([])}
-  px.beginPath();started=false;for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p){started=false;continue}const t=k/n;if(!started){px.moveTo(X(t),Y(p.e));started=true}else px.lineTo(X(t),Y(p.e))}
-  px.strokeStyle=getCss("--text");px.lineWidth=1.6;px.stroke();
-  if(prof.hover!=null){const k=Math.round(prof.hover*n),p=prof.pts[k];if(p){px.fillStyle=getCss("--warm");px.beginPath();px.arc(X(prof.hover),Y(p.e),4,0,7);px.fill();
-    px.font="700 14px 'Courier Prime',monospace";px.textAlign=prof.hover>0.8?"right":"left";px.textBaseline="bottom";px.fillStyle=getCss("--text");px.fillText(p.e.toFixed(1)+" m",X(prof.hover)+(prof.hover>0.8?-8:8),Y(p.e)-4)}}
-  const ve=(ph/(hi-lo))/(pw/prof.L);const rs=Math.max(...ok.map(p=>p.res));
-  document.getElementById("pInfo").textContent=`${km.toFixed(2)} km · vertical exaggeration ×${ve>=10?Math.round(ve):ve.toFixed(1)} · sampled at ${rs} m`;}
+  if(sea!==0||ok.some(p=>p.e<0)){const lvl=sea;c.save();c.beginPath();for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p)continue;const t=k/n;c.rect(X(t)-pw/n/2-0.5,Y(lvl),pw/n+1,Math.max(0,Y(Math.min(p.e,lvl))-Y(lvl)))}
+    c.fillStyle="rgba(74,140,176,.55)";c.fill();c.restore();
+    c.strokeStyle="rgba(120,190,220,.9)";c.setLineDash([4,3]);c.beginPath();c.moveTo(ox+L,Y(lvl));c.lineTo(ox+w-R,Y(lvl));c.stroke();c.setLineDash([])}
+  c.beginPath();started=false;for(let k=0;k<=n;k++){const p=prof.pts[k];if(!p){started=false;continue}const t=k/n;if(!started){c.moveTo(X(t),Y(p.e));started=true}else c.lineTo(X(t),Y(p.e))}
+  c.strokeStyle=getCss("--text");c.lineWidth=1.6;c.stroke();
+  // A / B end markers (match the map)
+  for(const[t,lab]of[[0,"A"],[1,"B"]]){const cx=X(t)+(t?-9:9),cy=oy+Tp+9;c.fillStyle="#fff";c.beginPath();c.arc(cx,cy,8,0,7);c.fill();
+    c.fillStyle="#1E2320";c.font="700 11px 'Public Sans',sans-serif";c.textAlign="center";c.textBaseline="middle";c.fillText(lab,cx,cy+.5)}
+  if(hover!=null){const k=Math.round(hover*n),p=prof.pts[k];if(p){c.fillStyle=getCss("--warm");c.beginPath();c.arc(X(hover),Y(p.e),4,0,7);c.fill();
+    c.font="700 14px 'Courier Prime',monospace";c.textAlign=hover>0.8?"right":"left";c.textBaseline="bottom";c.fillStyle=getCss("--text");c.fillText(p.e.toFixed(1)+" m",X(hover)+(hover>0.8?-8:8),Y(p.e)-4)}}
+  c.restore();
+  return{km,ve:(ph/(hi-lo))/(pw/prof.L),rs:Math.max(...ok.map(p=>p.res))}}
 function niceStep(x){if(!(x>0)||!isFinite(x))return 1;const p=Math.pow(10,Math.floor(Math.log10(x)));const m=x/p;return(m<1.5?1:m<3.5?2:m<7.5?5:10)*p}
 function getCss(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}
 
@@ -318,34 +343,152 @@ let anim=0;function animateTo(x,y,s){cancelAnimationFrame(anim);const a={...view
 
 /* ---------- controls ---------- */
 const mT=document.getElementById("mTerrain"),mL=document.getElementById("mLand");
-function setMode(m){mode=m;mT.setAttribute("aria-pressed",m==="r");mL.setAttribute("aria-pressed",m==="g");drawLegend();draw()}
+function setMode(m){mode=m;mT.setAttribute("aria-pressed",m==="r");mL.setAttribute("aria-pressed",m==="g");drawLegend();draw();if(is3D)refreshTex()}
 mT.onclick=()=>setMode("r");mL.onclick=()=>setMode("g");
 const bL=document.getElementById("bLabels");bL.onclick=()=>{showLabels=!showLabels;bL.setAttribute("aria-pressed",showLabels);draw()};
 /* ---------- PNG export (fixed scale, independent of screen dpr) ---------- */
 const EXPORT_SCALE=3;
 function waitTiles(ms){return new Promise(res=>{const t0=performance.now();const tick=()=>{if((inflight===0&&queue.length===0)||performance.now()-t0>ms)res();else setTimeout(tick,120)};tick()})}
+const PROV="Lidar: NYS 2024 QL2 bare-earth DEM (NYS ITS). Sea floor & land outside Nassau/Suffolk: AWS Terrain Tiles (NOAA, USGS, ETOPO1). contextclimate.io";
+function seaTxt(){return sea!==0?` · sea level ${sea>0?"+":"−"}${Math.abs(sea)} m`:""}
+function drawFooter(c,w,h,title,scaleBar){
+  const g=c.createLinearGradient(0,h-70,0,h);g.addColorStop(0,"rgba(20,24,22,0)");g.addColorStop(1,"rgba(20,24,22,.85)");c.fillStyle=g;c.fillRect(0,h-70,w,70);
+  c.textBaseline="alphabetic";c.textAlign="left";c.fillStyle="#E8E4D9";c.font="600 20px 'Zilla Slab',Georgia,serif";c.fillText(title,16,h-34);
+  c.font="12px 'Public Sans',sans-serif";c.fillStyle="#A6A499";c.fillText(PROV,16,h-14);
+  if(!scaleBar)return;
+  const steps=[50,100,200,500,1000,2000,5000,10000,20000,50000,100000];let d=steps[0];for(const v of steps)if(v<=w*0.14*view.s)d=v;
+  const bw=d/view.s,bx=w-16-bw,by=h-20;c.strokeStyle="#E8E4D9";c.lineWidth=2;c.beginPath();c.moveTo(bx,by-6);c.lineTo(bx,by);c.lineTo(bx+bw,by);c.lineTo(bx+bw,by-6);c.stroke();
+  c.textAlign="right";c.font="13px 'Courier Prime',monospace";c.fillStyle="#E8E4D9";c.fillText(d>=1000?(d/1000)+" km":d+" m",w-16,by-10)}
+function drawProfilePanel(c,top,w,h){c.fillStyle="#1E2320";c.fillRect(0,top,w,h);c.fillStyle="#3a413b";c.fillRect(0,top,w,1);
+  c.textBaseline="alphabetic";c.textAlign="left";c.fillStyle="#E8E4D9";c.font="600 17px 'Zilla Slab',Georgia,serif";const t="Elevation profile A–B";c.fillText(t,16,top+28);
+  const tw=c.measureText(t).width;const st=plotProfile(c,8,top+40,w-16,h-50,null);
+  if(st){c.font="13px 'Courier Prime',monospace";c.fillStyle="#A6A499";c.textAlign="left";c.fillText(profText(st),16+tw+16,top+28)}}
 async function downloadPNG(){const btn=document.getElementById("bPng");btn.disabled=true;btn.textContent="Rendering…";
-  const off=document.createElement("canvas");off.width=Math.round(W*EXPORT_SCALE);off.height=Math.round(H*EXPORT_SCALE);
-  const onCtx=ctx;ctx=off.getContext("2d");dpr=EXPORT_SCALE;cancelAnimationFrame(raf);raf=0;
-  try{render();await waitTiles(20000);render();
-    const c=ctx;c.setTransform(EXPORT_SCALE,0,0,EXPORT_SCALE,0,0);
-    const g=c.createLinearGradient(0,H-70,0,H);g.addColorStop(0,"rgba(20,24,22,0)");g.addColorStop(1,"rgba(20,24,22,.85)");c.fillStyle=g;c.fillRect(0,H-70,W,70);
-    c.textBaseline="alphabetic";c.textAlign="left";c.fillStyle="#E8E4D9";c.font="600 20px 'Zilla Slab',Georgia,serif";
-    c.fillText("Long Island Glacial Terrain · "+(mode==="r"?"Terrain":"Landforms")+(sea!==0?` · sea level ${sea>0?"+":"−"}${Math.abs(sea)} m`:""),16,H-34);
-    c.font="12px 'Public Sans',sans-serif";c.fillStyle="#A6A499";c.fillText("Lidar: NYS 2024 QL2 bare-earth DEM (NYS ITS). Sea floor & land outside Nassau/Suffolk: AWS Terrain Tiles (NOAA, USGS, ETOPO1). contextclimate.io",16,H-14);
-    const steps=[50,100,200,500,1000,2000,5000,10000,20000,50000,100000];let d=steps[0];for(const v of steps)if(v<=W*0.14*view.s)d=v;
-    const bw=d/view.s,bx=W-16-bw,by=H-20;c.strokeStyle="#E8E4D9";c.lineWidth=2;c.beginPath();c.moveTo(bx,by-6);c.lineTo(bx,by);c.lineTo(bx+bw,by);c.lineTo(bx+bw,by-6);c.stroke();
-    c.textAlign="right";c.font="13px 'Courier Prime',monospace";c.fillStyle="#E8E4D9";c.fillText(d>=1000?(d/1000)+" km":d+" m",W-16,by-10);
-    const a=document.createElement("a");a.download=`long-island-glacial-terrain_${mode==="r"?"terrain":"landforms"}.png`;a.href=off.toDataURL("image/png");document.body.appendChild(a);a.click();a.remove();
-  }finally{ctx=onCtx;dpr=sdpr;draw();btn.disabled=false;btn.textContent="Download PNG"}}
+  const S=EXPORT_SCALE,hasP=!!(prof&&prof.pts&&prof.L>=1),hv=prof?prof.hover:null;if(prof)prof.hover=null;
+  let mw,mh;if(is3D&&three){const b=three.box();mw=b.w;mh=b.h}else{mw=W;mh=H}
+  const ph=hasP?Math.round(Math.min(360,Math.max(230,mh*0.34))):0;
+  const off=document.createElement("canvas");off.width=Math.round(mw*S);off.height=Math.round((mh+ph)*S);
+  const onCtx=ctx;let swapped=false;
+  try{
+    if(is3D&&three){const c=off.getContext("2d");c.fillStyle="#1a201c";c.fillRect(0,0,off.width,off.height);three.snapshot(c,mw,mh,S)}
+    else{ctx=off.getContext("2d");swapped=true;dpr=S;cancelAnimationFrame(raf);raf=0;render();await waitTiles(20000);render();ctx=onCtx;swapped=false;dpr=sdpr}
+    const c=off.getContext("2d");c.setTransform(S,0,0,S,0,0);
+    const name=mode==="r"?"Terrain":"Landforms";
+    drawFooter(c,mw,mh,is3D?`Long Island Glacial Terrain · ${name} · 3D, vertical exaggeration ×${three.ve}${seaTxt()}`:`Long Island Glacial Terrain · ${name}${seaTxt()}`,!is3D);
+    if(hasP)drawProfilePanel(c,mh,mw,ph);
+    const a=document.createElement("a");a.download=`long-island-glacial-terrain_${mode==="r"?"terrain":"landforms"}${is3D?"_3d":""}${hasP?"_profile":""}.png`;a.href=off.toDataURL("image/png");document.body.appendChild(a);a.click();a.remove();
+  }finally{if(swapped){ctx=onCtx}dpr=sdpr;if(prof)prof.hover=hv;draw();btn.disabled=false;btn.textContent="Download PNG"}}
 document.getElementById("bPng").onclick=downloadPNG;
+
+/* ---------- 3D block of the current view ---------- */
+let three=null,buildTok=0;
+const v3=document.getElementById("v3"),v3busy=document.getElementById("v3busy"),b3=document.getElementById("b3d");
+const VE_STEPS=[1,1.5,2,3,5,7,10,15,20,30,50];
+function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error(src));document.head.appendChild(s)})}
+async function ensureThree(){if(!window.THREE)await loadScript("lib/three.min.js");if(!THREE.OrbitControls)await loadScript("lib/OrbitControls.js")}
+function railW(){return W>760?328:0}
+function viewExtent(){const l=railW(),t=W>760?70:60,b=W>760?H:H*0.54;
+  let x0=wx(l),x1=wx(W),y1=wy(t),y0=wy(b);x0=Math.max(WX0,x0);x1=Math.min(WX1,x1);y0=Math.max(WY0,y0);y1=Math.min(WY1,y1);return[x0,y0,x1,y1]}
+/* render the 2D map (no labels / frames) for a world extent into a canvas */
+let offLock=Promise.resolve();
+function renderOffscreen(cvs,ext,k){const run=offLock.then(()=>renderOff(cvs,ext,k));offLock=run.catch(()=>{});return run}
+async function renderOff(cvs,ext,k){const sv={W,H,dpr,ctx,cx:view.cx,cy:view.cy,s:view.s,showLabels,drawFrames,uiK};
+  cancelAnimationFrame(raf);raf=0;ctx=cvs.getContext("2d");W=cvs.width;H=cvs.height;dpr=1;
+  view.cx=(ext[0]+ext[2])/2;view.cy=(ext[1]+ext[3])/2;view.s=(ext[2]-ext[0])/W;showLabels=false;drawFrames=false;uiK=k;
+  try{render();await waitTiles(20000);render()}
+  finally{W=sv.W;H=sv.H;dpr=sv.dpr;ctx=sv.ctx;view.cx=sv.cx;view.cy=sv.cy;view.s=sv.s;showLabels=sv.showLabels;drawFrames=sv.drawFrames;uiK=sv.uiK;cancelAnimationFrame(raf);raf=0;draw()}}
+function niceVE(ext,zmin,zmax){const S=Math.max(ext[2]-ext[0],ext[3]-ext[1]),f=Math.min(0.15,Math.max(0.035,0.12*Math.pow(S/6000,-0.25))),t=f*S/Math.max(5,zmax-zmin);let best=0;VE_STEPS.forEach((v,i)=>{if(Math.abs(Math.log(v/t))<Math.abs(Math.log(VE_STEPS[best]/t)))best=i});return best}
+async function build3D(){const tok=++buildTok;v3busy.hidden=false;v3busy.textContent="Building 3D…";
+  await ensureThree();if(tok!==buildTok)return;if(!three)initThree();const soft=three.soft;
+  const ext=viewExtent(),ew=ext[2]-ext[0],eh=ext[3]-ext[1],cx=(ext[0]+ext[2])/2,cy=(ext[1]+ext[3])/2;
+  const SEG=soft?220:640,nx=ew>=eh?SEG:Math.max(24,Math.round(SEG*ew/eh)),ny=ew>=eh?Math.max(24,Math.round(SEG*eh/ew)):SEG,spacing=Math.max(ew/nx,eh/ny);
+  const need=grids.filter(g=>g.x0<ext[2]&&g.x0+g.w*g.res>ext[0]&&g.ytop>ext[1]&&g.ytop-g.h*g.res<ext[3]&&(g.res===160||(g.res>=10&&g.res<160&&spacing<130)||(g.res<10&&spacing<16)));
+  await Promise.all(need.map(gridReady));if(tok!==buildTok)return;
+  // heights (m)
+  const NX=nx+1,NY=ny+1,hgt=new Float32Array(NX*NY);let zmin=1e9,zmax=-1e9;
+  for(let j=0;j<NY;j++){const y=ext[3]-eh*j/ny;for(let i=0;i<NX;i++){const v=elevAt(ext[0]+ew*i/nx,y);const e=v?v.e:0;hgt[j*NX+i]=e;if(e<zmin)zmin=e;if(e>zmax)zmax=e}}
+  const T3=THREE,t=three;t.clearBlock();
+  const X=i=>(ew*i/nx-ew/2)/1000,Z=j=>(eh*j/ny-eh/2)/1000; // km; north = -z
+  const base=(zmin-Math.max(6,(zmax-zmin)*0.24))/1000;
+  // terrain surface
+  const pos=new Float32Array(NX*NY*3),uv=new Float32Array(NX*NY*2);
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const p=j*NX+i;pos[p*3]=X(i);pos[p*3+1]=hgt[p]/1000;pos[p*3+2]=Z(j);uv[p*2]=i/nx;uv[p*2+1]=1-j/ny}
+  const idx=new Uint32Array(nx*ny*6);let q=0;for(let j=0;j<ny;j++)for(let i=0;i<nx;i++){const a=j*NX+i,b=a+1,c=a+NX,d=c+1;idx[q++]=a;idx[q++]=c;idx[q++]=b;idx[q++]=b;idx[q++]=c;idx[q++]=d}
+  const geo=new T3.BufferGeometry();geo.setAttribute("position",new T3.BufferAttribute(pos,3));geo.setAttribute("uv",new T3.BufferAttribute(uv,2));geo.setIndex(new T3.BufferAttribute(idx,1));geo.computeVertexNormals();
+  // texture: the current 2D view of this extent
+  const maxT=Math.min(soft?2048:4096,t.renderer.capabilities.maxTextureSize);const tw=ew>=eh?maxT:Math.round(maxT*ew/eh),th=ew>=eh?Math.round(maxT*eh/ew):maxT;
+  const tc=document.createElement("canvas");tc.width=tw;tc.height=th;
+  const tex=new T3.CanvasTexture(tc);tex.anisotropy=t.renderer.capabilities.getMaxAnisotropy();
+  const surf=new T3.Mesh(geo,new T3.MeshLambertMaterial({map:tex}));t.group.add(surf);
+  // edges: earth walls, water walls, outline
+  const edges=[[...Array(NX).keys()].map(i=>[i,0]),[...Array(NY).keys()].map(j=>[nx,j]),[...Array(NX).keys()].map(i=>[nx-i,ny]),[...Array(NY).keys()].map(j=>[0,ny-j])];
+  const eps=Math.max(ew,eh)/1000*0.0015,out=[[0,-1],[1,0],[0,1],[-1,0]];
+  const ctop=[0.56,0.47,0.35],cbot=[0.22,0.18,0.14];const wallPos=[],wallCol=[],wallNor=[],wallIdx=[],wPos=[],wIdx=[],wEdge=[],line=[];
+  edges.forEach((E,ei)=>{const[ox,oz]=out[ei];const b0=wallPos.length/3,w0=wPos.length/3;
+    E.forEach(([i,j])=>{const e=hgt[j*NX+i]/1000,x=X(i),z=Z(j);wallPos.push(x,e,z,x,base,z);wallCol.push(...ctop,...cbot);wallNor.push(ox,0,oz,ox,0,oz);
+      wPos.push(x+ox*eps,0,z+oz*eps,x+ox*eps,0,z+oz*eps);wEdge.push(e);line.push(x,e,z)});
+    for(let k=0;k<E.length-1;k++){const a=b0+2*k;wallIdx.push(a,a+1,a+2,a+1,a+3,a+2);const c=w0+2*k;wIdx.push(c,c+1,c+2,c+1,c+3,c+2)}});
+  const wg=new T3.BufferGeometry();wg.setAttribute("position",new T3.Float32BufferAttribute(wallPos,3));wg.setAttribute("color",new T3.Float32BufferAttribute(wallCol,3));wg.setAttribute("normal",new T3.Float32BufferAttribute(wallNor,3));wg.setIndex(wallIdx);
+  t.group.add(new T3.Mesh(wg,new T3.MeshLambertMaterial({vertexColors:true,side:T3.DoubleSide})));
+  const ug=new T3.BufferGeometry();ug.setAttribute("position",new T3.Float32BufferAttribute(wPos,3));ug.setIndex(wIdx);
+  const waterMat=new T3.MeshBasicMaterial({color:0x3f86ad,transparent:true,opacity:0.5,depthWrite:false,side:T3.DoubleSide});
+  const uw=new T3.Mesh(ug,waterMat);uw.renderOrder=2;t.group.add(uw);
+  const top=new T3.Mesh(new T3.PlaneGeometry(ew/1000,eh/1000),new T3.MeshBasicMaterial({color:0x3f86ad,transparent:true,opacity:0.3,depthWrite:false}));top.rotation.x=-Math.PI/2;top.renderOrder=3;t.group.add(top);
+  const lg=new T3.BufferGeometry();lg.setAttribute("position",new T3.Float32BufferAttribute(line,3));
+  t.group.add(new T3.LineLoop(lg,new T3.LineBasicMaterial({color:0xE8E4D9,transparent:true,opacity:0.55})));
+  const bl=new T3.BufferGeometry();const bp=[];for(const[x,,z]of[[X(0),0,Z(0)],[X(nx),0,Z(0)],[X(nx),0,Z(ny)],[X(0),0,Z(ny)]])bp.push(x,base,z);bl.setAttribute("position",new T3.Float32BufferAttribute(bp,3));
+  t.group.add(new T3.LineLoop(bl,new T3.LineBasicMaterial({color:0x000000,transparent:true,opacity:0.35})));
+  Object.assign(t,{ext,ew,eh,zmin,zmax,base,tex,tc,surf,top,uw,ug,wEdge,size:Math.max(ew,eh)/1000});
+  t.setWater();
+  const vi=niceVE(ext,zmin,zmax);veIn.value=vi;t.setVE(VE_STEPS[vi]);t.resetCam(false);
+  v3busy.textContent="Rendering map…";await refreshTex();if(tok!==buildTok)return;v3busy.hidden=true;t.req()}
+let texTok=0;async function refreshTex(){if(!three||!three.tc)return;const tok=++texTok;const t=three;const k=t.tc.width/Math.max(300,t.box().w);
+  await renderOffscreen(t.tc,t.ext,k);if(tok!==texTok||!three)return;t.tex.needsUpdate=true;t.req()}
+function initThree(){const T3=THREE;
+  const renderer=new T3.WebGLRenderer({antialias:true,alpha:true});renderer.setClearColor(0x000000,0);v3.prepend(renderer.domElement);
+  const gl=renderer.getContext(),dri=gl.getExtension("WEBGL_debug_renderer_info");const soft=/swiftshader|llvmpipe|software|basic render/i.test(String(gl.getParameter(dri?dri.UNMASKED_RENDERER_WEBGL:gl.RENDERER)));
+  const scene=new T3.Scene(),camera=new T3.PerspectiveCamera(32,1,0.01,10000);
+  scene.add(new T3.AmbientLight(0xffffff,0.74));const sun=new T3.DirectionalLight(0xffffff,0.38);sun.position.set(-1,1.5,-0.7);scene.add(sun);
+  const group=new T3.Group();scene.add(group);
+  const controls=new T3.OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=0.12;controls.maxPolarAngle=Math.PI*0.47;controls.screenSpacePanning=false;
+  let rq=0;const req=()=>{if(!rq)rq=requestAnimationFrame(tick)};function tick(){rq=0;if(!three)return;const moved=controls.update();renderer.render(scene,camera);if(moved)req()}
+  controls.addEventListener("change",req);
+  const t=three={renderer,scene,camera,controls,group,ve:10,req,soft,
+    box(){const r=v3.getBoundingClientRect();return{w:r.width-railW(),h:r.height,full:r.width,fh:r.height}},
+    resize(){const r=v3.getBoundingClientRect();renderer.setPixelRatio(soft?1:Math.min(2,window.devicePixelRatio||1));renderer.setSize(r.width,r.height);
+      const rw=railW(),tp=W>760?62:0;camera.aspect=(r.width+rw)/(r.height+tp);camera.setViewOffset(r.width+rw,r.height+tp,0,0,r.width,r.height);camera.updateProjectionMatrix();req()},
+    clearBlock(){for(const o of [...group.children]){group.remove(o);o.geometry&&o.geometry.dispose();if(o.material){o.material.map&&o.material.map.dispose();o.material.dispose()}}},
+    setVE(v){const old=t.ve;t.ve=v;group.scale.y=v;document.getElementById("vev").textContent="×"+v;const ny=controls.target.y*v/old;camera.position.y+=ny-controls.target.y;controls.target.y=ny;controls.update();req()},
+    setWater(){if(!t.ug)return;const s=sea/1000,p=t.ug.attributes.position.array;for(let k=0;k<t.wEdge.length;k++){p[k*6+1]=s;p[k*6+4]=Math.min(t.wEdge[k],s)}t.ug.attributes.position.needsUpdate=true;
+      t.top.position.y=s;const vis=sea>t.zmin;t.top.visible=vis;t.uw.visible=vis;req()},
+    resetCam(top){const S=t.size,c=controls;c.target.set(0,((t.zmin+t.zmax)/2/1000)*t.ve,0);
+      const pol=top?0.001:0.95,az=top?0:-0.32,elev=Math.PI/2-pol,b=t.box(),tp=W>760?62:0,rw=railW();
+      const tv=Math.tan(camera.fov*Math.PI/360),tvE=tv*(b.fh-tp)/(b.fh+tp),thE=tv*((b.full+rw)/(b.fh+tp))*(b.full-rw)/(b.full+rw);
+      const ewk=t.ew/1000,ehk=t.eh/1000,relief=(t.zmax/1000-t.base)*t.ve;
+      const spanW=Math.abs(ewk*Math.cos(az))+Math.abs(ehk*Math.sin(az)),spanH=(Math.abs(ehk*Math.cos(az))+Math.abs(ewk*Math.sin(az)))*Math.sin(elev)+relief*Math.cos(elev);
+      const d=Math.max(spanW/2/thE,spanH/2/tvE)*1.07;camera.position.set(c.target.x+d*Math.sin(pol)*Math.sin(az),c.target.y+d*Math.cos(pol),c.target.z+d*Math.sin(pol)*Math.cos(az));
+      c.minDistance=S*0.08;c.maxDistance=S*4;camera.near=S*0.002;camera.far=S*20;camera.updateProjectionMatrix();c.update();req()},
+    snapshot(c,w,h,S){camera.clearViewOffset();camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setPixelRatio(S);renderer.setSize(w,h,false);renderer.render(scene,camera);
+      c.drawImage(renderer.domElement,0,0,w*S,h*S);t.resize()},
+    dispose(){t.clearBlock();controls.dispose();renderer.dispose();renderer.domElement.remove();three=null}};
+  t.resize()}
+const veIn=document.getElementById("ve");veIn.addEventListener("input",()=>{if(three)three.setVE(VE_STEPS[+veIn.value])});
+document.getElementById("b3reset").onclick=()=>three&&three.resetCam(false);
+document.getElementById("b3top").onclick=()=>three&&three.resetCam(true);
+async function set3D(on){if(on===is3D)return;is3D=on;b3.setAttribute("aria-pressed",on);
+  for(const id of["cWins","cRead","res","scale"])document.getElementById(id).hidden=on;document.getElementById("c3d").hidden=!on;
+  bL.disabled=on;bP.disabled=on;if(on)setProf(false);v3.hidden=!on;
+  if(on){try{await ensureThree();if(!three)initThree();else three.resize();await build3D()}catch(err){console.error(err);v3busy.hidden=false;v3busy.textContent="3D view needs WebGL, which this browser has turned off."}}
+  else{buildTok++;texTok++;if(three)three.dispose();draw()}}
+b3.onclick=()=>set3D(!is3D);
 const bP=document.getElementById("bProfile");function setProf(on){profMode=on;bP.setAttribute("aria-pressed",on);cv.classList.toggle("prof",on);document.getElementById("hint").hidden=!on}
 bP.onclick=()=>setProf(!profMode);
 document.getElementById("pClose").onclick=()=>{prof=null;document.getElementById("drawer").hidden=true;setProf(false);draw()};
 pc.addEventListener("pointermove",e=>{if(!prof)return;const r=pc.getBoundingClientRect();prof.hover=Math.min(1,Math.max(0,(e.clientX-r.left-46)/(r.width-56)));drawProfile();draw()});
 pc.addEventListener("pointerleave",()=>{if(prof){prof.hover=null;drawProfile();draw()}});
 const sl=document.getElementById("sl"),slv=document.getElementById("slv");
-function setSea(v){sea=v;slv.innerHTML=`${v>0?"+":v<0?"−":""}${Math.abs(v)} m<small>${v>0?"+":v<0?"−":""}${Math.abs(Math.round(v*3.28084))} ft</small>`;draw();if(prof){drawProfile()}}
+function setSea(v){sea=v;slv.innerHTML=`${v>0?"+":v<0?"−":""}${Math.abs(v)} m<small>${v>0?"+":v<0?"−":""}${Math.abs(Math.round(v*3.28084))} ft</small>`;draw();if(prof){drawProfile()}if(is3D&&three){three.setWater();clearTimeout(seaTex);seaTex=setTimeout(refreshTex,220)}}
+let seaTex=0;
 sl.addEventListener("input",()=>setSea(+sl.value));
 const ticks=document.getElementById("ticks");for(const[v,t,tx]of[[-120,"−120 m<br>LGM global mean","-22%"],[-60,"−60",null],[0,"0<br>today",null]]){const s=document.createElement("span");s.style.left=((v+130)/140*100)+"%";if(tx)s.style.transform=`translateX(${tx})`;s.innerHTML=t;ticks.appendChild(s)}
 // windows
@@ -369,7 +512,7 @@ function drawLegend(){const w=lg.width,h=lg.height;const img=lgx.createImageData
   if(mode==="r"){tt.textContent="Elevation (m, NAVD88)";lab.innerHTML="<span>−150</span><span>−75</span><span>0</span><span>60</span><span>125</span>"}
   else{tt.textContent="Local relief";lab.innerHTML="<span>Below surroundings</span><span>Above surroundings</span>"}}
 // resize / init
-function resize(){const r=cv.getBoundingClientRect();dpr=sdpr=Math.min(2,window.devicePixelRatio||1);W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);draw();if(prof)drawProfile()}
+function resize(){const r=cv.getBoundingClientRect();dpr=sdpr=Math.min(2,window.devicePixelRatio||1);W=r.width;H=r.height;cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);draw();if(prof)drawProfile();if(three)three.resize()}
 function home(animate){const s=Math.max(185000/(W-340),95000/(H-110));const cx=666000-170*s,cy=4523000;if(animate)animateTo(cx,cy,s);else{view.cx=cx;view.cy=cy;view.s=s;clampView()}}
 window.addEventListener("resize",resize);
 resize();home(false);drawLegend();setSea(0);
