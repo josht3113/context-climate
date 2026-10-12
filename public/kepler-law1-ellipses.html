@@ -126,6 +126,7 @@ html,body{width:100%;height:100%;overflow:hidden;padding:0;background:var(--bg-d
   cursor:pointer;transition:box-shadow .15s;
 }
 .slider::-webkit-slider-thumb:hover{box-shadow:0 0 0 5px var(--teal-dim),0 0 8px var(--teal-glow)}
+.slider::-moz-range-thumb{width:16px;height:16px;border:none;border-radius:50%;background:var(--teal);box-shadow:0 0 0 3px var(--teal-dim);cursor:pointer}
 .slider-ends{display:flex;justify-content:space-between;font-size:13px;color:var(--text-dim);font-family:var(--font-mono)}
 
 /* ── ECC SLIDER TICKS ── */
@@ -188,11 +189,11 @@ html,body{width:100%;height:100%;overflow:hidden;padding:0;background:var(--bg-d
 .dc{
   background:var(--bg-card2);border:1px solid var(--border);
   border-radius:5px;padding:5px 10px;
-  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;column-gap:8px;row-gap:0;
 }
 .dc-head{display:flex;align-items:baseline;gap:7px;min-width:0}
 .dc-label{font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-dim);white-space:nowrap}
-.dc-val{font-family:var(--font-mono);font-size:17px;font-weight:500;color:var(--text-pri);white-space:nowrap}
+.dc-val{font-family:var(--font-mono);font-size:17px;font-weight:500;color:var(--text-pri);white-space:nowrap;margin-left:auto}
 .dunit{font-family:var(--font-mono);font-size:13px;color:var(--text-sec);margin:-4px 0 8px}
 .dc-eq{font-size:13px;color:var(--text-dim);font-family:var(--font-mono);white-space:nowrap}
 
@@ -211,7 +212,7 @@ html,body{width:100%;height:100%;overflow:hidden;padding:0;background:var(--bg-d
 
 /* ── CANVAS ── */
 #cwrap{flex:1;position:relative;overflow:hidden;background:var(--bg-deep)}
-#cv{display:block;width:100%;height:100%}
+#cv{display:block;width:100%;height:100%;touch-action:none}
 
 /* ── CANVAS OVERLAY: sibling-law nav + PNG export ── */
 #cwrap-tools{
@@ -393,7 +394,11 @@ function fmtLen(v,km){
 
 // Sun appearance (G-type, fixed)
 const SUN = {core:'#fffbe0',mid:'#ffee88',outer:'#ffdd44',glow:'#ffcc00'};
-const SUN_R = 13;
+const SUN_R = 13;          // max Sun radius (px); shrinks on very tight perihelia
+const PLANET_R = 6.5;
+// Trail length as a span of mean anomaly (= equal time), not a frame count,
+// so it is the same fraction of the orbit at every speed and refresh rate
+const TRAIL_M = 0.95;
 
 // Eccentricity slider mapping: e = EMAX * t^EPOW  (expanded near zero)
 const EMAX = 0.97, EPOW = 2;
@@ -403,11 +408,11 @@ const e2t = e => Math.pow(Math.max(0,e)/EMAX, 1/EPOW);
 // ── STATE ─────────────────────────────────────────────────────
 const S = {
   e:0.6, targetE:0.6,
-  animating:false, M:2.1, speed:1.0,
+  animating:false, M:2.1, Mu:2.1, speed:1.0,   // Mu = unwrapped mean anomaly
   preset:'Custom',
   pColor:'#8fa8c8',
   touched:false,          // has the student played or scrubbed yet
-  // overlays — focal radii + empty focus on by default; center OFF
+  // overlays — all off by default
   showRad:false,
   showF2:false,
   showA:false, showB:false,
@@ -419,7 +424,8 @@ const S = {
 const cv  = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 let W,H,CX,CY,APX;
-let stars=[], trail=[];
+let stars=[], trailStart=null;   // unwrapped M where the current trail began
+let starLayer=null, starCtx=null, starT=-1e9;
 let rafId=null, lastT=null;
 let DPR = window.devicePixelRatio||1;
 let dragging=false, exporting=false;
@@ -435,8 +441,9 @@ function setupCanvas(){
 }
 
 function resize(){
+  DPR=window.devicePixelRatio||1;   // browser zoom / moving to another monitor
   setupCanvas();
-  genStars(); trail=[];
+  genStars(); starT=-1e9;
   draw(0);
 }
 
@@ -467,6 +474,32 @@ function xyFromE(E,e){
   return { x:CX+a*Math.cos(E), y:CY-b*Math.sin(E) };
 }
 function planetXY(M,e){ return xyFromE(kepler(M,e),e); }
+// Kepler for an unwrapped M (any number of revolutions)
+function keplerU(M,e){
+  const TAU=Math.PI*2, k=Math.floor(M/TAU);
+  return kepler(M-k*TAU,e)+k*TAU;
+}
+function resetTrail(){ trailStart=S.animating?S.Mu:null; }
+
+// Background + stars cached offscreen; twinkle period is ~16 s, so refreshing
+// the layer 4× a second is visually identical to redrawing ~1000 stars per frame
+function renderStarLayer(now){
+  if(!starLayer){ starLayer=document.createElement('canvas'); starCtx=starLayer.getContext('2d'); }
+  if(starLayer.width!==cv.width||starLayer.height!==cv.height){
+    starLayer.width=cv.width; starLayer.height=cv.height;
+  }
+  const g=starCtx;
+  g.setTransform(DPR,0,0,DPR,0,0);
+  const bg=g.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H));
+  bg.addColorStop(0,'#2A302B'); bg.addColorStop(1,'#1A1E1B');
+  g.fillStyle=bg; g.fillRect(0,0,W,H);
+  stars.forEach(st=>{
+    const tw=0.82+0.18*Math.sin(st.p+now*0.0004);
+    g.beginPath(); g.arc(st.x,st.y,st.r,0,Math.PI*2);
+    g.fillStyle=`rgba(232,228,217,${st.a*tw*0.7})`; g.fill();
+  });
+  starT=now;
+}
 
 // Inverse: screen point → mean anomaly on the current ellipse
 function pointToM(px,py,e){
@@ -543,7 +576,7 @@ function leader(x1,y1,x2,y2,color){
   ctx.restore();
 }
 
-function measure(x1,y1,x2,y2,color,label,labelSide=1){
+function measure(x1,y1,x2,y2,color,label,labelSide=1,clearY=null){
   const dx=x2-x1,dy=y2-y1;
   const len=Math.sqrt(dx*dx+dy*dy);
   ctx.save();
@@ -559,7 +592,16 @@ function measure(x1,y1,x2,y2,color,label,labelSide=1){
   const mx=(x1+x2)/2, my=(y1+y2)/2;
   if(len>40) return canvasLabel(label,mx,my+labelSide*17,color);
   // segment too short to hold the label — call it out instead of dropping it
-  const lx=mx+34, ly=my+labelSide*30;
+  // callout sits clear of the orbit's top edge so the moving body can't run under it
+  const ly=(labelSide<0&&clearY!==null)?Math.min(my-30,clearY-20):my+labelSide*30;
+  ctx.save(); ctx.font='600 18px "Courier Prime",sans-serif';
+  const tw=ctx.measureText(label).width; ctx.restore();
+  if(mx+34+tw+12 > W-8){
+    const lx=mx-34;
+    leader(mx,my,lx+4,ly,color);
+    return canvasLabel(label,lx,ly,color,'right');
+  }
+  const lx=mx+34;
   leader(mx,my,lx-4,ly,color);
   return canvasLabel(label,lx,ly,color,'left');
 }
@@ -583,8 +625,7 @@ function focusMark(x,y,color){
 }
 
 // ── SUN ───────────────────────────────────────────────────────
-function drawSun(x,y){
-  const r=SUN_R;
+function drawSun(x,y,r=SUN_R){
   const hz=ctx.createRadialGradient(x,y,r*0.8,x,y,r*5);
   hz.addColorStop(0,SUN.glow+'55'); hz.addColorStop(1,'transparent');
   ctx.beginPath(); ctx.arc(x,y,r*5,0,Math.PI*2); ctx.fillStyle=hz; ctx.fill();
@@ -599,8 +640,7 @@ function drawSun(x,y){
 
 // Ghost planet: same size as the planet, hollow and dashed so it reads as a
 // marked position rather than a second body
-function drawGhost(x,y,ring){
-  const r=6.5;
+function drawGhost(x,y,ring,r=PLANET_R){
   ctx.save();
   ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
   ctx.fillStyle=S.pColor+'40'; ctx.fill();
@@ -610,7 +650,7 @@ function drawGhost(x,y,ring){
 }
 
 // ── PLANET ────────────────────────────────────────────────────
-function drawPlanet(x,y,col,r=6.5){
+function drawPlanet(x,y,col,r=PLANET_R){
   const g=ctx.createRadialGradient(x,y,0,x,y,r*3.2);
   g.addColorStop(0,col+'55'); g.addColorStop(1,'transparent');
   ctx.beginPath(); ctx.arc(x,y,r*3.2,0,Math.PI*2); ctx.fillStyle=g; ctx.fill();
@@ -627,24 +667,23 @@ function dc(h,v){const r=Math.max(0,parseInt(h.slice(1,3),16)-v),g=Math.max(0,pa
 // ── MAIN DRAW ─────────────────────────────────────────────────
 function draw(ts){
   ctx.clearRect(0,0,W,H);
+  const now=ts||performance.now();   // draw(0) from clicks keeps the star clock
 
-  // Background — core ContextClimate surfaces
-  const bg=ctx.createRadialGradient(CX,CY,0,CX,CY,Math.max(W,H));
-  bg.addColorStop(0,'#2A302B'); bg.addColorStop(1,'#1A1E1B');
-  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
-
-  // Stars
-  stars.forEach(s=>{
-    const tw=0.82+0.18*Math.sin(s.p+(ts||0)*0.0004);
-    ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
-    ctx.fillStyle=`rgba(232,228,217,${s.a*tw*0.7})`; ctx.fill();
-  });
+  // Background + stars (cached layer)
+  if(!starLayer||starLayer.width!==cv.width||starLayer.height!==cv.height||now-starT>250||now<starT)
+    renderStarLayer(now);
+  ctx.drawImage(starLayer,0,0,W,H);
 
   const e=S.e, a=APX, b=a*Math.sqrt(1-e*e), c=a*e;
   const ox=CX, oy=CY;
   const sunX=ox+c, sunY=oy;
   const periX=ox+a, apoX=ox-a, topY=oy-b;
   const f2X=ox-c;
+  // At e ≈ 0.97 the perihelion gap is only a few px; shrink the Sun (and the
+  // body, slightly) so the orbit doesn't run through the solar disk
+  const qpx=a-c;
+  const sunR=Math.max(3,Math.min(SUN_R,qpx*0.45));
+  const pR=Math.max(3.5,Math.min(PLANET_R,qpx*0.5));
 
   reserved=[]; const radLabels=[];
   const SC=scaleInfo();
@@ -679,7 +718,8 @@ function draw(ts){
 
   if(S.showPeri){
     reserved.push(measure(sunX,oy-22,periX,oy-22,'#FB923C',
-      'Perihelion = '+fmtLen(SC.a*(1-e),SC.km)+' '+SC.unit,-1));
+      'Perihelion = '+fmtLen(SC.a*(1-e),SC.km)+' '+SC.unit,-1,
+      S.showApo?Math.min(topY,oy-72):topY));   // stack above the Aphelion label
   }
 
   if(S.showApo){
@@ -706,28 +746,36 @@ function draw(ts){
       radLabels.push(['r₂',(ppos.x+f2X)/2,(ppos.y+oy)/2+20,'#a78bfa']);
   }
 
-  // Trail
-  if(trail.length>1){
-    // planet-coloured so it reads as motion instead of vanishing into the orbit line
-    const tr=parseInt(S.pColor.slice(1,3),16),tg=parseInt(S.pColor.slice(3,5),16),tb=parseInt(S.pColor.slice(5,7),16);
-    ctx.save();
-    for(let i=1;i<trail.length;i++){
-      const t=i/trail.length;
-      ctx.beginPath();
-      ctx.moveTo(trail[i-1].x,trail[i-1].y);
-      ctx.lineTo(trail[i].x,trail[i].y);
-      ctx.strokeStyle=`rgba(${tr},${tg},${tb},${t*0.6})`;
-      ctx.lineWidth=3; ctx.stroke();
+  // Trail — traced along the ellipse itself (subdivided in E), never as
+  // straight chords between frame samples, so fast perihelion passages
+  // can't cut across the orbit
+  if(trailStart!==null && S.Mu>trailStart){
+    const Mtail=S.Mu-TRAIL_M, M0=Math.max(trailStart,Mtail);
+    const E0=keplerU(M0,e), E1=keplerU(S.Mu,e);
+    const span=E1-E0;
+    if(span>1e-6){
+      const n=Math.max(8,Math.ceil(span/Math.min(0.035,span/40)));
+      const tr=parseInt(S.pColor.slice(1,3),16),tg=parseInt(S.pColor.slice(3,5),16),tb=parseInt(S.pColor.slice(5,7),16);
+      ctx.save(); ctx.lineWidth=3;
+      let prev=xyFromE(E0,e);
+      for(let i=1;i<=n;i++){
+        const E=E0+span*i/n, pt=xyFromE(E,e);
+        const Mi=E-e*Math.sin(E);                 // fade by elapsed time, not by index
+        const f=Math.max(0,Math.min(1,(Mi-Mtail)/TRAIL_M));
+        ctx.beginPath(); ctx.moveTo(prev.x,prev.y); ctx.lineTo(pt.x,pt.y);
+        ctx.strokeStyle=`rgba(${tr},${tg},${tb},${(f*0.6).toFixed(3)})`;
+        ctx.stroke(); prev=pt;
+      }
+      ctx.restore();
     }
-    ctx.restore();
   }
 
   // Ghost planets marking the two extremes
-  if(S.showPeri) drawGhost(periX,oy,'#FB923C');
-  if(S.showApo)  drawGhost(apoX,oy,'#7DD3FC');
+  if(S.showPeri) drawGhost(periX,oy,'#FB923C',pR);
+  if(S.showApo)  drawGhost(apoX,oy,'#7DD3FC',pR);
 
   // Sun
-  drawSun(sunX,sunY);
+  drawSun(sunX,sunY,sunR);
 
   // Focus + center marks ON TOP of the glare so they survive at low e
   const showF2Mark = (S.showF2||S.showRad) && !isCircle;
@@ -743,27 +791,27 @@ function draw(ts){
   // Focus labels — layout depends on how close the foci are
   const cAU=fmtLen(SC.a*e,SC.km)+' '+SC.unit;
   if(isCircle){
-    reserved.push(canvasLabel('F₁ = F₂ (Sun at center)',sunX,oy+SUN_R+22,'#fff8c8'));
-    reserved.push(canvasLabel('e = 0 → both foci meet at the center',ox,oy+SUN_R+46,'rgba(232,228,217,0.72)'));
+    reserved.push(canvasLabel('F₁ = F₂ (Sun at center)',sunX,oy+sunR+22,'#fff8c8'));
+    reserved.push(canvasLabel('e = 0 → both foci meet at the center',ox,oy+sunR+46,'rgba(232,228,217,0.72)'));
   }else if(crowded && showF2Mark){
-    const ly=oy+SUN_R+40;
+    const ly=oy+sunR+40;
     if(showF2Mark){
       leader(f2X,oy+9,ox-20,ly-10,'#a78bfa');
       reserved.push(canvasLabel('F₂ (empty)',ox-16,ly,'#a78bfa','right'));
     }
-    leader(sunX,oy+SUN_R+3,ox+20,ly-10,'#fff8c8');
+    leader(sunX,oy+sunR+3,ox+20,ly-10,'#fff8c8');
     reserved.push(canvasLabel('F₁ (Sun)',ox+16,ly,'#fff8c8','left'));
     reserved.push(canvasLabel('focus offset c = '+cAU,ox,ly+26,'#F472B6'));
   }else{
     if(showF2Mark) reserved.push(canvasLabel('F₂ (empty)',f2X,oy+22,'#a78bfa'));
-    reserved.push(canvasLabel('F₁ (Sun)',sunX,oy+SUN_R+22,'#fff8c8'));
+    reserved.push(canvasLabel('F₁ (Sun)',sunX,oy+sunR+22,'#fff8c8'));
   }
 
   // r₁ / r₂ tags last, and only where they won't sit on a fixed label
   radLabels.forEach(([t,x,y,col])=>{ if(!overlapsReserved(t,x,y)) canvasLabel(t,x,y,col); });
 
   // Planet
-  drawPlanet(ppos.x,ppos.y,S.pColor);
+  drawPlanet(ppos.x,ppos.y,S.pColor,pR);
 
   // Law statement
   ctx.save();
@@ -838,15 +886,15 @@ function tick(ts){
   if(Math.abs(S.e-S.targetE)>.0002){
     S.e+=(S.targetE-S.e)*.18;
     if(Math.abs(S.e-S.targetE)<.0002)S.e=S.targetE;
-    trail=[]; dirty=true;
+    resetTrail(); dirty=true;
   }
 
   if(S.animating){
-    S.M+=dt*S.speed*0.62;
-    if(S.M>=Math.PI*2)S.M-=Math.PI*2;
-    const pp=planetXY(S.M,S.e);
-    trail.push({x:pp.x,y:pp.y});
-    if(trail.length>90)trail.shift();
+    S.Mu+=dt*S.speed*0.62;
+    const TAU=Math.PI*2;
+    S.M=S.Mu-Math.floor(S.Mu/TAU)*TAU;
+    if(trailStart===null) trailStart=S.Mu;
+    if(S.Mu>1e6){ const k=Math.floor(S.Mu/TAU)*TAU; S.Mu-=k; trailStart-=k; }
     dirty=true;
   }
 
@@ -861,7 +909,7 @@ function scheduleRAF(){
 
 function setPlaying(on){
   S.animating=on;
-  if(on)S.touched=true;
+  if(on){ S.touched=true; if(trailStart===null) trailStart=S.Mu; }
   document.getElementById('play-btn').textContent=on?'⏸\u00A0Pause':'▶\u00A0Play';
   if(on){lastT=null;scheduleRAF();}
 }
@@ -882,7 +930,7 @@ function buildPresets(){
 function selectPreset(p){
   S.preset=p.name; S.pColor=p.color;
   S.targetE=p.e; document.getElementById('ecc-sl').value=e2t(p.e);
-  trail=[];
+  resetTrail();
   document.querySelectorAll('.pbtn').forEach(b=>b.classList.toggle('active',b.dataset.name===p.name));
   scheduleRAF(); draw(0);
 }
@@ -894,7 +942,8 @@ function buildTicks(){
   vals.forEach((v,i)=>{
     const el=document.createElement('span');
     el.className='stick'+(i===0?' edge-l':i===vals.length-1?' edge-r':'');
-    el.style.left=(e2t(v)*100).toFixed(1)+'%';
+    const t=e2t(v);
+    el.style.left=(i===0||i===vals.length-1)?(t*100).toFixed(1)+'%':`calc(8px + (100% - 16px) * ${t.toFixed(4)})`;
     el.textContent=v===0?'0':v.toFixed(v<0.1?3:2);
     host.appendChild(el);
   });
@@ -904,7 +953,7 @@ function buildTicks(){
 function setupEvents(){
   document.getElementById('ecc-sl').addEventListener('input',ev=>{
     S.targetE=t2e(parseFloat(ev.target.value));
-    S.preset='Custom'; S.pColor=CUSTOM_COLOR; trail=[];
+    S.preset='Custom'; S.pColor=CUSTOM_COLOR; resetTrail();
     document.querySelectorAll('.pbtn').forEach(b=>b.classList.remove('active'));
     scheduleRAF();
   });
@@ -942,15 +991,14 @@ function setupEvents(){
     cv.setPointerCapture(ev.pointerId);
     cv.style.cursor='grabbing';
     if(S.animating)setPlaying(false);
-    trail=[];
-    S.M=pointToM(p.x,p.y,S.e);
+    S.M=S.Mu=pointToM(p.x,p.y,S.e); trailStart=null;
     draw(0);
   });
 
   cv.addEventListener('pointermove',ev=>{
     const p=pt(ev);
     if(dragging){
-      S.M=pointToM(p.x,p.y,S.e);
+      S.M=S.Mu=pointToM(p.x,p.y,S.e);
       draw(0);
     }else{
       cv.style.cursor=distToPath(p.x,p.y,S.e)<48?'grab':'default';
