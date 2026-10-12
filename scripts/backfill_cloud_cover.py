@@ -39,6 +39,7 @@ intentionally conservative about request rate (SLEEP_SECONDS between
 requests) to stay a good citizen of IEM's free public archive.
 """
 
+import re
 import argparse
 import json
 import os
@@ -139,17 +140,29 @@ def parse_monthly(csv_text):
     return buckets
 
 
+# Windows can't store files named CON/PRN/AUX/NUL/COM1-9/LPT1-9 (any
+# extension), so those station ids are saved with a trailing underscore
+# (e.g. Concord, NH -> CON_.json). cloud-cover-explorer.html applies the
+# same rule when it loads a station.
+WINDOWS_RESERVED = re.compile(r"^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$", re.IGNORECASE)
+
+
+def data_path(station_id):
+    stem = f"{station_id}_" if WINDOWS_RESERVED.match(station_id) else station_id
+    return os.path.join(DATA_DIR, f"{stem}.json")
+
+
 def load_existing(station_id):
-    path = os.path.join(DATA_DIR, f"{station_id}.json")
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
+    for path in (data_path(station_id), os.path.join(DATA_DIR, f"{station_id}.json")):
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
     return {"id": station_id, "updated": None, "monthly": []}
 
 
 def save_station(station_id, record):
     os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, f"{station_id}.json")
+    path = data_path(station_id)
     record["monthly"].sort(key=lambda r: (r["y"], r["m"]))
     record["updated"] = date.today().isoformat()
     with open(path, "w") as f:
