@@ -318,35 +318,35 @@ const SECTIONS = [
         cards: [
           {
             tags:        ['Milankovitch Cycles', 'Interactive', '1 of 4'],
-            title:       'Eccentricity Explorer',
-            description: 'Animate Earth\'s orbital shape as it shifts between nearly circular and more elliptical over ~100,000-year and ~413,000-year cycles. Discover why eccentricity acts as the "volume knob" that modulates the strength of precession-driven insolation changes.',
-            footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles'],
-            to:          '/earthandspace/eccentricity-explorer',
-            thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
-            status:      'live',
-          },
-          {
-            tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
             title:       'Obliquity Explorer',
-            description: 'Animate Earth\'s axial tilt as it cycles between ~22° and 24.5° over roughly 41,000 years — and see how changing obliquity drives long-term shifts in seasonal contrast and Milankovitch-driven climate cycles.',
+            description: 'Earth\'s tilt drifts between about 22° and 24.5° every ~41,000 years. Snap between minimum, today and maximum tilt to see how a bigger tilt brings stronger summer sunlight to 65°N — and whether last winter\'s snow survives. Then find where the tilt is heading now.',
             footerTags:  ['Axial Tilt', 'Milankovitch Cycles'],
             to:          '/earthandspace/obliquity-explorer',
             thumb:       '/ObliquityExplorer_thumbnail.png',
             status:      'live',
           },
           {
-            tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
+            tags:        ['Milankovitch Cycles', 'Interactive', '2 of 4'],
             title:       'Precession Explorer',
-            description: 'Follow Earth\'s slow axial wobble — a ~26,000-year cycle that shifts which star sits at the celestial north pole and alters when perihelion falls relative to the seasons.',
+            description: 'Earth\'s axis wobbles like a spinning top, swinging the north star from Thuban to Polaris to Vega. Compare a perihelion in January (today) with one in June to see how the timing of closest approach changes northern summers on a ~23,000-year rhythm.',
             footerTags:  ['Axial Precession', 'Milankovitch Cycles'],
             to:          '/earthandspace/precession-explorer',
             thumb:       '/PrecessionExplorer_thumbnail.png',
             status:      'live',
           },
           {
+            tags:        ['Milankovitch Cycles', 'Interactive', '3 of 4'],
+            title:       'Eccentricity Explorer',
+            description: 'Earth\'s orbit stretches from nearly circular to slightly oval over ~100,000 and ~405,000-year cycles. Snap between the lowest, today\'s and the highest eccentricity to see why it acts as the "volume knob" on precession\'s effect on summer sunlight.',
+            footerTags:  ['Orbital Eccentricity', 'Milankovitch Cycles'],
+            to:          '/earthandspace/eccentricity-explorer',
+            thumb:       '/EccentricityExplorerMilankovitch_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ['Milankovitch Cycles', 'Interactive', '4 of 4'],
             title:       'The Stacked Signal',
-            description: 'Layer all three Milankovitch cycles — eccentricity, obliquity, and precession — to compute 65°N summer insolation and compare it directly to the EPICA Dome C ice core record. Toggle each component on and off, then witness the pacemaker of the ice ages.',
+            description: 'Add tilt, precession and eccentricity together to build the 65°N summer sunlight signal, switch each cycle on and off, then line it up against 450,000 years of Antarctic ice core temperatures — from the last warm period to the last ice age to today.',
             footerTags:  ['Milankovitch Cycles', 'Ice Ages'],
             to:          '/earthandspace/stacked-signal',
             thumb:       '/StackedSignal_thumbnail.png',
@@ -498,10 +498,10 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags: ['Clouds', 'Atmosphere'],
+        tags: ['Clouds', 'Humidity', 'Interactive'],
         title: 'Cloud Formation Lab',
-        description: 'Explore models and instruments used to understand and measure dewpoint on relative humdity %. Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
-        footerTags: ['Dewpoint', 'Relative Humidity'],
+        description: 'Fill beakers of air at different temperatures, spin a sling psychrometer and read the ESSRT charts, then lift a parcel of air until it cools to its dew point and a cloud forms.',
+        footerTags: ['Dew Point', 'Relative Humidity', 'Cloud Base'],
         to: '/earthandspace/cloud-formation-lab',
         accentVar: '--accent',
         thumb: 'cloud_formation_lab_thumbnail.png',
@@ -661,6 +661,15 @@ const SECTIONS = [
         thumb:       '/SeafloorSpreading_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Glacial Landforms', 'Interactive'],
+        title:       'Long Island Glacial Terrain',
+        description: 'Zoom from the continental shelf down to 1 m lidar to trace the Harbor Hill and Ronkonkoma moraines, the outwash plain, kettles and meltwater channels. Switch to the Landforms view, drop sea level to the last glacial maximum, and draw elevation profiles.',
+        footerTags:  ['Moraines', 'Kettles', 'Outwash Plain'],
+        to:          '/earthandspace/long-island-glacial-terrain',
+        thumb:       '/long_island_glacial_terrain_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
@@ -699,7 +708,7 @@ export default function EarthAndSpace() {
             Top-right of the hero, level with the title. */}
         <HeroMeta toolCount={TOTAL_TOOLS} />
 
-        <p className="page-eyebrow">Interactive Learning Tools</p>
+        <p className="page-eyebrow">Astronomy · Meteorology · Geology</p>
         <h1 className="page-title">Earth &amp; Space Science</h1>
         <p style={{
           margin:        '0 0 14px',
@@ -712,28 +721,28 @@ export default function EarthAndSpace() {
           Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science teacher <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
         </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
-          This page is a resource for students and teachers of the NY State Earth &amp; Space Science curriculum. Each card contains an interactive tool for exploring concepts and ideas related to the course material. Updates to the page will be relatively frequent as tools continue to be built and modified. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
+          Interactive tools for students and teachers of NY State Earth &amp; Space Science, including explorable versions of the 2026 Reference Tables. Have an idea for a tool, or spot something that looks wrong? I'd genuinely like to hear about it. Send an{' '}
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
           >
             email
           </a>{' '}
-          or message me on{' '}
+          or message me{' '}
           <a
             href="https://x.com/Joshtimlin"
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
           >
-            X
+            @Joshtimlin on X
           </a>.
         </p>
         <p className="page-intro">
-          The ContextClimate page contains charts and graphs using real data, some of which are also useful in the classroom.
+          Live and historical weather and climate data tools, many of them classroom-ready, are on the main page.
         </p>
         <Link to="/" className="jump-link">
-          Jump to ContextClimate <span className="jump-link-arrow">→</span>
+          Jump to Weather &amp; Climate <span className="jump-link-arrow">→</span>
         </Link>
       </section>
 
