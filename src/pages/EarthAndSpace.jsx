@@ -500,8 +500,8 @@ const SECTIONS = [
       {
         tags: ['Clouds', 'Atmosphere'],
         title: 'Cloud Formation Lab',
-        description: 'Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
-        footerTags: ['Cloud Formation', 'Thermodynamics'],
+        description: 'Explore models and instruments used to understand and measure dewpoint on relative humdity %. Adjust surface temperature and dew point to simulate parcel lifting and cloud formation processes.',
+        footerTags: ['Dewpoint', 'Relative Humidity'],
         to: '/earthandspace/cloud-formation-lab',
         accentVar: '--accent',
         thumb: 'cloud_formation_lab_thumbnail.png',
