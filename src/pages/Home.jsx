@@ -553,7 +553,7 @@ export default function Home() {
             Top-right of the hero, level with the title. */}
         <HeroMeta toolCount={TOTAL_TOOLS} />
 
-        <p className="page-eyebrow">Interactive Data Tools</p>
+        <p className="page-eyebrow">Weather · Climate · Sun · Water</p>
         <h1 className="page-title">Weather &amp; Climate</h1>
         <p style={{
           margin:        '0 0 14px',
@@ -566,7 +566,7 @@ export default function Home() {
           Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
         </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
-          This page is a resource for observing and understanding current and past weather and climate. Each card contains an interactive tool that allows you to dig into a specific phenomenon, track trends and relationships in the data, or get broader context on something happening right now. Updates to the page will be relatively frequent as tools continue to be built and modified. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
+          Interactive tools for digging into a specific phenomenon, tracking trends in the data, or getting context on what's happening right now. Have an idea for a tool, or spot something that looks wrong? I'd genuinely like to hear about it. Send an{' '}
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
@@ -580,11 +580,11 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            X
+            @Joshtimlin on X
           </a>.
         </p>
         <p className="page-intro">
-          The Earth &amp; Space page contains interactive learning tools aligned with NY State curriculum for classroom use or casual curiosity.
+          Curriculum-aligned tools for NY State Earth &amp; Space Science, for classrooms or casual curiosity, have their own page.
         </p>
         <Link to="/earthandspace" className="jump-link">
           Jump to Earth &amp; Space <span className="jump-link-arrow">→</span>
