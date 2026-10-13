@@ -573,7 +573,7 @@ export default function Home() {
           >
             email
           </a>{' '}
-          or message me on{' '}
+          or message me{' '}
           <a
             href="https://x.com/Joshtimlin"
             className="page-intro-link"

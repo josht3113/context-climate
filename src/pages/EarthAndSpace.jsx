@@ -728,7 +728,7 @@ export default function EarthAndSpace() {
           >
             email
           </a>{' '}
-          or message me on{' '}
+          or message me{' '}
           <a
             href="https://x.com/Joshtimlin"
             className="page-intro-link"
