@@ -661,15 +661,6 @@ const SECTIONS = [
         thumb:       '/SeafloorSpreading_thumbnail.png',
         status:      'live',
       },
-      {
-        tags:        ['Glacial Landforms', 'Interactive'],
-        title:       'Long Island Glacial Terrain',
-        description: 'Zoom from the continental shelf down to 1 m lidar to trace the Harbor Hill and Ronkonkoma moraines, the outwash plain, kettles and meltwater channels. Switch to the Landforms view, drop sea level to the last glacial maximum, and draw elevation profiles.',
-        footerTags:  ['Moraines', 'Kettles', 'Outwash Plain'],
-        to:          '/earthandspace/long-island-glacial-terrain',
-        thumb:       '/long_island_glacial_terrain_thumbnail.png',
-        status:      'live',
-      },
     ],
   },
 
@@ -708,7 +699,7 @@ export default function EarthAndSpace() {
             Top-right of the hero, level with the title. */}
         <HeroMeta toolCount={TOTAL_TOOLS} />
 
-        <p className="page-eyebrow">Astronomy · Meteorology · Geology</p>
+        <p className="page-eyebrow">Interactive Learning Tools</p>
         <h1 className="page-title">Earth &amp; Space Science</h1>
         <p style={{
           margin:        '0 0 14px',
@@ -721,28 +712,28 @@ export default function EarthAndSpace() {
           Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Earth &amp; Space Science teacher <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
         </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
-          Interactive tools for students and teachers of NY State Earth &amp; Space Science, including explorable versions of the 2026 Reference Tables. Have an idea for a tool, or spot something that looks wrong? I'd genuinely like to hear about it. Send an{' '}
+          This page is a resource for students and teachers of the NY State Earth &amp; Space Science curriculum. Each card contains an interactive tool for exploring concepts and ideas related to the course material. Updates to the page will be relatively frequent as tools continue to be built and modified. Have an idea for a tool, or found something that doesn't look right? I'd genuinely like to hear about it &ndash; send an{' '}
           <a
             href="mailto:josht3113@yahoo.com"
             className="page-intro-link"
           >
             email
           </a>{' '}
-          or message me{' '}
+          or message me on{' '}
           <a
             href="https://x.com/Joshtimlin"
             className="page-intro-link"
             target="_blank"
             rel="noopener noreferrer"
           >
-            @Joshtimlin on X
+            X
           </a>.
         </p>
         <p className="page-intro">
-          Live and historical weather and climate data tools, many of them classroom-ready, are on the main page.
+          The ContextClimate page contains charts and graphs using real data, some of which are also useful in the classroom.
         </p>
         <Link to="/" className="jump-link">
-          Jump to Weather &amp; Climate <span className="jump-link-arrow">→</span>
+          Jump to ContextClimate <span className="jump-link-arrow">→</span>
         </Link>
       </section>
 
