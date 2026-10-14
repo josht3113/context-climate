@@ -353,27 +353,41 @@ const EXPORT_SCALE=3;
 function waitTiles(ms){return new Promise(res=>{const t0=performance.now();const tick=()=>{if((inflight===0&&queue.length===0)||performance.now()-t0>ms)res();else setTimeout(tick,120)};tick()})}
 const PROV="Lidar: NYS 2024 QL2 bare-earth DEM (NYS ITS). Sea floor & land outside Nassau/Suffolk: AWS Terrain Tiles (NOAA, USGS, ETOPO1). contextclimate.io";
 function seaTxt(){return sea!==0?` · sea level ${sea>0?"+":"−"}${Math.abs(sea)} m`:""}
+function wrapText(c,t,maxW){const out=[];let cur="";for(const wd of t.split(" ")){const n=cur?cur+" "+wd:wd;if(cur&&c.measureText(n).width>maxW){out.push(cur);cur=wd}else cur=n}if(cur)out.push(cur);return out}
 function drawFooter(c,w,h,title,scaleBar){
-  const g=c.createLinearGradient(0,h-70,0,h);g.addColorStop(0,"rgba(20,24,22,0)");g.addColorStop(1,"rgba(20,24,22,.85)");c.fillStyle=g;c.fillRect(0,h-70,w,70);
-  c.textBaseline="alphabetic";c.textAlign="left";c.fillStyle="#E8E4D9";c.font="600 20px 'Zilla Slab',Georgia,serif";c.fillText(title,16,h-34);
-  c.font="12px 'Public Sans',sans-serif";c.fillStyle="#A6A499";c.fillText(PROV,16,h-14);
+  let d=0,bw=0;if(scaleBar){const steps=[50,100,200,500,1000,2000,5000,10000,20000,50000,100000];d=steps[0];for(const v of steps)if(v<=w*0.14*view.s)d=v;bw=d/view.s}
+  const TF="600 20px 'Zilla Slab',Georgia,serif",PF="12px 'Public Sans',sans-serif";
+  const side=scaleBar&&(w-32-(bw+24))>=w*0.6,tw=side?w-32-(bw+24):w-32;
+  c.font=TF;const tl=wrapText(c,title,tw);c.font=PF;const pl=wrapText(c,PROV,tw);
+  const block=tl.length*24+pl.length*16+4+(scaleBar&&!side?30:0),gh=block+38;
+  const g=c.createLinearGradient(0,h-gh,0,h);g.addColorStop(0,"rgba(20,24,22,0)");g.addColorStop(Math.min(.6,40/gh),"rgba(20,24,22,.55)");g.addColorStop(1,"rgba(20,24,22,.88)");c.fillStyle=g;c.fillRect(0,h-gh,w,gh);
+  c.textBaseline="alphabetic";c.textAlign="left";
+  let y=h-14-(pl.length-1)*16;c.font=PF;c.fillStyle="#A6A499";pl.forEach((t,k)=>c.fillText(t,16,y+k*16));
+  y-=20+(tl.length-1)*24;c.font=TF;c.fillStyle="#E8E4D9";tl.forEach((t,k)=>c.fillText(t,16,y+k*24));
   if(!scaleBar)return;
-  const steps=[50,100,200,500,1000,2000,5000,10000,20000,50000,100000];let d=steps[0];for(const v of steps)if(v<=w*0.14*view.s)d=v;
-  const bw=d/view.s,bx=w-16-bw,by=h-20;c.strokeStyle="#E8E4D9";c.lineWidth=2;c.beginPath();c.moveTo(bx,by-6);c.lineTo(bx,by);c.lineTo(bx+bw,by);c.lineTo(bx+bw,by-6);c.stroke();
+  const bx=w-16-bw,by=side?h-20:y-30;c.strokeStyle="#E8E4D9";c.lineWidth=2;c.beginPath();c.moveTo(bx,by-6);c.lineTo(bx,by);c.lineTo(bx+bw,by);c.lineTo(bx+bw,by-6);c.stroke();
   c.textAlign="right";c.font="13px 'Courier Prime',monospace";c.fillStyle="#E8E4D9";c.fillText(d>=1000?(d/1000)+" km":d+" m",w-16,by-10)}
 function drawProfilePanel(c,top,w,h){c.fillStyle="#1E2320";c.fillRect(0,top,w,h);c.fillStyle="#3a413b";c.fillRect(0,top,w,1);
   c.textBaseline="alphabetic";c.textAlign="left";c.fillStyle="#E8E4D9";c.font="600 17px 'Zilla Slab',Georgia,serif";const t="Elevation profile A–B";c.fillText(t,16,top+28);
   const tw=c.measureText(t).width;const st=plotProfile(c,8,top+40,w-16,h-50,null);
   if(st){c.font="13px 'Courier Prime',monospace";c.fillStyle="#A6A499";c.textAlign="left";c.fillText(profText(st),16+tw+16,top+28)}}
+/* 2D export frame: the map area the viewer actually sees (right of the rail, below the bar), trimmed to the data extent */
+function exportCrop(){const bar=document.querySelector(".bar").getBoundingClientRect();
+  let x0=railW(),y0=Math.round(bar.bottom),x1=W,y1=W>760?H:Math.round(H*0.54);
+  x0=Math.max(x0,Math.ceil(sx(WX0)));x1=Math.min(x1,Math.floor(sx(WX1)));y0=Math.max(y0,Math.ceil(sy(WY1)));y1=Math.min(y1,Math.floor(sy(WY0)));
+  if(x1-x0<200||y1-y0<150)return{x:0,y:0,w:W,h:H};return{x:x0,y:y0,w:x1-x0,h:y1-y0}}
 async function downloadPNG(){const btn=document.getElementById("bPng");btn.disabled=true;btn.textContent="Rendering…";
   const S=EXPORT_SCALE,hasP=!!(prof&&prof.pts&&prof.L>=1),hv=prof?prof.hover:null;if(prof)prof.hover=null;
-  let mw,mh;if(is3D&&three){const b=three.box();mw=b.w;mh=b.h}else{mw=W;mh=H}
+  let mw,mh,crop=null;if(is3D&&three){const b=three.box();mw=b.w;mh=b.h}else{crop=exportCrop();mw=crop.w;mh=crop.h}
   const ph=hasP?Math.round(Math.min(360,Math.max(230,mh*0.34))):0;
   const off=document.createElement("canvas");off.width=Math.round(mw*S);off.height=Math.round((mh+ph)*S);
   const onCtx=ctx;let swapped=false;
   try{
     if(is3D&&three){const c=off.getContext("2d");c.fillStyle="#1a201c";c.fillRect(0,0,off.width,off.height);three.snapshot(c,mw,mh,S)}
-    else{ctx=off.getContext("2d");swapped=true;dpr=S;cancelAnimationFrame(raf);raf=0;render();await waitTiles(20000);render();ctx=onCtx;swapped=false;dpr=sdpr}
+    else{const sv={W,H,cx:view.cx,cy:view.cy},ncx=wx(crop.x+crop.w/2),ncy=wy(crop.y+crop.h/2);
+      ctx=off.getContext("2d");swapped=true;dpr=S;W=crop.w;H=crop.h;view.cx=ncx;view.cy=ncy;
+      try{cancelAnimationFrame(raf);raf=0;render();await waitTiles(20000);render()}finally{W=sv.W;H=sv.H;view.cx=sv.cx;view.cy=sv.cy}
+      ctx=onCtx;swapped=false;dpr=sdpr}
     const c=off.getContext("2d");c.setTransform(S,0,0,S,0,0);
     const name=mode==="r"?"Terrain":"Landforms";
     drawFooter(c,mw,mh,is3D?`Long Island Glacial Terrain · ${name} · 3D, vertical exaggeration ×${three.ve}${seaTxt()}`:`Long Island Glacial Terrain · ${name}${seaTxt()}`,!is3D);
