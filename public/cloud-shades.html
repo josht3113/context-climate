@@ -911,7 +911,7 @@ var R3D = (function () {
     scene: null, sigC: 0, g: 0.85, air: 1, sunDir: [0, 0, 1], am: [1, 1, 1], sunCos: Math.cos(0.267 * Math.PI / 180), sunDisk: true,
     cam: { pos: [0, 0, 2], yaw: 0, pitch: 0, hfov: 75 },
     res: [2, 2], scale: 1, cur: 0, rowsDone: 0, phaseIdx: 0, sweeps: 0, band: 8, pending: null, frame: 0, expo: 1, dirty: true,
-    maxSweeps: 4096, stats: 0, macN: [1, 1, 1], albGray: -1, interior: true, cloudOn: 1, noBlur: false
+    maxSweeps: 4096, tooSlow: false, traceProbed: false, stats: 0, macN: [1, 1, 1], albGray: -1, interior: true, cloudOn: 1, noBlur: false
   };
 
   var PHASES = [0, 4, 2, 6, 1, 5, 3, 7];
@@ -989,11 +989,50 @@ var R3D = (function () {
       T.mac = tex3D(S.macN[0], S.macN[1], S.macN[2], gl.RGBA8, gl.NEAREST, false);
     }
     S.scene = sc;
+    if (!sync && !probeGen(sc)) { S.tooSlow = true; S.gen = null; return; }
     // the density field is built a few layers per frame so no single GPU submission runs long
     S.gen = { z: 0, per: 1 };   // layers per submission; the page raises this while the GPU keeps up
     S.macDirty = true; reset();
     if (sync) while (S.gen) pumpGen();
   }
+  /* time a 32×32 patch of the cloud builder; false if a full layer would stall the GPU */
+  var genProbed = {};
+  function syncRead(tex, layer) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, tex, 0, layer);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4)); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+  function probeGen(sc) {
+    if (genProbed[sc.type] !== undefined) return genProbed[sc.type];
+    var t = tex3D(32, 32, 1, gl.R8, gl.NEAREST, false), u = P.gen.u, ms = 0;
+    for (var k = 0; k < 2; k++) {
+      syncRead(t, 0); var t0 = performance.now();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t, 0, 0);
+      gl.viewport(0, 0, 32, 32); gl.useProgram(P.gen.p);
+      gl.uniform1i(u.uType, sc.type); gl.uniform3i(u.uN, sc.N[0], sc.N[1], sc.N[2]);
+      gl.uniform3f(u.uO, sc.O[0], sc.O[1], sc.O[2]); gl.uniform3f(u.uL, sc.L[0], sc.L[1], sc.L[2]);
+      gl.uniform1f(u.uHb, sc.hb); gl.uniform1f(u.uH, sc.H); gl.uniform1f(u.uDmax, sc.dmax); gl.uniform1ui(u.uSeedI, sc.seed >>> 0);
+      gl.uniform1i(u.uLayer, Math.floor(sc.N[2] / 2)); gl.drawArrays(gl.TRIANGLES, 0, 3);
+      syncRead(t, 0); ms = performance.now() - t0;          // second pass excludes shader compilation
+    }
+    gl.deleteTexture(t);
+    S.probeGenMs = ms;
+    return (genProbed[sc.type] = ms * (sc.N[0] * sc.N[1]) / 1024 < 600);
+  }
+  /* time a tiny render; false if one row of the real image would take over a second */
+  function probeTrace() {
+    var keep = S.res.slice(), sweeps = S.maxSweeps;
+    allocAcc(32, 16); clearAcc(); S.dirty = false; S.maxSweeps = 1e9;
+    step(2); syncRead2();
+    var t0 = performance.now();
+    for (var k = 0; k < 7; k++) step(2);
+    syncRead2();
+    var perPx = (performance.now() - t0) / (32 * 14);
+    S.maxSweeps = sweeps; allocAcc(keep[0], keep[1]); S.dirty = true;
+    S.probeTraceMsPerPx = perPx;
+    return perPx * keep[0] < 1000;
+  }
+  function syncRead2() { gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, T.acc[S.cur], 0);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, new Float32Array(4)); gl.bindFramebuffer(gl.FRAMEBUFFER, null); }
   function pumpGen() {
     var sc = S.scene, g = S.gen, z1 = Math.min(sc.N[2], g.z + g.per);
     gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.viewport(0, 0, sc.N[0], sc.N[1]); gl.useProgram(P.gen.p); gl.disable(gl.BLEND);
@@ -1013,6 +1052,7 @@ var R3D = (function () {
         gl.uniform1i(u2.uDen, 0); gl.uniform3i(u2.uN, sc.N[0], sc.N[1], sc.N[2]); gl.uniform1i(u2.uPeriodic, sc.periodic ? 1 : 0);
       });
       S.gen = null; S.macDirty = true; reset();
+      if (!S.traceProbed) { S.traceProbed = true; if (S.macDirty) updateInterior(); if (!probeTrace()) S.tooSlow = true; }
     }
   }
   function updateInterior() {
@@ -1068,7 +1108,7 @@ var R3D = (function () {
 
   /* render one band of rows; returns 1 if rendering work was submitted, 2 if scene-building work, 0 if idle */
   function step(rows) {
-    if (!ok || !S.scene) return 0;
+    if (!ok || !S.scene || S.tooSlow) return 0;
     if (S.gen) { pumpGen(); return 2; }
     if (S.macDirty) updateInterior();
     if (S.dirty) { clearAcc(); S.dirty = false; }
@@ -2043,7 +2083,9 @@ var MC = (function () {
       R3.pend = null;
     }
     if (R3.regenAt || !R3.visible || document.hidden) return;
+    if (R3D.state.tooSlow) { r3TooSlow(); return; }
     var k = R3D.step(R3.band);
+    if (R3D.state.tooSlow) { r3TooSlow(); return; }
     if (k) { R3.pend = R3D.fence(); R3.waited = 0; R3.kind = k; R3.t0 = performance.now(); if (k === 1) R3D.display(); }
     var sw = R3D.state.sweeps;
     if (sw !== R3.lastSweeps) { R3.lastSweeps = sw; $('r3dSpp').textContent = sw + (sw === 1 ? ' sample' : ' samples') + ' / pixel'; }
