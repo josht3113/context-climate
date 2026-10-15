@@ -749,7 +749,7 @@ export default function EarthAndSpace() {
           </a>.
         </p>
         <p className="page-intro">
-          Live and historical weather and climate data tools, many of them classroom-ready, are on the main page.
+          Live and historical weather, climate and solar data tools, many of them classroom-ready, are on the main page.
         </p>
         <Link to="/" className="jump-link">
           Jump to Weather &amp; Climate <span className="jump-link-arrow">→</span>
