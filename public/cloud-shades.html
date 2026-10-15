@@ -125,7 +125,7 @@
   }
   .cs-hero-tl { top: 12px; left: 12px; }
   .cs-hero-br { bottom: 12px; right: 12px; font-weight: 400; }
-  .cs-hero-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 15px; color: var(--color-text-secondary); }
+  .cs-hero-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; background: #121513; font-family: var(--font-mono); font-size: 15px; line-height: 1.6; color: var(--color-text-secondary); }
   .cs-section-label { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-secondary); margin: 22px 0 10px; }
 
   @media (max-width: 1080px) {
@@ -611,7 +611,8 @@ var R3D = (function () {
     'float rnd(){ rs = rs*747796405u + 2891336453u; uint w = ((rs >> ((rs >> 28u) + 4u)) ^ rs)*277803737u; w = (w >> 22u) ^ w; return (float(w >> 8u) + 0.5)*(1.0/16777216.0); }',
     'uint hsh(uint v){ uint s = v*747796405u + 2891336453u; uint w = ((s >> ((s >> 28u) + 4u)) ^ s)*277803737u; return (w >> 22u) ^ w; }',
     'vec4 F0v, bRv, kAv, kOv, albv;',
-    'int nEv = 0; bool capped = false;',
+    'int nEv = 0; bool capped = false; int gBudget = 60000;',
+    'float adv(float se){ return se + EPS + se*4e-7; }',
     'void loadSpec(vec4 lam){',
     '  for (int i = 0; i < 4; i++){',
     '    float f = clamp((lam[i] - 395.0)/22.0, 0.0, 15.0); int i0 = min(int(f), 14); float t = f - float(i0);',
@@ -699,13 +700,14 @@ var R3D = (function () {
     '  vec2 br = boxRange(p, uSun); if (br.y <= br.x) return 1.0;',
     '  float T = 1.0, t = max(br.x, 0.0);',
     '  for (int it = 0; it < 4096; it++){',
+    '    if (--gBudget <= 0){ capped = true; return 0.0; }',
     '    if (t >= br.y) return T;',
     '    vec3 x = p + t*uSun, q = (x - uBoxO)/uCell; ivec3 c = ivec3(floor(q)); vec4 m = macAt(c);',
     '    float k = m.g > 0.5 ? (1.0 - uG) : 1.0, cm = uSigC*m.r*k;',
     '    float se = min(br.y, t + cellExit(q, c, uSun));',
-    '    if (cm <= 0.0){ t = se + EPS; continue; }',
+    '    if (cm <= 0.0){ t = adv(se); continue; }',
     '    float dt = -log(rnd())/cm;',
-    '    if (t + dt >= se){ t = se + EPS; continue; }',
+    '    if (t + dt >= se){ t = adv(se); continue; }',
     '    t += dt;',
     '    T *= max(0.0, 1.0 - uSigC*denTex(p + t*uSun)*k/cm);',
     '    if (T < 0.1){ if (rnd() < 0.5) return 0.0; T *= 2.0; }',
@@ -718,13 +720,14 @@ var R3D = (function () {
     '  if (uCloudOn == 0) return tEnd;',
     '  vec2 br = boxRange(o, d); float t = max(br.x, 0.0), e = min(br.y, tEnd);',
     '  for (int it = 0; it < 8192; it++){',
+    '    if (--gBudget <= 0){ capped = true; return tEnd; }',
     '    if (t >= e) return tEnd;',
     '    vec3 x = o + t*d, q = (x - uBoxO)/uCell; ivec3 c = ivec3(floor(q)); vec4 m = macAt(c);',
     '    bool red = m.g > 0.5; float k = red ? (1.0 - uG) : 1.0, cm = uSigC*m.r*k;',
     '    float se = min(e, t + cellExit(q, c, d));',
-    '    if (cm <= 0.0){ t = se + EPS; continue; }',
+    '    if (cm <= 0.0){ t = adv(se); continue; }',
     '    float dt = -log(rnd())/cm;',
-    '    if (t + dt >= se){ t = se + EPS; continue; }',
+    '    if (t + dt >= se){ t = adv(se); continue; }',
     '    t += dt;',
     '    if (rnd()*cm < uSigC*denTex(o + t*d)*k){ hit = true; gRed = red; return t; }',
     '  }',
@@ -737,6 +740,7 @@ var R3D = (function () {
     '  bool inBox = br.y > br.x;',
     '  float t = 0.0;',
     '  for (int it = 0; it < 8192; it++){',
+    '    if (--gBudget <= 0){ capped = true; return 3; }',
     '    float se, cm = 0.0; bool red = false;',
     '    if (inBox && t >= br.x && t < br.y){',
     '      vec3 x = p + t*d, q = (x - uBoxO)/uCell; ivec3 c = ivec3(floor(q)); vec4 m = macAt(c);',
@@ -748,7 +752,7 @@ var R3D = (function () {
     '    float maj = cm + max(max(am.x, am.y), max(am.z, am.w));',
     '    float dt = maj > 0.0 ? -log(rnd())/maj : 1e30;',
     '    if (t + dt >= se){',
-    '      t = se + EPS;',
+    '      t = adv(se);',
     '      if (se >= tEnd){ p += tEnd*d; if (d.z < 0.0){ p.z = 0.0; return 1; } return 0; }',
     '      continue;',
     '    }',
@@ -770,6 +774,7 @@ var R3D = (function () {
     'vec4 continuePath(vec3 p, vec3 d, vec4 w, int vt){',
     '  vec4 L = vec4(0.0);',
     '  for (int ev = 0; ev < MAXEV; ev++){',
+    '    if (gBudget <= 0) break;',
     '    nEv++;',
     '    if (vt == 1){',
     '      if (uSun.z > 0.0){ float Tc = shadowCloud(p); if (Tc > 0.0) L += w*albv/PI*uSun.z*F0v*sunT(0.0)*Tc; }',
@@ -892,7 +897,7 @@ var R3D = (function () {
   ].join('\n');
 
   /* ================= JS side ================= */
-  var gl = null, canvas = null, P = {}, ok = false, why = '';
+  var gl = null, canvas = null, P = {}, ok = false, why = '', onLost = null;
   var T = { den: null, mac1: null, mac: null, spec: null, wb: null, acc: [null, null], fb: null };
   var S = {
     scene: null, sigC: 0, g: 0.85, air: 1, sunDir: [0, 0, 1], am: [1, 1, 1], sunCos: Math.cos(0.267 * Math.PI / 180), sunDisk: true,
@@ -923,6 +928,7 @@ var R3D = (function () {
       if (!gl.getExtension('EXT_color_buffer_float')) { why = 'float'; return false; }
       P.gen = program(GEN_FS); P.mac1 = program(MAC1_FS); P.mac2 = program(MAC2_FS); P.pt = program(PT_FS); P.disp = program(DISP_FS);
     } catch (e) { why = 'shader'; console.error('Cloud Shades 3D:', e && e.message ? e.message : e); return false; }
+    cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); ok = false; if (onLost) onLost(); });
     gl.bindVertexArray(gl.createVertexArray());
     T.fb = gl.createFramebuffer();
     // spectral tables
@@ -964,7 +970,7 @@ var R3D = (function () {
   }
 
   /* scene: {type, periodic, O:[x,y,z], L:[x,y,z], N:[nx,ny,nz], hb, H, dmax, seed} */
-  function setScene(sc) {
+  function setScene(sc, sync) {
     if (!ok) return;
     var same = S.scene && S.scene.N.join() === sc.N.join() && S.scene.periodic === sc.periodic;
     if (!same) {
@@ -975,16 +981,31 @@ var R3D = (function () {
       T.mac = tex3D(S.macN[0], S.macN[1], S.macN[2], gl.RGBA8, gl.NEAREST, false);
     }
     S.scene = sc;
-    drawLayers(T.den, sc.N[0], sc.N[1], sc.N[2], P.gen, function (u) {
-      gl.uniform1i(u.uType, sc.type); gl.uniform3i(u.uN, sc.N[0], sc.N[1], sc.N[2]);
-      gl.uniform3f(u.uO, sc.O[0], sc.O[1], sc.O[2]); gl.uniform3f(u.uL, sc.L[0], sc.L[1], sc.L[2]);
-      gl.uniform1f(u.uHb, sc.hb); gl.uniform1f(u.uH, sc.H); gl.uniform1f(u.uDmax, sc.dmax); gl.uniform1ui(u.uSeedI, sc.seed >>> 0);
-    });
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, T.den);
-    drawLayers(T.mac1, S.macN[0], S.macN[1], S.macN[2], P.mac1, function (u) {
-      gl.uniform1i(u.uDen, 0); gl.uniform3i(u.uN, sc.N[0], sc.N[1], sc.N[2]); gl.uniform1i(u.uPeriodic, sc.periodic ? 1 : 0);
-    });
+    // the density field is built a few layers per frame so no single GPU submission runs long
+    S.gen = { z: 0, per: Math.max(1, Math.round(1.5e6 / (sc.N[0] * sc.N[1]))) };
     S.macDirty = true; reset();
+    if (sync) while (S.gen) pumpGen();
+  }
+  function pumpGen() {
+    var sc = S.scene, g = S.gen, z1 = Math.min(sc.N[2], g.z + g.per);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb); gl.viewport(0, 0, sc.N[0], sc.N[1]); gl.useProgram(P.gen.p); gl.disable(gl.BLEND);
+    var u = P.gen.u;
+    gl.uniform1i(u.uType, sc.type); gl.uniform3i(u.uN, sc.N[0], sc.N[1], sc.N[2]);
+    gl.uniform3f(u.uO, sc.O[0], sc.O[1], sc.O[2]); gl.uniform3f(u.uL, sc.L[0], sc.L[1], sc.L[2]);
+    gl.uniform1f(u.uHb, sc.hb); gl.uniform1f(u.uH, sc.H); gl.uniform1f(u.uDmax, sc.dmax); gl.uniform1ui(u.uSeedI, sc.seed >>> 0);
+    for (var z = g.z; z < z1; z++) {
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, T.den, 0, z);
+      gl.uniform1i(u.uLayer, z); gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    g.z = z1;
+    if (g.z >= sc.N[2]) {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_3D, T.den);
+      drawLayers(T.mac1, S.macN[0], S.macN[1], S.macN[2], P.mac1, function (u2) {
+        gl.uniform1i(u2.uDen, 0); gl.uniform3i(u2.uN, sc.N[0], sc.N[1], sc.N[2]); gl.uniform1i(u2.uPeriodic, sc.periodic ? 1 : 0);
+      });
+      S.gen = null; S.macDirty = true; reset();
+    }
   }
   function updateInterior() {
     var sc = S.scene; if (!sc) return;
@@ -1037,12 +1058,13 @@ var R3D = (function () {
     return { f: f, r: r, u: u, t: [tx, ty] };
   }
 
-  /* render one band of rows; returns true if work was submitted */
+  /* render one band of rows; returns 1 if rendering work was submitted, 2 if scene-building work, 0 if idle */
   function step(rows) {
-    if (!ok || !S.scene) return false;
+    if (!ok || !S.scene) return 0;
+    if (S.gen) { pumpGen(); return 2; }
     if (S.macDirty) updateInterior();
     if (S.dirty) { clearAcc(); S.dirty = false; }
-    if (S.sweeps >= S.maxSweeps) return false;
+    if (S.sweeps >= S.maxSweeps) return 0;
     var W = S.res[0], H = S.res[1], ph = PHASES[S.phaseIdx], nJ = Math.ceil((H - ph) / 8);
     var y0 = S.rowsDone, y1 = Math.min(nJ, y0 + Math.max(1, Math.round(rows)));
     var src = T.acc[S.cur], dst = T.acc[1 - S.cur];
@@ -1070,7 +1092,7 @@ var R3D = (function () {
     S.cur = 1 - S.cur; S.frame++;
     S.rowsDone = y1;
     if (S.rowsDone >= nJ) { S.rowsDone = 0; S.phaseIdx++; if (S.phaseIdx >= 8) { S.phaseIdx = 0; S.sweeps++; } }
-    return true;
+    return 1;
   }
   function display() {
     if (!ok || !T.acc[0]) return;
@@ -1101,7 +1123,7 @@ var R3D = (function () {
 
   return { init: init, setScene: setScene, setSigma: setSigma, setSun: setSun, setCamera: setCamera, setOptions: setOptions,
     setResolution: setResolution, step: step, readMacLayer: readMacLayer, display: display, readMean: readMean, reset: reset, fence: fence, fenceDone: fenceDone,
-    state: S, ok: function () { return ok; }, why: function () { return why; }, finish: function () { gl.finish(); } };
+    state: S, ok: function () { return ok; }, onContextLost: function (f) { onLost = f; }, why: function () { return why; }, finish: function () { gl.finish(); } };
 })();
 
 </script>
@@ -1958,7 +1980,7 @@ var MC = (function () {
             ground: { pos: [-2500, -25000, 2], yaw: 4, pitch: 15, hfov: 82 },
             air: function (top) { return { pos: [-4500, -33000, Math.max(3500, 0.55 * top)], yaw: 8, pitch: 4, hfov: 76 }; } }
   };
-  var R3 = { on: false, key: 'sc', which: 'ground', cam: null, band: 4, pend: null, waited: 0, visible: true, regenAt: 0, sceneH: -1, drag: null, lowres: false, lastSweeps: -1 };
+  var R3 = { on: false, key: 'sc', which: 'ground', cam: null, band: 1, kind: 0, pend: null, waited: 0, visible: true, regenAt: 0, sceneH: -1, drag: null, lowres: false, lastSweeps: -1 };
   function sceneObj(key, H) {
     var c = SCN[key], z = c.z(H), per = c.periodic !== false;
     return { type: c.type, periodic: per, O: per ? [0, 0, c.hb + z[0]] : [-c.Lxy / 2, -c.Lxy / 2, c.hb + z[0]], L: [c.Lxy, c.Lxy, z[1] - z[0]], N: c.N, hb: c.hb, H: H, dmax: 2, seed: 7 };
@@ -1995,12 +2017,15 @@ var MC = (function () {
     if (R3.pend) {
       R3.waited++;
       if (!R3D.fenceDone(R3.pend)) { if (R3.waited > 6) R3.band = Math.max(1, R3.band * 0.6); return; }
-      if (R3.waited <= 1) R3.band = Math.min(Math.ceil(R3D.state.res[1] / 8), R3.band * 1.3 + 1);
-      else if (R3.waited >= 3) R3.band = Math.max(1, R3.band * 0.75);
+      if (R3.kind === 1) {
+        if (R3.waited <= 1) R3.band = Math.min(Math.ceil(R3D.state.res[1] / 8), R3.band * 1.25 + 1);
+        else if (R3.waited >= 3) R3.band = Math.max(1, R3.band * 0.7);
+      }
       R3.pend = null;
     }
     if (R3.regenAt || !R3.visible || document.hidden) return;
-    if (R3D.step(R3.band)) { R3.pend = R3D.fence(); R3.waited = 0; R3D.display(); }
+    var k = R3D.step(R3.band);
+    if (k) { R3.pend = R3D.fence(); R3.waited = 0; R3.kind = k; if (k === 1) R3D.display(); }
     var sw = R3D.state.sweeps;
     if (sw !== R3.lastSweeps) { R3.lastSweeps = sw; $('r3dSpp').textContent = sw + (sw === 1 ? ' sample' : ' samples') + ' / pixel'; }
   }
@@ -2009,9 +2034,13 @@ var MC = (function () {
     R3.on = R3D.init(cv);
     if (!R3.on) {
       var m = $('r3dMsg'); m.hidden = false; $('r3dSpp').hidden = true; $('r3dCam').hidden = true;
-      m.textContent = R3D.why() === 'webgl2' ? '3D view needs WebGL 2' : R3D.why() === 'float' ? '3D view needs floating-point render targets' : '3D view could not start on this device';
+      m.textContent = R3D.why() === 'webgl2' ? '3D view unavailable: the browser is blocking WebGL 2 for this page. Quit and reopen the browser, then reload.' : R3D.why() === 'float' ? '3D view needs floating-point render targets, which this device lacks' : '3D view could not start on this device';
       return;
     }
+    R3D.onContextLost(function () {
+      R3.on = false; var m = $('r3dMsg'); m.hidden = false; $('r3dSpp').hidden = true;
+      m.textContent = 'The graphics card reset while drawing the 3D view. Reload the page to restart it.';
+    });
     R3.key = S.preset || 'sc';
     r3Resize(); r3Scene(); r3Sun(); r3Sigma(); r3Cam();
     document.querySelectorAll('#camSeg button').forEach(function (b) {
