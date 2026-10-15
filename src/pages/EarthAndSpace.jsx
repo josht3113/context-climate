@@ -552,6 +552,15 @@ const SECTIONS = [
         thumb:       '/sky_color_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Scattering', 'Clouds', 'Interactive'],
+        title:       'Cloud Shades',
+        description: 'Follow sunlight photon by photon through a cloud layer and watch the same cloud turn bright white from above and dark gray from below as it thickens — with all-sky views from the ground and from an aircraft above.',
+        footerTags:  ['Optical Depth', 'Albedo', 'Cloud Brightness'],
+        to:          '/earthandspace/cloud-shades',
+        thumb:       '/cloud_shades_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
