@@ -679,6 +679,16 @@ const SECTIONS = [
 // drift out of sync with the actual section order/labels/colors above.
 const NAV_SECTIONS = SECTIONS.map(({ key, label, accent }) => ({ id: key, label, accent }))
 
+// Every route reachable from this hub, derived from the card data so the site
+// header can mark "Earth & Space" active on any of its tool pages (including
+// ones outside /earthandspace/*, like /ESSRT_2 or /igneous).
+export const EARTH_SPACE_PATHS = new Set(
+  SECTIONS.flatMap((s) => [
+    ...(s.cards || []),
+    ...(s.subgroups || []).flatMap((g) => g.cards || []),
+  ]).map((c) => c.to).filter(Boolean)
+)
+
 // Denominator for the filter's "n of m" readout — derived, so it can't drift
 // as tools are added.
 const TOTAL_TOOLS = countCards(SECTIONS)
