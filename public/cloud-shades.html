@@ -391,12 +391,13 @@ var R3D = (function () {
     'int wrapi(int a, int n){ return n > 0 ? (a + n*4096) % n : a; }',
     'ivec3 wrap3(ivec3 c, ivec3 per){ return ivec3(wrapi(c.x,per.x), wrapi(c.y,per.y), wrapi(c.z,per.z)); }',
     'vec3 h33(ivec3 c){ return vec3(pcg3(uvec3(c + 8192) + uSeedI)) * (1.0/4294967296.0); }',
+    'float gc(ivec3 i, ivec3 c, ivec3 per, vec3 f){ vec3 g = h33(wrap3(i + c, per))*2.0 - 1.0; return dot(g, f - vec3(c)); }',
     // periodic gradient noise, ~[-1,1]
     'float gn3(vec3 x, ivec3 per){',
     '  ivec3 i = ivec3(floor(x)); vec3 f = fract(x); vec3 u = f*f*f*(f*(f*6.0-15.0)+10.0);',
-    '  float n[8];',
-    '  for (int k = 0; k < 8; k++){ ivec3 c = ivec3(k & 1, (k >> 1) & 1, (k >> 2) & 1); vec3 g = h33(wrap3(i + c, per))*2.0 - 1.0; n[k] = dot(g, f - vec3(c)); }',
-    '  return 1.6*mix(mix(mix(n[0],n[1],u.x), mix(n[2],n[3],u.x), u.y), mix(mix(n[4],n[5],u.x), mix(n[6],n[7],u.x), u.y), u.z);',
+    '  float n0 = gc(i, ivec3(0,0,0), per, f), n1 = gc(i, ivec3(1,0,0), per, f), n2 = gc(i, ivec3(0,1,0), per, f), n3 = gc(i, ivec3(1,1,0), per, f);',
+    '  float n4 = gc(i, ivec3(0,0,1), per, f), n5 = gc(i, ivec3(1,0,1), per, f), n6 = gc(i, ivec3(0,1,1), per, f), n7 = gc(i, ivec3(1,1,1), per, f);',
+    '  return 1.6*mix(mix(mix(n0,n1,u.x), mix(n2,n3,u.x), u.y), mix(mix(n4,n5,u.x), mix(n6,n7,u.x), u.y), u.z);',
     '}',
     'float gn2(vec2 x, ivec2 per){ return gn3(vec3(x, 0.37), ivec3(per, 0)); }',
     'float fbm2(vec2 x, ivec2 per, int oct){ float s = 0.0, a = 0.5, n = 0.0; for (int k = 0; k < 6; k++){ if (k >= oct) break; s += a*gn2(x, per); n += a; x *= 2.0; per *= 2; a *= 0.5; } return s/n; }',
@@ -613,13 +614,16 @@ var R3D = (function () {
     'vec4 F0v, bRv, kAv, kOv, albv;',
     'int nEv = 0; bool capped = false; int gBudget = 60000;',
     'float adv(float se){ return se + EPS + se*4e-7; }',
+    'vec4 specAt(float l, out float alb){',
+    '  float f = clamp((l - 395.0)/22.0, 0.0, 15.0); int i0 = min(int(f), 14); float t = f - float(i0);',
+    '  alb = mix(texelFetch(uSpec, ivec2(i0, 1), 0).x, texelFetch(uSpec, ivec2(i0 + 1, 1), 0).x, t);',
+    '  return mix(texelFetch(uSpec, ivec2(i0, 0), 0), texelFetch(uSpec, ivec2(i0 + 1, 0), 0), t);',
+    '}',
     'void loadSpec(vec4 lam){',
-    '  for (int i = 0; i < 4; i++){',
-    '    float f = clamp((lam[i] - 395.0)/22.0, 0.0, 15.0); int i0 = min(int(f), 14); float t = f - float(i0);',
-    '    vec4 s = mix(texelFetch(uSpec, ivec2(i0, 0), 0), texelFetch(uSpec, ivec2(i0 + 1, 0), 0), t);',
-    '    F0v[i] = s.x; bRv[i] = s.y; kAv[i] = s.z; kOv[i] = s.w;',
-    '    albv[i] = mix(texelFetch(uSpec, ivec2(i0, 1), 0).x, texelFetch(uSpec, ivec2(i0 + 1, 1), 0).x, t);',
-    '  }',
+    '  float a0, a1, a2, a3;',
+    '  vec4 s0 = specAt(lam.x, a0), s1 = specAt(lam.y, a1), s2 = specAt(lam.z, a2), s3 = specAt(lam.w, a3);',
+    '  F0v = vec4(s0.x, s1.x, s2.x, s3.x); bRv = vec4(s0.y, s1.y, s2.y, s3.y); kAv = vec4(s0.z, s1.z, s2.z, s3.z); kOv = vec4(s0.w, s1.w, s2.w, s3.w);',
+    '  albv = vec4(a0, a1, a2, a3);',
     '  if (uAlbGray >= 0.0) albv = vec4(uAlbGray);',
     '}',
     'vec3 wbAt(float l){ float f = clamp((l - 380.0)/5.0, 0.0, 68.0); int i0 = min(int(f), 67); return mix(texelFetch(uWB, ivec2(i0, 0), 0).rgb, texelFetch(uWB, ivec2(i0 + 1, 0), 0).rgb, f - float(i0)); }',
@@ -657,10 +661,10 @@ var R3D = (function () {
     '  if (abs(d.z) < 1e-9){ if (o.z < lo.z || o.z > hi.z) return vec2(1.0, 0.0); }',
     '  else { float a = (lo.z - o.z)/d.z, b = (hi.z - o.z)/d.z; t0 = max(t0, min(a, b)); t1 = min(t1, max(a, b)); }',
     '  if (uPeriodic == 0){',
-    '    for (int k = 0; k < 2; k++){',
-    '      if (abs(d[k]) < 1e-9){ if (o[k] < lo[k] || o[k] > hi[k]) return vec2(1.0, 0.0); }',
-    '      else { float a = (lo[k] - o[k])/d[k], b = (hi[k] - o[k])/d[k]; t0 = max(t0, min(a, b)); t1 = min(t1, max(a, b)); }',
-    '    }',
+    '    if (abs(d.x) < 1e-9){ if (o.x < lo.x || o.x > hi.x) return vec2(1.0, 0.0); }',
+    '    else { float a = (lo.x - o.x)/d.x, b = (hi.x - o.x)/d.x; t0 = max(t0, min(a, b)); t1 = min(t1, max(a, b)); }',
+    '    if (abs(d.y) < 1e-9){ if (o.y < lo.y || o.y > hi.y) return vec2(1.0, 0.0); }',
+    '    else { float a = (lo.y - o.y)/d.y, b = (hi.y - o.y)/d.y; t0 = max(t0, min(a, b)); t1 = min(t1, max(a, b)); }',
     '  }',
     '  return vec2(t0, t1);',
     '}',
@@ -678,9 +682,11 @@ var R3D = (function () {
     '  return texelFetch(uMac, c, 0);',
     '}',
     'float cellExit(vec3 q, ivec3 c, vec3 d){',
-    '  vec3 dd = d/uCell; float t = 1e30;',
-    '  for (int k = 0; k < 3; k++){ if (abs(dd[k]) > 1e-12){ float nb = float(c[k]) + (dd[k] > 0.0 ? 1.0 : 0.0); t = min(t, (nb - q[k])/dd[k]); } }',
-    '  return max(t, 1e-3);',
+    '  vec3 dd = d/uCell;',
+    '  vec3 sd = mix(vec3(-1e-12), vec3(1e-12), step(0.0, dd));',
+    '  dd = mix(dd, sd, step(abs(dd), vec3(1e-12)));',
+    '  vec3 tt = (vec3(c) + step(0.0, dd) - q)/dd;',
+    '  return max(min(tt.x, min(tt.y, tt.z)), 1e-3);',
     '}',
     'float rayEnd(vec3 o, vec3 d){',
     '  if (d.z < -1e-7) return o.z/(-d.z);',
@@ -829,8 +835,7 @@ var R3D = (function () {
     '  float tEnd = rayEnd(o, d);',
     '  bool hitC; float sc = trackCloud(o, d, tEnd, hitC); bool redC = gRed;',
     '  vec4 L = vec4(0.0);',
-    '  vec3 bp[2]; vec3 bd[2]; vec4 bw[2]; int bt[2]; bool bred[2]; bool bair[2];',
-    '  bt[0] = 0; bt[1] = 0;',
+    '  vec3 bp0 = o, bp1 = o; vec4 bw0 = vec4(0.0), bw1 = vec4(0.0); int bt0 = 0, bt1 = 0; bool bred1 = false;',
     // branch 0: forced first air scattering along the camera ray
     // air in front of the first cloud collision (sc, sampled above): conditional on sc this is unbiased
     '  if (uAir == 1 && sc > 0.0){',
@@ -843,19 +848,22 @@ var R3D = (function () {
     '    if (pdf > 0.0){',
     '      float h = o.z + s*d.z;',
     '      vec4 sR = bRv*exp(-h/HR), sAs = SSA*kAv*exp(-h/HA);',
-    '      bp[0] = o + s*d; bd[0] = d; bw[0] = (sR + sAs)*airT(o.z, h, s)/pdf; bt[0] = 2; bred[0] = false; bair[0] = true;',
+    '      bp0 = o + s*d; bw0 = (sR + sAs)*airT(o.z, h, s)/pdf; bt0 = 2;',
     '    }',
     '  }',
     // branch 1: the camera ray itself (cloud collision, ground, or escape)
     '  vec4 w1 = airT(o.z, o.z + sc*d.z, sc);',
-    '  if (hitC){ bp[1] = o + sc*d; bd[1] = d; bw[1] = w1; bt[1] = 2; bred[1] = redC; bair[1] = false; }',
-    '  else if (d.z < 0.0){ bp[1] = o + tEnd*d; bd[1] = d; bw[1] = w1; bt[1] = 1; bred[1] = false; bair[1] = false; }',
+    '  if (hitC){ bp1 = o + sc*d; bw1 = w1; bt1 = 2; bred1 = redC; }',
+    '  else if (d.z < 0.0){ bp1 = o + tEnd*d; bw1 = w1; bt1 = 1; }',
     '  else if (dot(d, uSun) > uSunCos) L += w1*F0v/uSunOmega;',
     '  for (int b = 0; b < 2; b++){',
-    '    if (bt[b] == 0) continue;',
-    '    if (bair[b]){ float h = bp[b].z; gSR = bRv*exp(-h/HR); gSA = SSA*kAv*exp(-h/HA); gSC = 0.0; gRed = false; }',
-    '    else { gSR = vec4(0.0); gSA = vec4(0.0); gSC = 1.0; gRed = bred[b]; }',
-    '    L += continuePath(bp[b], bd[b], bw[b], bt[b]);',
+    '    bool first = b == 0;',
+    '    int vt = first ? bt0 : bt1;',
+    '    if (vt == 0) continue;',
+    '    vec3 pp = first ? bp0 : bp1;',
+    '    if (first){ gSR = bRv*exp(-pp.z/HR); gSA = SSA*kAv*exp(-pp.z/HA); gSC = 0.0; gRed = false; }',
+    '    else { gSR = vec4(0.0); gSA = vec4(0.0); gSC = 1.0; gRed = bred1; }',
+    '    L += continuePath(pp, d, first ? bw0 : bw1, vt);',
     '  }',
     '  vec3 rgb = wbAt(lam.x)*L.x + wbAt(lam.y)*L.y + wbAt(lam.z)*L.z + wbAt(lam.w)*L.w;',
     '  if (!(rgb.r == rgb.r && rgb.g == rgb.g && rgb.b == rgb.b) || any(isinf(rgb))) rgb = vec3(0.0);',
@@ -982,7 +990,7 @@ var R3D = (function () {
     }
     S.scene = sc;
     // the density field is built a few layers per frame so no single GPU submission runs long
-    S.gen = { z: 0, per: Math.max(1, Math.round(1.5e6 / (sc.N[0] * sc.N[1]))) };
+    S.gen = { z: 0, per: 1 };   // layers per submission; the page raises this while the GPU keeps up
     S.macDirty = true; reset();
     if (sync) while (S.gen) pumpGen();
   }
@@ -2016,7 +2024,18 @@ var MC = (function () {
     if (R3.regenAt && performance.now() >= R3.regenAt) { R3.regenAt = 0; r3Scene(); }
     if (R3.pend) {
       R3.waited++;
-      if (!R3D.fenceDone(R3.pend)) { if (R3.waited > 6) R3.band = Math.max(1, R3.band * 0.6); return; }
+      var dt = performance.now() - R3.t0;
+      if (!R3D.fenceDone(R3.pend)) {
+        if (R3.waited > 6) R3.band = Math.max(1, R3.band * 0.6);
+        if (dt > 6000) r3TooSlow();
+        return;
+      }
+      if (R3.kind === 2 && R3D.state.gen) {
+        var g = R3D.state.gen;
+        if (dt < 80) g.per = Math.min(16, g.per * 2); else if (dt > 400) g.per = Math.max(1, Math.floor(g.per / 2));
+        if (g.per === 1 && dt > 2500) { r3TooSlow(); return; }
+      }
+      if (R3.kind === 1 && R3.band <= 1 && dt > 2500) { r3TooSlow(); return; }
       if (R3.kind === 1) {
         if (R3.waited <= 1) R3.band = Math.min(Math.ceil(R3D.state.res[1] / 8), R3.band * 1.25 + 1);
         else if (R3.waited >= 3) R3.band = Math.max(1, R3.band * 0.7);
@@ -2025,9 +2044,14 @@ var MC = (function () {
     }
     if (R3.regenAt || !R3.visible || document.hidden) return;
     var k = R3D.step(R3.band);
-    if (k) { R3.pend = R3D.fence(); R3.waited = 0; R3.kind = k; if (k === 1) R3D.display(); }
+    if (k) { R3.pend = R3D.fence(); R3.waited = 0; R3.kind = k; R3.t0 = performance.now(); if (k === 1) R3D.display(); }
     var sw = R3D.state.sweeps;
     if (sw !== R3.lastSweeps) { R3.lastSweeps = sw; $('r3dSpp').textContent = sw + (sw === 1 ? ' sample' : ' samples') + ' / pixel'; }
+  }
+  function r3TooSlow() {
+    R3.on = false; R3.pend = null;
+    var m = $('r3dMsg'); m.hidden = false; $('r3dSpp').hidden = true;
+    m.textContent = '3D view paused: this graphics card is too slow for the path tracer.';
   }
   function r3Init() {
     var cv = $('r3dCanvas');
