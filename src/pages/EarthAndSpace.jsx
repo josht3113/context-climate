@@ -555,7 +555,7 @@ const SECTIONS = [
       {
         tags:        ['Scattering', 'Clouds', 'Interactive'],
         title:       'Cloud Shades',
-        description: 'Path-traced skies from stratus to a towering thunderstorm: watch the same cloud turn bright white from above and dark gray from below as it thickens, from the ground or from an aircraft, and follow sunlight photon by photon through the layer.',
+        description: 'Realistic 3D skies from stratus to a towering thunderstorm: watch the same cloud turn bright white from above and dark gray from below as it thickens, from the ground or from an aircraft, and follow sunlight photon by photon through the layer.',
         footerTags:  ['Optical Depth', 'Albedo', 'Cloud Brightness'],
         to:          '/earthandspace/cloud-shades',
         thumb:       '/cloud_shades_thumbnail.png',
