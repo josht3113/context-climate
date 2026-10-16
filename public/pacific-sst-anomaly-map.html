@@ -1930,7 +1930,18 @@ function splitAnnexB(u8) {
   if (start >= 0) nals.push(u8.subarray(start));
   return nals.map(x => { let e = x.length; while (e > 1 && x[e - 1] === 0) e--; return x.subarray(0, e); });
 }
-const isAnnexB = u8 => u8.length > 3 && u8[0] === 0 && u8[1] === 0 && (u8[2] === 1 || (u8[2] === 0 && u8[3] === 1));
+// True when 4-byte big-endian NAL lengths tile the buffer exactly (AVCC). Checking
+// the first bytes for 00 00 01 is not enough: a 256–511-byte NAL's length prefix
+// is 00 00 01 xx.
+function isAvccFramed(u8) {
+  let o = 0;
+  while (o + 4 <= u8.length) {
+    const n = u8[o] * 16777216 + (u8[o + 1] << 16) + (u8[o + 2] << 8) + u8[o + 3];
+    if (n === 0 || o + 4 + n > u8.length) return false;
+    o += 4 + n;
+  }
+  return o === u8.length;
+}
 function avcCFrom(sps, pps) {
   const out = new Uint8Array(11 + sps.length + pps.length);
   out.set([1, sps[1], sps[2], sps[3], 0xFF, 0xE1, sps.length >> 8, sps.length & 255], 0);
@@ -2062,18 +2073,18 @@ async function encodeMp4(anim, cfg, fps, job, onProgress) {
   } finally {
     if (enc.state !== 'closed') enc.close();
   }
-  // Annex B output (no description) → avcC + length-prefixed samples
-  if (!desc || out.some(s => isAnnexB(s.data))) {
+  // With a description the chunks are AVCC by spec; without one they are Annex B
+  // → build avcC from SPS/PPS and length-prefix the samples.
+  if (!desc) {
     let sps = null, pps = null;
     for (const s of out) {
+      if (isAvccFramed(s.data)) continue;
       const nals = splitAnnexB(s.data);
       for (const x of nals) { const t = x[0] & 31; if (t === 7 && !sps) sps = x; if (t === 8 && !pps) pps = x; }
       s.data = nalsToAvcc(nals);
     }
-    if (!desc) {
-      if (!sps || !pps) throw new Error('encoder produced no SPS/PPS');
-      desc = avcCFrom(sps, pps);
-    }
+    if (!sps || !pps) throw new Error('encoder produced no SPS/PPS');
+    desc = avcCFrom(sps, pps);
   }
   const TS = 90000, frameDur = TS / VIDEO_FPS;
   const parts = muxMp4({
