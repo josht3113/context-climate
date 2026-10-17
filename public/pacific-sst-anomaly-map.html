@@ -368,7 +368,7 @@ const NINO = {
   n3:  { lat0: -5,  lat1: 5, lon0: 210, lon1: 270, label: 'NIÑO 3',   anchor: 'tr' },
   n12: { lat0: -10, lat1: 0, lon0: 270, lon1: 280, label: '1+2',      anchor: 'tc' },
 };
-const CONTOUR_LEVELS = [-4, -3, -2, -1, 1, 2, 3, 4];
+const CONTOUR_LEVELS = [-7, -6, -5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6, 7];
 const EXPORT_SCALE = 3;
 const EXPORT_W     = 1400;
 
@@ -376,13 +376,20 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 const MON3   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ── CONTENT COLORS (encode data — never remap to design tokens) ──────────────
-// Diverging OKLCH ramp, 0.25 °C steps. Neutral |a| < 0.25 at L 0.31 (dark,
-// sits just above the card surface); lightness rises with |anomaly|.
-// Bin k (1–16) covers [0.25k, 0.25k + 0.25); bin 16 is open-ended (≥ 4.0).
+// Diverging OKLCH ramp. Neutral |a| < 0.25 at L 0.31 (dark, sits just above
+// the card surface); lightness rises with |anomaly| up to bin 16.
+// Bins 1–15: 0.25 °C wide, bin k = [0.25k, 0.25k + 0.25).
+// Bins 16–21: 0.5 °C wide from 4.0 to 7.0; bin 22 is open-ended (≥ 7.0).
+// Extension (17–22): warm salmon → crimson, cold periwinkle → violet, OKLCH
+// L 0.85 → 0.50; every extension colour is ≥ 0.076 (OKLab) from any
+// non-adjacent colour in the scale.
 const PAL_WARM = ['#5d3f37','#784535','#8d4b32','#a1512c','#b35820','#c55f04','#cf6c05','#d97901',
-                  '#e18709','#ea9401','#f2a207','#f9af05','#ffbe16','#ffcd47','#ffdc69','#ffeb88'];
+                  '#e18709','#ea9401','#f2a207','#f9af05','#ffbe16','#ffcd47','#ffdc69','#ffeb88',
+                  '#ffbe92','#fd9884','#f7707a','#e44f74','#cb346a','#ad215f'];
 const PAL_COOL = ['#394860','#39567a','#38628f','#346fa3','#2a7bb5','#1588c6','#0795d1','#01a2da',
-                  '#01afe2','#0bbce9','#0ac8f1','#0fd5f8','#18e2fe','#51ecff','#7af5ff','#9ffcff'];
+                  '#01afe2','#0bbce9','#0ac8f1','#0fd5f8','#18e2fe','#51ecff','#7af5ff','#9ffcff',
+                  '#9ed6f8','#8cbafa','#849bf5','#837de3','#7d5fce','#7444b4'];
+const NBIN = PAL_WARM.length;                        // 22 bins per side
 const PAL_NEUTRAL = '#2e312e';
 const CLR_LAND    = '#161917';
 const CLR_COAST   = 'rgba(232,228,217,0.42)';
@@ -394,16 +401,19 @@ const hexRGB = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
 const RGB_WARM = PAL_WARM.map(hexRGB), RGB_COOL = PAL_COOL.map(hexRGB);
 const RGB_NEUTRAL = hexRGB(PAL_NEUTRAL), RGB_LAND = hexRGB(CLR_LAND);
 
-function binOf(v) {                     // 0 = neutral, ±1..±16
+function binOf(v) {                     // 0 = neutral, ±1..±NBIN
   const a = Math.abs(v);
   if (a < 0.25) return 0;
-  const k = Math.min(16, Math.floor((a - 0.25) / 0.25 + 1e-9) + 1);
+  const k = a < 4 ? Math.floor((a - 0.25) / 0.25 + 1e-9) + 1
+                  : Math.min(NBIN, 16 + Math.floor((a - 4) / 0.5 + 1e-9));
   return v > 0 ? k : -k;
 }
+// Lower edge of bin k ≥ 1, in units where the base bins are `step` wide.
+const binEdge = (k, step) => k <= 16 ? k * step : 16 * step + 2 * step * (k - 16);
 function rgbOfBin(b) { return b === 0 ? RGB_NEUTRAL : b > 0 ? RGB_WARM[b - 1] : RGB_COOL[-b - 1]; }
 
-// Lookup table: value in 0.005 °C steps over ±7 °C → packed RGB
-const LUT_STEP = 0.005, LUT_MAX = 7, LUT_N = Math.round(2 * LUT_MAX / LUT_STEP) + 1;
+// Lookup table: value in 0.005 °C steps over ±8 °C → packed RGB
+const LUT_STEP = 0.005, LUT_MAX = 8, LUT_N = Math.round(2 * LUT_MAX / LUT_STEP) + 1;
 const LUT = new Uint8Array(LUT_N * 3);
 for (let i = 0; i < LUT_N; i++) {
   const c = rgbOfBin(binOf(-LUT_MAX + i * LUT_STEP));
@@ -426,8 +436,21 @@ let reqToken = 0;
 let hoverPos = null;
 
 // ── DATA ─────────────────────────────────────────────────────────────────────
-const frameCache = new Map();                  // "kind/key" → Promise<Int8Array>
+const frameCache = new Map();                  // "kind/key" → Promise<Int16Array | Int8Array>
 const FRAME_CACHE_MAX = 90;
+
+// Frames are little-endian int16 (grid.dtype 'int16le'); data published before
+// Oct 2026 was int8 clipped at ±127, still read so either deploy order works.
+const isInt16 = () => G.dtype === 'int16le';
+function frameArray(u8, label) {
+  const n = G.nlat * G.nlon;
+  if (isInt16()) {
+    if (u8.length !== 2 * n) throw new Error(`${label}: ${u8.length} bytes`);
+    return new Int16Array(u8.byteOffset % 2 ? u8.slice().buffer : u8.buffer, u8.byteOffset % 2 ? 0 : u8.byteOffset, n);
+  }
+  if (u8.length !== n) throw new Error(`${label}: ${u8.length} bytes`);
+  return new Int8Array(u8.buffer, u8.byteOffset, n);
+}
 
 async function gunzipMaybe(buf) {
   const u8 = new Uint8Array(buf);
@@ -446,9 +469,7 @@ function getFrame(kind, key) {
   const p = (async () => {
     const r = await fetch(`${DATA_DIR}${kind}/${key}.bin.gz?v=${IDX.version}`);
     if (!r.ok) throw new Error(`${kind} ${key}: HTTP ${r.status}`);
-    const u8 = await gunzipMaybe(await r.arrayBuffer());
-    if (u8.length !== G.nlat * G.nlon) throw new Error(`${kind} ${key}: ${u8.length} bytes`);
-    return new Int8Array(u8.buffer, u8.byteOffset, u8.length);
+    return frameArray(await gunzipMaybe(await r.arrayBuffer()), `${kind} ${key}`);
   })();
   p.catch(() => frameCache.delete(k));
   frameCache.set(k, p);
@@ -474,10 +495,11 @@ function buildLists() {
   lists.mo = IDX.monthly.map(e => e.m);
 }
 
-// Stored values are clipped at ±127 counts. sat[i]: 1 = a contributing frame
-// hit +127 (value is a lower bound), 2 = hit −127 (upper bound), 3 = both.
+// Legacy int8 values are clipped at ±127 counts. sat[i]: 1 = a contributing
+// frame hit +127 (value is a lower bound), 2 = hit −127 (upper bound), 3 = both.
 const SAT_Q = 127;
 function markSat(q, sat) {
+  if (isInt16()) return;
   for (let i = 0; i < q.length; i++) {
     if (q[i] === SAT_Q) sat[i] |= 1; else if (q[i] === -SAT_Q) sat[i] |= 2;
   }
@@ -819,35 +841,45 @@ function drawWind(ctx, X, Y) {
 function legendCaption() {
   return state.base === 'rel' ? 'SST anomaly minus tropical mean (°C)' : 'SST anomaly vs 1991–2020 (°C)';
 }
-// step = °C per colour bin (16 bins each side, open-ended last bin)
+// step = width of the base bins (°C). Equal-width swatch per bin: bins double
+// in width past ±16·step, so a value-proportional bar would squeeze the base.
 function drawLegend(ctx, ox, oy, W, step = 0.25, caption = legendCaption(), tickStep = 1) {
-  const x0 = ox + 8, x1 = ox + W - 8, bw = x1 - x0, barY = oy + 26, bh = 12;
-  const span = 17 * step, X = v => x0 + (v + span) / (2 * span) * bw;
+  const x0 = ox + 8, x1 = ox + W - 8, barY = oy + 26, bh = 12;
+  const sw = (x1 - x0) / (2 * NBIN + 1);
+  const XL = k => x0 + (k + NBIN) * sw;                       // left edge of bin k's swatch
   ctx.save();
   ctx.fillStyle = 'rgba(232,228,217,0.75)';
   ctx.font = '13px "Public Sans", sans-serif';
   ctx.textAlign = 'left';
   ctx.fillText(caption, x0, oy + 14);
-  const seg = (a, b, rgb) => { ctx.fillStyle = `rgb(${rgb.join(',')})`; ctx.fillRect(X(a), barY, X(b) - X(a) + 0.6, bh); };
-  seg(-step, step, RGB_NEUTRAL);
-  for (let k = 1; k <= 15; k++) {
-    seg(step * k, step * (k + 1), RGB_WARM[k - 1]);
-    seg(-step * (k + 1), -step * k, RGB_COOL[k - 1]);
+  for (let k = -(NBIN - 1); k <= NBIN - 1; k++) {
+    ctx.fillStyle = `rgb(${rgbOfBin(k).join(',')})`;
+    ctx.fillRect(XL(k), barY, sw + 0.6, bh);
   }
-  const tri = (xa, xb, rgb) => {
+  const tri = (xa, xb, rgb) => {                              // open-ended end bins
     ctx.fillStyle = `rgb(${rgb.join(',')})`;
     ctx.beginPath(); ctx.moveTo(xa, barY); ctx.lineTo(xb, barY + bh / 2); ctx.lineTo(xa, barY + bh); ctx.closePath(); ctx.fill();
   };
-  tri(X(16 * step), X(span) + 4, RGB_WARM[15]);
-  tri(X(-16 * step), X(-span) - 4, RGB_COOL[15]);
+  tri(XL(NBIN), XL(NBIN) + sw, rgbOfBin(NBIN));
+  tri(XL(-NBIN) + sw, XL(-NBIN), rgbOfBin(-NBIN));
   ctx.strokeStyle = 'rgba(232,228,217,0.25)'; ctx.lineWidth = 1;
-  ctx.strokeRect(X(-16 * step) + 0.5, barY + 0.5, X(16 * step) - X(-16 * step) - 1, bh - 1);
+  ctx.strokeRect(XL(-(NBIN - 1)) + 0.5, barY + 0.5, XL(NBIN) - XL(-(NBIN - 1)) - 1, bh - 1);
+  // ticks at bin edges that land on multiples of tickStep; labels thinned outward from 0
   ctx.font = '13px "Courier Prime", monospace'; ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(232,228,217,0.7)'; ctx.strokeStyle = 'rgba(232,228,217,0.45)';
-  const lim = 16 * step;
-  for (let v = -lim; v <= lim + 1e-9; v += tickStep) {
-    ctx.beginPath(); ctx.moveTo(X(v), barY + bh); ctx.lineTo(X(v), barY + bh + 4); ctx.stroke();
-    ctx.fillText(Math.abs(v) < 1e-9 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v), X(v), barY + bh + 18);
+  const gap = ctx.measureText('+00').width + 8;
+  ctx.fillText('0', XL(0) + sw / 2, barY + bh + 18);
+  for (const sgn of [1, -1]) {
+    let last = XL(0) + sw / 2;
+    for (let k = 1; k <= NBIN; k++) {
+      const v = binEdge(k, step), r = v / tickStep;
+      if (Math.abs(r - Math.round(r)) > 1e-6) continue;
+      const x = sgn > 0 ? XL(k) : XL(-k) + sw;
+      ctx.beginPath(); ctx.moveTo(x, barY + bh); ctx.lineTo(x, barY + bh + 4); ctx.stroke();
+      if (Math.abs(x - last) < gap) continue;
+      ctx.fillText((sgn > 0 ? '+' : '−') + +v.toFixed(2), x, barY + bh + 18);
+      last = x;
+    }
   }
   ctx.restore();
   return 58;
@@ -856,16 +888,16 @@ function drawLegend(ctx, ox, oy, W, step = 0.25, caption = legendCaption(), tick
 // ── SUBSURFACE SECTION (GODAS) ───────────────────────────────────────────────
 const GODAS_DIR    = './godas/';
 const SEC_DEPTH    = 400;                         // m at the bottom of the panel
-const SEC_STEP     = 0.5;                         // °C per colour bin (map uses 0.25)
-const SEC_CONTOURS = [-6, -4, -2, 2, 4, 6];
+const SEC_STEP     = 0.5;                         // °C per base colour bin (map uses 0.25)
+const SEC_CONTOURS = [-12, -10, -8, -6, -4, -2, 2, 4, 6, 8, 10, 12];
 const ISO_T        = 20;                          // °C isotherm (thermocline proxy)
 let GIDX = null, GG = null;                       // godas index.json and its grid
 let sec = null;                                   // {temp, clim, anom, kind, key}
 let secContours = null, secToken = 0, secGeom = null;
 const secCache = new Map();
 
-// 0.5 °C bins → the map palette's 16 steps per side
-const SLUT_STEP = 0.01, SLUT_MAX = 14, SLUT_N = Math.round(2 * SLUT_MAX / SLUT_STEP) + 1;
+// Section bins are the map's bins at double width: 0.5 °C to ±8, then 1 °C to ±14, open beyond
+const SLUT_STEP = 0.01, SLUT_MAX = 16, SLUT_N = Math.round(2 * SLUT_MAX / SLUT_STEP) + 1;
 const SLUT = new Uint8Array(SLUT_N * 3);
 for (let i = 0; i < SLUT_N; i++) SLUT.set(rgbOfBin(binOf((-SLUT_MAX + i * SLUT_STEP) * 0.25 / SEC_STEP)), i * 3);
 
@@ -1537,10 +1569,8 @@ function animLayout(sub) {
 
 // ── frame data ──
 async function decodeAnimFrame(raw, key, base) {
-  const u8 = await gunzipMaybe(raw);
   const n = G.nlat * G.nlon;
-  if (u8.length !== n) throw new Error(`monthly ${key}: ${u8.length} bytes`);
-  const q = new Int8Array(u8.buffer, u8.byteOffset, u8.length), sc = G.scale, miss = G.missing;
+  const q = frameArray(await gunzipMaybe(raw), `monthly ${key}`), sc = G.scale, miss = G.missing;
   const tmean = monthlyByKey.get(key).t, off = base === 'rel' ? tmean : 0;
   const data = new Float32Array(n), d = new Float32Array(n);
   for (let i = 0; i < n; i++) {

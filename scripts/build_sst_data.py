@@ -13,11 +13,14 @@ into public/sst/ by deploy.yml):
   daily/YYYY-MM-DD.bin.gz       one frame per day, rolling window
   monthly/YYYY-MM.bin.gz        one frame per month, Sep 1981 onward
 
-Frame encoding: gzip of NLAT*NLON signed bytes, row 0 = northernmost row,
-value = round(anomaly / SCALE), clipped to +/-127; -128 = land / missing.
-Real anomalies beyond +/-6.35 degC (strong El Nino coasts, marine heatwaves)
-are stored clipped and reported as a run notice, not a failure; the map
-reads +/-127 as "at least" that value.
+Frame encoding: gzip of NLAT*NLON little-endian int16, row 0 = northernmost
+row, value = round(anomaly / SCALE); -32768 = land / missing.
+
+Legacy frames (before Oct 2026) were single signed bytes clipped at +/-127
+(+/-6.35 degC). Every run converts any legacy frame it finds to int16 without
+changing its values; frames that had hit the old cap are queued in
+index.json `refetch` and rebuilt from source -- daily frames on the next run,
+PSL monthly frames on the next --bootstrap run.
 
 Modes
   (default)     daily refresh: pull new days, upgrade preliminary days to
@@ -54,12 +57,11 @@ NLAT = int((LAT_N - LAT_S) / DEG)    # 240
 NLON = int((LON_E - LON_W) / DEG)    # 700
 TROP = 20.0                          # tropical mean band, 20S-20N
 SCALE = 0.05                         # degC per count
-MISSING = -128
-ENC_MAX = 127 * SCALE                # +/-6.35 degC; cells beyond are stored clipped
+MISSING = -32768
+Q_MAX = 32767
+FRAME_DTYPE = '<i2'
+LEGACY_MISSING, LEGACY_CAP = -128, 127   # int8 frames written before Oct 2026
 CORRUPT_ABS = 15.0                   # any anomaly this large = broken file
-CLIP_FRAC_MAX = 0.02                 # more clipped ocean cells than this = broken file
-DOM_LAT = LAT_N - DEG / 2 - np.arange(NLAT) * DEG      # north-first, as GridMap.domain
-DOM_LON = LON_W + DEG / 2 + np.arange(NLON) * DEG
 
 WINDOW_DAYS = 365                    # rolling daily window
 REFRESH_DAYS = 16                    # re-check this many recent days each run
@@ -95,14 +97,6 @@ def fail(msg):
 def notice(msg):
     """Informational: shows as a run annotation but does not fail the run."""
     print(f'::notice title=SST pipeline::{msg}', flush=True)
-
-
-def fmt_lat(v):
-    return f'{abs(v):.1f}{"N" if v >= 0 else "S"}'
-
-
-def fmt_lon(v):
-    return f'{v:.1f}E' if v <= 180 else f'{360 - v:.1f}W'
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -270,9 +264,9 @@ def year_month_index(ds):
 
 # ── Encoding ──────────────────────────────────────────────────────────────────
 def encode(dom):
-    q = np.full(dom.shape, MISSING, dtype=np.int8)
+    q = np.full(dom.shape, MISSING, dtype=np.int16)
     ok = np.isfinite(dom)
-    q[ok] = np.clip(np.rint(dom[ok] / SCALE), -127, 127).astype(np.int8)
+    q[ok] = np.clip(np.rint(dom[ok] / SCALE), -Q_MAX, Q_MAX).astype(np.int16)
     return q
 
 
@@ -284,7 +278,7 @@ def decode(q):
 
 def write_frame(path, q):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    raw = q.astype(np.int8).tobytes()
+    raw = q.astype(FRAME_DTYPE).tobytes()
     tmp = path + '.tmp'
     with open(tmp, 'wb') as f:
         with gzip.GzipFile(fileobj=f, mode='wb', mtime=0, compresslevel=9) as gz:
@@ -292,12 +286,24 @@ def write_frame(path, q):
     os.replace(tmp, path)
 
 
-def read_frame(path):
+def read_frame_any(path):
+    """(int16 frame, legacy, hit_legacy_cap). Legacy int8 frames are widened
+    value-for-value; hit_legacy_cap marks one that had cells clipped at +/-127."""
     with gzip.open(path, 'rb') as f:
         raw = f.read()
-    if len(raw) != NLAT * NLON:
-        raise ValueError(f'{path}: {len(raw)} bytes')
-    return np.frombuffer(raw, dtype=np.int8).reshape(NLAT, NLON)
+    n = NLAT * NLON
+    if len(raw) == 2 * n:
+        return np.frombuffer(raw, dtype=FRAME_DTYPE).reshape(NLAT, NLON).astype(np.int16), False, False
+    if len(raw) == n:
+        q8 = np.frombuffer(raw, dtype=np.int8).reshape(NLAT, NLON)
+        q = q8.astype(np.int16)
+        q[q8 == LEGACY_MISSING] = MISSING
+        return q, True, bool((np.abs(q8.astype(np.int16)) == LEGACY_CAP).any())
+    raise ValueError(f'{path}: {len(raw)} bytes')
+
+
+def read_frame(path):
+    return read_frame_any(path)[0]
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
@@ -326,19 +332,6 @@ class Validator:
         peak = float(np.max(np.abs(a)))
         if peak > CORRUPT_ABS:
             return f'{label}: anomaly of {peak:.1f} degC exceeds the {CORRUPT_ABS:.0f} degC corruption limit'
-        clip = ocean & (np.abs(np.nan_to_num(anom_dom)) > ENC_MAX)
-        n_clip = int(clip.sum())
-        if n_clip / a.size > CLIP_FRAC_MAX:
-            return (f'{label}: {n_clip} cells ({n_clip / a.size:.1%}) beyond +/-{ENC_MAX:.2f} degC '
-                    f'-- more than {CLIP_FRAC_MAX:.0%} looks like a broken file')
-        if n_clip:
-            r, c = np.nonzero(clip)
-            v = anom_dom[clip]
-            notice(f'{label}: {n_clip} cells clipped at +/-{ENC_MAX:.2f} degC '
-                   f'({int((v > 0).sum())} warm, {int((v < 0).sum())} cold; '
-                   f'range {float(v.min()):+.2f}..{float(v.max()):+.2f}) within '
-                   f'{fmt_lat(DOM_LAT[r.max()])}-{fmt_lat(DOM_LAT[r.min()])}, '
-                   f'{fmt_lon(DOM_LON[c.min()])}-{fmt_lon(DOM_LON[c.max()])}')
         if self.ref_mask is None:
             self.ref_mask = ocean
         return None
@@ -381,18 +374,35 @@ def load_index(data_dir):
     return {'daily': [], 'monthly': []}
 
 
+def refetch_set(idx, kind):
+    return set(idx.setdefault('refetch', {}).setdefault(kind, []))
+
+
+def refetch_done(idx, kind, key):
+    """Drop a rebuilt frame from the queue; bump rev so the published version
+    changes even though the frame list itself did not."""
+    q = idx.setdefault('refetch', {}).setdefault(kind, [])
+    if key in q:
+        q.remove(key)
+        idx['rev'] = idx.get('rev', 0) + 1
+
+
 def save_index(data_dir, idx):
     idx['daily'] = sorted(idx['daily'], key=lambda e: e['d'])
     idx['monthly'] = sorted(idx['monthly'], key=lambda e: e['m'])
     idx['grid'] = {
         'nlat': NLAT, 'nlon': NLON, 'deg': DEG,
         'lat_first': LAT_N - DEG / 2, 'lon_first': LON_W + DEG / 2,
-        'row_order': 'north_first', 'scale': SCALE, 'missing': MISSING,
+        'row_order': 'north_first', 'scale': SCALE, 'missing': MISSING, 'dtype': 'int16le',
     }
+    rf = idx.setdefault('refetch', {})
+    rf['daily'] = sorted(set(rf.get('daily', [])))
+    rf['monthly'] = sorted(set(rf.get('monthly', [])))
     idx['base'] = '1991-2020'
     idx['tropical_band'] = [-TROP, TROP]
     idx['source'] = 'NOAA OISST v2.1'
-    h = hashlib.sha1(json.dumps([idx['daily'], idx['monthly']], sort_keys=True).encode()).hexdigest()
+    h = hashlib.sha1(json.dumps([idx['daily'], idx['monthly'], idx['grid'], idx.get('rev', 0)],
+                                sort_keys=True).encode()).hexdigest()
     changed = idx.get('version') != h[:12]
     idx['version'] = h[:12]
     if changed:
@@ -402,6 +412,30 @@ def save_index(data_dir, idx):
         json.dump(idx, f, separators=(',', ':'))
     os.replace(p + '.tmp', p)
     return changed
+
+
+# ── Legacy migration ──────────────────────────────────────────────────────────
+def migrate_legacy(data_dir, idx):
+    """Widen int8 frames to int16 in place; queue those that hit the old cap."""
+    converted = 0
+    for kind, key in (('daily', 'd'), ('monthly', 'm')):
+        q_rf = idx.setdefault('refetch', {}).setdefault(kind, [])
+        for e in idx[kind]:
+            p = os.path.join(data_dir, kind, e[key] + '.bin.gz')
+            if not os.path.exists(p):
+                continue
+            q, legacy, capped = read_frame_any(p)
+            if not legacy:
+                continue
+            write_frame(p, q)
+            converted += 1
+            if capped and e[key] not in q_rf:
+                q_rf.append(e[key])
+    if converted:
+        rf = idx['refetch']
+        print(f'migrate: {converted} legacy int8 frames widened to int16; queued for rebuild: '
+              f'{len(rf["daily"])} daily, {len(rf["monthly"])} monthly', flush=True)
+    return converted
 
 
 # ── Daily ─────────────────────────────────────────────────────────────────────
@@ -451,18 +485,23 @@ def window_start(today):
 
 def refresh_daily(data_dir, idx, clim, work, validator, bootstrap, today):
     have = {e['d']: e for e in idx['daily']}
+    redo = refetch_set(idx, 'daily')
     todo = []
     d, start = today, window_start(today)
     while d >= start:
         e = have.get(d.isoformat())
         recent = (today - d).days <= REFRESH_DAYS
-        if e is None or (e['p'] and (recent or bootstrap)):
+        if e is None or (e['p'] and (recent or bootstrap)) or d.isoformat() in redo:
             todo.append(d)
         d -= dt.timedelta(days=1)
     if not bootstrap:
-        recent_todo = [x for x in todo if (today - x).days <= REFRESH_DAYS]
-        older = [x for x in todo if (today - x).days > REFRESH_DAYS][:MAX_NEW_PER_RUN]
-        todo = recent_todo + older
+        must = [x for x in todo if (today - x).days <= REFRESH_DAYS or x.isoformat() in redo]
+        older = [x for x in todo if x not in must][:MAX_NEW_PER_RUN]
+        todo = must + older
+    # queued days that have aged out of the window can't be rebuilt
+    for k in sorted(redo):
+        if dt.date.fromisoformat(k) < start:
+            refetch_done(idx, 'daily', k)
     print(f'daily: {len(todo)} dates to check', flush=True)
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -483,6 +522,7 @@ def refresh_daily(data_dir, idx, clim, work, validator, bootstrap, today):
             continue           # never downgrade a final day
         write_frame(os.path.join(data_dir, 'daily', entry['d'] + '.bin.gz'), q)
         have[entry['d']] = entry
+        refetch_done(idx, 'daily', entry['d'])
         updated += 1
     idx['daily'] = list(have.values())
     print(f'daily: {updated} frames written', flush=True)
@@ -501,17 +541,18 @@ def refresh_daily(data_dir, idx, clim, work, validator, bootstrap, today):
 
 def derive_months(data_dir, idx):
     """Monthly frame = mean of that month's final daily frames (all days present)."""
-    months_have = {e['m'] for e in idx['monthly']}
+    months = {e['m']: e for e in idx['monthly']}
+    redo_m, redo_d = refetch_set(idx, 'monthly'), refetch_set(idx, 'daily')
     by_month = {}
     for e in idx['daily']:
         by_month.setdefault(e['d'][:7], []).append(e)
     added = 0
     for ym, days in sorted(by_month.items()):
-        if ym in months_have:
+        if ym in months and not (ym in redo_m and months[ym].get('src') == 'daily'):
             continue
         y, m = int(ym[:4]), int(ym[5:])
         n = calendar.monthrange(y, m)[1]
-        if len(days) != n or any(e['p'] for e in days):
+        if len(days) != n or any(e['p'] for e in days) or any(e['d'] in redo_d for e in days):
             continue
         acc = np.zeros((NLAT, NLON))
         cnt = np.zeros((NLAT, NLON))
@@ -522,9 +563,11 @@ def derive_months(data_dir, idx):
             cnt[ok] += 1
         mean = np.where(cnt == n, acc / np.maximum(cnt, 1), np.nan)
         write_frame(os.path.join(data_dir, 'monthly', ym + '.bin.gz'), encode(mean))
-        idx['monthly'].append({'m': ym, 't': round(float(np.mean([e['t'] for e in days])), 3), 'src': 'daily'})
+        months[ym] = {'m': ym, 't': round(float(np.mean([e['t'] for e in days])), 3), 'src': 'daily'}
+        refetch_done(idx, 'monthly', ym)
         added += 1
         print(f'monthly: derived {ym} from {n} final days', flush=True)
+    idx['monthly'] = list(months.values())
     return added
 
 
@@ -565,10 +608,11 @@ def bootstrap_monthly(data_dir, idx, cache, work, validator):
     clim = [cg.band(read_2d(cds.variables['sst'], i)) for i in range(12)]
     months = year_month_index(mds)
     have = {e['m']: e for e in idx['monthly']}
+    redo = refetch_set(idx, 'monthly')
     added = 0
     for i, (y, m) in enumerate(months):
         ym = f'{y:04d}-{m:02d}'
-        if ym in have and have[ym].get('src') == 'psl':
+        if ym in have and have[ym].get('src') == 'psl' and ym not in redo:
             continue
         sst = mg.band(read_2d(mds.variables['sst'], i))
         anom = sst - clim[m - 1]
@@ -578,6 +622,7 @@ def bootstrap_monthly(data_dir, idx, cache, work, validator):
             continue
         write_frame(os.path.join(data_dir, 'monthly', ym + '.bin.gz'), encode(mg.domain(anom)))
         have[ym] = {'m': ym, 't': round(mg.tropical_mean(anom), 3), 'src': 'psl'}
+        refetch_done(idx, 'monthly', ym)
         added += 1
     idx['monthly'] = list(have.values())
     cds.close()
@@ -604,6 +649,7 @@ def main():
     today = (dt.date.fromisoformat(os.environ['SST_TODAY']) if os.environ.get('SST_TODAY')
              else dt.datetime.now(dt.timezone.utc).date())
     idx = load_index(args.data_dir)
+    migrate_legacy(args.data_dir, idx)
     validator = Validator()
     bootstrap = args.bootstrap or not idx['monthly']
 
@@ -626,6 +672,12 @@ def main():
         refresh_daily(args.data_dir, idx, clim, args.work_dir, validator, bootstrap, today)
         derive_months(args.data_dir, idx)
         prune_daily(args.data_dir, idx, today)
+
+    src_of = {e['m']: e.get('src') for e in idx['monthly']}
+    pending_psl = sorted(m for m in idx.get('refetch', {}).get('monthly', []) if src_of.get(m) == 'psl')
+    if pending_psl:
+        notice(f'{len(pending_psl)} PSL monthly frame(s) still hold values capped by the old int8 '
+               f'encoding ({", ".join(pending_psl)}); run with bootstrap to rebuild them')
 
     if idx['daily'] or idx['monthly']:
         changed = save_index(args.data_dir, idx)
