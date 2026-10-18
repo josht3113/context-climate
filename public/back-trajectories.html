@@ -308,6 +308,7 @@ function setArrival(ai, animate) {
   const A = S.manifest.arrivals.length;
   S.ai = Math.max(0, Math.min(A - 1, ai));
   if (animate) startGrow();
+  if (!S.playing) refit(true, 'current');
   updateArrival();
 }
 function updateArrival() {
@@ -330,11 +331,13 @@ function latestAnalysis() {
   for (let i = arr.length - 1; i >= 0; i--) if (arr[i].kind === 'analysis') return i;
   return arr.length - 1;
 }
-function refit(animate) {
+// mode 'current': frame the selected arrival; 'week': frame every arrival (steady view for playback)
+function refit(animate, mode = S.playing ? 'week' : 'current') {
   const pts = [];
   const steps = S.dur;
   const arrs = S.traj[S.city.id];
-  for (let ai = 0; ai < S.manifest.arrivals.length; ai++)
+  const list = mode === 'week' ? S.manifest.arrivals.map((_, i) => i) : [S.ai];
+  for (const ai of list)
     for (let h = 0; h < 3; h++) {
       if (!S.hv[h]) continue;
       const p = arrs[ai * 3 + h];
@@ -730,6 +733,8 @@ function togglePlay(force) {
   if (!on) { clearInterval(S.playing); S.playing = null; $('play').innerHTML = '&#9654; Play'; return; }
   if (S.ai >= S.manifest.arrivals.length - 1) setArrival(0);
   $('play').innerHTML = '&#10074;&#10074; Pause';
+  S.playing = -1;
+  refit(true, 'week');
   S.playing = setInterval(() => {
     if (S.ai >= S.manifest.arrivals.length - 1) { togglePlay(false); return; }
     setArrival(S.ai + 1);
@@ -852,7 +857,12 @@ function bind() {
   $('prev').addEventListener('click', () => { togglePlay(false); setArrival(S.ai - 1, true); });
   $('next').addEventListener('click', () => { togglePlay(false); setArrival(S.ai + 1, true); });
   $('latest').addEventListener('click', () => { togglePlay(false); setArrival(latestAnalysis(), true); });
-  $('week').addEventListener('input', e => { togglePlay(false); setArrival(+e.target.value); });
+  $('week').addEventListener('input', e => {
+    togglePlay(false);
+    if (!S.scrubbing) { S.scrubbing = true; S.playing = -1; refit(true, 'week'); S.playing = null; }
+    S.ai = +e.target.value; updateArrival();
+  });
+  $('week').addEventListener('change', () => { S.scrubbing = false; refit(true, 'current'); });
   $('play').addEventListener('click', () => togglePlay());
   $('png').addEventListener('click', () => exportPNG().catch(e => console.error(e)));
   const map = $('map');
