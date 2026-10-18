@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Back Trajectories — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --tool-accent: var(--accent-live);
+    --click-text: #F2EEE3;
+    /* content colours: trajectory start heights */
+    --h500:  #EE9A5C;
+    --h1500: #5DBCDD;
+    --h3000: #B99BEA;
+  }
+  [hidden] { display: none !important; }
+  body { padding: 28px 20px 48px; }
+  .tr-shell { max-width: 1320px; margin: 0 auto; }
+  .tr-header { text-align: center; margin-bottom: 16px; }
+  .tr-header .cc-title { margin: 6px 0 6px; font-size: 36px; }
+  .tr-where { font-family: var(--font-mono); font-size: 16px; color: var(--color-text-secondary); display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; }
+  .tr-where b { color: var(--click-text); font-weight: 700; }
+  .tr-kind { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: 2px 10px; border-radius: var(--radius-md); border: 1px solid var(--color-border-hover); color: var(--color-text-secondary); }
+  .tr-kind.fc { border-color: #D7B45A; color: #E9CD7E; }
+
+  /* ---------- control bar ---------- */
+  .tr-bar { background: var(--color-surface); border: 1px solid var(--color-border-hover); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 14px; }
+  .tr-row { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; justify-content: center; }
+  .tr-row + .tr-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+  .tr-ctl { display: flex; align-items: center; gap: 8px; }
+  .tr-ctl-name { font-family: var(--font-mono); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); }
+  .tr-shell .cc-btn { font-size: 15px; font-weight: 600; color: var(--click-text); background: var(--color-surface-2); border-color: var(--color-border-hover); padding: 8px 14px; }
+  .tr-shell .cc-btn:hover { border-color: var(--tool-accent); background: #353c36; color: var(--click-text); }
+  .tr-shell .cc-btn.is-active { border-color: var(--tool-accent); background: #2f3b34; }
+  .tr-shell .cc-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .tr-shell .cc-segmented-btn { font-size: 13px; padding: 9px 14px; color: var(--click-text); }
+  .tr-hchip { display: inline-flex; align-items: center; gap: 8px; }
+  .tr-hchip .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .tr-hchip:not(.is-active) { opacity: .45; }
+  .tr-hchip:not(.is-active) .dot { background: transparent !important; box-shadow: inset 0 0 0 2px currentColor; }
+
+  /* city finder (shared pattern) */
+  .finder-group { position: relative; display: flex; align-items: stretch; border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); background: var(--color-surface-2); transition: border-color .15s; }
+  .finder-group:focus-within { border-color: var(--tool-accent); }
+  .finder-group .search-icon { display: flex; align-items: center; padding-left: 12px; color: var(--color-text-muted); font-size: 16px; pointer-events: none; }
+  .finder-group .search-input { width: 250px; background: transparent; border: none; padding: 9px 10px; color: var(--click-text); font-family: var(--font-mono); font-size: 15px; outline: none; }
+  .finder-group .search-input::placeholder { color: var(--color-text-muted); }
+  .dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 320px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 300px; overflow-y: auto; z-index: 200; display: none; box-shadow: 0 10px 32px rgba(0,0,0,.6); }
+  .dropdown.open { display: block; }
+  .d-item { padding: 8px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 14px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); }
+  .d-item:last-child { border-bottom: none; }
+  .d-item:hover, .d-item.hi { background: rgba(42,168,126,.18); }
+  .d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 46px; flex-shrink: 0; }
+  .d-item .d-name { color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .d-item .d-via { color: var(--color-text-muted); font-size: 12px; }
+  .d-item .d-st { color: var(--color-text-muted); font-size: 13px; width: 24px; text-align: right; }
+
+  /* arrival stepper + week scrubber */
+  .tr-arr-label { font-family: var(--font-mono); font-size: 15px; color: var(--click-text); font-weight: 700; min-width: 210px; text-align: center; white-space: nowrap; }
+  .tr-week { flex: 1 1 560px; display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .tr-week-track { position: relative; flex: 1; min-width: 0; }
+  .tr-week-days { position: relative; height: 18px; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); }
+  .tr-week-days span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+  .tr-range { width: 100%; height: 26px; margin: 0; accent-color: var(--tool-accent); cursor: pointer; background: transparent; }
+  .tr-fc-band { position: absolute; bottom: 4px; height: 6px; border-radius: 3px; background: repeating-linear-gradient(135deg, rgba(233,205,126,.55) 0 4px, rgba(233,205,126,.15) 4px 8px); pointer-events: none; }
+  .tr-play { min-width: 92px; }
+
+  /* ---------- canvases ---------- */
+  .tr-card { background: #262B27; border: 1px solid var(--color-border); border-radius: var(--radius-lg); overflow: hidden; position: relative; }
+  .tr-card + .tr-card { margin-top: 12px; }
+  .tr-card canvas { display: block; width: 100%; }
+  #map { cursor: crosshair; touch-action: pan-y; }
+  .tr-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 15px; color: var(--color-text-secondary); pointer-events: none; }
+  .tr-tip { position: absolute; pointer-events: none; background: rgba(30,35,32,.94); border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); padding: 8px 10px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-primary); white-space: nowrap; z-index: 5; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  .tr-tip .t-h { color: var(--color-text-secondary); margin-bottom: 4px; }
+  .tr-tip .t-row { display: flex; gap: 8px; align-items: center; }
+  .tr-tip .t-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .tr-legend { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; margin: 10px 0 0; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); }
+  .tr-legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .tr-legend i { display: inline-block; }
+
+  @media (max-width: 720px) {
+    .tr-header .cc-title { font-size: 28px; }
+    .finder-group .search-input { width: 100%; }
+    .finder-group { flex: 1 1 100%; }
+    .tr-arr { flex-wrap: wrap; justify-content: center; }
+    .tr-arr-label { order: -1; flex-basis: 100%; min-width: 0; font-size: 14px; }
+    .tr-ctl-name { display: none; }
+    .tr-week { flex-basis: 100%; }
+    .tr-shell .cc-segmented-btn { padding: 9px 11px; }
+  }
+</style>
+</head>
+<body>
+<div class="tr-shell">
+
+  <header class="tr-header">
+    <div class="cc-eyebrow">Live · Updates every 6 hours</div>
+    <h1 class="cc-title">Back Trajectories</h1>
+    <div class="tr-where"><b id="where-city">—</b><span id="where-time">—</span><span class="tr-kind" id="where-kind">—</span></div>
+  </header>
+
+  <section class="tr-bar" aria-label="Controls">
+    <div class="tr-row">
+      <div class="finder-group" id="sw">
+        <span class="search-icon">&#9906;</span>
+        <input type="text" class="search-input" id="si" placeholder="Search city or station ID…" autocomplete="off" spellcheck="false" aria-label="Search city">
+        <div class="dropdown" id="dd" role="listbox"></div>
+      </div>
+      <div class="tr-ctl">
+        <span class="tr-ctl-name">Length</span>
+        <div class="cc-segmented" id="dur">
+          <button type="button" class="cc-segmented-btn" data-h="24">24 h</button>
+          <button type="button" class="cc-segmented-btn" data-h="48">48 h</button>
+          <button type="button" class="cc-segmented-btn is-active" data-h="72">72 h</button>
+          <button type="button" class="cc-segmented-btn" data-h="120">120 h</button>
+        </div>
+      </div>
+      <div class="tr-ctl" id="hchips">
+        <button type="button" class="cc-btn tr-hchip is-active" data-i="0"><span class="dot"></span>500 m</button>
+        <button type="button" class="cc-btn tr-hchip is-active" data-i="1"><span class="dot"></span>1500 m</button>
+        <button type="button" class="cc-btn tr-hchip is-active" data-i="2"><span class="dot"></span>3000 m</button>
+      </div>
+      <button type="button" class="cc-btn is-active" id="unc" aria-pressed="true">Uncertainty</button>
+      <button type="button" class="cc-btn" id="png">&#8595; PNG</button>
+    </div>
+    <div class="tr-row">
+      <div class="tr-ctl tr-arr">
+        <span class="tr-ctl-name">Arrival</span>
+        <button type="button" class="cc-btn" id="prev" aria-label="Previous arrival time">&#9664;</button>
+        <span class="tr-arr-label" id="arr-label">—</span>
+        <button type="button" class="cc-btn" id="next" aria-label="Next arrival time">&#9654;</button>
+        <button type="button" class="cc-btn" id="latest">Latest</button>
+      </div>
+      <div class="tr-week">
+        <button type="button" class="cc-btn tr-play" id="play">&#9654; Play</button>
+        <div class="tr-week-track">
+          <div class="tr-week-days" id="week-days"></div>
+          <div class="tr-fc-band" id="fc-band"></div>
+          <input type="range" class="tr-range" id="week" min="0" max="0" step="1" value="0" aria-label="Arrival time">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="tr-card" id="map-card">
+    <canvas id="map" aria-label="Back trajectory map"></canvas>
+    <div class="tr-msg" id="map-msg">Loading…</div>
+    <div class="tr-tip" id="tip" hidden></div>
+  </div>
+  <div class="tr-card" id="strip-card">
+    <canvas id="strip" aria-label="Height above ground along each trajectory"></canvas>
+  </div>
+  <div class="tr-legend" id="legend"></div>
+
+  <p class="cc-source-note" id="source">Back trajectories from NOAA Global Forecast System analyses (0.5° over North America, 1° beyond) with a kinematic model using GFS vertical motion, recomputed after every GFS cycle. Arrivals in the final 24 hours use GFS forecasts. Uncertainty: 15-member ensemble with the meteorology offset by one grid cell and ±10 hPa, after the NOAA HYSPLIT ensemble. Data: NOAA GFS via the NOAA Open Data Dissemination program.</p>
+</div>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════════════════════════
+//  Back Trajectories — draws precomputed trajectories published by
+//  github.com/josht3113/contextclimate-trajectory-data
+// ════════════════════════════════════════════════════════════════════
+const DATA = 'https://josht3113.github.io/contextclimate-trajectory-data/';
+const DEFAULT_CITY = 'KISP';
+const EXPORT_SCALE = 3;
+const NODATA = -32768;
+const HCOL = ['#EE9A5C', '#5DBCDD', '#B99BEA'];
+const MAP_COL = {
+  ocean: '#1B201D', land: '#2E352F', lake: '#1B201D', coast: 'rgba(232,228,217,0.34)',
+  admin0: 'rgba(232,228,217,0.30)', admin1: 'rgba(232,228,217,0.13)', grat: 'rgba(232,228,217,0.05)',
+  city: 'rgba(232,228,217,0.36)', cityHi: '#F2EEE3', accent: '#2AA87E', halo: 'rgba(22,26,23,0.85)',
+};
+const TZ = { ET: 'America/New_York', CT: 'America/Chicago', MT: 'America/Denver', PT: 'America/Los_Angeles',
+             AK: 'America/Anchorage', HI: 'Pacific/Honolulu', AZ: 'America/Phoenix', AT: 'America/Puerto_Rico' };
+
+const S = {
+  manifest: null, cities: [], byId: {}, base: null,
+  city: null, ai: 0, dur: 72, hv: [true, true, true], unc: true,
+  traj: {}, ens: {}, hoverH: null, hoverCity: null, playing: null,
+  grow: 1, growStart: 0,
+  proj: null, view: null, viewAnim: null,
+};
+let dpr = window.devicePixelRatio || 1;
+
+// ── helpers ─────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const parseKey = k => new Date(Date.UTC(+k.slice(0, 4), +k.slice(4, 6) - 1, +k.slice(6, 8), +k.slice(8, 10)));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => 1 - Math.pow(1 - t, 3);
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+}
+async function fetchBin(path) {
+  const r = await fetch(DATA + path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  const buf = await new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+  return new Int16Array(buf);
+}
+// delta-encoded series -> array of Float32Array(T*3) [lat, lon, agl], NaN once data ends
+function decodeSeries(i16, nSeries, T) {
+  const out = [];
+  for (let s = 0; s < nSeries; s++) {
+    const a = new Float32Array(T * 3).fill(NaN);
+    let la = 0, lo = 0, z = 0;
+    for (let k = 0; k < T; k++) {
+      const o = (s * T + k) * 3;
+      if (i16[o] === NODATA) break;
+      la += i16[o]; lo += i16[o + 1]; z += i16[o + 2];
+      a[k * 3] = la / 100; a[k * 3 + 1] = lo / 100; a[k * 3 + 2] = z;
+    }
+    out.push(a);
+  }
+  return out;
+}
+function fmtTime(key, city, withYear) {
+  const d = parseKey(key);
+  const tz = TZ[city?.tz] || 'UTC';
+  const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric',
+    hour: 'numeric', timeZoneName: 'short', ...(withYear ? { year: 'numeric' } : {}) }).format(d);
+  return `${s} · ${key.slice(8, 10)}Z`;
+}
+function localDayParts(key, city) {
+  const tz = TZ[city?.tz] || 'UTC';
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', day: 'numeric', hour: 'numeric', hourCycle: 'h23' })
+    .formatToParts(parseKey(key));
+  const g = t => p.find(x => x.type === t)?.value;
+  return { wd: g('weekday'), day: g('day'), hour: +g('hour') };
+}
+
+// ── basemap ─────────────────────────────────────────────────────────
+function decodeBase(b) {
+  const s = Math.pow(10, b.q);
+  const ring = f => { const c = []; let x = 0, y = 0; for (let i = 0; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; c.push([x / s, y / s]); } return c; };
+  return {
+    land: { type: 'MultiPolygon', coordinates: b.land.map(p => p.map(ring)) },
+    lakes: { type: 'MultiPolygon', coordinates: b.lakes.map(p => p.map(ring)) },
+    admin0: { type: 'MultiLineString', coordinates: b.admin0.map(ring) },
+    admin1: { type: 'MultiLineString', coordinates: b.admin1.map(ring) },
+  };
+}
+const GRAT = d3.geoGraticule().step([10, 10]).extentMajor([[-180, -10], [180, 90.0001]])();
+const SPHERE = { type: 'Sphere' };
+
+function makeProjection(view, w, h) {
+  return d3.geoConicConformal().parallels([30, 62]).rotate([100, 0])
+    .scale(view.k * Math.min(w, h)).translate([w / 2 + view.x * w, h / 2 + view.y * h]).precision(0.3);
+}
+
+// view = {k, x, y}: scale relative to min(w,h) and translate offsets relative to size,
+// so the same view reproduces at any canvas size (screen and PNG export)
+function fitView(points, w, h) {
+  const p0 = d3.geoConicConformal().parallels([30, 62]).rotate([100, 0]).scale(1).translate([0, 0]);
+  const xs = [], ys = [];
+  for (const [lon, lat] of points) { const q = p0([lon, lat]); if (q && isFinite(q[0])) { xs.push(q[0]); ys.push(q[1]); } }
+  if (!xs.length) return { k: 1.3, x: 0, y: 0 };
+  const q = (arr, f) => { const a = [...arr].sort((u, v) => u - v); return a[Math.min(a.length - 1, Math.max(0, Math.floor(f * (a.length - 1))))]; };
+  let x0 = q(xs, 0), x1 = q(xs, 1), y0 = q(ys, 0), y1 = q(ys, 1);
+  const c = p0([S.city.lon, S.city.lat]);
+  x0 = Math.min(x0, c[0]); x1 = Math.max(x1, c[0]); y0 = Math.min(y0, c[1]); y1 = Math.max(y1, c[1]);
+  const minSpan = 0.32;                         // never zoom in tighter than ~2,000 km across
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  let sw = Math.max(x1 - x0, minSpan), sh = Math.max(y1 - y0, minSpan * h / w);
+  const pad = 0.82;
+  const k = Math.min(w * pad / sw, h * pad / sh);   // pixels per unit
+  const kk = Math.min(k / Math.min(w, h), 6);
+  const sc = kk * Math.min(w, h);
+  return { k: kk, x: -cx * sc / w, y: -cy * sc / h };
+}
+
+// ── data ────────────────────────────────────────────────────────────
+async function loadCity(id) {
+  if (!S.traj[id]) {
+    const A = S.manifest.arrivals.length;
+    const i16 = await fetchBin(`traj/${id}.bin.gz`);
+    const T = S.manifest.hours + 1;
+    if (i16.length !== A * 3 * T * 3) throw new Error('trajectory file does not match manifest');
+    S.traj[id] = decodeSeries(i16, A * 3, T);       // index: ai*3 + h
+  }
+  return S.traj[id];
+}
+async function loadEns(id, key) {
+  const k = id + '/' + key;
+  if (!S.ens[k]) {
+    const M = S.manifest.ensemble.members.length - 1;
+    const T = S.manifest.hours / S.manifest.memberEvery + 1;
+    S.ens[k] = fetchBin(`ens/${id}/${key}.bin.gz`).then(i16 => decodeSeries(i16, 3 * M, T)).catch(() => null);
+  }
+  return S.ens[k];
+}
+function centre(ai, h) { return S.traj[S.city.id]?.[ai * 3 + h] || null; }
+
+// ── selection ───────────────────────────────────────────────────────
+async function selectCity(id, keepView) {
+  const c = S.byId[id];
+  if (!c) return;
+  S.city = c;
+  $('map-msg').textContent = 'Loading…'; $('map-msg').hidden = false;
+  try { await loadCity(id); } catch (e) { $('map-msg').textContent = 'Could not load trajectories.'; console.error(e); return; }
+  $('map-msg').hidden = true;
+  buildWeekLabels();
+  if (!keepView) refit(true);
+  startGrow();
+  updateArrival();
+}
+function setArrival(ai, animate) {
+  const A = S.manifest.arrivals.length;
+  S.ai = Math.max(0, Math.min(A - 1, ai));
+  if (animate) startGrow();
+  if (!S.playing) refit(true, 'current');
+  updateArrival();
+}
+function updateArrival() {
+  const a = S.manifest.arrivals[S.ai];
+  $('week').value = S.ai;
+  $('arr-label').textContent = fmtTime(a.t, S.city);
+  $('where-city').textContent = `${S.city.name}, ${S.city.st}`;
+  $('where-time').textContent = fmtTime(a.t, S.city, true);
+  const k = $('where-kind');
+  k.textContent = a.kind === 'forecast' ? 'Forecast' : 'Analysis';
+  k.classList.toggle('fc', a.kind === 'forecast');
+  $('prev').disabled = S.ai === 0;
+  $('next').disabled = S.ai === S.manifest.arrivals.length - 1;
+  S.plumeKey = null;
+  if (S.unc) loadEns(S.city.id, a.t).then(() => { S.plumeKey = null; draw(); });
+  draw();
+}
+function latestAnalysis() {
+  const arr = S.manifest.arrivals;
+  for (let i = arr.length - 1; i >= 0; i--) if (arr[i].kind === 'analysis') return i;
+  return arr.length - 1;
+}
+// mode 'current': frame the selected arrival; 'week': frame every arrival (steady view for playback)
+function refit(animate, mode = S.playing ? 'week' : 'current') {
+  const pts = [];
+  const steps = S.dur;
+  const arrs = S.traj[S.city.id];
+  const list = mode === 'week' ? S.manifest.arrivals.map((_, i) => i) : [S.ai];
+  for (const ai of list)
+    for (let h = 0; h < 3; h++) {
+      if (!S.hv[h]) continue;
+      const p = arrs[ai * 3 + h];
+      for (let k = 0; k <= steps; k += 3) if (!isNaN(p[k * 3])) pts.push([p[k * 3 + 1], p[k * 3]]);
+    }
+  const { w, h } = mapSize();
+  const target = fitView(pts, w, h);
+  if (animate && S.view) S.viewAnim = { from: { ...S.view }, to: target, t0: performance.now() };
+  else S.view = target;
+  S.plumeKey = null;
+  draw();
+}
+function startGrow() { S.grow = 0; S.growStart = performance.now(); draw(); }
+
+// ── sizing ──────────────────────────────────────────────────────────
+function mapSize() {
+  const w = $('map-card').clientWidth || 900;
+  return { w, h: Math.round(Math.max(340, Math.min(w * 0.6, 760))) };
+}
+function stripSize() {
+  const w = $('strip-card').clientWidth || 900;
+  return { w, h: w < 600 ? 190 : 230 };
+}
+function setupCanvas(cv, w, h, scale) {
+  cv.width = Math.round(w * scale); cv.height = Math.round(h * scale);
+  cv.style.height = h + 'px';
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  return ctx;
+}
+
+// ── map rendering ───────────────────────────────────────────────────
+let baseCache = null;   // {key, canvas}
+function drawBase(ctx, proj, w, h, scale) {
+  const key = `${w}x${h}@${scale}|${S.view.k.toFixed(5)},${S.view.x.toFixed(5)},${S.view.y.toFixed(5)}`;
+  if (!baseCache || baseCache.key !== key || scale !== dpr) {
+    const cv = document.createElement('canvas');
+    const c = setupCanvas(cv, w, h, scale);
+    const path = d3.geoPath(proj, c);
+    c.fillStyle = MAP_COL.ocean; c.fillRect(0, 0, w, h);
+    c.beginPath(); path(GRAT); c.strokeStyle = MAP_COL.grat; c.lineWidth = 1; c.stroke();
+    c.beginPath(); path(S.base.land); c.fillStyle = MAP_COL.land; c.fill('evenodd');
+    c.beginPath(); path(S.base.lakes); c.fillStyle = MAP_COL.lake; c.fill();
+    c.beginPath(); path(S.base.admin1); c.strokeStyle = MAP_COL.admin1; c.lineWidth = 0.8; c.stroke();
+    c.beginPath(); path(S.base.admin0); c.strokeStyle = MAP_COL.admin0; c.lineWidth = 1.1; c.stroke();
+    c.beginPath(); path(S.base.land); path(S.base.lakes); c.strokeStyle = MAP_COL.coast; c.lineWidth = 0.9; c.stroke();
+    if (scale !== dpr) { ctx.drawImage(cv, 0, 0, w, h); return; }
+    baseCache = { key, canvas: cv };
+  }
+  ctx.drawImage(baseCache.canvas, 0, 0, w, h);
+}
+
+function projectSeries(proj, p, nPts) {
+  // -> array of [x, y] or null breaks (data end / projection wrap)
+  const out = [];
+  let prev = null;
+  for (let k = 0; k < nPts; k++) {
+    const la = p[k * 3];
+    if (isNaN(la)) break;
+    let lon = p[k * 3 + 1];
+    lon = ((lon + 540) % 360) - 180;
+    const q = proj([lon, la]);
+    if (!q || !isFinite(q[0])) { out.push(null); prev = null; continue; }
+    if (prev && Math.hypot(q[0] - prev[0], q[1] - prev[1]) > 2000) out.push(null);
+    out.push(q); prev = q;
+  }
+  return out;
+}
+function strokePolyline(ctx, pts, upto) {
+  ctx.beginPath();
+  let pen = false, n = 0;
+  for (const q of pts) {
+    if (n++ > upto) break;
+    if (!q) { pen = false; continue; }
+    if (!pen) { ctx.moveTo(q[0], q[1]); pen = true; } else ctx.lineTo(q[0], q[1]);
+  }
+  ctx.stroke();
+}
+
+function buildPlume(proj, w, h, scale, ens) {
+  // members as soft glowing strokes; where they agree the plume brightens
+  const M = S.manifest.ensemble.members.length - 1;
+  const every = S.manifest.memberEvery;
+  const nPts = Math.floor(S.dur / every) + 1;
+  const cv = document.createElement('canvas');
+  const c = setupCanvas(cv, w, h, scale);
+  c.globalCompositeOperation = 'lighter';
+  c.lineCap = 'round'; c.lineJoin = 'round';
+  const cen = S.traj[S.city.id];
+  for (let hi = 2; hi >= 0; hi--) {
+    if (!S.hv[hi]) continue;
+    const series = [];
+    for (let m = 0; m < M; m++) series.push(projectSeries(proj, ens[hi * M + m], nPts));
+    // include the unperturbed member at the member cadence
+    const c0 = cen[S.ai * 3 + hi], sub = new Float32Array(nPts * 3);
+    for (let k = 0; k < nPts; k++) for (let j = 0; j < 3; j++) sub[k * 3 + j] = c0[k * every * 3 + j];
+    series.push(projectSeries(proj, sub, nPts));
+    for (const [lw, a] of [[12, 0.035], [6, 0.06], [2.2, 0.12]]) {
+      c.lineWidth = lw; c.strokeStyle = rgba(HCOL[hi], a);
+      for (const s of series) strokePolyline(c, s, Infinity);
+    }
+  }
+  return cv;
+}
+let plumeCache = null;   // {key, canvas}
+function drawPlume(ctx, proj, w, h, scale, ens, alpha) {
+  const key = [S.city.id, S.ai, S.dur, S.hv.join(''), S.view.k.toFixed(5), S.view.x.toFixed(5), S.view.y.toFixed(5), w, h, scale].join('|');
+  let cv;
+  if (plumeCache && plumeCache.key === key) cv = plumeCache.canvas;
+  else { cv = buildPlume(proj, w, h, scale, ens); if (scale === dpr) plumeCache = { key, canvas: cv }; }
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if ('filter' in ctx) ctx.filter = 'blur(1.2px)';
+  ctx.drawImage(cv, 0, 0, w, h);
+  ctx.restore();
+}
+
+function drawTrajectories(ctx, proj, grow) {
+  const T = S.dur;
+  const upto = Math.floor(T * grow + 1e-6);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const projected = [];
+  for (let hi = 2; hi >= 0; hi--) {
+    if (!S.hv[hi]) continue;
+    const p = centre(S.ai, hi);
+    const pts = projectSeries(proj, p, T + 1);
+    projected[hi] = pts;
+    ctx.lineWidth = 5.5; ctx.strokeStyle = MAP_COL.halo; strokePolyline(ctx, pts, upto);
+    ctx.lineWidth = 2.6; ctx.strokeStyle = HCOL[hi]; strokePolyline(ctx, pts, upto);
+  }
+  // time ticks: every 12 h, larger and labelled every 24 h
+  ctx.font = '700 12px "Courier Prime", monospace';
+  ctx.textBaseline = 'middle';
+  const placed = [];
+  const free = (x, y, w) => {
+    const r = [x - 2, y - 9, x + w + 2, y + 9];
+    if (placed.some(p => r[0] < p[2] && r[2] > p[0] && r[1] < p[3] && r[3] > p[1])) return false;
+    placed.push(r); return true;
+  };
+  for (let hi = 0; hi < 3; hi++) {
+    const pts = projected[hi];
+    if (!pts) continue;
+    for (let k = 12; k <= Math.min(T, upto); k += 12) {
+      const q = pts[k];
+      if (!q) continue;
+      const big = k % 24 === 0;
+      ctx.beginPath(); ctx.arc(q[0], q[1], big ? 4.6 : 3, 0, 2 * Math.PI);
+      ctx.fillStyle = HCOL[hi]; ctx.fill();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = MAP_COL.halo; ctx.stroke();
+      if (big && (T <= 72 || k % 48 === 0 || k === T)) {
+        const label = `${k}h`;
+        if (!free(q[0] + 8, q[1] - 1, ctx.measureText(label).width)) continue;
+        ctx.lineWidth = 3.5; ctx.strokeStyle = MAP_COL.halo; ctx.strokeText(label, q[0] + 8, q[1] - 1);
+        ctx.fillStyle = HCOL[hi]; ctx.fillText(label, q[0] + 8, q[1] - 1);
+      }
+    }
+  }
+  return projected;
+}
+
+function drawCities(ctx, proj, w, h) {
+  for (const c of S.cities) {
+    const q = proj([c.lon, c.lat]);
+    if (!q || q[0] < -10 || q[1] < -10 || q[0] > w + 10 || q[1] > h + 10) { c._q = null; continue; }
+    c._q = q;
+    if (c === S.city) continue;
+    ctx.beginPath(); ctx.arc(q[0], q[1], c === S.hoverCity ? 4 : 1.9, 0, 2 * Math.PI);
+    ctx.fillStyle = c === S.hoverCity ? MAP_COL.cityHi : MAP_COL.city; ctx.fill();
+  }
+}
+function drawSelected(ctx, proj) {
+  const q = proj([S.city.lon, S.city.lat]);
+  if (!q) return;
+  ctx.beginPath(); ctx.arc(q[0], q[1], 7.5, 0, 2 * Math.PI); ctx.fillStyle = MAP_COL.halo; ctx.fill();
+  ctx.beginPath(); ctx.arc(q[0], q[1], 6, 0, 2 * Math.PI); ctx.lineWidth = 2.4; ctx.strokeStyle = MAP_COL.accent; ctx.stroke();
+  ctx.beginPath(); ctx.arc(q[0], q[1], 2.6, 0, 2 * Math.PI); ctx.fillStyle = MAP_COL.cityHi; ctx.fill();
+}
+function drawHoverMarkers(ctx, projected) {
+  if (S.hoverH == null) return;
+  for (let hi = 0; hi < 3; hi++) {
+    const pts = projected[hi];
+    const q = pts && pts[S.hoverH];
+    if (!q) continue;
+    ctx.beginPath(); ctx.arc(q[0], q[1], 7, 0, 2 * Math.PI); ctx.fillStyle = MAP_COL.halo; ctx.fill();
+    ctx.beginPath(); ctx.arc(q[0], q[1], 5, 0, 2 * Math.PI); ctx.fillStyle = HCOL[hi]; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#F2EEE3'; ctx.stroke();
+  }
+}
+
+function renderMap(ctx, w, h, scale, opts = {}) {
+  const proj = makeProjection(S.view, w, h);
+  drawBase(ctx, proj, w, h, scale);
+  drawCities(ctx, proj, w, h);
+  if (S.unc) {
+    const a = S.manifest.arrivals[S.ai];
+    const ens = S.ens[S.city.id + '/' + a.t];
+    if (ens && ens.__value) drawPlume(ctx, proj, w, h, scale, ens.__value, opts.grow ?? 1);
+  }
+  const projected = drawTrajectories(ctx, proj, opts.grow ?? 1);
+  drawSelected(ctx, proj);
+  if (!opts.noHover) drawHoverMarkers(ctx, projected);
+  return { proj, projected };
+}
+
+// ── height strip ────────────────────────────────────────────────────
+function niceMax(v) {
+  const steps = [1000, 1500, 2000, 3000, 4000, 5000, 6000, 8000, 10000, 12000];
+  return steps.find(s => s >= v * 1.05) || Math.ceil(v / 2000) * 2000;
+}
+function renderStrip(ctx, w, h, scale, opts = {}) {
+  const T = S.dur;
+  const L = 78, R = 44, Tp = 16, B = 40;
+  ctx.fillStyle = '#262B27'; ctx.fillRect(0, 0, w, h);
+  const ens = S.unc ? S.ens[S.city.id + '/' + S.manifest.arrivals[S.ai].t]?.__value : null;
+  const M = S.manifest.ensemble.members.length - 1, every = S.manifest.memberEvery;
+  let zmax = 0;
+  for (let hi = 0; hi < 3; hi++) {
+    if (!S.hv[hi]) continue;
+    const p = centre(S.ai, hi);
+    for (let k = 0; k <= T; k++) if (!isNaN(p[k * 3 + 2])) zmax = Math.max(zmax, p[k * 3 + 2]);
+    if (ens) for (let m = 0; m < M; m++) { const e = ens[hi * M + m]; for (let k = 0; k <= T / every; k++) if (!isNaN(e[k * 3 + 2])) zmax = Math.max(zmax, e[k * 3 + 2]); }
+  }
+  const ymax = niceMax(Math.max(zmax, 1000));
+  const X = k => L + (1 - k / T) * (w - L - R);        // k hours before arrival; arrival at right
+  const Y = z => Tp + (1 - z / ymax) * (h - Tp - B);
+  // grid + axes
+  ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = '#A6A499';
+  ctx.strokeStyle = 'rgba(232,228,217,0.08)'; ctx.lineWidth = 1;
+  const ystep = ymax <= 2000 ? 500 : ymax <= 6000 ? 1000 : 2000;
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let z = 0; z <= ymax; z += ystep) {
+    ctx.beginPath(); ctx.moveTo(L, Y(z)); ctx.lineTo(w - R, Y(z)); ctx.stroke();
+    ctx.fillText(z.toLocaleString('en-US'), L - 8, Y(z));
+  }
+  const xstep = T <= 24 ? 3 : T <= 48 ? 6 : T <= 72 ? 12 : 24;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 0; k <= T; k += xstep) {
+    ctx.beginPath(); ctx.moveTo(X(k), Tp); ctx.lineTo(X(k), h - B); ctx.stroke();
+    ctx.fillText(k === 0 ? 'arrival' : `−${k} h`, X(k), h - B + 6);
+  }
+  ctx.save(); ctx.translate(16, Tp + (h - Tp - B) / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('m above ground', 0, 0); ctx.restore();
+  // ensemble bands (min–max faint, middle half stronger)
+  if (ens) {
+    const n = Math.floor(T / every) + 1;
+    for (let hi = 2; hi >= 0; hi--) {
+      if (!S.hv[hi]) continue;
+      const c0 = centre(S.ai, hi);
+      const qs = [];
+      for (let k = 0; k < n; k++) {
+        const v = [];
+        for (let m = 0; m < M; m++) { const z = ens[hi * M + m][k * 3 + 2]; if (!isNaN(z)) v.push(z); }
+        const z0 = c0[k * every * 3 + 2]; if (!isNaN(z0)) v.push(z0);
+        if (v.length < 3) { qs.push(null); continue; }
+        v.sort((a, b) => a - b);
+        const at = f => v[Math.round(f * (v.length - 1))];
+        qs.push([v[0], at(0.25), at(0.75), v[v.length - 1]]);
+      }
+      for (const [lo, hiq, a] of [[0, 3, 0.12], [1, 2, 0.22]]) {
+        ctx.beginPath();
+        let started = false, last = -1;
+        for (let k = 0; k < n; k++) { if (!qs[k]) break; const x = X(k * every), y = Y(qs[k][hiq]); started ? ctx.lineTo(x, y) : ctx.moveTo(x, y); started = true; last = k; }
+        for (let k = last; k >= 0; k--) ctx.lineTo(X(k * every), Y(qs[k][lo]));
+        ctx.closePath(); ctx.fillStyle = rgba(HCOL[hi], a); ctx.fill();
+      }
+    }
+  }
+  // centre lines
+  const upto = Math.floor(T * (opts.grow ?? 1) + 1e-6);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (let hi = 2; hi >= 0; hi--) {
+    if (!S.hv[hi]) continue;
+    const p = centre(S.ai, hi);
+    ctx.beginPath(); let pen = false;
+    for (let k = 0; k <= upto; k++) { const z = p[k * 3 + 2]; if (isNaN(z)) break; pen ? ctx.lineTo(X(k), Y(z)) : ctx.moveTo(X(k), Y(z)); pen = true; }
+    ctx.lineWidth = 2.6; ctx.strokeStyle = HCOL[hi]; ctx.stroke();
+  }
+  // hover cursor
+  if (!opts.noHover && S.hoverH != null && S.hoverH <= T) {
+    const x = X(S.hoverH);
+    ctx.strokeStyle = 'rgba(242,238,227,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(x, Tp); ctx.lineTo(x, h - B); ctx.stroke(); ctx.setLineDash([]);
+    for (let hi = 0; hi < 3; hi++) {
+      if (!S.hv[hi]) continue;
+      const z = centre(S.ai, hi)[S.hoverH * 3 + 2];
+      if (isNaN(z)) continue;
+      ctx.beginPath(); ctx.arc(x, Y(z), 4.5, 0, 2 * Math.PI); ctx.fillStyle = HCOL[hi]; ctx.fill();
+      ctx.lineWidth = 1.6; ctx.strokeStyle = '#F2EEE3'; ctx.stroke();
+    }
+  }
+  return { X, Y, L, R, T };
+}
+
+// ── draw loop ───────────────────────────────────────────────────────
+let raf = 0, lastMap = null, lastStrip = null;
+function draw() { if (!raf) raf = requestAnimationFrame(frame); }
+function frame(now) {
+  raf = 0;
+  if (!S.city || !S.view) return;
+  let more = false;
+  if (S.viewAnim) {
+    const t = Math.min(1, (now - S.viewAnim.t0) / 550), e = ease(t), a = S.viewAnim;
+    S.view = { k: Math.exp(lerp(Math.log(a.from.k), Math.log(a.to.k), e)), x: lerp(a.from.x, a.to.x, e), y: lerp(a.from.y, a.to.y, e) };
+    if (t >= 1) { S.view = a.to; S.viewAnim = null; } else more = true;
+  }
+  if (S.grow < 1) { S.grow = Math.min(1, (now - S.growStart) / 700); if (S.grow < 1) more = true; }
+  const ens = S.ens[S.city.id + '/' + S.manifest.arrivals[S.ai].t];
+  if (ens && !ens.__value && !ens.__pending) { ens.__pending = true; ens.then(v => { ens.__value = v; draw(); }); }
+  const ms = mapSize();
+  const mctx = setupCanvas($('map'), ms.w, ms.h, dpr);
+  lastMap = renderMap(mctx, ms.w, ms.h, dpr, { grow: ease(S.grow) });
+  const ss = stripSize();
+  const sctx = setupCanvas($('strip'), ss.w, ss.h, dpr);
+  lastStrip = renderStrip(sctx, ss.w, ss.h, dpr, { grow: ease(S.grow) });
+  if (more) draw();
+}
+
+// ── interaction ─────────────────────────────────────────────────────
+function showTip(px, py, card) {
+  const tip = $('tip');
+  if (S.hoverH == null) { tip.hidden = true; return; }
+  const a = S.manifest.arrivals[S.ai];
+  const t = new Date(parseKey(a.t).getTime() - S.hoverH * 3600e3);
+  const tz = TZ[S.city.tz] || 'UTC';
+  const when = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: 'numeric', timeZoneName: 'short' }).format(t);
+  let rows = '';
+  for (let hi = 0; hi < 3; hi++) {
+    if (!S.hv[hi]) continue;
+    const p = centre(S.ai, hi), k = S.hoverH * 3;
+    if (isNaN(p[k])) continue;
+    const lat = p[k], lon = ((p[k + 1] + 540) % 360) - 180;
+    rows += `<div class="t-row"><span class="t-dot" style="background:${HCOL[hi]}"></span>${S.manifest.heights[hi]} m → ${Math.round(p[k + 2]).toLocaleString('en-US')} m · ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1)}°${lon < 0 ? 'W' : 'E'}</div>`;
+  }
+  tip.innerHTML = `<div class="t-h">−${S.hoverH} h · ${when}</div>${rows}`;
+  tip.hidden = false;
+  const cw = card.clientWidth, tw = tip.offsetWidth, th = tip.offsetHeight;
+  let x = px + 16, y = py + 16;
+  if (x + tw > cw - 6) x = px - tw - 16;
+  if (y + th > card.clientHeight - 6) y = py - th - 16;
+  tip.style.left = Math.max(6, x) + 'px'; tip.style.top = Math.max(6, y) + 'px';
+}
+
+function onMapMove(e) {
+  if (!lastMap) return;
+  const r = $('map').getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
+  // nearest trajectory point
+  let best = null, bd = 14 * 14;
+  lastMap.projected.forEach((pts, hi) => {
+    if (!pts) return;
+    for (let k = 0; k <= S.dur && k < pts.length; k++) {
+      const q = pts[k]; if (!q) continue;
+      const d = (q[0] - px) ** 2 + (q[1] - py) ** 2;
+      if (d < bd) { bd = d; best = k; }
+    }
+  });
+  // nearest city dot
+  let city = null, cd = 9 * 9;
+  if (best == null) for (const c of S.cities) { if (!c._q || c === S.city) continue; const d = (c._q[0] - px) ** 2 + (c._q[1] - py) ** 2; if (d < cd) { cd = d; city = c; } }
+  S.hoverH = best; S.hoverCity = city;
+  $('map').style.cursor = city ? 'pointer' : 'crosshair';
+  if (city) {
+    const tip = $('tip'); tip.innerHTML = `<div class="t-row">${city.name}, ${city.st}</div>`; tip.hidden = false;
+    tip.style.left = Math.min(px + 14, r.width - tip.offsetWidth - 6) + 'px'; tip.style.top = (py + 14) + 'px';
+  } else showTip(px, py, $('map-card'));
+  draw();
+}
+function onStripMove(e) {
+  if (!lastStrip) return;
+  const r = $('strip').getBoundingClientRect(), px = e.clientX - r.left;
+  const { L, R, T } = lastStrip;
+  const f = (px - L) / (r.width - L - R);
+  if (f < -0.02 || f > 1.02) { S.hoverH = null; $('tip').hidden = true; draw(); return; }
+  S.hoverH = Math.max(0, Math.min(T, Math.round((1 - f) * T)));
+  // tooltip sits on the map card, anchored near the parcel positions
+  const q = lastMap?.projected.find(p => p && p[S.hoverH])?.[S.hoverH];
+  if (q) showTip(q[0], q[1], $('map-card')); else $('tip').hidden = true;
+  draw();
+}
+function clearHover() { S.hoverH = null; S.hoverCity = null; $('tip').hidden = true; draw(); }
+
+// ── week scrubber ───────────────────────────────────────────────────
+function buildWeekLabels() {
+  const arr = S.manifest.arrivals, n = arr.length;
+  const box = $('week-days'); box.innerHTML = '';
+  // thumb travel inset so labels line up with the range thumb
+  const pos = i => `calc(${(i / (n - 1)) * 100}% + ${(0.5 - i / (n - 1)) * 16}px)`;
+  const marks = [];
+  let lastDay = null;
+  arr.forEach((a, i) => {
+    const p = localDayParts(a.t, S.city);
+    if (p.day !== lastDay && p.hour < 3) marks.push({ i, p });
+    if (p.hour < 3) lastDay = p.day;
+  });
+  const per = (box.clientWidth || 600) / Math.max(1, marks.length);
+  const every = per < 30 ? 2 : 1, short = per * every < 62;
+  marks.forEach(({ i, p }, j) => {
+    if (j % every) return;
+    const s = document.createElement('span');
+    s.textContent = short ? p.day : `${p.wd} ${p.day}`;
+    s.style.left = pos(i); box.appendChild(s);
+  });
+  const f0 = arr.findIndex(a => a.kind === 'forecast');
+  const band = $('fc-band');
+  if (f0 < 0) band.hidden = true;
+  else { band.hidden = false; band.style.left = pos(f0); band.style.right = '8px'; }
+}
+function togglePlay(force) {
+  const on = force ?? !S.playing;
+  if (!on) { clearInterval(S.playing); S.playing = null; $('play').innerHTML = '&#9654; Play'; return; }
+  if (S.ai >= latestAnalysis()) { S.ai = 0; updateArrival(); }
+  $('play').innerHTML = '&#10074;&#10074; Pause';
+  S.playing = -1;
+  refit(true, 'week');
+  S.playing = setInterval(() => {
+    if (S.ai >= S.manifest.arrivals.length - 1) { togglePlay(false); return; }
+    setArrival(S.ai + 1);
+  }, 450);
+}
+
+// ── search ──────────────────────────────────────────────────────────
+let ddIdx = -1;
+function initSearch() {
+  const inp = $('si'), dd = $('dd');
+  inp.addEventListener('input', () => {
+    ddIdx = -1;
+    const q = inp.value.trim().toLowerCase();
+    if (!q) { dd.classList.remove('open'); return; }
+    const res = [];
+    for (const c of S.cities) {
+      const hitId = c.id.toLowerCase().startsWith(q) || c.id.slice(1).toLowerCase().startsWith(q);
+      const hitName = c.name.toLowerCase().includes(q) || c.st.toLowerCase() === q;
+      if (hitId || hitName) { res.push({ c }); continue; }
+      const ai = c.aliases.findIndex((id, i) => id.toLowerCase().startsWith(q) || id.slice(1).toLowerCase().startsWith(q) || (c.aliasNames[i] || '').toLowerCase().includes(q));
+      if (ai >= 0) res.push({ c, via: c.aliasNames[ai] });
+    }
+    renderDD(res.slice(0, 18));
+  });
+  inp.addEventListener('keydown', e => {
+    const items = dd.querySelectorAll('.d-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); ddIdx = Math.min(ddIdx + 1, items.length - 1); hiDD(items); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); ddIdx = Math.max(ddIdx - 1, 0); hiDD(items); }
+    else if (e.key === 'Enter') { e.preventDefault(); (items[ddIdx >= 0 ? ddIdx : 0])?.click(); }
+    else if (e.key === 'Escape') dd.classList.remove('open');
+  });
+  document.addEventListener('click', e => { if (!$('sw').contains(e.target)) dd.classList.remove('open'); });
+}
+function hiDD(items) { items.forEach((el, i) => { el.classList.toggle('hi', i === ddIdx); if (i === ddIdx) el.scrollIntoView({ block: 'nearest' }); }); }
+function renderDD(res) {
+  const dd = $('dd');
+  if (!res.length) { dd.classList.remove('open'); return; }
+  dd.innerHTML = res.map(({ c, via }) => `<div class="d-item" role="option"><span class="d-id">${c.id}</span><span class="d-name">${c.name}${via ? ` <span class="d-via">· ${via}</span>` : ''}</span><span class="d-st">${c.st}</span></div>`).join('');
+  dd.querySelectorAll('.d-item').forEach((el, i) => el.addEventListener('click', () => { $('si').value = ''; dd.classList.remove('open'); selectCity(res[i].c.id); }));
+  dd.classList.add('open');
+}
+
+// ── PNG export ──────────────────────────────────────────────────────
+async function exportPNG() {
+  const W = 1400, PAD = 36, HEAD = 108, MAPH = Math.round(W * 0.6), GAP = 14, STRIPH = 250, FOOT = 64;
+  const H = HEAD + MAPH + GAP + STRIPH + FOOT;
+  const cv = document.createElement('canvas');
+  const ctx = setupCanvas(cv, W, H, EXPORT_SCALE);
+  ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#948F82'; ctx.font = '700 14px "Courier Prime", monospace';
+  ctx.fillText('[ CONTEXTCLIMATE ]  ·  BACK TRAJECTORIES', PAD, 40);
+  ctx.fillStyle = '#E8E4D9'; ctx.font = '700 32px "Zilla Slab", serif';
+  const a = S.manifest.arrivals[S.ai];
+  ctx.fillText(`${S.city.name}, ${S.city.st}`, PAD, 80);
+  const tw = ctx.measureText(`${S.city.name}, ${S.city.st}`).width;
+  ctx.fillStyle = '#A6A499'; ctx.font = '17px "Courier Prime", monospace';
+  ctx.fillText(`${fmtTime(a.t, S.city, true)}  ·  ${a.kind === 'forecast' ? 'Forecast' : 'Analysis'}  ·  ${S.dur} h`, PAD + tw + 18, 80);
+  // legend (right)
+  ctx.font = '700 15px "Courier Prime", monospace'; ctx.textAlign = 'right';
+  let lx = W - PAD;
+  for (let hi = 2; hi >= 0; hi--) {
+    if (!S.hv[hi]) continue;
+    const t = `${S.manifest.heights[hi]} m`; ctx.fillStyle = '#E8E4D9'; ctx.fillText(t, lx, 80);
+    const w = ctx.measureText(t).width; ctx.fillStyle = HCOL[hi];
+    ctx.beginPath(); ctx.arc(lx - w - 12, 75, 6, 0, 2 * Math.PI); ctx.fill(); lx -= w + 36;
+  }
+  ctx.textAlign = 'left';
+  // map
+  const mw = W - 2 * PAD;
+  ctx.save(); ctx.translate(PAD, HEAD);
+  ctx.beginPath(); ctx.rect(0, 0, mw, MAPH); ctx.clip();
+  baseCache = null;
+  renderMap(ctx, mw, MAPH, EXPORT_SCALE, { noHover: true });
+  ctx.restore();
+  ctx.strokeStyle = 'rgba(232,228,217,0.26)'; ctx.lineWidth = 1; ctx.strokeRect(PAD + 0.5, HEAD + 0.5, mw - 1, MAPH - 1);
+  // strip
+  ctx.save(); ctx.translate(PAD, HEAD + MAPH + GAP);
+  renderStrip(ctx, mw, STRIPH, EXPORT_SCALE, { noHover: true });
+  ctx.restore();
+  ctx.strokeRect(PAD + 0.5, HEAD + MAPH + GAP + 0.5, mw - 1, STRIPH - 1);
+  // footer
+  ctx.fillStyle = '#948F82'; ctx.font = '13px "Public Sans", sans-serif';
+  const foot1 = `Kinematic back trajectories from NOAA GFS analyses${S.unc ? ' · shading: 15-member ensemble (±1 grid cell, ±10 hPa)' : ''} · data: NOAA GFS / NODD`;
+  ctx.fillText(foot1, PAD, H - 30);
+  ctx.textAlign = 'right'; ctx.fillText('contextclimate.io', W - PAD, H - 30); ctx.textAlign = 'left';
+  baseCache = null; draw();
+  const link = document.createElement('a');
+  link.download = `back-trajectories-${S.city.id}-${a.t}.png`;
+  link.href = cv.toDataURL('image/png');
+  link.click();
+}
+
+// ── boot ────────────────────────────────────────────────────────────
+function renderLegend() {
+  $('legend').innerHTML = S.manifest.heights.map((h, i) =>
+    `<span><i style="width:22px;height:3px;border-radius:2px;background:${HCOL[i]}"></i>${h} m start height</span>`).join('') +
+    `<span><i style="width:9px;height:9px;border-radius:50%;background:#A6A499"></i>12 h · 24 h marks</span>` +
+    (S.unc ? `<span><i style="width:22px;height:10px;border-radius:5px;background:linear-gradient(90deg,rgba(166,164,153,.15),rgba(166,164,153,.45),rgba(166,164,153,.15))"></i>ensemble spread</span>` : '');
+}
+function bind() {
+  document.querySelectorAll('#hchips .tr-hchip').forEach((b, i) => {
+    b.querySelector('.dot').style.background = HCOL[i];
+    b.style.color = '#F2EEE3';
+    b.addEventListener('click', () => {
+      const next = S.hv.slice(); next[i] = !next[i];
+      if (!next.some(Boolean)) return;
+      S.hv = next; b.classList.toggle('is-active', next[i]);
+      refit(true);
+    });
+  });
+  document.querySelectorAll('#dur .cc-segmented-btn').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('#dur .cc-segmented-btn').forEach(x => x.classList.toggle('is-active', x === b));
+    S.dur = +b.dataset.h; startGrow(); refit(true);
+  }));
+  $('unc').addEventListener('click', () => {
+    S.unc = !S.unc; $('unc').classList.toggle('is-active', S.unc); $('unc').setAttribute('aria-pressed', S.unc);
+    renderLegend(); updateArrival();
+  });
+  $('prev').addEventListener('click', () => { togglePlay(false); setArrival(S.ai - 1, true); });
+  $('next').addEventListener('click', () => { togglePlay(false); setArrival(S.ai + 1, true); });
+  $('latest').addEventListener('click', () => { togglePlay(false); setArrival(latestAnalysis(), true); });
+  $('week').addEventListener('input', e => {
+    togglePlay(false);
+    if (!S.scrubbing) { S.scrubbing = true; S.playing = -1; refit(true, 'week'); S.playing = null; }
+    S.ai = +e.target.value; updateArrival();
+  });
+  $('week').addEventListener('change', () => { S.scrubbing = false; refit(true, 'current'); });
+  $('play').addEventListener('click', () => togglePlay());
+  $('png').addEventListener('click', () => exportPNG().catch(e => console.error(e)));
+  const map = $('map');
+  map.addEventListener('mousemove', onMapMove);
+  map.addEventListener('mouseleave', clearHover);
+  map.addEventListener('click', e => { onMapMove(e); if (S.hoverCity) { const id = S.hoverCity.id; clearHover(); selectCity(id); } });
+  $('strip').addEventListener('mousemove', onStripMove);
+  $('strip').addEventListener('mouseleave', clearHover);
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft') { togglePlay(false); setArrival(S.ai - 1); }
+    else if (e.key === 'ArrowRight') { togglePlay(false); setArrival(S.ai + 1); }
+  });
+  let rt = 0;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { dpr = window.devicePixelRatio || 1; baseCache = null; plumeCache = null; if (S.city) buildWeekLabels(); draw(); }, 120); });
+}
+
+async function boot() {
+  if (typeof DecompressionStream === 'undefined') { $('map-msg').textContent = 'This browser is too old to read the trajectory data.'; return; }
+  try {
+    if (document.fonts && document.fonts.ready) await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 1500))]);
+    const [m, c, b] = await Promise.all([
+      fetch(DATA + 'manifest.json', { cache: 'no-cache' }).then(r => r.json()),
+      fetch(DATA + 'cities.json', { cache: 'no-cache' }).then(r => r.json()),
+      fetch('basemap-trajectory.json').then(r => r.json()),
+    ]);
+    S.manifest = m; S.cities = c.cities; S.base = decodeBase(b);
+    S.cities.forEach(x => S.byId[x.id] = x);
+    $('week').max = m.arrivals.length - 1;
+    S.ai = latestAnalysis();
+    renderLegend(); bind(); initSearch();
+    await selectCity(S.byId[DEFAULT_CITY] ? DEFAULT_CITY : S.cities[0].id);
+  } catch (e) {
+    console.error(e);
+    $('map-msg').textContent = 'Trajectory data is unavailable right now.';
+  }
+}
+boot();
+</script>
+</body>
+</html>
