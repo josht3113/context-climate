@@ -106,6 +106,7 @@ const SECTIONS = [
         description:'Where the air arriving at about 290 U.S. cities came from: 24- to 120-hour back trajectories at three heights, with ensemble uncertainty, for every 3 hours of the past week plus tomorrow.',
         footerTags: ['GFS', 'Ensemble', 'Air Mass Origin'],
         to:         '/back-trajectories',
+        thumb:      '/BackTrajectories_thumbnail.png',
       },
       {
         tags:       ['Cape May–Boston', 'Updates Continuously'],
