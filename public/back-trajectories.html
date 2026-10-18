@@ -236,8 +236,15 @@ function localDayParts(key, city) {
 function decodeBase(b) {
   const s = Math.pow(10, b.q);
   const ring = f => { const c = []; let x = 0, y = 0; for (let i = 0; i < f.length; i += 2) { x += f[i]; y += f[i + 1]; c.push([x / s, y / s]); } return c; };
+  const hi = (b.landHi || b.land).map(p => {
+    const rings = p.map(ring);
+    let x0 = 180, x1 = -180, y0 = 90, y1 = -90;
+    for (const [x, y] of rings[0]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return { rings, bbox: [x0, y0, x1, y1] };
+  });
   return {
     land: { type: 'MultiPolygon', coordinates: b.land.map(p => p.map(ring)) },
+    landHi: hi,
     lakes: { type: 'MultiPolygon', coordinates: b.lakes.map(p => p.map(ring)) },
     admin0: { type: 'MultiLineString', coordinates: b.admin0.map(ring) },
     admin1: { type: 'MultiLineString', coordinates: b.admin1.map(ring) },
@@ -374,19 +381,46 @@ function setupCanvas(cv, w, h, scale) {
 
 // ── map rendering ───────────────────────────────────────────────────
 let baseCache = null;   // {key, canvas}
+const LAND_HI_PX = 30;  // pixels per degree of latitude above which the detailed coastline is drawn
+
+// detailed land, only the polygons whose bounding box meets the view
+function landInView(proj, w, h) {
+  const n = proj([0, 90]);
+  let x0 = 180, x1 = -180, y0 = 90, y1 = -90, ok = true;
+  if (n && n[0] >= 0 && n[0] <= w && n[1] >= 0 && n[1] <= h) { x0 = -180; x1 = 180; y1 = 90; }
+  for (let i = 0; i <= 12; i++) {
+    for (const [px, py] of [[w * i / 12, 0], [w * i / 12, h], [0, h * i / 12], [w, h * i / 12]]) {
+      const g = proj.invert([px, py]);
+      if (!g || !isFinite(g[0]) || !isFinite(g[1])) { ok = false; continue; }
+      x0 = Math.min(x0, g[0]); x1 = Math.max(x1, g[0]); y0 = Math.min(y0, g[1]); y1 = Math.max(y1, g[1]);
+    }
+  }
+  if (!ok || x1 - x0 > 180) { x0 = -180; x1 = 180; }
+  const m = 1;  // degrees of slack
+  return { type: 'MultiPolygon', coordinates: S.base.landHi
+    .filter(({ bbox: b }) => b[2] >= x0 - m && b[0] <= x1 + m && b[3] >= y0 - m && b[1] <= y1 + m)
+    .map(p => p.rings) };
+}
+
 function drawBase(ctx, proj, w, h, scale) {
   const key = `${w}x${h}@${scale}|${S.view.k.toFixed(5)},${S.view.x.toFixed(5)},${S.view.y.toFixed(5)}`;
   if (!baseCache || baseCache.key !== key || scale !== dpr) {
     const cv = document.createElement('canvas');
     const c = setupCanvas(cv, w, h, scale);
     const path = d3.geoPath(proj, c);
+    // coastlines are already dense: skip adaptive resampling for them
+    const dense = d3.geoPath(makeProjection(S.view, w, h).precision(0), c);
+    const a = proj([-100, 45]), b = proj([-100, 46]);
+    const pxPerDeg = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    // detailed coast when zoomed in and settled (not mid-zoom), and always for the PNG export
+    const land = scale !== dpr || (pxPerDeg > LAND_HI_PX && !S.viewAnim) ? landInView(proj, w, h) : S.base.land;
     c.fillStyle = MAP_COL.ocean; c.fillRect(0, 0, w, h);
     c.beginPath(); path(GRAT); c.strokeStyle = MAP_COL.grat; c.lineWidth = 1; c.stroke();
-    c.beginPath(); path(S.base.land); c.fillStyle = MAP_COL.land; c.fill('evenodd');
-    c.beginPath(); path(S.base.lakes); c.fillStyle = MAP_COL.lake; c.fill();
+    c.beginPath(); dense(land); c.fillStyle = MAP_COL.land; c.fill('evenodd');
+    c.beginPath(); dense(S.base.lakes); c.fillStyle = MAP_COL.lake; c.fill();
     c.beginPath(); path(S.base.admin1); c.strokeStyle = MAP_COL.admin1; c.lineWidth = 0.8; c.stroke();
     c.beginPath(); path(S.base.admin0); c.strokeStyle = MAP_COL.admin0; c.lineWidth = 1.1; c.stroke();
-    c.beginPath(); path(S.base.land); path(S.base.lakes); c.strokeStyle = MAP_COL.coast; c.lineWidth = 0.9; c.stroke();
+    c.beginPath(); dense(land); dense(S.base.lakes); c.strokeStyle = MAP_COL.coast; c.lineWidth = 0.9; c.stroke();
     if (scale !== dpr) { ctx.drawImage(cv, 0, 0, w, h); return; }
     baseCache = { key, canvas: cv };
   }
