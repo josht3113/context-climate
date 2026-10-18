@@ -49,6 +49,7 @@ TOL_LO = 0.07             # land for the zoomed-out view
 MIN_LAND = 0.15           # deg² — drop smaller islands
 MIN_LAKE = 1.0            # deg² — keep only large lakes
 LAKE_TOL = 0.02           # lakes are small; simplify them less
+STEP = 0.5                # deg — longest segment written (see densify)
 MIN_SEG = 0.08            # deg — drop boundary stubs shorter than this after clipping
 ADMIN1 = {'USA', 'CAN'}   # from 1:50m
 ADMIN1_10 = {'MEX'}       # from 1:10m
@@ -80,10 +81,25 @@ def lines(g):
     return []
 
 
+def densify(coords):
+    """d3 draws each segment as a great-circle arc, so a long segment along a parallel
+    (the 49th, the Nunavut lines, the 10°S clip edge) bows poleward. Add points so no
+    segment spans more than STEP degrees and lines stay on their parallels."""
+    if not coords:
+        return coords
+    out = [coords[0]]
+    for (x0, y0), (x1, y1) in zip(coords, coords[1:]):
+        n = int(max(abs(x1 - x0), abs(y1 - y0)) // STEP)
+        for k in range(1, n + 1):
+            out.append((x0 + (x1 - x0) * k / (n + 1), y0 + (y1 - y0) * k / (n + 1)))
+        out.append((x1, y1))
+    return out
+
+
 def enc(coords):
     s = 10 ** Q
     out, px, py = [], 0, 0
-    for x, y in coords:
+    for x, y in densify(list(coords)):
         ix, iy = round(x * s), round(y * s)
         out += [ix - px, iy - py]
         px, py = ix, iy
