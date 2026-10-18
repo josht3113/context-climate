@@ -477,10 +477,10 @@ const SECTIONS = [
         thumb:      '/SolarCalendar_thumbnail.png',
       },
       {
-        tags:       ['Sunrise & Sunset', 'Global Cities'],
+        tags:       ['Sunrise & Sunset', 'Global Cities', 'Interactive'],
         title:      'Sunrise & Sunset Calendar',
-        description:'Daily sunrise and sunset clock times across the full year — revealing how the earliest sunrise and latest sunset are offset from the solstice by the equation of time.',
-        footerTags: ['Sunrise', 'Sunset', 'Equation of Time'],
+        description:'Sunrise, sunset and twilight for any city or US station in any year — a daylight band with DST steps, solar-noon drift, the analemma, and a day-by-day calendar of clock times.',
+        footerTags: ['Daylight Band', 'Twilight', 'Analemma'],
         to:         '/sunrise-sunset-calendar',
         thumb:      '/SunriseSunsetCalendar_thumbnail.png',
       },
