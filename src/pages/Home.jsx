@@ -101,6 +101,13 @@ const SECTIONS = [
         thumb:      '/SurfaceAnalysis_thumbnail.png',
       },
       {
+        tags:       ['US Cities', 'Updates Every 6 Hours'],
+        title:      'Back Trajectories',
+        description:'Where the air arriving at about 290 U.S. cities came from: 24- to 120-hour back trajectories at three heights, with ensemble uncertainty, for every 3 hours of the past week plus tomorrow.',
+        footerTags: ['GFS', 'Ensemble', 'Air Mass Origin'],
+        to:         '/back-trajectories',
+      },
+      {
         tags:       ['Cape May–Boston', 'Updates Continuously'],
         title:      'Tide Watch',
         description:'Live water levels and storm surge at 15 tide gauges from Cape May to Boston, with every major coastal flood ranked against each gauge\'s full record.',
