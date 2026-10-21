@@ -552,15 +552,6 @@ const SECTIONS = [
         thumb:       '/sky_color_thumbnail.png',
         status:      'live',
       },
-      {
-        tags:        ['Scattering', 'Clouds', 'Interactive'],
-        title:       'Cloud Shades',
-        description: 'Stack identical cloud sheets one at a time and watch the same cloud turn brighter from above and darker from below. Follow sunlight photon by photon through the layer, or see the clouds in 3D.',
-        footerTags:  ['Optical Depth', 'Albedo', 'Cloud Brightness'],
-        to:          '/earthandspace/cloud-shades',
-        thumb:       '/cloud_shades_thumbnail.png',
-        status:      'live',
-      },
     ],
   },
 
