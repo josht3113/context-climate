@@ -36,7 +36,7 @@ const SECTIONS = [
       {
         tags:        ['ESSRT', 'Page 3', 'Interactive'],
         title:       'Electromagnetic Spectrum & Emission Spectra',
-        description: "Explore ESSRT page 3 interactively — race two waves, size them against real objects, and fire photons at molecules to see what one photon's energy can do.",
+        description: "Explore ESSRT page 3 interactively — jump to radio, visible light or X-rays, race two waves, fire photons at molecules, and read the emission spectra of six elements line by line.",
         footerTags:  ['Wavelength', 'Frequency', 'Photon Energy'],
         to:          '/ESSRT_3',
         thumb:       '/ESSRT_3_thumbnail.png',
