@@ -341,6 +341,22 @@ const SECTIONS = [
         thumb:      '/SeaiceHeatmap_thumbnail.png',
       },
       {
+        tags:       ['Arctic', 'Daily'],
+        title:      'Sea Ice Volume Explorer',
+        description:'Daily Arctic sea ice volume and thickness since 1979 — compare years against decade averages, and trace each year through extent and volume together.',
+        footerTags: ['PIOMAS', '1979–Present', 'Extent vs Volume'],
+        to:         '/seaice-volume-explorer',
+        thumb:      '/SeaIceVolumeExplorer_thumbnail.png',
+      },
+      {
+        tags:       ['Arctic', 'Monthly'],
+        title:      'Sea Ice Volume Heatmap',
+        description:'Every month since 1979 in one grid — volume, thickness or daily growth and melt, with per-month trends over the full record or from 2010.',
+        footerTags: ['PIOMAS', 'Anomaly ⇄ Raw', 'Trend Window'],
+        to:         '/seaice-volume-heatmap',
+        thumb:      '/SeaIceVolumeHeatmap_thumbnail.png',
+      },
+      {
         tags:       ['NOAA GML', '1979–Present'],
         title:      'Greenhouse Gas Tracker',
         description:'Forty-six years of measured atmospheric composition — 22 long-lived gases from CO₂ to HFCs, plotted alongside NOAA’s Annual Greenhouse Gas Index and its radiative-forcing breakdown.',

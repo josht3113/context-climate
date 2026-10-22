@@ -94,6 +94,8 @@ import SunsPath                    from './pages/SunsPath'
 import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
 import SeaIceHeatmap               from './pages/SeaIceHeatmap'
+import SeaIceVolumeExplorer        from './pages/SeaIceVolumeExplorer'
+import SeaIceVolumeHeatmap         from './pages/SeaIceVolumeHeatmap'
 import JetStream                   from './pages/JetStream'
 import FrontsCrossSection         from './pages/FrontsCrossSection'
 import FrontsMapAnalysis          from './pages/FrontsMapAnalysis'
@@ -257,6 +259,8 @@ export default function App() {
           <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
           <Route path="/seaice-heatmap"                            element={<SeaIceHeatmap />}             />
+          <Route path="/seaice-volume-explorer"                    element={<SeaIceVolumeExplorer />}      />
+          <Route path="/seaice-volume-heatmap"                     element={<SeaIceVolumeHeatmap />}       />
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
           <Route path="/earthandspace/fronts-cross-section"        element={<FrontsCrossSection />}        />
           <Route path="/earthandspace/fronts-map-analysis"         element={<FrontsMapAnalysis />}         />
