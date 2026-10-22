@@ -20,6 +20,11 @@
       0 ka   e=0.016724  eps=23.446 deg  (peri-180)=102.04 deg
       6 ka   e=0.018682  eps=24.105 deg  (peri-180)=  0.87 deg
      21 ka   e=0.018994  eps=22.949 deg  (peri-180)=114.42 deg
+
+   OBLIQUITY OFFSET — orbit() adds OBLIQ_OFFSET (~+0.054 deg) to every
+   obliquity value so that today (0 ka) is exactly 23.5 deg, the Regents
+   value used across ContextClimate. Cycle timing and amplitude are
+   untouched; the PMIP check above refers to the raw Berger values.
    ══════════════════════════════════════════════════════════════════════ */
 (function (global) {
 'use strict';
@@ -204,7 +209,7 @@ function orbit(ageBP) {
     arg = D2R * (ym * T_OBL[i][1] / 3600 + T_OBL[i][2]);
     s += T_OBL[i][0] * Math.cos(arg);
   }
-  var obliquity = OBLIQ0 + s / 3600;
+  var obliquity = OBLIQ0 + s / 3600 + OBLIQ_OFFSET;
 
   var esin = 0, ecos = 0;
   for (i = 0; i < T_ECC.length; i++) {
@@ -230,6 +235,11 @@ function orbit(ageBP) {
     precession: e * Math.sin(longPeri * D2R)
   };
 }
+
+/* Shift the whole obliquity curve so 0 ka reads exactly OBLIQ_TODAY. */
+var OBLIQ_TODAY = 23.5;
+var OBLIQ_OFFSET = 0;
+OBLIQ_OFFSET = OBLIQ_TODAY - orbit(0).obliquity;
 
 /* ──────────────────────────────────────────────────────────────────────
    INSOLATION
@@ -288,7 +298,7 @@ function summerHalfYearDays(o) {
    true meaning "hold this one fixed".
    Holding eccentricity fixes the amplitude of the precession term
    without silencing it, which is what eccentricity physically does. */
-var MEAN_800K = { e: 0.0275, obliquity: 23.4457, longPeri: 180 };
+var MEAN_800K = { e: 0.0275, obliquity: 23.4457 + OBLIQ_OFFSET, longPeri: 180 };
 
 function q65JuneWith(ageBP, hold) {
   var o = orbit(ageBP);
@@ -473,6 +483,8 @@ global.MILANKOVITCH = {
   meltSeason: meltSeason,
   MELT_DEFAULTS: MELT_DEFAULTS,
   MEAN_800K: MEAN_800K,
+  OBLIQ_TODAY: OBLIQ_TODAY,
+  OBLIQ_OFFSET: OBLIQ_OFFSET,
   PALETTE: PALETTE,
   TIME: TIME,
   EVENTS: EVENTS,
