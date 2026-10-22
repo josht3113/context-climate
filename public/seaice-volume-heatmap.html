@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea Ice Volume Heatmap · Context Climate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<style>
+  :root {
+    --tool-accent: var(--accent-climate);
+    --current: #F5D742;
+    --warn: #d9a441;
+  }
+  body { padding: 22px 24px 52px; max-width: 1320px; margin: 0 auto; font-size: 17px; }
+
+  .cc-eyebrow { color: var(--tool-accent); margin-bottom: 6px; }
+  .cc-title { margin: 0 0 6px; }
+  .freshness { font-size: 15px; color: var(--color-text-muted); margin-bottom: 4px; }
+  .status-line { font-size: 14px; color: var(--warn); margin-bottom: 4px; min-height: 1em; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0 18px; }
+  .chips .cc-stat-chip { min-width: 170px; padding: 10px 16px; }
+  .chips .cc-stat-note { font-size: 14px; }
+  #chipLatestV { color: var(--current); }
+
+  .controls { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .ctl { display: flex; flex-direction: column; gap: 5px; }
+  .ctl-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-muted); }
+  .ctl .cc-segmented { margin-bottom: 0; }
+  .ctl .cc-segmented-btn { font-size: 13px; padding: 7px 14px; }
+  .ctl .cc-segmented-btn[disabled] { opacity: 0.4; cursor: default; }
+  .control-spacer { flex: 1 1 auto; }
+  #downloadBtn.cc-btn { border-color: var(--tool-accent); color: var(--tool-accent); background: transparent; }
+  #downloadBtn.cc-btn:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
+
+  .chart-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 18px 18px 14px;
+    margin-bottom: 18px;
+  }
+  .chart-outer { overflow-x: auto; position: relative; }
+  .chart-stack { position: relative; }
+  .chart-stack canvas { display: block; }
+  #hoverLayer { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .chart-status { display: flex; align-items: center; justify-content: center; min-height: 360px; color: var(--color-text-muted); font-size: 15px; }
+
+  .legend-block { margin-top: 14px; }
+  .legend-title { font-family: var(--font-mono); font-size: 13px; letter-spacing: 0.06em; color: var(--color-text-secondary); margin-bottom: 6px; }
+  #legendCanvas { display: block; width: 100%; max-width: 640px; height: 16px; border-radius: 2px; }
+  .legend-ticks { position: relative; max-width: 640px; height: 18px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); }
+  .legend-ticks span { position: absolute; transform: translateX(-50%); top: 2px; white-space: nowrap; }
+  .legend-bands { display: flex; justify-content: space-between; max-width: 640px; font-size: 13px; color: var(--color-text-muted); margin-top: 4px; }
+  .legend-keys { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 13px; color: var(--color-text-secondary); }
+  .legend-key { display: inline-flex; align-items: center; gap: 6px; }
+  .key-swatch { width: 14px; height: 14px; border-radius: 2px; display: inline-block; }
+  .key-swatch.nodata { background: #1E2320; border: 1px solid rgba(232,228,217,0.2); }
+  .key-swatch.partial { background: repeating-linear-gradient(45deg, #6b6f66 0 2px, transparent 2px 5px); border: 1px solid rgba(232,228,217,0.25); }
+  .key-swatch.trend-sig { background: #c96a2c; }
+  .key-swatch.trend-ns { border: 1.5px solid #c96a2c; background: transparent; }
+  .key-swatch.win { background: rgba(208,132,37,0.18); border: 1px solid rgba(208,132,37,0.6); }
+
+  .footer { font-size: 13px; color: var(--color-text-muted); line-height: 1.55; max-width: 980px; }
+  .footer .fn { font-style: italic; margin-bottom: 6px; }
+  .footer .cite { font-size: 12px; }
+
+  .tooltip {
+    position: fixed; z-index: 10; pointer-events: none; display: none;
+    background: #2C322D; border: 1px solid rgba(232,228,217,0.22); border-radius: 6px;
+    padding: 9px 12px; min-width: 170px; box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  }
+  .tt-period { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); letter-spacing: 0.05em; }
+  .tt-value { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--color-text-primary); }
+  .tt-sub { font-size: 14px; color: var(--color-text-secondary); line-height: 1.45; }
+  .tt-badge { display: none; margin-top: 4px; font-family: var(--font-mono); font-size: 12px; color: var(--warn); }
+
+  @media (max-width: 640px) {
+    body { padding: 16px 16px 40px; }
+    .chips .cc-stat-chip { min-width: 0; flex: 1 1 140px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cc-eyebrow">[ Climate ]</div>
+<h1 class="cc-title">Sea ice volume heatmap</h1>
+<div class="freshness" id="freshness">Loading data&hellip;</div>
+<div class="status-line" id="statusLine"></div>
+
+<div class="chips" id="chipRow">
+  <div class="cc-stat-chip">
+    <span class="cc-stat-label">Latest month</span>
+    <span class="cc-stat-value" id="chipLatestV">&mdash;</span>
+    <span class="cc-stat-note" id="chipLatestN">&nbsp;</span>
+  </div>
+  <div class="cc-stat-chip">
+    <span class="cc-stat-label">Standing</span>
+    <span class="cc-stat-value" id="chipRankV">&mdash;</span>
+    <span class="cc-stat-note" id="chipRankN">&nbsp;</span>
+  </div>
+  <div class="cc-stat-chip">
+    <span class="cc-stat-label" id="chipRecL">Record low</span>
+    <span class="cc-stat-value" id="chipRecV">&mdash;</span>
+    <span class="cc-stat-note" id="chipRecN">&nbsp;</span>
+  </div>
+  <div class="cc-stat-chip">
+    <span class="cc-stat-label" id="chipTrendL">Trend</span>
+    <span class="cc-stat-value" id="chipTrendV">&mdash;</span>
+    <span class="cc-stat-note" id="chipTrendN">&nbsp;</span>
+  </div>
+</div>
+
+<div class="controls">
+  <div class="ctl">
+    <span class="ctl-label">Source</span>
+    <div class="cc-segmented" id="sourceToggle">
+      <button class="cc-segmented-btn is-active" data-v="piomas">PIOMAS</button>
+      <button class="cc-segmented-btn" data-v="cs2">CryoSat-2</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <span class="ctl-label">Field</span>
+    <div class="cc-segmented" id="fieldToggle">
+      <button class="cc-segmented-btn is-active" data-v="volume">Volume</button>
+      <button class="cc-segmented-btn" data-v="thickness">Thickness</button>
+      <button class="cc-segmented-btn" data-v="rate">Daily change</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <span class="ctl-label">Show</span>
+    <div class="cc-segmented" id="modeToggle">
+      <button class="cc-segmented-btn is-active" data-v="anomaly">Anomaly</button>
+      <button class="cc-segmented-btn" data-v="raw">Raw</button>
+    </div>
+  </div>
+  <div class="ctl">
+    <span class="ctl-label">Trend from</span>
+    <div class="cc-segmented" id="windowToggle">
+      <button class="cc-segmented-btn is-active" data-v="full">Full record</button>
+      <button class="cc-segmented-btn" data-v="2010">2010 on</button>
+    </div>
+  </div>
+  <span class="control-spacer"></span>
+  <button class="cc-btn" id="downloadBtn">&#8681;&nbsp; Download PNG</button>
+</div>
+
+<div class="chart-card">
+  <div class="chart-status" id="chartStatus">Loading sea ice data&hellip;</div>
+  <div id="chartInner" style="display:none">
+    <div class="chart-outer" id="chartOuter">
+      <div class="chart-stack">
+        <canvas id="heatmapCanvas" role="img" aria-label="Arctic sea ice volume by month and year"></canvas>
+        <canvas id="hoverLayer"></canvas>
+      </div>
+    </div>
+    <div class="legend-block">
+      <div class="legend-title" id="legendTitle"></div>
+      <canvas id="legendCanvas"></canvas>
+      <div class="legend-ticks" id="legendTicks"></div>
+      <div class="legend-bands" id="legendBands"></div>
+      <div class="legend-keys">
+        <span class="legend-key"><span class="key-swatch nodata"></span>No data</span>
+        <span class="legend-key"><span class="key-swatch partial"></span>Incomplete month</span>
+        <span class="legend-key"><span class="key-swatch trend-sig"></span>Trend significant at 95%</span>
+        <span class="legend-key"><span class="key-swatch trend-ns"></span>No detectable trend</span>
+        <span class="legend-key"><span class="key-swatch win"></span>Trend window</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  <div class="fn" id="footnote"></div>
+  <div class="cite" id="citation"></div>
+</div>
+
+<div class="tooltip" id="tooltip">
+  <div class="tt-period"></div>
+  <div class="tt-value"></div>
+  <div class="tt-sub"></div>
+  <div class="tt-badge">Incomplete month</div>
+</div>
+
+<script>
+(function(){
+
+  // ══════════════════════════════════════════════════════════════
+  // CONFIG
+  // ══════════════════════════════════════════════════════════════
+
+  // 366-slot leap-indexed daily arrays; Feb 29 (slot 59) is always empty for PIOMAS.
+  var MONTH_STARTS = [0,31,60,91,121,152,182,213,244,274,305,335,366];
+  var NOLEAP_DAYS  = [31,28,31,30,31,30,31,31,30,31,30,31];
+  var MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MON_FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var MON_PLURAL = ['Januaries','Februaries','Marches','Aprils','Mays','Junes','Julys','Augusts','Septembers','Octobers','Novembers','Decembers'];
+
+  // Layout (logical px)
+  var LABEL_W = 58, CELL_H = 30, HEADER_H = 24, MARGIN_GAP = 12, MARGIN_W = 150;
+  var STRIP_GAP = 14, STRIP_H = 110, AXIS_H = 26, MIN_CELL_W = 14, MAX_CELL_W = 64;
+  var EXPORT_SCALE = 3;
+
+  var TREND_NEG = '#c96a2c', TREND_POS = '#3c6ea8', SEL_ACCENT = '#D08425', SERIES_INK = '#E8E4D9';
+  var NO_DATA_RGB = [30, 35, 32];
+
+  // Content colours shared with the extent heatmap (fractions of the scale cap).
+  var MORE_ICE = [[0,[42,46,64]],[1/6,[150,195,245]],[1/3,[80,150,225]],[1/2,[40,105,190]],[2/3,[20,70,150]],[1,[10,42,95]]];
+  var LESS_ICE = [[0,[42,46,64]],[1/6,[240,195,120]],[1/3,[225,140,55]],[1/2,[205,85,40]],[2/3,[175,45,32]],[1,[115,20,22]]];
+  var SEQ      = [[0,[12,28,58]],[0.25,[28,72,122]],[0.5,[68,138,190]],[0.75,[150,200,232]],[1,[232,244,250]]];
+
+  var FIELDS = {
+    volume:    { name: 'Volume', unit: 'thousand km³', dp: 2, trendDp: 2,
+                 anomaly: { type: 'div', cap: 8,    ticks: [-8,-6,-4,-2,0,2,4,6,8], bands: ['Less ice', 'More ice'] },
+                 raw:     { type: 'seq', lo: 0, hi: 35, ticks: [0,5,10,15,20,25,30,35] } },
+    thickness: { name: 'Mean thickness', unit: 'm', dp: 2, trendDp: 3,
+                 anomaly: { type: 'div', cap: 0.8,  ticks: [-0.8,-0.6,-0.4,-0.2,0,0.2,0.4,0.6,0.8], bands: ['Thinner', 'Thicker'] },
+                 raw:     { type: 'seq', lo: 0.8, hi: 2.8, ticks: [0.8,1.2,1.6,2.0,2.4,2.8] } },
+    rate:      { name: 'Daily change', unit: 'km³/day', dp: 0, trendDp: 1,
+                 anomaly: { type: 'div', cap: 45,   ticks: [-45,-30,-15,0,15,30,45], bands: ['More melt / less growth', 'Less melt / more growth'] },
+                 raw:     { type: 'div', cap: 250,  ticks: [-250,-200,-150,-100,-50,0,50,100,150,200,250], bands: ['Melt', 'Growth'] } }
+  };
+
+  var SOURCES = {
+    piomas: { rows: [0,1,2,3,4,5,6,7,8,9,10,11], baseStart: 1991, baseEnd: 2020, fields: ['volume','thickness','rate'] },
+    cs2:    { rows: [0,1,2,3,9,10,11],           baseStart: 2011, baseEnd: 2020, fields: ['volume','thickness'] }
+  };
+  var WINDOW_START = { full: null, '2010': 2010 };
+
+  // ══════════════════════════════════════════════════════════════
+  // STATE
+  // ══════════════════════════════════════════════════════════════
+
+  var STATE = {
+    source: 'piomas', field: 'volume', mode: 'anomaly', window: 'full',
+    json: null, daily: {},           // field -> year -> [366]
+    grid: {}, cols: [], rows: [], base: [],
+    latest: null, trends: [], strip: null, stripMonth: null,
+    cellW: MIN_CELL_W, dpr: window.devicePixelRatio || 1,
+    hover: null, pinned: false
+  };
+
+  function $(id){ return document.getElementById(id); }
+  function isNum(v){ return v !== null && v !== undefined && !isNaN(v); }
+  function lerp(a,b,t){ return a + (b-a)*t; }
+  function mean(a){ var v = a.filter(isNum); return v.length ? v.reduce(function(s,x){ return s+x; },0)/v.length : null; }
+  function ordinal(n){ var s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); }
+  function signed(v, dp){ return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(dp); }
+  function fmt(v, dp){ return isNum(v) ? v.toFixed(dp).replace('-', '−') : '—'; }
+  function F(){ return FIELDS[STATE.field]; }
+  function SRC(){ return SOURCES[STATE.source]; }
+  function scale(){ return F()[STATE.mode]; }
+
+  function formatDate(iso){
+    if (!iso) return 'unknown';
+    var p = iso.split('-');
+    return new Date(+p[0], +p[1]-1, +p[2]).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+  function formatMonth(ym){
+    var p = ym.split('-');
+    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  function interpStops(t, stops){
+    t = Math.min(Math.max(0, t), 1);
+    for (var i = 0; i < stops.length - 1; i++){
+      if (t <= stops[i+1][0]){
+        var u = (t - stops[i][0]) / (stops[i+1][0] - stops[i][0]), a = stops[i][1], b = stops[i+1][1];
+        return [Math.round(lerp(a[0],b[0],u)), Math.round(lerp(a[1],b[1],u)), Math.round(lerp(a[2],b[2],u))];
+      }
+    }
+    return stops[stops.length-1][1].slice();
+  }
+  function colorFor(v){
+    if (!isNum(v)) return NO_DATA_RGB.slice();
+    var sc = scale();
+    if (sc.type === 'seq') return interpStops((v - sc.lo) / (sc.hi - sc.lo), SEQ);
+    return v >= 0 ? interpStops(v / sc.cap, MORE_ICE) : interpStops(-v / sc.cap, LESS_ICE);
+  }
+  function rgb(c){ return 'rgb(' + c[0] + ',' + c[1] + ',' + c[2] + ')'; }
+  function readable(c){
+    var lum = 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2], MIN = 110;
+    if (lum >= MIN) return c;
+    var t = Math.min(1, (MIN - lum) / MIN);
+    return c.map(function(x){ return Math.round(lerp(x, 255, t)); });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LOAD
+  // ══════════════════════════════════════════════════════════════
+
+  fetch('seaice-volume.json').then(function(r){
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(json){
+    STATE.json = json;
+    prepareDaily();
+    var P = json.piomas, fresh = P.source + ' · daily data through ' + formatDate(P.updated_through);
+    if (json.cryosat2 && json.cryosat2.updated_through) fresh += ' · CryoSat-2 through ' + formatMonth(json.cryosat2.updated_through);
+    $('freshness').textContent = fresh;
+    $('statusLine').textContent = P.status_note || '';
+    if (!json.cryosat2){
+      var b = document.querySelector('#sourceToggle [data-v=cs2]');
+      b.disabled = true; b.textContent = 'CryoSat-2 (not available)';
+    }
+    $('chartStatus').style.display = 'none';
+    $('chartInner').style.display = 'block';
+    rebuild();
+    setupTooltip();
+    window.addEventListener('resize', function(){ relayout(); });
+  }).catch(function(err){
+    $('chartStatus').textContent = 'Could not load sea ice data right now. Please try again shortly.';
+    console.error('seaice-volume.json load failed:', err);
+  });
+
+  // Daily change: difference from the previous valid day (Feb 28 -> Mar 1 is one
+  // model day), carried across Dec 31 -> Jan 1. Thousand km3 -> km3.
+  function prepareDaily(){
+    var P = STATE.json.piomas;
+    STATE.daily.volume = P.volume;
+    STATE.daily.thickness = P.thickness;
+    var rate = {}, years = Object.keys(P.volume).map(Number).sort(function(a,b){ return a-b; });
+    var prevVal = null;
+    years.forEach(function(y){
+      var src = P.volume[String(y)], out = [];
+      for (var s = 0; s < 366; s++){
+        var v = src[s];
+        if (!isNum(v)){ out.push(null); continue; }
+        out.push(isNum(prevVal) ? Math.round((v - prevVal) * 1000 * 10) / 10 : null);
+        prevVal = v;
+      }
+      rate[String(y)] = out;
+    });
+    STATE.daily.rate = rate;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // GRID
+  // ══════════════════════════════════════════════════════════════
+
+  function buildPiomasGrid(){
+    var D = STATE.daily[STATE.field], grid = {};
+    var MV = STATE.field === 'volume' ? (STATE.json.piomas.monthly_volume || {}) : {};
+    Object.keys(D).map(Number).forEach(function(y){
+      var arr = D[String(y)], row = [];
+      for (var m = 0; m < 12; m++){
+        var slots = [], vals = [];
+        for (var s = MONTH_STARTS[m]; s < MONTH_STARTS[m+1]; s++){
+          if (isNum(arr[s])){ slots.push(s); vals.push(arr[s]); }
+        }
+        var mu = vals.length ? mean(vals) : null;
+        var pub = MV[String(y)] && MV[String(y)][m];
+        if (isNum(mu) && vals.length >= NOLEAP_DAYS[m] && isNum(pub)) mu = pub;
+        row.push({ v: mu, days: vals.length, slots: slots,
+                   partial: mu !== null && vals.length < NOLEAP_DAYS[m], anom: null });
+      }
+      grid[y] = row;
+    });
+    return grid;
+  }
+
+  function buildCs2Grid(){
+    var M = (STATE.json.cryosat2 && STATE.json.cryosat2.monthly) || {}, grid = {};
+    Object.keys(M).forEach(function(ym){
+      var p = ym.split('-'), y = +p[0], m = +p[1] - 1, v = M[ym] && M[ym][STATE.field];
+      if (!grid[y]){
+        grid[y] = [];
+        for (var k = 0; k < 12; k++) grid[y].push({ v: null, partial: false, anom: null, slots: [] });
+      }
+      if (isNum(v)) grid[y][m].v = v;
+    });
+    return grid;
+  }
+
+  function matchedMean(year, slots){
+    var arr = STATE.daily[STATE.field][String(year)];
+    if (!arr) return null;
+    var got = slots.map(function(s){ return arr[s]; }).filter(isNum);
+    return got.length >= Math.max(1, slots.length * 0.8) ? mean(got) : null;
+  }
+
+  function rebuild(){
+    var src = SRC();
+    // CryoSat-2 has no daily-change field; fall back to volume.
+    if (src.fields.indexOf(STATE.field) === -1){ STATE.field = 'volume'; syncSegment('fieldToggle', 'volume'); }
+    document.querySelectorAll('#fieldToggle button').forEach(function(b){ b.disabled = src.fields.indexOf(b.dataset.v) === -1; });
+
+    var grid = STATE.source === 'piomas' ? buildPiomasGrid() : buildCs2Grid();
+    var years = Object.keys(grid).map(Number).sort(function(a,b){ return a-b; });
+
+    var base = [];
+    for (var m = 0; m < 12; m++){
+      var vals = [];
+      for (var y = src.baseStart; y <= src.baseEnd; y++){
+        var c = grid[y] && grid[y][m];
+        if (c && isNum(c.v) && !c.partial) vals.push(c.v);
+      }
+      base.push(vals.length ? mean(vals) : null);
+    }
+    years.forEach(function(y){
+      grid[y].forEach(function(c, m){
+        if (!isNum(c.v)) return;
+        var b = base[m];
+        if (c.partial){
+          var bv = [];
+          for (var by = src.baseStart; by <= src.baseEnd; by++) bv.push(matchedMean(by, c.slots));
+          b = mean(bv);
+        }
+        c.anom = isNum(b) ? c.v - b : null;
+      });
+    });
+
+    var cols = [];
+    for (var cy = years[0]; cy <= years[years.length-1]; cy++) cols.push(cy);
+    while (cols.length > 1){
+      var last = cols[cols.length-1];
+      if (grid[last] && src.rows.some(function(r){ return isNum(grid[last][r].v); })) break;
+      cols.pop();
+    }
+
+    STATE.grid = grid; STATE.cols = cols; STATE.rows = src.rows; STATE.base = base;
+    STATE.latest = findLatest();
+    if (STATE.stripMonth !== null && src.rows.indexOf(STATE.stripMonth) === -1) STATE.stripMonth = null;
+    recompute();
+  }
+
+  // Everything that depends on mode / window / strip selection, but not the grid.
+  function recompute(){
+    STATE.trends = computeTrends();
+    STATE.strip = buildStrip();
+    relayout();
+    renderLegend();
+    renderChips();
+    renderFooter();
+  }
+
+  function findLatest(){
+    for (var i = STATE.cols.length - 1; i >= 0; i--){
+      var y = STATE.cols[i], row = STATE.grid[y];
+      if (!row) continue;
+      for (var k = STATE.rows.length - 1; k >= 0; k--){
+        var m = latestOrder(k);
+        if (isNum(row[m].v)) return { year: y, month: m, cell: row[m] };
+      }
+    }
+    return null;
+  }
+  // Within a calendar year the latest month is simply the highest month index present.
+  function latestOrder(k){ return STATE.rows.slice().sort(function(a,b){ return a-b; })[k]; }
+
+  function cellVal(c){ return STATE.mode === 'raw' ? c.v : c.anom; }
+
+  // ══════════════════════════════════════════════════════════════
+  // STATS
+  // ══════════════════════════════════════════════════════════════
+
+  function tCrit95(df){
+    if (df < 1) return Infinity;
+    var K = [1,2,3,4,5,6,7,8,9,10,12,15,20,25,30,40,60,120,100000];
+    var V = [12.706,4.303,3.182,2.776,2.571,2.447,2.365,2.306,2.262,2.228,2.179,2.131,2.086,2.060,2.042,2.021,2.000,1.980,1.960];
+    if (df >= K[K.length-1]) return 1.96;
+    for (var i = 0; i < K.length-1; i++){
+      if (df <= K[i+1]) return lerp(V[i], V[i+1], (df - K[i]) / (K[i+1] - K[i]));
+    }
+    return 1.96;
+  }
+
+  // OLS with the standard error inflated for lag-1 autocorrelation of the
+  // residuals (Santer et al. 2000) -- same test as the extent heatmap.
+  function olsTrend(xs, ys){
+    var n = xs.length;
+    if (n < 10) return null;
+    var mx = mean(xs), my = mean(ys), sxx = 0, sxy = 0, i;
+    for (i = 0; i < n; i++){ sxx += (xs[i]-mx)*(xs[i]-mx); sxy += (xs[i]-mx)*(ys[i]-my); }
+    if (!sxx) return null;
+    var slope = sxy/sxx, intercept = my - slope*mx, res = [], sse = 0;
+    for (i = 0; i < n; i++){ var r = ys[i] - (intercept + slope*xs[i]); res.push(r); sse += r*r; }
+    var num = 0, den = 0;
+    for (i = 1; i < n; i++) num += res[i]*res[i-1];
+    for (i = 0; i < n; i++) den += res[i]*res[i];
+    var r1 = den ? Math.max(0, Math.min(0.95, num/den)) : 0;
+    var nEff = Math.max(4, Math.min(n, n * (1 - r1) / (1 + r1)));
+    var se = Math.sqrt((sse/(n-2)) / sxx) * Math.sqrt(n / nEff);
+    var t = se ? slope/se : 0;
+    return { slope: slope, intercept: intercept, n: n, r1: r1, nEff: nEff, se: se, t: t,
+             sig: Math.abs(t) > tCrit95(nEff - 2), perDecade: slope * 10, x0: xs[0], x1: xs[n-1] };
+  }
+
+  function inWindow(y){ var w = WINDOW_START[STATE.window]; return w === null || y >= w; }
+
+  function computeTrends(){
+    var out = [];
+    for (var m = 0; m < 12; m++){
+      if (STATE.rows.indexOf(m) === -1){ out.push(null); continue; }
+      var xs = [], ys = [];
+      STATE.cols.forEach(function(y){
+        var c = STATE.grid[y] && STATE.grid[y][m];
+        if (c && isNum(c.v) && !c.partial && inWindow(y)){ xs.push(y); ys.push(c.v); }
+      });
+      out.push(olsTrend(xs, ys));
+    }
+    return out;
+  }
+
+  function buildStrip(){
+    var m = STATE.stripMonth, pts = [], xs = [], ys = [];
+    STATE.cols.forEach(function(y){
+      var row = STATE.grid[y], v = null;
+      if (row){
+        if (m === null){
+          var vals = [], ok = true;
+          STATE.rows.forEach(function(k){ var c = row[k]; if (!c || !isNum(c.v) || c.partial) ok = false; else vals.push(cellVal(c)); });
+          if (ok && vals.length === STATE.rows.length) v = mean(vals);
+        } else {
+          var c = row[m];
+          if (c && isNum(c.v) && !c.partial) v = cellVal(c);
+        }
+      }
+      pts.push({ year: y, v: v });
+      if (isNum(v) && inWindow(y)){ xs.push(y); ys.push(v); }
+    });
+    var lo = Infinity, hi = -Infinity;
+    pts.forEach(function(p){ if (isNum(p.v)){ lo = Math.min(lo, p.v); hi = Math.max(hi, p.v); } });
+    if (!isFinite(lo)){ lo = 0; hi = 1; }
+    if (STATE.mode === 'anomaly' || STATE.field === 'rate'){ lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
+    var pad = (hi - lo) * 0.12 || 0.5;
+    return { points: pts, trend: olsTrend(xs, ys), lo: lo - pad, hi: hi + pad };
+  }
+
+  function standing(R){
+    return R.rank <= Math.ceil(R.n / 2) ? ordinal(R.rank) + ' lowest' : ordinal(R.n - R.rank + 1) + ' highest';
+  }
+
+  // Rank a month against the same calendar month in every other year. An
+  // incomplete month is compared on the same day slots in every year.
+  function rankCell(year, m){
+    var c = STATE.grid[year] && STATE.grid[year][m];
+    if (!c || !isNum(c.v)) return null;
+    var series = [];
+    STATE.cols.forEach(function(y){
+      if (y === year) return;
+      if (c.partial){
+        var mm = matchedMean(y, c.slots);
+        if (isNum(mm)) series.push({ y: y, v: mm });
+      } else {
+        var o = STATE.grid[y] && STATE.grid[y][m];
+        if (o && isNum(o.v) && !o.partial) series.push({ y: y, v: o.v });
+      }
+    });
+    series.push({ y: year, v: c.v });
+    series.sort(function(a,b){ return a.v - b.v; });
+    var rank = 1 + series.findIndex(function(s){ return s.y === year; });
+    var others = series.filter(function(s){ return s.y !== year; });
+    return { rank: rank, n: series.length, record: others.length ? others[0] : null, matched: c.partial };
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LAYOUT + DRAWING (shared by screen and PNG export)
+  // ══════════════════════════════════════════════════════════════
+
+  function gridW(){ return STATE.cols.length * STATE.cellW; }
+  function gridH(){ return STATE.rows.length * CELL_H; }
+  function canvasW(){ return LABEL_W + gridW() + MARGIN_GAP + MARGIN_W; }
+  function stripTop(){ return HEADER_H + gridH() + STRIP_GAP; }
+  function canvasH(){ return stripTop() + STRIP_H + AXIS_H; }
+  function colX(i){ return LABEL_W + i * STATE.cellW; }
+  function rowY(k){ return HEADER_H + k * CELL_H; }
+
+  function computeCellW(){
+    var avail = $('chartOuter').clientWidth || 1200;
+    var w = Math.floor((avail - LABEL_W - MARGIN_GAP - MARGIN_W) / Math.max(1, STATE.cols.length));
+    STATE.cellW = Math.max(MIN_CELL_W, Math.min(MAX_CELL_W, w));
+  }
+
+  function sizeCanvas(cv, w, h, s){
+    cv.width = Math.round(w * s); cv.height = Math.round(h * s);
+    cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  }
+
+  function relayout(){
+    computeCellW();
+    sizeCanvas($('heatmapCanvas'), canvasW(), canvasH(), STATE.dpr);
+    sizeCanvas($('hoverLayer'), canvasW(), canvasH(), STATE.dpr);
+    renderHeatmap();
+  }
+
+  function renderHeatmap(){
+    var ctx = $('heatmapCanvas').getContext('2d');
+    ctx.setTransform(STATE.dpr, 0, 0, STATE.dpr, 0, 0);
+    ctx.clearRect(0, 0, canvasW(), canvasH());
+    drawAll(ctx);
+    drawHover();
+  }
+
+  function drawAll(ctx){
+    ctx.save();
+    ctx.fillStyle = '#262B27';
+    ctx.fillRect(0, 0, canvasW(), canvasH());
+    drawWindowShade(ctx);
+    drawGrid(ctx);
+    drawTrendPanel(ctx);
+    drawStrip(ctx);
+    drawYearAxis(ctx);
+    ctx.restore();
+  }
+
+  function drawWindowShade(ctx){
+    var w = WINDOW_START[STATE.window];
+    if (w === null) return;
+    var i0 = STATE.cols.indexOf(w);
+    if (i0 < 0) return;
+    var x = colX(i0), top = stripTop(), wd = colX(STATE.cols.length) - x;
+    ctx.fillStyle = 'rgba(208,132,37,0.10)';
+    ctx.fillRect(x, top, wd, STRIP_H);
+    ctx.fillStyle = 'rgba(208,132,37,0.85)';
+    ctx.fillRect(x, HEADER_H - 6, wd, 3);
+  }
+
+  function drawGrid(ctx){
+    var cw = STATE.cellW;
+    // header: trend panel title
+    ctx.font = '600 12px "Courier Prime", monospace';
+    ctx.fillStyle = '#A6A499'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText('TREND / DECADE', LABEL_W + gridW() + MARGIN_GAP, HEADER_H / 2 - 2);
+
+    STATE.rows.forEach(function(m, k){
+      var y = rowY(k);
+      var sel = STATE.stripMonth === m;
+      ctx.font = (sel ? '700 ' : '600 ') + '15px "Public Sans", sans-serif';
+      ctx.fillStyle = sel ? SEL_ACCENT : '#E8E4D9';
+      ctx.textAlign = 'right';
+      ctx.fillText(MON_SHORT[m], LABEL_W - 10, y + CELL_H/2);
+
+      STATE.cols.forEach(function(yr, i){
+        var c = STATE.grid[yr] && STATE.grid[yr][m];
+        var v = c ? cellVal(c) : null;
+        ctx.fillStyle = rgb(colorFor(isNum(c && c.v) ? v : null));
+        ctx.fillRect(colX(i), y, cw - 1, CELL_H - 1);
+        if (c && c.partial && isNum(c.v)){
+          ctx.save();
+          ctx.beginPath(); ctx.rect(colX(i), y, cw - 1, CELL_H - 1); ctx.clip();
+          ctx.strokeStyle = 'rgba(30,35,32,0.55)'; ctx.lineWidth = 1.5;
+          for (var d = -CELL_H; d < cw; d += 5){ ctx.beginPath(); ctx.moveTo(colX(i) + d, y + CELL_H); ctx.lineTo(colX(i) + d + CELL_H, y); ctx.stroke(); }
+          ctx.restore();
+        }
+      });
+      if (sel){
+        ctx.strokeStyle = SEL_ACCENT; ctx.lineWidth = 2;
+        ctx.strokeRect(LABEL_W - 1, y - 1, gridW() + 1, CELL_H + 1);
+      }
+    });
+    // latest cell marker
+    var L = STATE.latest;
+    if (L){
+      var i = STATE.cols.indexOf(L.year), k = STATE.rows.indexOf(L.month);
+      if (i >= 0 && k >= 0){
+        ctx.strokeStyle = '#F5D742'; ctx.lineWidth = 2;
+        ctx.strokeRect(colX(i) + 1, rowY(k) + 1, cw - 3, CELL_H - 3);
+      }
+    }
+  }
+
+  function drawTrendPanel(ctx){
+    var x0 = LABEL_W + gridW() + MARGIN_GAP, f = F();
+    var maxAbs = 0;
+    STATE.trends.forEach(function(t){ if (t) maxAbs = Math.max(maxAbs, Math.abs(t.perDecade)); });
+    if (!maxAbs) maxAbs = 1;
+    var barMax = 44, mid = x0 + barMax + 2;
+    ctx.strokeStyle = 'rgba(232,228,217,0.18)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mid + 0.5, HEADER_H); ctx.lineTo(mid + 0.5, HEADER_H + gridH()); ctx.stroke();
+    STATE.rows.forEach(function(m, k){
+      var t = STATE.trends[m], y = rowY(k) + 6, h = CELL_H - 13;
+      if (!t) return;
+      var w = Math.abs(t.perDecade) / maxAbs * barMax, col = t.perDecade < 0 ? TREND_NEG : TREND_POS;
+      var bx = t.perDecade < 0 ? mid - w : mid;
+      if (t.sig){ ctx.fillStyle = col; ctx.fillRect(bx, y, w, h); }
+      else { ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 0.75, y + 0.75, Math.max(0, w - 1.5), h - 1.5); }
+      ctx.font = '13px "Courier Prime", monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = t.sig ? '#E8E4D9' : '#948F82';
+      ctx.fillText(signed(t.perDecade, f.trendDp), mid + barMax + 8, rowY(k) + CELL_H/2);
+    });
+  }
+
+  function drawStrip(ctx){
+    var S = STATE.strip, top = stripTop(), f = F();
+    var yOf = function(v){ return top + 8 + (1 - (v - S.lo) / (S.hi - S.lo)) * (STRIP_H - 16); };
+    var xOf = function(i){ return colX(i) + STATE.cellW / 2; };
+
+    ctx.font = '600 12px "Courier Prime", monospace'; ctx.fillStyle = SEL_ACCENT;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText(STATE.stripMonth === null ? (STATE.source === 'cs2' ? 'OCT–APR' : 'ANNUAL') : MON_SHORT[STATE.stripMonth].toUpperCase(), 2, top + 4);
+
+    // zero line (anomaly / signed fields) and value labels
+    ctx.textBaseline = 'middle'; ctx.font = '12px "Courier Prime", monospace'; ctx.fillStyle = '#948F82';
+    if (S.lo < 0 && S.hi > 0){
+      ctx.strokeStyle = 'rgba(232,228,217,0.22)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(LABEL_W, yOf(0) + 0.5); ctx.lineTo(LABEL_W + gridW(), yOf(0) + 0.5); ctx.stroke();
+    }
+    ctx.textAlign = 'right';
+    ctx.fillText(fmt(S.hi, f.dp > 0 ? 1 : 0), LABEL_W - 10, top + 30);
+    ctx.fillText(fmt(S.lo, f.dp > 0 ? 1 : 0), LABEL_W - 10, top + STRIP_H - 10);
+
+    ctx.strokeStyle = SERIES_INK; ctx.lineWidth = 1.6; ctx.beginPath();
+    var started = false;
+    S.points.forEach(function(p, i){
+      if (!isNum(p.v)){ started = false; return; }
+      if (!started){ ctx.moveTo(xOf(i), yOf(p.v)); started = true; } else ctx.lineTo(xOf(i), yOf(p.v));
+    });
+    ctx.stroke();
+    ctx.fillStyle = SERIES_INK;
+    S.points.forEach(function(p, i){ if (isNum(p.v)){ ctx.beginPath(); ctx.arc(xOf(i), yOf(p.v), 2.2, 0, Math.PI*2); ctx.fill(); } });
+
+    var T = S.trend;
+    if (T){
+      var i0 = STATE.cols.indexOf(T.x0), i1 = STATE.cols.indexOf(T.x1);
+      ctx.strokeStyle = T.slope < 0 ? TREND_NEG : TREND_POS; ctx.lineWidth = 2.5;
+      ctx.setLineDash(T.sig ? [] : [6, 5]);
+      ctx.beginPath();
+      ctx.moveTo(xOf(i0), yOf(T.intercept + T.slope * T.x0));
+      ctx.lineTo(xOf(i1), yOf(T.intercept + T.slope * T.x1));
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.font = '13px "Courier Prime", monospace'; ctx.textAlign = 'left';
+      ctx.fillStyle = T.sig ? '#E8E4D9' : '#948F82';
+      ctx.fillText(signed(T.perDecade, f.trendDp) + ' /dec', LABEL_W + gridW() + MARGIN_GAP, top + STRIP_H / 2 - 9);
+      ctx.fillStyle = '#948F82';
+      ctx.fillText(T.x0 + '–' + T.x1 + (T.sig ? '' : ' · n.s.'), LABEL_W + gridW() + MARGIN_GAP, top + STRIP_H / 2 + 9);
+    }
+  }
+
+  function drawYearAxis(ctx){
+    var y = stripTop() + STRIP_H + 6;
+    ctx.font = '13px "Courier Prime", monospace'; ctx.fillStyle = '#A6A499';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    var step = STATE.cellW >= 22 ? 5 : 10, last = STATE.cols[STATE.cols.length-1];
+    STATE.cols.forEach(function(yr, i){
+      var cx = colX(i) + STATE.cellW / 2;
+      if (yr % step === 0 || yr === last){
+        if (yr === last && yr % step !== 0 && (yr % step) < 3) return;
+        ctx.fillText(String(yr), cx, y);
+        ctx.fillRect(cx - 0.5, y - 5, 1, 4);
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // HOVER / TOOLTIP
+  // ══════════════════════════════════════════════════════════════
+
+  function hitTest(clientX, clientY){
+    var r = $('heatmapCanvas').getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
+    if (x >= LABEL_W && x < LABEL_W + gridW() && y >= HEADER_H && y < HEADER_H + gridH()){
+      var i = Math.floor((x - LABEL_W) / STATE.cellW), k = Math.floor((y - HEADER_H) / CELL_H);
+      return { kind: 'cell', i: i, k: k, year: STATE.cols[i], month: STATE.rows[k] };
+    }
+    if (y >= HEADER_H && y < HEADER_H + gridH() && (x < LABEL_W || x >= LABEL_W + gridW() + MARGIN_GAP)){
+      var kk = Math.floor((y - HEADER_H) / CELL_H);
+      return { kind: x < LABEL_W ? 'label' : 'trend', k: kk, month: STATE.rows[kk] };
+    }
+    if (x >= LABEL_W && x < LABEL_W + gridW() && y >= stripTop() && y < stripTop() + STRIP_H){
+      var ii = Math.floor((x - LABEL_W) / STATE.cellW);
+      return { kind: 'strip', i: ii, year: STATE.cols[ii] };
+    }
+    return null;
+  }
+
+  function drawHover(){
+    var cv = $('hoverLayer'), ctx = cv.getContext('2d');
+    ctx.setTransform(STATE.dpr, 0, 0, STATE.dpr, 0, 0);
+    ctx.clearRect(0, 0, canvasW(), canvasH());
+    var h = STATE.hover;
+    if (!h) return;
+    ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 1.5;
+    if (h.kind === 'cell'){
+      ctx.strokeRect(colX(h.i) + 0.5, rowY(h.k) + 0.5, STATE.cellW - 2, CELL_H - 2);
+    } else if (h.kind === 'strip'){
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.moveTo(colX(h.i) + STATE.cellW/2, stripTop()); ctx.lineTo(colX(h.i) + STATE.cellW/2, stripTop() + STRIP_H); ctx.stroke();
+    } else {
+      ctx.strokeStyle = 'rgba(208,132,37,0.7)';
+      ctx.strokeRect(LABEL_W - 1, rowY(h.k) - 1, gridW() + 1, CELL_H + 1);
+    }
+  }
+
+  function showTooltip(h, cx, cy){
+    var tt = $('tooltip'), f = F(), per, val, sub = [], badge = false;
+    var baseLbl = 'vs ' + SRC().baseStart + '–' + SRC().baseEnd;
+    if (h.kind === 'cell'){
+      var c = STATE.grid[h.year] && STATE.grid[h.year][h.month];
+      per = MON_FULL[h.month] + ' ' + h.year;
+      if (!c || !isNum(c.v)){ val = 'No data'; }
+      else {
+        val = fmt(c.v, f.dp) + ' ' + f.unit;
+        if (isNum(c.anom)) sub.push(signed(c.anom, f.dp) + ' ' + baseLbl);
+        var R = rankCell(h.year, h.month);
+        if (R) sub.push(standing(R) + ' of ' + R.n + ' ' + MON_PLURAL[h.month]);
+        badge = c.partial;
+        if (c.partial) sub.push(c.days + ' of ' + NOLEAP_DAYS[h.month] + ' days');
+      }
+    } else if (h.kind === 'strip'){
+      var p = STATE.strip.points[h.i];
+      per = (STATE.stripMonth === null ? (STATE.source === 'cs2' ? 'Oct–Apr mean ' : 'Annual mean ') : MON_FULL[STATE.stripMonth] + ' ') + h.year;
+      val = isNum(p && p.v) ? fmt(p.v, f.dp) + ' ' + f.unit : 'Incomplete year';
+      if (STATE.mode === 'anomaly' && isNum(p && p.v)) sub.push(baseLbl);
+    } else {
+      var t = STATE.trends[h.month];
+      per = MON_FULL[h.month] + ' trend';
+      val = t ? signed(t.perDecade, f.trendDp) + ' ' + f.unit + ' / decade' : 'Not enough years';
+      if (t){
+        sub.push(t.x0 + '–' + t.x1 + ' · ' + (t.sig ? 'significant at 95%' : 'not significant'));
+      }
+      sub.push(STATE.stripMonth === h.month ? 'click to show annual' : 'click to plot this month');
+    }
+    tt.querySelector('.tt-period').textContent = per;
+    tt.querySelector('.tt-value').textContent = val;
+    tt.querySelector('.tt-sub').innerHTML = sub.map(function(s){ return '<div>' + s + '</div>'; }).join('');
+    tt.querySelector('.tt-badge').style.display = badge ? 'block' : 'none';
+    tt.style.display = 'block';
+    var w = tt.offsetWidth, ht = tt.offsetHeight;
+    var x = cx + 16, y = cy - ht - 12;
+    if (x + w > window.innerWidth - 8) x = cx - w - 16;
+    if (y < 8) y = cy + 18;
+    tt.style.left = x + 'px'; tt.style.top = y + 'px';
+  }
+
+  function hideTooltip(){ $('tooltip').style.display = 'none'; }
+
+  function setupTooltip(){
+    var cv = $('heatmapCanvas');
+    cv.addEventListener('mousemove', function(e){
+      var h = hitTest(e.clientX, e.clientY);
+      cv.style.cursor = (h && (h.kind === 'label' || h.kind === 'trend')) ? 'pointer' : 'default';
+      STATE.hover = h; drawHover();
+      if (h && h.year !== undefined || h && h.month !== undefined) showTooltip(h, e.clientX, e.clientY); else hideTooltip();
+    });
+    cv.addEventListener('mouseleave', function(){ STATE.hover = null; drawHover(); hideTooltip(); });
+    cv.addEventListener('click', function(e){
+      var h = hitTest(e.clientX, e.clientY);
+      if (!h || h.month === undefined || h.kind === 'strip') return;
+      STATE.stripMonth = STATE.stripMonth === h.month ? null : h.month;
+      recompute();
+      showTooltip(h, e.clientX, e.clientY);
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LEGEND / CHIPS / FOOTER
+  // ══════════════════════════════════════════════════════════════
+
+  function legendTitleText(){
+    var f = F(), src = SRC();
+    return f.name + ' ' + (STATE.mode === 'anomaly' ? 'anomaly vs ' + src.baseStart + '–' + src.baseEnd : '') + ' (' + f.unit + ')';
+  }
+
+  function legendT(v){ var sc = scale(); return sc.type === 'seq' ? (v - sc.lo)/(sc.hi - sc.lo) : (v + sc.cap)/(2*sc.cap); }
+  function legendV(t){ var sc = scale(); return sc.type === 'seq' ? sc.lo + t*(sc.hi - sc.lo) : -sc.cap + t*2*sc.cap; }
+
+  function drawLegendBar(ctx, x, y, w, h){
+    for (var i = 0; i < w; i++){
+      ctx.fillStyle = rgb(colorFor(legendV(i / (w - 1))));
+      ctx.fillRect(x + i, y, 1.2, h);
+    }
+  }
+
+  function renderLegend(){
+    var sc = scale(), cv = $('legendCanvas'), w = cv.clientWidth || 640, h = 16, s = STATE.dpr;
+    cv.width = Math.round(w * s); cv.height = Math.round(h * s);
+    var ctx = cv.getContext('2d'); ctx.setTransform(s, 0, 0, s, 0, 0);
+    drawLegendBar(ctx, 0, 0, w, h);
+    $('legendTitle').textContent = legendTitleText();
+    $('legendTicks').innerHTML = sc.ticks.map(function(v){
+      return '<span style="left:' + (legendT(v) * 100).toFixed(2) + '%">' + (v > 0 && sc.type === 'div' ? '+' : '') + String(v).replace('-', '−') + '</span>';
+    }).join('');
+    var bands = sc.bands || [];
+    $('legendBands').innerHTML = bands.map(function(b){ return '<span>' + b + '</span>'; }).join('');
+  }
+
+  function renderChips(){
+    var L = STATE.latest, f = F(), src = SRC();
+    if (!L){ return; }
+    var c = L.cell;
+    $('chipLatestV').textContent = fmt(c.v, f.dp);
+    $('chipLatestN').textContent = MON_FULL[L.month] + ' ' + L.year + (c.partial ? ' (' + c.days + ' days)' : '') + ' · ' + f.unit +
+      (isNum(c.anom) ? ' · ' + signed(c.anom, f.dp) + ' vs ' + src.baseStart + '–' + src.baseEnd : '');
+    var R = rankCell(L.year, L.month);
+    if (R){
+      $('chipRankV').textContent = standing(R);
+      $('chipRankN').textContent = 'of ' + R.n + ' ' + MON_PLURAL[L.month] + (R.matched ? ' (same days)' : '');
+      $('chipRecL').textContent = 'Record low, ' + MON_FULL[L.month];
+      $('chipRecV').textContent = R.record ? fmt(R.record.v, f.dp) : '—';
+      $('chipRecN').textContent = R.record ? R.record.y + ' · ' + f.unit : '';
+    }
+    var T = STATE.trends[L.month];
+    $('chipTrendL').textContent = MON_FULL[L.month] + ' trend';
+    $('chipTrendV').textContent = T ? signed(T.perDecade, f.trendDp) : '—';
+    $('chipTrendN').textContent = T ? f.unit + ' / decade · ' + T.x0 + '–' + T.x1 + (T.sig ? '' : ' · not significant') : 'not enough years';
+  }
+
+  function footnoteText(){
+    if (STATE.source === 'cs2'){
+      var C = STATE.json.cryosat2 || {};
+      return (C.note ? C.note + ' ' : '') + 'Anomalies relative to ' + SOURCES.cs2.baseStart + '–' + SOURCES.cs2.baseEnd + '.';
+    }
+    return 'PIOMAS is an ice–ocean model that assimilates satellite ice concentration; volume is not directly observed. ' +
+           'Uncertainty: ±0.75 thousand km³ for monthly volume anomalies, ±1.35 thousand km³ for November total volume (Schweiger et al. 2011). ' +
+           'The model domain partly excludes the Sea of Okhotsk and the Gulf of St. Lawrence. Trends: least squares, 95% test adjusted for year-to-year autocorrelation.';
+  }
+  function citationText(){
+    if (STATE.source === 'cs2') return (STATE.json.cryosat2 && STATE.json.cryosat2.citation) || '';
+    return STATE.json.piomas.citation;
+  }
+  function renderFooter(){
+    $('footnote').textContent = footnoteText();
+    $('citation').textContent = citationText();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CONTROLS
+  // ══════════════════════════════════════════════════════════════
+
+  function syncSegment(id, v){
+    document.querySelectorAll('#' + id + ' button').forEach(function(b){ b.classList.toggle('is-active', b.dataset.v === v); });
+  }
+  function bindSegment(id, key, full){
+    $(id).addEventListener('click', function(e){
+      var b = e.target.closest('button[data-v]');
+      if (!b || b.disabled || STATE[key] === b.dataset.v || !STATE.json) return;
+      STATE[key] = b.dataset.v;
+      syncSegment(id, b.dataset.v);
+      if (full) rebuild(); else recompute();
+    });
+  }
+  bindSegment('sourceToggle', 'source', true);
+  bindSegment('fieldToggle', 'field', true);
+  bindSegment('modeToggle', 'mode', false);
+  bindSegment('windowToggle', 'window', false);
+
+  // ══════════════════════════════════════════════════════════════
+  // PNG EXPORT -- drawn directly at EXPORT_SCALE, never upscaled from screen
+  // ══════════════════════════════════════════════════════════════
+
+  function wrapText(ctx, text, maxW){
+    var words = text.split(' '), lines = [], cur = '';
+    words.forEach(function(w){
+      var t = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && cur){ lines.push(cur); cur = w; } else cur = t;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function downloadPNG(){
+    var f = F(), pad = 44;
+    var savedW = STATE.cellW;
+    STATE.cellW = Math.max(18, Math.min(MAX_CELL_W, Math.floor((1400 - pad*2 - LABEL_W - MARGIN_GAP - MARGIN_W) / STATE.cols.length)));
+    var gw = canvasW(), gh = canvasH();
+    var W = Math.max(1400, gw + pad*2), cw = W - pad*2;
+
+    var m = document.createElement('canvas').getContext('2d');
+    m.font = 'italic 17px "Public Sans"';
+    var foot = wrapText(m, footnoteText(), cw);
+    m.font = '15px "Public Sans"';
+    var cite = wrapText(m, citationText(), cw);
+    var status = STATE.source === 'piomas' ? (STATE.json.piomas.status_note || '') : '';
+
+    var chipH = 96, H = pad + 32 + 56 + 30 + (status ? 28 : 0) + 22 + chipH + 26 + gh + 24 + 22 + 18 + 22 + 30 + 24 +
+            foot.length*26 + 10 + cite.length*22 + 10 + 24 + pad;
+
+    var c = document.createElement('canvas');
+    c.width = W * EXPORT_SCALE; c.height = H * EXPORT_SCALE;
+    var ctx = c.getContext('2d');
+    ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+
+    var y = pad;
+    ctx.fillStyle = '#D08425'; ctx.font = '600 15px "Courier Prime"'; ctx.fillText('[ CLIMATE ]', pad, y); y += 32;
+    ctx.fillStyle = '#E8E4D9'; ctx.font = '700 46px "Zilla Slab"';
+    var title = 'Arctic Sea Ice ' + (STATE.field === 'volume' ? 'Volume' : STATE.field === 'thickness' ? 'Thickness' : 'Volume Change') +
+                (STATE.mode === 'anomaly' ? ' Anomaly' : '');
+    ctx.fillText(title, pad, y); y += 56;
+    ctx.fillStyle = '#A6A499'; ctx.font = '21px "Public Sans"';
+    var srcLine = STATE.source === 'piomas'
+      ? STATE.json.piomas.source + ' · through ' + formatDate(STATE.json.piomas.updated_through)
+      : (STATE.json.cryosat2.source || 'CryoSat-2') + (STATE.json.cryosat2.updated_through ? ' · through ' + formatMonth(STATE.json.cryosat2.updated_through) : '');
+    ctx.fillText(srcLine + ' · trend ' + (STATE.window === 'full' ? 'full record' : 'from 2010'), pad, y); y += 30;
+    if (status){ ctx.fillStyle = '#d9a441'; ctx.font = '18px "Public Sans"'; ctx.fillText(status, pad, y); y += 28; }
+    y += 22;
+
+    var chips = [
+      ['LATEST MONTH', $('chipLatestV').textContent, $('chipLatestN').textContent, '#F5D742'],
+      ['STANDING', $('chipRankV').textContent, $('chipRankN').textContent, '#E8E4D9'],
+      [$('chipRecL').textContent.toUpperCase(), $('chipRecV').textContent, $('chipRecN').textContent, '#E8E4D9'],
+      [$('chipTrendL').textContent.toUpperCase(), $('chipTrendV').textContent, $('chipTrendN').textContent, '#E8E4D9']
+    ];
+    var gap = 12, chipW = (cw - gap*3)/4;
+    chips.forEach(function(ch, i){
+      var x = pad + i*(chipW + gap);
+      ctx.fillStyle = '#262B27'; ctx.fillRect(x, y, chipW, chipH);
+      ctx.strokeStyle = 'rgba(232,228,217,0.14)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, chipW - 1, chipH - 1);
+      ctx.fillStyle = '#A6A499'; ctx.font = '600 13px "Courier Prime"'; ctx.fillText(ch[0], x + 16, y + 12);
+      ctx.fillStyle = ch[3]; ctx.font = '700 30px "Zilla Slab"'; ctx.fillText(ch[1], x + 16, y + 32);
+      ctx.fillStyle = '#A6A499'; ctx.font = '14px "Public Sans"';
+      var note = ch[2];
+      while (ctx.measureText(note).width > chipW - 28 && note.length > 4) note = note.slice(0, -2);
+      if (note !== ch[2]) note = note.replace(/\s*\S*$/, '') + '…';
+      ctx.fillText(note, x + 16, y + 70);
+    });
+    y += chipH + 26;
+
+    ctx.save();
+    ctx.translate(pad + (cw - gw)/2, y);
+    var hv = STATE.hover; STATE.hover = null;
+    drawAll(ctx);
+    STATE.hover = hv;
+    ctx.restore();
+    y += gh + 24;
+
+    ctx.fillStyle = '#A6A499'; ctx.font = '600 14px "Courier Prime"'; ctx.fillText(legendTitleText().toUpperCase(), pad, y); y += 22;
+    var lw = Math.min(640, cw);
+    drawLegendBar(ctx, pad, y, lw, 18); y += 22;
+    var sc = scale();
+    ctx.font = '14px "Courier Prime"'; ctx.fillStyle = '#A6A499'; ctx.textAlign = 'center';
+    sc.ticks.forEach(function(v){ ctx.fillText((v > 0 && sc.type === 'div' ? '+' : '') + String(v).replace('-', '−'), pad + legendT(v)*lw, y); });
+    ctx.textAlign = 'left'; y += 22;
+    if (sc.bands){
+      ctx.font = '14px "Public Sans"'; ctx.fillStyle = '#948F82';
+      ctx.fillText(sc.bands[0], pad, y); ctx.textAlign = 'right'; ctx.fillText(sc.bands[1], pad + lw, y); ctx.textAlign = 'left';
+    }
+    y += 30;
+
+    ctx.strokeStyle = '#3B423C'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke(); y += 24;
+    ctx.fillStyle = '#A6A499'; ctx.font = 'italic 17px "Public Sans"';
+    foot.forEach(function(l){ ctx.fillText(l, pad, y); y += 26; });
+    y += 10;
+    ctx.fillStyle = '#948F82'; ctx.font = '15px "Public Sans"';
+    cite.forEach(function(l){ ctx.fillText(l, pad, y); y += 22; });
+    y += 10;
+    ctx.fillStyle = '#D08425'; ctx.font = '600 15px "Courier Prime"';
+    ctx.fillText('contextclimate.io  ·  Sea Ice Volume Heatmap', pad, y);
+
+    STATE.cellW = savedW;
+    var a = document.createElement('a');
+    a.download = 'seaice-' + STATE.source + '-' + STATE.field + '-' + STATE.mode + '-' + STATE.json.piomas.updated_through + '.png';
+    a.href = c.toDataURL('image/png');
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+
+  $('downloadBtn').onclick = function(){
+    if (!STATE.json) return;
+    var btn = this, label = btn.innerHTML;
+    btn.textContent = 'Preparing…';
+    document.fonts.ready.then(function(){ downloadPNG(); btn.innerHTML = label; });
+  };
+
+})();
+</script>
+</body>
+</html>

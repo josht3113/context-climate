@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sea Ice Volume Explorer</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --tool-accent: var(--accent-climate);
+    /* Content colors: which year a line represents, not decorative theme */
+    --current: #FFF200;
+    --previous: #E8E6DC;
+    --warn: #d9a441;
+  }
+  body { font-size: 17px; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 26px 24px 36px; }
+
+  .logo-mark.cc-eyebrow { color: var(--tool-accent); margin-bottom: 8px; }
+  h1.cc-title { margin: 0 0 8px; }
+
+  .freshness { font-size: 15px; color: var(--color-text-muted); margin-bottom: 4px; }
+  .status-line { font-size: 14px; color: var(--warn); margin-bottom: 20px; min-height: 1em; }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
+  .chip-row .cc-stat-chip { min-width: 170px; padding: 10px 16px; }
+  .chip-row .cc-stat-value { font-size: 28px; }
+  .chip-row .cc-stat-note { font-size: 14px; }
+  #chipLastV { color: var(--current); }
+
+  .tab-row {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 14px; margin-bottom: 16px;
+  }
+  .tab-row .cc-tab { font-size: 16px; padding: 9px 20px; color: #CFCABD; }
+  .tab-row .cc-tab.is-active { color: var(--color-text-primary); }
+  .tab-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .controls-row, .compare-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-bottom: 14px;
+  }
+  .sep { width: 1px; height: 22px; background: var(--color-border); margin: 0 8px; }
+
+  .pill {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    padding: 7px 13px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-secondary);
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+  .pill .x { cursor: pointer; opacity: 0.75; margin-left: 4px; }
+
+  #downloadBtn.cc-btn { border-color: var(--tool-accent); color: var(--tool-accent); background: transparent; }
+  #downloadBtn.cc-btn:hover { background: var(--color-surface-2); color: var(--color-text-primary); }
+  #cs2Toggle[disabled] { opacity: 0.45; cursor: default; }
+
+  .hint { font-size: 14px; color: var(--color-text-muted); margin-bottom: 16px; }
+
+  .chart-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    position: relative;
+    height: 640px;
+    margin-bottom: 22px;
+  }
+  .chart-pane { position: absolute; inset: 24px; }
+  .chart-pane[hidden] { display: none; }
+  .chart-status {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--color-text-muted); font-size: 15px;
+  }
+
+  .footnote { font-size: 13px; color: var(--color-text-muted); font-style: italic; line-height: 1.55; max-width: 960px; margin-bottom: 6px; }
+  .citation { font-size: 12px; color: var(--color-text-muted); line-height: 1.5; margin-top: 4px; max-width: 960px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 18px 16px 28px; }
+    .chart-card { height: 460px; padding: 14px; }
+    .chart-pane { inset: 14px; }
+    .chip-row .cc-stat-chip { min-width: 0; flex: 1 1 140px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="logo-mark cc-eyebrow">[ Climate ]</div>
+  <h1 class="cc-title">Sea ice volume explorer</h1>
+  <div class="freshness" id="freshness">Loading data&hellip;</div>
+  <div class="status-line" id="statusLine"></div>
+
+  <div class="chip-row" id="chipRow">
+    <div class="cc-stat-chip">
+      <span class="cc-stat-label" id="chipLastL">Last day of record</span>
+      <span class="cc-stat-value" id="chipLastV">&mdash;</span>
+      <span class="cc-stat-note" id="chipLastN">&nbsp;</span>
+    </div>
+    <div class="cc-stat-chip">
+      <span class="cc-stat-label">Standing</span>
+      <span class="cc-stat-value" id="chipRankV">&mdash;</span>
+      <span class="cc-stat-note" id="chipRankN">&nbsp;</span>
+    </div>
+    <div class="cc-stat-chip">
+      <span class="cc-stat-label">vs 1991&ndash;2020</span>
+      <span class="cc-stat-value" id="chipAnomV">&mdash;</span>
+      <span class="cc-stat-note" id="chipAnomN">&nbsp;</span>
+    </div>
+    <div class="cc-stat-chip">
+      <span class="cc-stat-label" id="chipRecL">Record low</span>
+      <span class="cc-stat-value" id="chipRecV">&mdash;</span>
+      <span class="cc-stat-note" id="chipRecN">&nbsp;</span>
+    </div>
+  </div>
+
+  <div class="tab-row">
+    <div class="cc-tab-bar" role="tablist" id="tabBar">
+      <button class="cc-tab is-active" data-tab="daily" role="tab" aria-selected="true">Daily</button>
+      <button class="cc-tab" data-tab="loops" role="tab" aria-selected="false">Extent vs volume</button>
+    </div>
+    <div class="tab-right">
+      <div class="cc-segmented" id="fieldToggle" style="margin-bottom:0;">
+        <button class="cc-segmented-btn is-active" data-field="volume">Volume</button>
+        <button class="cc-segmented-btn" data-field="thickness">Thickness</button>
+      </div>
+      <button id="downloadBtn" class="cc-btn">&#8681;&nbsp; Download PNG</button>
+    </div>
+  </div>
+
+  <div class="controls-row">
+    <button id="contextToggle" class="cc-btn cc-btn-sm">All years: off</button>
+    <span class="sep"></span>
+    <div id="decadeLegend" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+    <span class="sep"></span>
+    <span class="pill" id="previousPill" style="border-color: var(--previous);"></span>
+    <span class="pill" id="latestPill" style="border-color: var(--current);"></span>
+  </div>
+
+  <div class="compare-row">
+    <select id="compareSelect" class="cc-select"><option value="">+ compare a year</option></select>
+    <div id="compareChips" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+    <span class="sep" id="cs2Sep"></span>
+    <button id="cs2Toggle" class="cc-btn cc-btn-sm">CryoSat-2: off</button>
+  </div>
+  <div class="hint">click a decade or year pill to toggle &middot; double-click to isolate</div>
+
+  <div class="chart-card">
+    <div class="chart-status" id="chartStatus">Loading&hellip;</div>
+    <div class="chart-pane" id="paneDaily">
+      <canvas id="dailyChart" role="img" aria-label="Arctic sea ice volume by day of year, one line per year"></canvas>
+    </div>
+    <div class="chart-pane" id="paneLoops" hidden>
+      <canvas id="loopChart" role="img" aria-label="Arctic sea ice extent against volume, one loop per year"></canvas>
+    </div>
+  </div>
+
+  <div class="footnote" id="footnote"></div>
+  <div class="citation" id="citation"></div>
+
+</div>
+
+<script>
+(function(){
+
+  // ══════════════════════════════════════════════════════════════
+  // CONFIG
+  // ══════════════════════════════════════════════════════════════
+
+  var CURRENT_COLOR  = '#FFF200';
+  var PREVIOUS_COLOR = '#E8E6DC';
+  var CONTEXT_COLOR  = '#3a4038';
+  var COMPARE_COLORS = ['#4FBFA0', '#D4537E', '#7AB8E0'];
+  var TICK = '#A6A499', GRID = 'rgba(232,228,217,0.05)';
+  var BASE_START = 1991, BASE_END = 2020;
+  var EXPORT_SCALE = 3;
+
+  var FIELDS = {
+    volume:    { key: 'volume',    name: 'Volume',    unit: 'thousand km³', dp: 2 },
+    thickness: { key: 'thickness', name: 'Mean thickness', unit: 'm', dp: 2 }
+  };
+
+  var MONTH_STARTS = [0,31,60,91,121,152,182,213,244,274,305,335,366];
+  var MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTH_START_INDEX = {};
+  MONTH_STARTS.slice(0,12).forEach(function(s, i){ MONTH_START_INDEX[s] = MON_SHORT[i]; });
+
+  var SLOT_LABELS = (function(){
+    var out = [], d = new Date(2000, 0, 1);
+    for (var i = 0; i < 366; i++){
+      out.push(d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+      d.setDate(d.getDate() + 1);
+    }
+    return out;
+  })();
+
+  // 73 five-day windows; the last one absorbs Dec 31.
+  var PENTADS = (function(){
+    var out = [];
+    for (var p = 0; p < 73; p++){
+      var a = p * 5, b = (p === 72) ? 366 : a + 5;
+      out.push({ a: a, b: b, label: SLOT_LABELS[a] + '–' + SLOT_LABELS[b-1] });
+    }
+    return out;
+  })();
+  // Pentad that holds the first of each month, for the month marks on loops.
+  var MONTH_PENTAD = MONTH_STARTS.slice(0,12).map(function(s){ return Math.min(72, Math.floor(s/5)); });
+
+  // ══════════════════════════════════════════════════════════════
+  // STATE
+  // ══════════════════════════════════════════════════════════════
+
+  var STATE = {
+    tab: 'daily',
+    field: 'volume',
+    vol: null, ext: null,
+    years: [], latestYear: null, previousYear: null,
+    decades: [],
+    vis: {},              // series id -> visible
+    contextVisible: false,
+    compare: [],          // [{year, color}]
+    compareCount: 0,
+    cs2On: false,
+    charts: { daily: null, loops: null },
+    baseline: null,       // per-slot 1991-2020 mean for the current field
+    stats: null
+  };
+
+  function $(id){ return document.getElementById(id); }
+  function isNum(v){ return v !== null && v !== undefined && !isNaN(v); }
+  function mean(a){ var v = a.filter(isNum); return v.length ? v.reduce(function(s,x){ return s+x; },0)/v.length : null; }
+  function ordinal(n){ var s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); }
+  function fmt(v, dp){ return isNum(v) ? v.toFixed(dp) : '—'; }
+  function signed(v, dp){ return (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(dp); }
+
+  function formatDate(iso){
+    if (!iso) return 'unknown';
+    var p = iso.split('-');
+    return new Date(+p[0], +p[1]-1, +p[2]).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+  function formatMonth(ym){
+    var p = ym.split('-');
+    return new Date(+p[0], +p[1]-1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  function fieldYears(){ return STATE.vol[FIELDS[STATE.field].key]; }
+  function seriesFor(year){ return fieldYears()[String(year)]; }
+  function lastIndex(arr){ for (var i = arr.length-1; i >= 0; i--) if (isNum(arr[i])) return i; return -1; }
+  function countValid(arr){ var n = 0; arr.forEach(function(v){ if (isNum(v)) n++; }); return n; }
+
+  function decadeColor(i, n){
+    var t = n > 1 ? i/(n-1) : 0;
+    return 'hsl(' + (220 - 195*t).toFixed(0) + ',' + (55 + 13*t).toFixed(0) + '%,' + (42 + 10*t).toFixed(0) + '%)';
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LOAD
+  // ══════════════════════════════════════════════════════════════
+
+  Promise.all([
+    fetch('seaice-volume.json').then(function(r){ if (!r.ok) throw new Error('volume HTTP ' + r.status); return r.json(); }),
+    fetch('seaice-extent.json').then(function(r){ if (!r.ok) throw new Error('extent HTTP ' + r.status); return r.json(); })
+  ]).then(function(res){
+    STATE.vol = res[0].piomas;
+    STATE.cs2 = res[0].cryosat2 || null;
+    STATE.ext = res[1];
+    init();
+  }).catch(function(err){
+    $('chartStatus').textContent = 'Could not load sea ice data right now. Please try again shortly.';
+    console.error('data load failed:', err);
+  });
+
+  function init(){
+    var P = STATE.vol;
+    STATE.years = Object.keys(P.volume).map(Number).sort(function(a,b){ return a-b; });
+    STATE.latestYear = STATE.years[STATE.years.length-1];
+    STATE.previousYear = STATE.years.indexOf(STATE.latestYear-1) !== -1 ? STATE.latestYear-1 : null;
+    var latestComplete = countValid(P.volume[String(STATE.latestYear)]) >= 365;
+
+    var dec = [];
+    for (var ds = Math.ceil(STATE.years[0]/10)*10; ds <= STATE.latestYear; ds += 10){
+      var yrs = STATE.years.filter(function(y){
+        return y >= ds && y <= ds+9 && (latestComplete || y !== STATE.latestYear);
+      });
+      if (yrs.length) dec.push({ label: ds + 's', start: ds, years: yrs });
+    }
+    dec.forEach(function(d, i){ d.color = decadeColor(i, dec.length); d.id = 'dec:' + d.label; STATE.vis[d.id] = true; });
+    STATE.decades = dec;
+    STATE.vis.latest = true;
+    STATE.vis.previous = STATE.previousYear !== null;
+
+    var fresh = P.source + ' · daily data through ' + formatDate(P.updated_through);
+    if (STATE.cs2 && STATE.cs2.updated_through) fresh += ' · CryoSat-2 through ' + formatMonth(STATE.cs2.updated_through);
+    $('freshness').textContent = fresh;
+    $('statusLine').textContent = P.status_note || '';
+
+    if (!STATE.cs2){
+      $('cs2Toggle').disabled = true;
+      $('cs2Toggle').textContent = 'CryoSat-2: not available';
+    }
+
+    $('chartStatus').style.display = 'none';
+    initCharts();
+    renderFooter();
+    rebuildAll();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // DERIVED SERIES
+  // ══════════════════════════════════════════════════════════════
+
+  function decadeMean(dec){
+    var Y = fieldYears(), out = [];
+    for (var s = 0; s < 366; s++){
+      var m = mean(dec.years.map(function(y){ return Y[String(y)][s]; }));
+      out.push(m === null ? null : Math.round(m*1000)/1000);
+    }
+    return out;
+  }
+
+  function baselineSeries(){
+    var Y = fieldYears(), out = [];
+    for (var s = 0; s < 366; s++){
+      var vals = [];
+      for (var y = BASE_START; y <= BASE_END; y++) if (Y[String(y)]) vals.push(Y[String(y)][s]);
+      out.push(mean(vals));
+    }
+    return out;
+  }
+
+  function pentadMeans(arr){
+    return PENTADS.map(function(p){
+      var v = arr.slice(p.a, p.b).filter(isNum);
+      return v.length >= 2 ? v.reduce(function(s,x){ return s+x; },0)/v.length : null;
+    });
+  }
+
+  // Extent (x) against the selected field (y), one point per pentad where both exist.
+  // closeWith: [extArr, fieldArr] whose first pentad closes the loop (the next
+  // year for a single year, the same series for a decade mean).
+  function loopPoints(extArr, fieldArr, closeWith, closeLabel){
+    var ex = pentadMeans(extArr), fy = pentadMeans(fieldArr), pts = [];
+    for (var p = 0; p < 73; p++){
+      if (isNum(ex[p]) && isNum(fy[p])) pts.push({ x: Math.round(ex[p]*1000)/1000, y: Math.round(fy[p]*1000)/1000, p: p });
+    }
+    if (closeWith && pts.length && pts[pts.length-1].p === 72){
+      var c0 = pentadMeans(closeWith[0])[0], c1 = pentadMeans(closeWith[1])[0];
+      if (isNum(c0) && isNum(c1)) pts.push({ x: Math.round(c0*1000)/1000, y: Math.round(c1*1000)/1000, p: 0, close: closeLabel || null });
+    }
+    return pts;
+  }
+
+  function extYear(y){ var E = STATE.ext.hemispheres.N.years[String(y)]; return E || null; }
+
+  function decadeExtMean(dec){
+    var out = [];
+    for (var s = 0; s < 366; s++){
+      out.push(mean(dec.years.map(function(y){ var e = extYear(y); return e ? e[s] : null; })));
+    }
+    return out;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // STATS
+  // ══════════════════════════════════════════════════════════════
+
+  function computeStats(){
+    var F = FIELDS[STATE.field], Y = fieldYears();
+    var cur = Y[String(STATE.latestYear)], idx = lastIndex(cur);
+    if (idx < 0) return null;
+    var v = cur[idx];
+    var series = [];
+    STATE.years.forEach(function(y){ var a = Y[String(y)]; if (a && isNum(a[idx])) series.push({ y: y, v: a[idx] }); });
+    series.sort(function(a,b){ return a.v - b.v; });
+    var rank = 1 + series.findIndex(function(s){ return s.y === STATE.latestYear; });
+    var others = series.filter(function(s){ return s.y !== STATE.latestYear; });
+    var base = STATE.baseline[idx];
+    return {
+      idx: idx, v: v, rank: rank, n: series.length,
+      record: others.length ? others[0] : null,
+      anom: isNum(base) ? v - base : null,
+      pct: isNum(base) ? 100 * (v - base) / base : null,
+      unit: F.unit, dp: F.dp
+    };
+  }
+
+  function renderStats(){
+    var S = STATE.stats = computeStats();
+    if (!S) return;
+    var dateLbl = SLOT_LABELS[S.idx] + ', ' + STATE.latestYear;
+    $('chipLastL').textContent = 'Last day of record';
+    $('chipLastV').textContent = fmt(S.v, S.dp);
+    $('chipLastN').textContent = dateLbl + ' · ' + S.unit;
+    $('chipRankV').textContent = S.rank <= Math.ceil(S.n / 2) ? ordinal(S.rank) + ' lowest' : ordinal(S.n - S.rank + 1) + ' highest';
+    $('chipRankN').textContent = 'of ' + S.n + ' years for ' + SLOT_LABELS[S.idx];
+    $('chipAnomV').textContent = isNum(S.anom) ? signed(S.anom, S.dp) : '—';
+    $('chipAnomN').textContent = isNum(S.pct) ? S.unit + ' · ' + signed(S.pct, 0) + '%' : S.unit;
+    $('chipRecL').textContent = 'Record low, ' + SLOT_LABELS[S.idx];
+    $('chipRecV').textContent = S.record ? fmt(S.record.v, S.dp) : '—';
+    $('chipRecN').textContent = S.record ? S.record.y + ' · ' + S.unit : '';
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CHARTS
+  // ══════════════════════════════════════════════════════════════
+
+  // Month marks along the most recent visible decade loop.
+  var monthMarks = {
+    id: 'monthMarks',
+    afterDatasetsDraw: function(chart){
+      var ds = null, di = -1;
+      chart.data.datasets.forEach(function(d, i){
+        if (d._kind === 'decade' && chart.isDatasetVisible(i)) { ds = d; di = i; }
+      });
+      if (!ds || !ds.data.length) return;
+      var meta = chart.getDatasetMeta(di), ctx = chart.ctx;
+      var cx = 0, cy = 0;
+      meta.data.forEach(function(el){ cx += el.x; cy += el.y; });
+      cx /= meta.data.length; cy /= meta.data.length;
+      ctx.save();
+      ctx.font = '600 13px "Courier Prime", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var placed = [];
+      MONTH_PENTAD.forEach(function(p, m){
+        var k = ds.data.findIndex(function(pt){ return pt.p === p && !pt.close; });
+        if (k < 0 || !meta.data[k]) return;
+        var el = meta.data[k], dx = el.x - cx, dy = el.y - cy, len = Math.sqrt(dx*dx + dy*dy) || 1;
+        ctx.fillStyle = ds.borderColor;
+        ctx.beginPath(); ctx.arc(el.x, el.y, 3.5, 0, Math.PI*2); ctx.fill();
+        var w = ctx.measureText(MON_SHORT[m]).width + 6, lx = el.x, ly = el.y;
+        for (var r = 20; r <= 70; r += 10){
+          lx = el.x + dx/len*r; ly = el.y + dy/len*r*0.8;
+          var hit = placed.some(function(b){ return Math.abs(b.x - lx) < (b.w + w)/2 && Math.abs(b.y - ly) < 16; });
+          if (!hit) break;
+        }
+        placed.push({ x: lx, y: ly, w: w });
+        ctx.fillStyle = '#CFCABD';
+        ctx.fillText(MON_SHORT[m], lx, ly);
+      });
+      ctx.restore();
+    }
+  };
+
+  function axisTitle(text){ return { display: true, text: text, color: TICK, font: { size: 14 } }; }
+
+  function initCharts(){
+    STATE.charts.daily = new Chart($('dailyChart'), {
+      type: 'line',
+      data: { labels: SLOT_LABELS, datasets: [] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: { duration: 150 },
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            filter: function(item){ return item.dataset._kind !== 'context'; },
+            callbacks: {
+              title: function(items){
+                var it = items[0];
+                return it.dataset._kind === 'cs2' ? it.raw.month : SLOT_LABELS[it.dataIndex];
+              },
+              label: function(it){
+                var F = FIELDS[STATE.field];
+                var v = it.dataset._kind === 'cs2' ? it.raw.y : it.raw;
+                return ' ' + it.dataset.label + ': ' + fmt(v, F.dp) + ' ' + F.unit;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: TICK, font: { size: 14 }, autoSkip: false, maxRotation: 0,
+              callback: function(val, i){
+                if (!MONTH_START_INDEX.hasOwnProperty(i)) return '';
+                // Narrow screens: every other month so labels don't collide.
+                if (this.chart.width < 620 && MON_SHORT.indexOf(MONTH_START_INDEX[i]) % 2 === 1) return '';
+                return MONTH_START_INDEX[i];
+              } },
+            grid: { color: function(c){ return MONTH_START_INDEX.hasOwnProperty(c.index) ? GRID : 'transparent'; } }
+          },
+          y: { ticks: { color: TICK, font: { size: 14 } }, grid: { color: GRID }, title: axisTitle('') }
+        }
+      }
+    });
+
+    STATE.charts.loops = new Chart($('loopChart'), {
+      type: 'scatter',
+      data: { datasets: [] },
+      plugins: [monthMarks],
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        layout: { padding: { right: 34, top: 10 } },
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            filter: function(item){ return item.dataset._kind !== 'context'; },
+            callbacks: {
+              title: function(items){
+                var r = items[0].raw;
+                return (r.close || items[0].dataset.label) + ' · ' + PENTADS[r.p].label;
+              },
+              label: function(it){
+                var F = FIELDS[STATE.field];
+                return [' Extent: ' + fmt(it.raw.x, 2) + ' million km²',
+                        ' ' + F.name + ': ' + fmt(it.raw.y, F.dp) + ' ' + F.unit];
+              }
+            }
+          }
+        },
+        scales: {
+          x: { type: 'linear', ticks: { color: TICK, font: { size: 14 } }, grid: { color: GRID },
+               title: axisTitle('Extent (million km², NSIDC Sea Ice Index)') },
+          y: { ticks: { color: TICK, font: { size: 14 } }, grid: { color: GRID }, title: axisTitle('') }
+        }
+      }
+    });
+  }
+
+  function lineStyle(kind, color){
+    var base = { borderColor: color, backgroundColor: color, pointRadius: 0, tension: 0.25,
+                 cubicInterpolationMode: 'monotone', spanGaps: true, _kind: kind };
+    if (kind === 'context') { base.borderWidth = 1; }
+    else if (kind === 'decade') { base.borderWidth = 2.5; base.borderDash = [1, 6]; base.borderCapStyle = 'round'; base.borderJoinStyle = 'round'; }
+    else if (kind === 'latest') { base.borderWidth = 3; }
+    else { base.borderWidth = 2; }
+    return base;
+  }
+
+  function visibleYearEntries(){
+    // Years drawn as individual highlighted lines, in draw order.
+    var out = [];
+    if (STATE.previousYear !== null) out.push({ id: 'previous', year: STATE.previousYear, color: PREVIOUS_COLOR, kind: 'previous' });
+    STATE.compare.forEach(function(c){ out.push({ id: 'cmp:' + c.year, year: c.year, color: c.color, kind: 'compare' }); });
+    out.push({ id: 'latest', year: STATE.latestYear, color: CURRENT_COLOR, kind: 'latest' });
+    return out;
+  }
+
+  function buildDailyDatasets(){
+    var sets = [];
+    STATE.years.forEach(function(y){
+      sets.push(Object.assign(lineStyle('context', CONTEXT_COLOR), { label: String(y), data: seriesFor(y), hidden: !STATE.contextVisible }));
+    });
+    STATE.decades.forEach(function(d){
+      sets.push(Object.assign(lineStyle('decade', d.color), { label: d.label, data: decadeMean(d), hidden: !STATE.vis[d.id], _id: d.id }));
+    });
+    visibleYearEntries().forEach(function(e){
+      var ds = Object.assign(lineStyle(e.kind, e.color), { label: String(e.year), data: seriesFor(e.year), hidden: STATE.vis[e.id] === false, _id: e.id });
+      if (e.kind === 'latest'){
+        var li = lastIndex(ds.data);
+        ds.pointRadius = ds.data.map(function(v, i){ return i === li ? 7 : 0; });
+        ds.pointHoverRadius = ds.data.map(function(v, i){ return i === li ? 9 : 3; });
+        ds.pointBackgroundColor = CURRENT_COLOR; ds.pointBorderColor = '#1E2320'; ds.pointBorderWidth = 2;
+      }
+      sets.push(ds);
+    });
+    // CryoSat-2 monthly markers for the highlighted years it covers.
+    if (STATE.cs2On && STATE.cs2){
+      visibleYearEntries().forEach(function(e){
+        if (STATE.vis[e.id] === false) return;
+        var pts = cs2Points(e.year);
+        if (!pts.length) return;
+        sets.push({ type: 'scatter', label: e.year + ' CryoSat-2', data: pts, _kind: 'cs2', _id: 'cs2:' + e.year,
+                    pointStyle: 'rectRot', pointRadius: 7, pointHoverRadius: 9, borderWidth: 2,
+                    borderColor: '#1E2320', backgroundColor: e.color, showLine: false });
+      });
+    }
+    return sets;
+  }
+
+  function cs2Points(year){
+    var key = STATE.field, M = (STATE.cs2 && STATE.cs2.monthly) || {}, pts = [];
+    Object.keys(M).forEach(function(ym){
+      var p = ym.split('-'), y = +p[0], m = +p[1] - 1;
+      if (y !== year) return;
+      var v = M[ym] && M[ym][key];
+      if (!isNum(v)) return;
+      pts.push({ x: SLOT_LABELS[MONTH_STARTS[m] + 14], y: v, month: formatMonth(ym) });
+    });
+    return pts;
+  }
+
+  function nextYear(y){
+    var e = extYear(y+1), v = fieldYears()[String(y+1)];
+    return (e && v) ? [e, v] : null;
+  }
+
+  function buildLoopDatasets(){
+    var sets = [], Y = fieldYears();
+    var loopStyle = function(kind, color){
+      var s = lineStyle(kind, color);
+      s.showLine = true; s.tension = 0.2; delete s.cubicInterpolationMode;
+      if (kind === 'decade'){ delete s.borderDash; s.borderWidth = 2.5; }
+      return s;
+    };
+    STATE.years.forEach(function(y){
+      var e = extYear(y); if (!e) return;
+      sets.push(Object.assign(loopStyle('context', CONTEXT_COLOR), { label: String(y), data: loopPoints(e, Y[String(y)], nextYear(y), String(y+1)), hidden: !STATE.contextVisible }));
+    });
+    STATE.decades.forEach(function(d){
+      var de = decadeExtMean(d), dv = decadeMean(d);
+      sets.push(Object.assign(loopStyle('decade', d.color), { label: d.label, data: loopPoints(de, dv, [de, dv]), hidden: !STATE.vis[d.id], _id: d.id }));
+    });
+    visibleYearEntries().forEach(function(en){
+      var e = extYear(en.year); if (!e) return;
+      var ds = Object.assign(loopStyle(en.kind, en.color), { label: String(en.year), data: loopPoints(e, Y[String(en.year)], nextYear(en.year), String(en.year+1)), hidden: STATE.vis[en.id] === false, _id: en.id });
+      if (en.kind === 'latest'){
+        var n = ds.data.length;
+        ds.pointRadius = ds.data.map(function(v, i){ return i === n-1 ? 7 : 0; });
+        ds.pointBackgroundColor = CURRENT_COLOR; ds.pointBorderColor = '#1E2320'; ds.pointBorderWidth = 2;
+      }
+      sets.push(ds);
+    });
+    return sets;
+  }
+
+  function rebuildAll(){
+    var F = FIELDS[STATE.field];
+    STATE.baseline = baselineSeries();
+    var d = STATE.charts.daily, l = STATE.charts.loops;
+    d.data.datasets = buildDailyDatasets();
+    d.options.scales.y.title.text = F.name + ' (' + F.unit + ', PIOMAS)';
+    l.data.datasets = buildLoopDatasets();
+    l.options.scales.y.title.text = F.name + ' (' + F.unit + ', PIOMAS) · 5-day means';
+    d.update(); l.update();
+    renderControls();
+    renderStats();
+  }
+
+  // Visibility-only change: no recomputation of series.
+  function applyVisibility(){
+    [STATE.charts.daily, STATE.charts.loops].forEach(function(ch){
+      ch.data.datasets.forEach(function(ds){
+        if (ds._kind === 'context') ds.hidden = !STATE.contextVisible;
+        else if (ds._id && ds._kind !== 'cs2') ds.hidden = STATE.vis[ds._id] === false;
+        else if (ds._kind === 'cs2') {
+          var yr = ds._id.split(':')[1], e = visibleYearEntries().find(function(x){ return String(x.year) === yr; });
+          ds.hidden = !e || STATE.vis[e.id] === false;
+        }
+      });
+      ch.update();
+    });
+    renderControls();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CONTROLS
+  // ══════════════════════════════════════════════════════════════
+
+  function isolate(id){
+    Object.keys(STATE.vis).forEach(function(k){ STATE.vis[k] = (k === id); });
+    STATE.contextVisible = false;
+    applyVisibility();
+  }
+
+  function paintPill(el, on, color, dashed){
+    el.style.borderColor = color;
+    el.style.borderStyle = dashed ? 'dashed' : 'solid';
+    if (dashed){
+      el.style.background = on ? 'var(--color-surface-2)' : 'var(--color-surface)';
+      el.style.color = on ? color : 'var(--color-text-muted)';
+    } else {
+      el.style.background = on ? color : 'var(--color-surface)';
+      el.style.color = on ? 'var(--color-bg)' : 'var(--color-text-muted)';
+    }
+  }
+
+  function bindPill(el, id){
+    el.onclick = function(){ STATE.vis[id] = STATE.vis[id] === false; applyVisibility(); };
+    el.ondblclick = function(){ isolate(id); };
+  }
+
+  function renderControls(){
+    var legend = $('decadeLegend');
+    legend.innerHTML = '';
+    STATE.decades.forEach(function(d){
+      var p = document.createElement('span');
+      p.className = 'pill'; p.textContent = d.label;
+      paintPill(p, STATE.vis[d.id] !== false, d.color, true);
+      bindPill(p, d.id);
+      legend.appendChild(p);
+    });
+
+    var prev = $('previousPill');
+    if (STATE.previousYear === null){ prev.style.display = 'none'; }
+    else {
+      prev.style.display = 'inline-block';
+      prev.textContent = STATE.previousYear;
+      paintPill(prev, STATE.vis.previous !== false, PREVIOUS_COLOR, false);
+      bindPill(prev, 'previous');
+    }
+    var lat = $('latestPill');
+    lat.textContent = STATE.latestYear;
+    paintPill(lat, STATE.vis.latest !== false, CURRENT_COLOR, false);
+    bindPill(lat, 'latest');
+
+    var ctxBtn = $('contextToggle');
+    ctxBtn.textContent = 'All years: ' + (STATE.contextVisible ? 'on' : 'off');
+    ctxBtn.classList.toggle('on', STATE.contextVisible);
+
+    var sel = $('compareSelect');
+    sel.innerHTML = '<option value="">+ compare a year</option>';
+    STATE.years.slice().reverse().forEach(function(y){
+      if (y === STATE.latestYear || y === STATE.previousYear) return;
+      if (STATE.compare.some(function(c){ return c.year === y; })) return;
+      var o = document.createElement('option'); o.value = y; o.textContent = y; sel.appendChild(o);
+    });
+
+    var chips = $('compareChips');
+    chips.innerHTML = '';
+    STATE.compare.forEach(function(c){
+      var id = 'cmp:' + c.year;
+      var chip = document.createElement('span');
+      chip.className = 'pill';
+      chip.style.borderColor = c.color;
+      chip.style.color = STATE.vis[id] === false ? 'var(--color-text-muted)' : c.color;
+      chip.innerHTML = c.year + '<span class="x" aria-label="remove">&times;</span>';
+      chip.onclick = function(e){
+        if (e.target.classList.contains('x')){
+          STATE.compare = STATE.compare.filter(function(x){ return x.year !== c.year; });
+          delete STATE.vis[id];
+          rebuildAll();
+          return;
+        }
+        STATE.vis[id] = STATE.vis[id] === false; applyVisibility();
+      };
+      chip.ondblclick = function(e){ if (!e.target.classList.contains('x')) isolate(id); };
+      chips.appendChild(chip);
+    });
+
+    var cs2 = $('cs2Toggle');
+    if (STATE.cs2){
+      cs2.textContent = 'CryoSat-2: ' + (STATE.cs2On ? 'on' : 'off');
+      cs2.classList.toggle('on', STATE.cs2On);
+    }
+    var showCs2 = STATE.tab === 'daily';
+    cs2.style.display = showCs2 ? '' : 'none';
+    $('cs2Sep').style.display = showCs2 ? '' : 'none';
+  }
+
+  $('contextToggle').onclick = function(){ STATE.contextVisible = !STATE.contextVisible; applyVisibility(); };
+
+  $('compareSelect').onchange = function(){
+    var y = +this.value;
+    if (!y) return;
+    STATE.compare.push({ year: y, color: COMPARE_COLORS[STATE.compareCount++ % COMPARE_COLORS.length] });
+    STATE.vis['cmp:' + y] = true;
+    rebuildAll();
+  };
+
+  $('cs2Toggle').onclick = function(){
+    if (!STATE.cs2) return;
+    STATE.cs2On = !STATE.cs2On;
+    rebuildAll();
+  };
+
+  $('fieldToggle').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-field]');
+    if (!b || b.dataset.field === STATE.field) return;
+    STATE.field = b.dataset.field;
+    this.querySelectorAll('button').forEach(function(x){ x.classList.toggle('is-active', x === b); });
+    rebuildAll();
+  });
+
+  $('tabBar').addEventListener('click', function(e){
+    var b = e.target.closest('button[data-tab]');
+    if (!b || b.dataset.tab === STATE.tab) return;
+    STATE.tab = b.dataset.tab;
+    this.querySelectorAll('button').forEach(function(x){
+      var on = x === b; x.classList.toggle('is-active', on); x.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    $('paneDaily').hidden = STATE.tab !== 'daily';
+    $('paneLoops').hidden = STATE.tab !== 'loops';
+    (STATE.tab === 'daily' ? STATE.charts.daily : STATE.charts.loops).resize();
+    renderControls();
+    renderFooter();
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // FOOTER
+  // ══════════════════════════════════════════════════════════════
+
+  function footnoteText(){
+    var t = 'PIOMAS is an ice–ocean model that assimilates satellite ice concentration; volume is not directly observed. ' +
+            'Uncertainty: ±0.75 thousand km³ for monthly volume anomalies, ±1.35 thousand km³ for November total volume (Schweiger et al. 2011). ' +
+            'The model domain partly excludes the Sea of Okhotsk and the Gulf of St. Lawrence.';
+    if (STATE.tab === 'loops') t += ' Extent covers the full Northern Hemisphere.';
+    if (STATE.tab === 'daily' && STATE.cs2 && STATE.cs2On && STATE.cs2.note) t += ' ' + STATE.cs2.note;
+    return t;
+  }
+
+  function citationText(){
+    var c = [STATE.vol.citation];
+    if (STATE.tab === 'loops') c.push(STATE.ext.citation);
+    if (STATE.tab === 'daily' && STATE.cs2 && STATE.cs2On && STATE.cs2.citation) c.push(STATE.cs2.citation);
+    return c.filter(Boolean).join('  ·  ');
+  }
+
+  function renderFooter(){
+    $('footnote').textContent = footnoteText();
+    $('citation').textContent = citationText();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // PNG EXPORT
+  // ══════════════════════════════════════════════════════════════
+
+  function wrapText(ctx, text, maxW){
+    var words = text.split(' '), lines = [], cur = '';
+    words.forEach(function(w){
+      var t = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && cur){ lines.push(cur); cur = w; } else cur = t;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  function legendItems(chart){
+    var items = [];
+    if (STATE.contextVisible){
+      items.push({ label: 'All years (' + STATE.years[0] + '–' + STATE.latestYear + ')', color: '#4a5049', kind: 'line' });
+    }
+    chart.data.datasets.forEach(function(ds){
+      if (ds.hidden || ds._kind === 'context') return;
+      if (ds._kind === 'cs2') return;
+      var label = ds.label;
+      if (ds._kind === 'latest') label += ' (through ' + SLOT_LABELS[lastIndex(seriesFor(STATE.latestYear))] + ')';
+      items.push({ label: label, color: ds.borderColor, kind: ds._kind === 'decade' ? 'dotted' : 'line' });
+    });
+    if (chart === STATE.charts.daily && STATE.cs2On && chart.data.datasets.some(function(d){ return d._kind === 'cs2' && !d.hidden; })){
+      items.push({ label: 'CryoSat-2 monthly', color: '#E8E4D9', kind: 'diamond' });
+    }
+    return items;
+  }
+
+  function downloadPNG(){
+    var chart = STATE.tab === 'daily' ? STATE.charts.daily : STATE.charts.loops;
+    var F = FIELDS[STATE.field];
+    var W = 1400, pad = 44, cw = W - pad*2;
+    var m = document.createElement('canvas').getContext('2d');
+
+    m.font = 'italic 17px "Public Sans"';
+    var foot = wrapText(m, footnoteText(), cw);
+    m.font = '15px "Public Sans"';
+    var cite = wrapText(m, citationText(), cw);
+    var status = STATE.vol.status_note || '';
+
+    var SW = 26, SG = 8, IG = 22, RH = 26;
+    m.font = '500 15px "Public Sans"';
+    var rows = [], row = [], x = 0;
+    legendItems(chart).forEach(function(it){
+      var w = SW + SG + m.measureText(it.label).width;
+      if (x + w > cw && row.length){ rows.push(row); row = []; x = 0; }
+      row.push({ it: it, w: w }); x += w + IG;
+    });
+    if (row.length) rows.push(row);
+
+    var origDpr = chart.options.devicePixelRatio || (window.devicePixelRatio || 1);
+    chart.options.devicePixelRatio = EXPORT_SCALE;
+    chart.resize();
+    var img = new Image();
+    img.onload = function(){
+      chart.options.devicePixelRatio = origDpr;
+      chart.resize();
+
+      var chartH = cw / (img.width / img.height);
+      var chipH = 96, lh = 26;
+      var H = pad + 32 + 56 + 30 + (status ? 28 : 0) + 24 + chipH + 28 + chartH + 20 +
+              (rows.length ? rows.length*RH + 18 : 0) + 26 + 26 +
+              (foot.length ? foot.length*lh + 12 : 0) + cite.length*22 + 8 + 30 + pad;
+
+      var c = document.createElement('canvas');
+      c.width = W * EXPORT_SCALE; c.height = H * EXPORT_SCALE;
+      var ctx = c.getContext('2d');
+      ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H);
+
+      var y = pad;
+      ctx.fillStyle = '#D08425'; ctx.font = '600 15px "Courier Prime"';
+      ctx.fillText('[ CLIMATE ]', pad, y); y += 32;
+      ctx.fillStyle = '#E8E4D9'; ctx.font = '700 46px "Zilla Slab"';
+      ctx.fillText(STATE.tab === 'daily' ? 'Arctic Sea Ice ' + (STATE.field === 'volume' ? 'Volume' : 'Thickness')
+                                         : 'Arctic Sea Ice Extent vs ' + (STATE.field === 'volume' ? 'Volume' : 'Thickness'), pad, y);
+      y += 56;
+      ctx.fillStyle = '#A6A499'; ctx.font = '21px "Public Sans"';
+      ctx.fillText($('freshness').textContent, pad, y); y += 30;
+      if (status){ ctx.fillStyle = '#d9a441'; ctx.font = '18px "Public Sans"'; ctx.fillText(status, pad, y); y += 28; }
+      y += 24;
+
+      // Stat chips
+      var chips = [
+        [$('chipLastL').textContent, $('chipLastV').textContent, $('chipLastN').textContent, CURRENT_COLOR],
+        ['Standing', $('chipRankV').textContent, $('chipRankN').textContent, '#E8E4D9'],
+        ['vs 1991–2020', $('chipAnomV').textContent, $('chipAnomN').textContent, '#E8E4D9'],
+        [$('chipRecL').textContent, $('chipRecV').textContent, $('chipRecN').textContent, '#E8E4D9']
+      ];
+      var gap = 12, chipW = (cw - gap*3) / 4;
+      chips.forEach(function(ch, i){
+        var cx = pad + i*(chipW + gap);
+        ctx.fillStyle = '#262B27'; ctx.fillRect(cx, y, chipW, chipH);
+        ctx.strokeStyle = 'rgba(232,228,217,0.14)'; ctx.lineWidth = 1; ctx.strokeRect(cx + 0.5, y + 0.5, chipW - 1, chipH - 1);
+        ctx.fillStyle = '#A6A499'; ctx.font = '600 13px "Courier Prime"';
+        ctx.fillText(ch[0].toUpperCase(), cx + 16, y + 12);
+        ctx.fillStyle = ch[3]; ctx.font = '700 30px "Zilla Slab"';
+        ctx.fillText(ch[1], cx + 16, y + 32);
+        ctx.fillStyle = '#A6A499'; ctx.font = '15px "Public Sans"';
+        ctx.fillText(ch[2], cx + 16, y + 70);
+      });
+      y += chipH + 28;
+
+      ctx.fillStyle = '#262B27'; ctx.fillRect(pad, y, cw, chartH);
+      ctx.drawImage(img, pad, y, cw, chartH);
+      y += chartH + 20;
+
+      if (rows.length){
+        ctx.textBaseline = 'middle'; ctx.font = '500 15px "Public Sans"';
+        rows.forEach(function(r){
+          var lx = pad, my = y + RH/2;
+          r.forEach(function(cell){
+            var it = cell.it;
+            if (it.kind === 'diamond'){
+              ctx.fillStyle = it.color;
+              ctx.beginPath(); ctx.moveTo(lx+13, my-7); ctx.lineTo(lx+20, my); ctx.lineTo(lx+13, my+7); ctx.lineTo(lx+6, my); ctx.closePath(); ctx.fill();
+            } else {
+              ctx.strokeStyle = it.color; ctx.lineWidth = 3;
+              ctx.lineCap = it.kind === 'dotted' ? 'round' : 'butt';
+              ctx.setLineDash(it.kind === 'dotted' ? [1, 6] : []);
+              ctx.beginPath(); ctx.moveTo(lx, my); ctx.lineTo(lx + SW, my); ctx.stroke();
+              ctx.setLineDash([]); ctx.lineCap = 'butt';
+            }
+            ctx.fillStyle = '#A6A499';
+            ctx.fillText(it.label, lx + SW + SG, my);
+            lx += cell.w + IG;
+          });
+          y += RH;
+        });
+        ctx.textBaseline = 'top'; y += 18;
+      }
+      y += 6;
+      ctx.strokeStyle = '#3B423C'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+      y += 26;
+
+      if (foot.length){
+        ctx.fillStyle = '#A6A499'; ctx.font = 'italic 17px "Public Sans"';
+        foot.forEach(function(l){ ctx.fillText(l, pad, y); y += lh; });
+        y += 12;
+      }
+      ctx.fillStyle = '#948F82'; ctx.font = '15px "Public Sans"';
+      cite.forEach(function(l){ ctx.fillText(l, pad, y); y += 22; });
+      y += 8;
+      ctx.fillStyle = '#D08425'; ctx.font = '600 15px "Courier Prime"';
+      ctx.fillText('contextclimate.io  ·  Sea Ice Volume Explorer', pad, y);
+
+      var a = document.createElement('a');
+      a.download = 'seaice-' + (STATE.tab === 'daily' ? '' : 'extent-vs-') + STATE.field + '-' + STATE.vol.updated_through + '.png';
+      a.href = c.toDataURL('image/png');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    };
+    img.src = chart.toBase64Image('image/png', 1);
+  }
+
+  $('downloadBtn').onclick = function(){
+    if (!STATE.vol) return;
+    var btn = this, label = btn.innerHTML;
+    btn.textContent = 'Preparing…';
+    document.fonts.ready.then(function(){ downloadPNG(); btn.innerHTML = label; });
+  };
+
+})();
+</script>
+</body>
+</html>
