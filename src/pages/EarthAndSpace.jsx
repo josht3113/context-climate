@@ -361,7 +361,7 @@ const SECTIONS = [
         label: 'Stars, Spectra & Cosmology',
         cards: [
           {
-            tags:        ['Cosmology', 'Interactive', '1 of 4'],
+            tags:        ['Cosmology', 'Interactive', '1 of 5'],
             title:       "Hubble's Law Explorer",
             description: 'Stretch a simple row of galaxies and pick any one of them as home to observe the velocity-distance relationship, then build the real Hubble diagram yourself from five galaxy clusters.',
             footerTags:  ['Hubble Constant', 'Expanding Universe', 'Big Bang'],
@@ -370,7 +370,7 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Spectroscopy', 'Interactive', '2 of 4'],
+            tags:        ['Spectroscopy', 'Interactive', '2 of 5'],
             title:       'Spectral Analysis',
             description: 'Discover how every element leaves its own pattern of bright or dark lines on a spectrum — a fingerprint that provides information about the composition of stars and their motions.',
             footerTags:  ['Emission Spectra', 'Absorption Spectra'],
@@ -379,7 +379,7 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Spectroscopy', 'Interactive', '3 of 4'],
+            tags:        ['Spectroscopy', 'Interactive', '3 of 5'],
             title:       'Doppler Shift Explorer',
             description: 'Set a star in motion toward or away from an observer and watch its entire spectral fingerprint shift together, and connect Doppler shift to how astronomers measure a star or galaxy\'s motion.',
             footerTags:  ['Redshift', 'Blueshift', 'Doppler Effect'],
@@ -388,12 +388,21 @@ const SECTIONS = [
             status:      'live',
           },
           {
-            tags:        ['Spectroscopy', 'Interactive', '4 of 4'],
+            tags:        ['Spectroscopy', 'Interactive', '4 of 5'],
             title:       'Doppler Shift Challenge',
             description: 'Five spectra from five moving sources. Match each one to its element using the ESSRT reference patterns, then drag your reference into alignment.',
             footerTags:  ['Redshift', 'Blueshift', 'Spectral Lines'],
             to:          '/earthandspace/doppler-shift-challenge',
             thumb:       '/DopplerShiftChallenge_thumbnail.png',
+            status:      'live',
+          },
+          {
+            tags:        ['Cosmology', 'Interactive', '5 of 5'],
+            title:       'Big Bang Model',
+            description: 'Follow the universe from the Big Bang to today through every stage of the Regents model: watch a patch of space cool and build atoms, see the universe grow, and look out from the Milky Way to the cosmic microwave background.',
+            footerTags:  ['Big Bang', 'CMB', 'Expanding Universe'],
+            to:          '/earthandspace/big-bang-model',
+            thumb:       '/big_bang_model_thumbnail.png',
             status:      'live',
           },
           {
