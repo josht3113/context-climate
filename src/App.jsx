@@ -126,6 +126,7 @@ import AngleOfInsolation           from './pages/AngleOfInsolation'
 import SkyColor                    from './pages/SkyColor'
 import CloudShades                 from './pages/CloudShades'
 import LIGlacialTerrain            from './pages/LIGlacialTerrain'
+import BigBangModel                from './pages/BigBangModel'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -280,6 +281,7 @@ export default function App() {
           <Route path="/earthandspace/contact-metamorphism"        element={<ContactMetamorphism />}        />
           <Route path="/earthandspace/planetary-wind-belts"        element={<PlanetaryWindBelts />}         />
           <Route path="/earthandspace/doppler-shift-challenge"     element={<DopplerShiftChallenge />}      />
+          <Route path="/earthandspace/big-bang-model"              element={<BigBangModel />}               />
           <Route path="/earthandspace/foucault-pendulum"           element={<FoucaultPendulum />}           />
           <Route path="/earthandspace/seasons-explorer"            element={<SeasonsExplorer />}            />
           <Route path="/earthandspace/light-pollution-explorer"    element={<LightPollutionExplorer />}     />
