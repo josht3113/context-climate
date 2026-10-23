@@ -400,12 +400,14 @@ const CC_SPECTRA = (function () {
 
   // ── Series navigation ──────────────────────────────────────────────
   // Teaching order, not build order: the observation comes first, then the
-  // spectroscopy needed to explain it.
+  // spectroscopy needed to explain it, then the Big Bang model the evidence
+  // supports.
   const SERIES = [
     { key: 'hubble',      label: "Hubble's Law",     route: '/earthandspace/hubbles-law-explorer' },
     { key: 'fingerprint', label: 'Spectral Analysis', route: '/earthandspace/spectral-fingerprint-lab' },
     { key: 'doppler',     label: 'Doppler Shift',     route: '/earthandspace/doppler-shift-explorer' },
-    { key: 'challenge',   label: 'Doppler Challenge', route: '/earthandspace/doppler-shift-challenge' }
+    { key: 'challenge',   label: 'Doppler Challenge', route: '/earthandspace/doppler-shift-challenge' },
+    { key: 'bigbang',     label: 'Big Bang',          route: '/earthandspace/big-bang-model' }
   ];
 
   // These tools run inside an iframe on a HashRouter site, so a bare "#/..."
