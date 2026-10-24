@@ -127,6 +127,7 @@ import SkyColor                    from './pages/SkyColor'
 import CloudShades                 from './pages/CloudShades'
 import LIGlacialTerrain            from './pages/LIGlacialTerrain'
 import BigBangModel                from './pages/BigBangModel'
+import GravityOrbits               from './pages/GravityOrbits'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -289,6 +290,7 @@ export default function App() {
           <Route path="/earthandspace/sky-color"                   element={<SkyColor />}                   />
           <Route path="/earthandspace/cloud-shades"                element={<CloudShades />}                />
           <Route path="/earthandspace/long-island-glacial-terrain" element={<LIGlacialTerrain />}           />
+          <Route path="/earthandspace/gravity-orbits"              element={<GravityOrbits />}              />
         </Routes>
       </main>
       <footer style={{
