@@ -42,6 +42,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .snap.is-active { background: var(--tool-accent); border-color: var(--tool-accent); color: var(--color-bg); }
 .snap.is-active small { color: var(--color-bg); opacity: .8; }
 .go { min-width: 98px; padding: 10px 14px; font-size: 15px; white-space: nowrap; }
+#mode5 .cc-segmented-btn { padding: 8px 12px; font-size: 13px; white-space: nowrap; }
 .ico { padding: 9px 11px; font-size: 15px; line-height: 1; }
 .slider { flex: 1; display: flex; align-items: center; gap: 9px; min-width: 110px; }
 .slider input { flex: 1; accent-color: var(--tool-accent); height: 22px; cursor: pointer; min-width: 60px; }
@@ -361,10 +362,19 @@ const SNAPS = {
   m: [{ v: 0.5, l: '×0.5' }, { v: 1, l: '×1', s: 'Earth' }, { v: 2, l: '×2' }],
   r0: [{ v: 0.5, l: '0.5 AU', s: 'closer' }, { v: 1, l: '1 AU', s: 'today' }, { v: 1.5, l: '1.5 AU', s: 'farther' }, { v: 2, l: '2 AU', s: 'farther' }],
   v0: [{ v: 0, l: '0', s: 'at rest' }, { v: 20, l: '20', s: 'slower' }, { v: V_EARTH, l: V_EARTH.toFixed(1), s: 'circular' }, { v: 38, l: '38', s: 'faster' }, { v: V_ESC, l: V_ESC.toFixed(1), s: 'escape' }],
-  t5: [{ v: 0, l: '0:00', s: 'Sun vanishes' }, { v: LIGHT_S, l: '8:19', s: 'reaches Earth' }, { v: 30 * 86400, l: '+30 days', s: 'Earth departs' }]
 };
 const RATES = { slow: 15.22, normal: 60.88, fast: 243.5 };   // Earth days per second (normal: 1 year ≈ 6 s)
-const PHASE5 = -0.35;                                          // Earth's angle when the Sun vanishes (rad)
+const PHASE5 = -0.35;                                          // Earth's starting angle in step 5 (rad)
+const SLOW5 = 5200;                                            // light & gravity slowed ×5,200: the change reaches Earth after ~30 days
+const RATE5 = 10 * 86400;                                      // step 5 clock: 10 Earth days per second
+const R_EXIT5 = 1.5;                                           // AU: both Earths have left the view
+function f5(mode) { return mode === 'real' ? 1 : SLOW5; }
+function rel5(mode) { return LIGHT_S * f5(mode); }            // seconds after the vanishing until the change reaches Earth
+function end5(mode) { return rel5(mode) + Math.sqrt(R_EXIT5 * R_EXIT5 - 1) / V_AU_S; }
+function snaps5(mode) {
+  const r = rel5(mode), e = end5(mode), d = s => nf(s / 86400, 1) + ' days';
+  return [{ v: 0, l: 'Sun vanishes', s: mode === 'real' ? '0 min 00 s' : '0 days' }, { v: r, l: 'Reaches Earth', s: mode === 'real' ? '8 min 19 s' : d(r) }, { v: e, l: 'Both leave', s: d(e) }];
+}
 
 const S = {
   step: 0, view: 'above', rate: 'normal',
@@ -375,7 +385,7 @@ const S = {
   cam: null, camT: null,                                     // smoothed / target view box (AU)
   az: -0.42, el: 0.6,                                       // spacetime camera
   vis: { M: 1, depth: 1, force: 1 },                         // animated visuals
-  v5: { t: null, tween: null },
+  v5: { t: null, ph: PHASE5, mode: 'slow', tween: null },
   flash: 0
 };
 const set = () => S.set[Math.min(S.step, 3)];
@@ -915,32 +925,45 @@ function drawSpaceAbove(c, W, H, sc) {
 }
 
 /* ═════════════════════ STEP 5 · THE SUN VANISHES ═══════════════════
-   t5: seconds since the Sun vanished (null = still shining).
-   Newton: Earth is released at t = 0.  Einstein: the change spreads at
-   the speed of light, so Earth keeps orbiting until 8 min 19 s.       */
-function earth5(t, rel) {
-  const tt = t == null ? 0 : t, p = earthAt(PHASE5, tt, rel), th = PHASE5 + OMEGA_S * Math.min(tt, rel);
+   t5: seconds since the Sun vanished (null = still shining); ph5: Earth's
+   angle at that moment (or now, before it); f5: light-speed slowdown.
+   Newton: Earth is released at t = 0.  Einstein: the change spreads at the
+   speed of light, so Earth keeps curving until the front reaches it.     */
+function earth5(ph, t, rel) {
+  const tt = t == null ? 0 : t, p = earthAt(ph, tt, rel), th = ph + OMEGA_S * Math.min(tt, rel);
   const freed = t != null && tt > rel;
-  return { x: p.x, y: p.y, vx: freed ? -Math.sin(th) : -Math.sin(p.th), vy: freed ? Math.cos(th) : Math.cos(p.th), th, freed };
+  return { x: p.x, y: p.y, vx: -Math.sin(th), vy: Math.cos(th), th, freed };
 }
-function trail5(t, rel) {                                 // a short arc of orbit, then the straight line after release
-  const tt = t == null ? 0 : t, th1 = PHASE5 + OMEGA_S * Math.min(tt, rel), pts = [];
-  for (let k = 0; k <= 30; k++) { const a = th1 - 0.75 + 0.75 * k / 30; pts.push(Math.cos(a), Math.sin(a)); }
-  if (t != null && tt > rel) { const e = earth5(t, rel); pts.push(e.x, e.y); }
+function trail5(ph, t, rel) {                             // the last stretch of orbit, then the straight line after release
+  const tt = t == null ? 0 : t, th1 = ph + OMEGA_S * Math.min(tt, rel), pts = [];
+  for (let k = 0; k <= 40; k++) { const a = th1 - 0.9 + 0.9 * k / 40; pts.push(Math.cos(a), Math.sin(a)); }
+  if (t != null && tt > rel) { const e = earth5(ph, t, rel); pts.push(e.x, e.y); }
   return pts;
 }
+function ghost5(c, gx, gy, ex, ey, col, name, box) {      // the other model's Earth, faint
+  c.save(); c.strokeStyle = col; c.globalAlpha = 0.85; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.arc(gx, gy, 8 * UI, 0, TAU); c.stroke(); c.restore();
+  const d = Math.hypot(gx - ex, gy - ey);
+  if (d > 22) {
+    const ux = (gx - ex) / d, uy = (gy - ey) / d, t = name, w = tw(c, t, `700 13px ${FM}`);
+    let lx = gx + ux * 20, ly = gy + uy * 18; const al = ux > 0.3 ? 'left' : ux < -0.3 ? 'right' : 'center';
+    const x0 = al === 'left' ? lx : al === 'right' ? lx - w : lx - w / 2; lx += Math.max(0, box[0] + 8 - x0) + Math.min(0, box[0] + box[2] - 8 - (x0 + w));
+    label(c, t, lx, clamp(ly, box[1] + 70, box[1] + box[3] - 30), { font: `700 13px ${FM}`, color: col, align: al, alpha: 0.9 });
+  }
+}
+function fmt5(t, f) { return f > 1 || t >= 86400 * 2 ? nf(t / 86400, 1) + ' days' : fmtClock(t); }
 function drawVanish(c, W, H, sc) {
-  const t = sc.t5, Rf = t == null ? 0 : t / LIGHT_S;
+  const t = sc.t5, ph = sc.ph5, F = sc.f5, rel = LIGHT_S * F, Rf = t == null ? 0 : t / rel;
   c.drawImage(spaceBG(W, H, sc.pr), 0, 0, W, H);
-  // clock
   if (t != null || sc.hit == null) {
     label(c, 'TIME SINCE THE SUN VANISHED', W / 2, 18, { font: `700 13px ${FM}`, color: C.sec });
-    label(c, t == null ? '—' : fmtSpan(t), W / 2, 46, { font: `700 30px ${FD}`, color: t == null ? C.muted : C.text });
+    label(c, t == null ? '—' : fmt5(t, F), W / 2, 46, { font: `700 30px ${FD}`, color: t == null ? C.muted : C.text });
   }
-  tag(c, 'THOUGHT EXPERIMENT', W - 14, 22);
-  const gap = 12, top = 70, pw = (W - gap * 3) / 2, ph = H - top - gap;
-  const boxes = [[gap, top, pw, ph], [gap * 2 + pw, top, pw, ph]];
+  tag(c, 'THOUGHT EXPERIMENT', W - 14, 20);
+  if (F > 1) label(c, 'SPEED OF LIGHT SLOWED ×' + nf(F, 0), W - 14, 42, { font: `700 13px ${FM}`, color: C.solar, align: 'right', hw: 3 });
+  const gap = 12, top = 70, pw = (W - gap * 3) / 2, ph5 = H - top - gap;
+  const boxes = [[gap, top, pw, ph5], [gap * 2 + pw, top, pw, ph5]];
   for (const [x, y, w, h] of boxes) { c.save(); c.fillStyle = 'rgba(10,13,12,0.55)'; rrect(c, x, y, w, h, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; rrect(c, x + 0.5, y + 0.5, w - 1, h - 1, 6); c.stroke(); c.restore(); }
+  const lit = t == null || t < rel, when = r => r === 0 ? (F > 1 ? '0 days' : '0 min 00 s') : (F > 1 ? nf(r / 86400, 1) + ' days' : '8 min 19 s');
   // ── Newton
   {
     const [x, y, w, h] = boxes[0];
@@ -955,20 +978,22 @@ function drawVanish(c, W, H, sc) {
       for (const [lw, al] of [[12, 0.12], [2.5, 0.85]]) { c.strokeStyle = `rgba(255,217,120,${al})`; c.lineWidth = lw; c.beginPath(); c.arc(cx, cy, Math.max(0.5, Rf * s), 0, TAU); c.stroke(); }
       c.restore();
     }
-    const e = earth5(t, 0), ex = X(e.x), ey = Y(e.y);
-    c.save(); c.strokeStyle = C.path; c.globalAlpha = 0.92; c.lineWidth = 2.2; polyline(c, trail5(t, 0), X, Y); c.stroke(); c.restore();
-    if (t != null) { const th = PHASE5; dashLine(c, X(Math.cos(th)), Y(Math.sin(th)), X(Math.cos(th) - Math.sin(th) * 3), Y(Math.sin(th) + Math.cos(th) * 3), C.ghost, 1.6, [8, 7]); }
-    drawEarth(c, ex, ey, 8 * UI, cx - ex, cy - ey, t == null || t < LIGHT_S, 1);
+    const e = earth5(ph, t, 0), ex = X(e.x), ey = Y(e.y), g = earth5(ph, t, rel);
+    if (t != null) { c.save(); c.strokeStyle = C.accent; c.globalAlpha = 0.55; c.lineWidth = 1.8; c.setLineDash([5, 5]); polyline(c, trail5(ph, t, rel), X, Y); c.stroke(); c.restore(); }
+    c.save(); c.strokeStyle = C.path; c.globalAlpha = 0.92; c.lineWidth = 2.2; polyline(c, trail5(ph, t, 0), X, Y); c.stroke(); c.restore();
+    if (t != null) ghost5(c, X(g.x), Y(g.y), ex, ey, C.accent, "Einstein's Earth", [x, y, w, h]);
+    if (t != null) dashLine(c, X(Math.cos(ph)), Y(Math.sin(ph)), X(Math.cos(ph) - Math.sin(ph) * 3), Y(Math.sin(ph) + Math.cos(ph) * 3), C.ghost, 1.6, [8, 7]);
+    drawEarth(c, ex, ey, 8 * UI, cx - ex, cy - ey, lit, 1);
     if (t == null && sc.layers.force) {
       const dx = cx - ex, dy = cy - ey, d = Math.hypot(dx, dy), ux = dx / d, uy = dy / d, L = fP();
       arrow(c, ex, ey, ex + ux * L, ey + uy * L, C.force); arrow(c, cx, cy, cx - ux * L, cy - uy * L, C.force);
     }
     if (sc.layers.vel) { const L = V_EARTH * vP(); arrow(c, ex, ey, ex + e.vx * L, ey - e.vy * L, C.vel);
       const lt = nf(V_EARTH, 1) + ' km/s', lw = tw(c, lt, `700 15px ${FM}`);
-      label(c, lt, clamp(ex + e.vx * (L + 22) - (e.vx > 0.35 ? 0 : e.vx < -0.35 ? lw : lw / 2), x + 10, x + w - 10 - lw), ey - e.vy * (L + 14), { font: `700 15px ${FM}`, color: C.vel, align: 'left' }); }
+      label(c, lt, clamp(ex + e.vx * (L + 22) - (e.vx > 0.35 ? 0 : e.vx < -0.35 ? lw : lw / 2), x + 10, x + w - 10 - lw), clamp(ey - e.vy * (L + 14), y + 76, y + h - 34), { font: `700 15px ${FM}`, color: C.vel, align: 'left' }); }
     label(c, "NEWTON'S MODEL", x + 14, y + 20, { font: `700 14px ${FM}`, color: C.force, align: 'left' });
     if (t == null) pill(c, 'Earth: orbiting', x + 14, y + 48, C.sec, { align: 'left' });
-    else pill(c, 'Earth: released at 0 min 00 s', x + 14, y + 48, C.force, { align: 'left' });
+    else pill(c, 'Earth: released at ' + when(0), x + 14, y + 48, C.force, { align: 'left' });
     tag(c, 'SIZES EXAGGERATED', x + 14, y + h - 16, 'left');
     c.restore();
   }
@@ -978,17 +1003,18 @@ function drawVanish(c, W, H, sc) {
     c.save(); rrect(c, x, y, w, h, 6); c.clip();
     const G = 1.45, w0 = wellFn(G, 1), ww = 0.16 * G, A = 0.07 * G;
     const well = t == null ? w0 : r => { const u = (r - Rf) / ww; return w0(r) * smooth(u + 0.5) + A * u * Math.exp(-u * u) * smooth(Rf / 0.25); };
-    const e = earth5(t, LIGHT_S);
-    drawSurface(c, x + 6, y + 64, w - 12, h - 92, {
+    const e = earth5(ph, t, rel), gN = earth5(ph, t, 0);
+    const SR = drawSurface(c, x + 6, y + 64, w - 12, h - 92, {
       G, well, az: sc.az5, el: sc.el5, clock: sc.clock, fitDepth: w0(0), N: 30,
-      sun: t == null ? { M: 1, a: 1 } : null,
+      sun: t == null ? { M: 1, a: 1 } : null, refR: 1,
       ring: t != null ? { R: Rf, a: 1 } : null,
-      paths: [{ pts: trail5(t, LIGHT_S), col: C.path, a: 0.92, w: 2.2 }].concat(t != null && t >= LIGHT_S ? [{ pts: [Math.cos(e.th), Math.sin(e.th), Math.cos(e.th) - Math.sin(e.th) * 3, Math.sin(e.th) + Math.cos(e.th) * 3], col: 'rgba(232,228,217,0.6)', a: 1, w: 1.6, dash: [8, 7] }] : []),
-      earth: { x: e.x, y: e.y, lit: t == null || t < LIGHT_S, vel: sc.layers.vel ? { vx: e.vx, vy: e.vy, kms: V_EARTH } : null }
+      paths: (t != null ? [{ pts: trail5(ph, t, 0), col: C.force, a: 0.6, w: 1.8, dash: [5, 5] }] : []).concat([{ pts: trail5(ph, t, rel), col: C.path, a: 0.92, w: 2.2 }]).concat(e.freed ? [{ pts: [Math.cos(e.th), Math.sin(e.th), Math.cos(e.th) - Math.sin(e.th) * 3, Math.sin(e.th) + Math.cos(e.th) * 3], col: 'rgba(232,228,217,0.6)', a: 1, w: 1.6, dash: [8, 7] }] : []),
+      earth: { x: e.x, y: e.y, lit, vel: sc.layers.vel ? { vx: e.vx, vy: e.vy, kms: V_EARTH } : null }
     });
+    if (t != null && Math.abs(gN.x) < G && Math.abs(gN.y) < G) { const gp = SR.P3(gN.x, gN.y), ep = SR.ep; ghost5(c, gp[0], gp[1], ep[0], ep[1], C.force, "Newton's Earth", [x, y, w, h]); }
     label(c, "EINSTEIN'S MODEL", x + 14, y + 20, { font: `700 14px ${FM}`, color: C.accent, align: 'left' });
-    if (t == null || t < LIGHT_S) pill(c, 'Earth: orbiting', x + 14, y + 48, C.sec, { align: 'left' });
-    else pill(c, 'Earth: released at 8 min 19 s', x + 14, y + 48, C.accent, { align: 'left' });
+    if (!e.freed) pill(c, 'Earth: orbiting', x + 14, y + 48, C.sec, { align: 'left' });
+    else pill(c, 'Earth: released at ' + when(rel), x + 14, y + 48, C.accent, { align: 'left' });
     tag(c, 'SCHEMATIC · DEPTH EXAGGERATED', x + w - 14, y + h - 16);
     if (sc.hit) sc.hit.einstein = { x, y, w, h };
     c.restore();
@@ -1018,16 +1044,21 @@ function cardModel() {
   rows.push(T && el.kind !== 'impact' ? { l: 'Orbital period', v: T.v, u: T.u } : { l: 'Orbital period', v: '—', dim: true });
   return { eb: STEPS[S.step].eb, rows, src: SRC_NEWTON };
 }
-function card5() {
-  const t = S.v5.t, Rf = t == null ? 0 : t / LIGHT_S, rows = [];
-  rows.push({ l: 'Time since the Sun vanished', v: t == null ? '—' : fmtSpan(t), dim: t == null });
-  rows.push(t == null ? { l: 'Last light & gravity change', v: '—', dim: true } : { l: 'Last light & gravity change', v: fmtAU(Rf), u: 'AU out', nt: fmtMkm(Rf) });
-  rows.push({ l: "Newton · Earth", v: t == null ? 'Orbiting' : 'Released', nt: t == null ? '' : 'at 0 min 00 s', col: t == null ? C.text : C.force });
-  const eRel = t != null && t >= LIGHT_S;
-  rows.push({ l: "Einstein · Earth", v: eRel ? 'Released' : 'Orbiting', nt: eRel ? 'at 8 min 19 s' : '', col: eRel ? C.accent : C.text });
-  rows.push({ l: 'Sunlight at Earth', v: t == null || t < LIGHT_S ? 'Shining' : 'Gone' });
-  let gap = 0; if (t != null) { const a = earthAt(PHASE5, t, 0), b = earthAt(PHASE5, t, LIGHT_S); gap = Math.hypot(a.x - b.x, a.y - b.y) * AU_KM; }
-  rows.push({ l: 'Gap between the two Earths', v: t == null ? '—' : gap < 10 ? nf(gap, 1) : nf(gap, 0), u: t == null ? '' : 'km', dim: t == null });
+function card5(t, ph, mode) {
+  if (t === undefined) { t = S.v5.t; ph = S.v5.ph; mode = S.v5.mode; }
+  const F = f5(mode), rel = rel5(mode), Rf = t == null ? 0 : t / rel, rows = [];
+  const when = r => r === 0 ? (F > 1 ? '0 days' : '0 min 00 s') : (F > 1 ? nf(r / 86400, 1) + ' days' : '8 min 19 s');
+  rows.push({ l: 'Time since the Sun vanished', v: t == null ? '—' : fmt5(t, F), dim: t == null });
+  rows.push(t == null ? { l: 'Light & gravity change', v: '—', dim: true } : { l: 'Light & gravity change', v: fmtAU(Rf), u: 'AU out', nt: fmtMkm(Rf) });
+  rows.push({ l: 'Newton · Earth', v: t == null ? 'Orbiting' : 'Released', nt: t == null ? '' : 'at ' + when(0), col: t == null ? C.text : C.force });
+  const eRel = t != null && t > rel;
+  rows.push({ l: 'Einstein · Earth', v: eRel ? 'Released' : 'Orbiting', nt: eRel ? 'at ' + when(rel) : '', col: eRel ? C.accent : C.text });
+  rows.push({ l: 'Sunlight at Earth', v: t == null || t < rel ? 'Shining' : 'Gone' });
+  if (F > 1) rows.push({ l: 'Real time to reach Earth', v: '8 min 19 s', dim: true });
+  else {
+    let gap = 0; if (t != null) { const p = earthAt(ph, t, 0), q = earthAt(ph, t, LIGHT_S); gap = Math.hypot(p.x - q.x, p.y - q.y) * AU_KM; }
+    rows.push({ l: 'Gap between the two Earths', v: t == null ? '—' : gap < 10 ? nf(gap, 1) : nf(gap, 0), u: t == null ? '' : 'km', dim: t == null });
+  }
   return { eb: STEPS[4].eb, rows, src: SRC_VANISH };
 }
 let lastCard = '';
@@ -1074,36 +1105,41 @@ function renderControls() {
     ctl.appendChild(snapGroup('v0', SNAPS.v0, () => set().v0, v => setParam('v0', v)));
     const sl = sliderEl('v0', 0, 50, 0.1, 'Launch speed'); sl.querySelector('input').oninput = e => setParam('v0', +(+e.target.value).toFixed(1)); ctl.appendChild(sl);
   } else {
-    ctl.appendChild(snapGroup('t5', SNAPS.t5, () => S.v5.t, v => jump5(v)));
+    ctl.appendChild(snapGroup('t5', snaps5(S.v5.mode), () => S.v5.t, v => jump5(v)));
     const sl = sliderEl('t5', 0, 1, 0.001, 'Time since the Sun vanished'); sl.querySelector('input').oninput = e => { S.v5.tween = null; set5(u2t(+e.target.value)); }; ctl.appendChild(sl);
+    ctl.appendChild(mk('div', 'sep'));
+    const seg = mk('div', 'cc-segmented'); seg.id = 'mode5';
+    [['slow', 'Slowed'], ['real', 'Real speed']].forEach(([k, txt]) => { const b = mk('button', 'cc-segmented-btn', txt); b.dataset.mode = k; b.onclick = () => setMode5(k); seg.appendChild(b); });
+    ctl.appendChild(seg);
   }
   syncControls();
 }
-const U_SPLIT = 0.7, T_SPLIT = 600, T_END = 30 * 86400;
-function u2t(u) { return u <= U_SPLIT ? u / U_SPLIT * T_SPLIT : T_SPLIT * Math.pow(T_END / T_SPLIT, (u - U_SPLIT) / (1 - U_SPLIT)); }
-function t2u(t) { return t <= T_SPLIT ? t / T_SPLIT * U_SPLIT : U_SPLIT + (1 - U_SPLIT) * Math.log(t / T_SPLIT) / Math.log(T_END / T_SPLIT); }
+const U_SPLIT = 0.6, T_SPLIT = 600;                     // real speed: first 10 minutes on 60% of the slider, then days
+function u2t(u) { const E = end5(S.v5.mode); if (S.v5.mode !== 'real') return u * E; return u <= U_SPLIT ? u / U_SPLIT * T_SPLIT : T_SPLIT + (E - T_SPLIT) * (u - U_SPLIT) / (1 - U_SPLIT); }
+function t2u(t) { const E = end5(S.v5.mode); if (S.v5.mode !== 'real') return t / E; return t <= T_SPLIT ? t / T_SPLIT * U_SPLIT : U_SPLIT + (1 - U_SPLIT) * (t - T_SPLIT) / (E - T_SPLIT); }
 function syncControls() {
   const pb = document.getElementById('bPlay');
   if (pb) {
     let t;
-    if (S.step === 4) { const v = S.v5.t; t = S.v5.tween ? '❚❚ Pause' : v != null && v >= T_END - 1 ? '↺ Replay' : '▶ Play'; }
+    if (S.step === 4) { const v = S.v5.t; t = S.v5.tween ? '❚❚ Pause' : v != null && v >= end5(S.v5.mode) - 1 ? '↺ Replay' : '▶ Play'; }
     else t = S.running ? '❚❚ Pause' : S.sim.done ? '↺ Replay' : '▶ Play';
     if (pb.textContent !== t) pb.textContent = t;
   }
   const g = document.getElementById('bGrav');
   if (g) { const on = S.sim.gravity; g.classList.toggle('off', !on); g.querySelector('.gt').textContent = on ? 'Gravity ON' : 'Gravity OFF'; g.setAttribute('aria-pressed', on); }
   ctl.querySelectorAll('.grp[data-key]').forEach(gr => {
-    const key = gr.dataset.key, snaps = SNAPS[key], v = key === 't5' ? S.v5.t : key === 'M' || key === 'm' ? S.sim[key] : set()[key];
+    const key = gr.dataset.key, snaps = key === 't5' ? snaps5(S.v5.mode) : SNAPS[key], v = key === 't5' ? S.v5.t : key === 'M' || key === 'm' ? S.sim[key] : set()[key];
     gr.querySelectorAll('.snap').forEach(b => { const sv = snaps[+b.dataset.i].v; b.classList.toggle('is-active', v != null && Math.abs(sv - v) < (key === 't5' ? 0.6 : key === 'v0' ? 0.004 : 0.001)); });
   });
   ctl.querySelectorAll('.slider[data-key]').forEach(sl => {
     const key = sl.dataset.key, inp = sl.querySelector('input'), sv = sl.querySelector('.sv');
     let v, txt;
-    if (key === 't5') { v = S.v5.t == null ? 0 : t2u(S.v5.t); txt = S.v5.t == null ? '—' : fmtSpan(S.v5.t).replace(' min ', ':').replace(' s', '').replace(/^(\d+):(\d+)$/, '$1:$2'); }
+    if (key === 't5') { v = S.v5.t == null ? 0 : t2u(S.v5.t); txt = S.v5.t == null ? '—' : fmt5(S.v5.t, f5(S.v5.mode)).replace(' min ', ':').replace(/ s$/, ''); }
     else { v = key === 'M' ? S.sim.M : set()[key]; txt = key === 'M' ? '×' + trimNum(v) : key === 'r0' ? nf(v, 2) + ' AU' : nf(v, 1) + ' km/s'; }
     if (document.activeElement !== inp) inp.value = v;
     if (sv.textContent !== txt) sv.textContent = txt;
   });
+  const m5 = document.getElementById('mode5'); if (m5) m5.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('is-active', b.dataset.mode === S.v5.mode));
   syncChips();
 }
 
@@ -1139,25 +1175,29 @@ function syncChips() {
 }
 
 /* ══════════════════════ STEP 5 TIMELINE ════════════════════════════ */
-function set5(t) { S.v5.t = t == null ? null : clamp(t, 0, T_END); syncControls(); renderCard(); draw(); }
-function vanish() { S.v5.tween = null; set5(0); S.v5.tween = { kind: 'lin', from: 0, to: LIGHT_S, rate: 60 }; syncControls(); }
+function set5(t) { S.v5.t = t == null ? null : clamp(t, 0, end5(S.v5.mode)); syncControls(); renderCard(); draw(); }
+function phase1Rate() { return S.v5.mode === 'real' ? 60 : RATE5; }       // real speed: 1 minute per second until the change arrives
+function vanish() { S.v5.tween = null; set5(0); S.v5.tween = { to: rel5(S.v5.mode), rate: phase1Rate() }; syncControls(); }
 function jump5(v) { S.v5.tween = null; set5(v); }
 function play5() {
-  const v5 = S.v5;
+  const v5 = S.v5, rel = rel5(v5.mode), end = end5(v5.mode);
   if (v5.tween) { v5.tween = null; syncControls(); return; }
   if (v5.t == null) return vanish();
-  if (v5.t >= T_END - 1) { restore5(); return; }
-  if (v5.t < LIGHT_S - 0.5) v5.tween = { kind: 'lin', from: v5.t, to: LIGHT_S, rate: 60 };
-  else v5.tween = { kind: 'log', from: Math.max(v5.t, LIGHT_S), to: T_END, k: 0, dur: 4.5 };
+  if (v5.t >= end - 1) { restore5(); return; }
+  v5.tween = v5.t < rel - 0.5 ? { to: rel, rate: phase1Rate() } : { to: end, rate: RATE5 };
   syncControls();
 }
-function restore5() { S.v5.tween = null; set5(null); }
+function restore5() {                                      // the Sun returns; Earth resumes orbiting from where it was when the Sun vanished
+  const v5 = S.v5;
+  v5.tween = null; v5.t = null; syncControls(); renderCard(); draw();
+}
+function setMode5(m) { if (S.v5.mode === m) return; S.v5.mode = m; S.v5.tween = null; S.v5.t = null; renderControls(); renderCard(); draw(); }
 function tick5(dt) {
-  const tw0 = S.v5.tween; if (!tw0) return;
-  let t;
-  if (tw0.kind === 'lin') { t = Math.min(tw0.to, S.v5.t + dt * tw0.rate); if (t >= tw0.to) S.v5.tween = null; }
-  else { tw0.k += dt / tw0.dur; const k = ease(tw0.k); t = tw0.from * Math.pow(tw0.to / tw0.from, k); if (tw0.k >= 1) { t = tw0.to; S.v5.tween = null; } }
-  S.v5.t = t; syncControls(); renderCard();
+  const v5 = S.v5;
+  if (v5.t == null) { v5.ph += OMEGA_S * RATE5 * dt; return; }          // the Sun is shining: Earth orbits
+  const tw0 = v5.tween; if (!tw0) return;
+  const t = Math.min(tw0.to, v5.t + dt * tw0.rate); if (t >= tw0.to) v5.tween = null;
+  v5.t = t; syncControls(); renderCard();
 }
 vanishBtn.onclick = vanish;
 
@@ -1172,7 +1212,7 @@ function resize() {
 }
 function liveScene() {
   return { step: S.step, sim: S.sim, box: S.cam, mem: S.memory[S.step] || [], layers: S.layers, vis: S.vis, clock, flash: S.flash, running: S.running,
-    az: S.az, el: S.el, az5: S.az5, el5: S.el5, t5: S.v5.t, view: S.view };
+    az: S.az, el: S.el, az5: S.az5, el5: S.el5, t5: S.v5.t, ph5: S.v5.ph, f5: f5(S.v5.mode), view: S.view };
 }
 function renderScene(c, W, H, sc) {
   UI = clamp(Math.min(W, H) / 470, 1, 1.7);
@@ -1218,7 +1258,7 @@ function setStep(i) {
   S.step = i; S.running = false; S.v5.tween = null;
   document.querySelectorAll('#tabs .cc-segmented-btn').forEach((b, k) => b.classList.toggle('is-active', k === i));
   if (i < 4) { newRun(true); S.vis.M = S.sim.M; S.vis.depth = 1; }
-  else { S.v5.t = null; }
+  else { S.v5.t = null; S.v5.ph = PHASE5; }
   renderControls(); renderChips(); renderCard(); updateExportButtons(); draw();
 }
 
@@ -1265,7 +1305,7 @@ window.addEventListener('keydown', e => {
 /* ═══════════════════════════════ EXPORT ════════════════════════════ */
 const EW = 1280, EH = 720;
 function stampText(sc) {
-  if (sc.step === 4) return 'The Sun vanishes · thought experiment · ' + (sc.t5 == null ? 'before' : fmtSpan(sc.t5) + ' after');
+  if (sc.step === 4) return 'The Sun vanishes · thought experiment · ' + (sc.f5 > 1 ? 'light & gravity slowed ×' + nf(sc.f5, 0) + ' · ' : 'real speed · ') + (sc.t5 == null ? 'before' : fmt5(sc.t5, sc.f5) + ' after');
   const s = sc.sim, c = s.cfg, base = `Sun ×${trimNum(c.M)} · Earth ×${trimNum(c.m)} · launched from ${fmtAU(c.r0)} AU at ${nf(c.v0, 1)} km/s`;
   const ev = s.events.map(e => (e.k === 'grav' ? 'gravity ' + (e.v ? 'on' : 'off') : e.k === 'M' ? 'Sun ×' + trimNum(e.v) : 'Earth ×' + trimNum(e.v)) + ' on day ' + Math.round(e.t)).join(' · ');
   return STEPS[sc.step].eb + ' · ' + base + (ev ? ' · ' + ev : '') + (sc.view === 'space' ? ' · spacetime view' : '');
@@ -1339,13 +1379,17 @@ function cardFor(s) { const keep = S.sim; S.sim = s; const m = cardModel(); S.si
 function sweep(kind) {
   const base = liveScene(), fps = kind === 'gif' ? 20 : 30, out = [];
   if (base.step === 4) {
-    const n1 = kind === 'gif' ? 70 : 250, n2 = kind === 'gif' ? 36 : 120, hold = kind === 'gif' ? 1 : 30;
-    const push = (t, d) => out.push({ make: () => { const keep = S.v5.t; S.v5.t = t; const sc = Object.assign({}, base, { t5: t, hit: null }); sc.card = cardModel(); S.v5.t = keep; return sc; }, delay: d });
-    push(null, kind === 'gif' ? 120 : 0); if (kind !== 'gif') for (let k = 0; k < 45; k++) push(null, 0);
-    for (let k = 0; k <= n1; k++) push(k / n1 * LIGHT_S, k === n1 ? 140 : 6);
-    if (kind !== 'gif') for (let k = 0; k < 45; k++) push(LIGHT_S, 0);
-    for (let k = 1; k <= n2; k++) push(LIGHT_S * Math.pow(T_END / LIGHT_S, ease(k / n2)), k === n2 ? 260 : 6);
-    if (kind !== 'gif') for (let k = 0; k < 75; k++) push(T_END, 0);
+    const mode = S.v5.mode, rel = rel5(mode), end = end5(mode), real = mode === 'real';
+    const ph0 = PHASE5 - OMEGA_S * RATE5 * 1.5, preN = Math.round(1.5 * fps);
+    const push = (t, ph, d) => out.push({ make: () => { const sc = Object.assign({}, base, { t5: t, ph5: ph, f5: f5(mode), hit: null }); sc.card = card5(t, ph, mode); return sc; }, delay: d });
+    for (let k = 0; k < preN; k++) push(null, ph0 + OMEGA_S * RATE5 * k / fps, k === 0 ? 60 : 5);
+    const ph = PHASE5;
+    const n1 = real ? Math.round((kind === 'gif' ? 4 : 8.3) * fps) : Math.round(rel / RATE5 * fps);
+    for (let k = 0; k <= n1; k++) push(k / n1 * rel, ph, kind === 'gif' && real ? 10 : 5);
+    if (kind === 'gif') out[out.length - 1].delay = 150; else for (let k = 0; k < 45; k++) push(rel, ph, 0);
+    const n2 = Math.round((end - rel) / RATE5 * fps);
+    for (let k = 1; k <= n2; k++) push(rel + (end - rel) * k / n2, ph, 5);
+    if (kind === 'gif') out[out.length - 1].delay = 260; else for (let k = 0; k < 75; k++) push(end, ph, 0);
     return out;
   }
   const live = S.sim, lim = liveLimit();
