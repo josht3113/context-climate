@@ -104,6 +104,7 @@ import DopplerShiftExplorer        from './pages/DopplerShiftExplorer'
 import HubblesLawExplorer          from './pages/HubblesLawExplorer'
 import MoonPhaseSimulator          from './pages/MoonPhaseSimulator'
 import EclipseExplorer             from './pages/EclipseExplorer'
+import TrackingTheMoon             from './pages/TrackingTheMoon'
 import TemperatureClimatology      from './pages/TemperatureClimatology'
 import DewpointClimatology         from './pages/DewpointClimatology'
 import TornadoTrackExplorer        from './pages/TornadoTrackExplorer'
@@ -257,6 +258,7 @@ export default function App() {
           <Route path="/earthandspace/tidal-rhythm"                element={<TidalRhythm />}               />
           <Route path="/earthandspace/moon-phase-simulator"        element={<MoonPhaseSimulator />}        />
           <Route path="/earthandspace/eclipse-explorer"            element={<EclipseExplorer />}           />
+          <Route path="/earthandspace/tracking-the-moon"           element={<TrackingTheMoon />}           />
           <Route path="/earthandspace/suns-path"                   element={<SunsPath />}                  />
           <Route path="/earthandspace/turning-sky"                 element={<TurningSky />}                />
           <Route path="/seaice-extent-explorer"                    element={<SeaIceExtentExplorer />}      />
