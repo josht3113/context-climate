@@ -311,8 +311,8 @@ const SECTIONS = [
           {
             tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
-            description: 'Explore how solar and lunar eclipses occur and see why they don\'t happen every month.',
-            footerTags:  ['Syzygy', 'Sun', 'Moon'],
+            description: 'Why the Moon\'s shadow misses Earth most months: tilt the orbit, watch eclipse seasons line up twice a year, see every real new and full moon around today, and follow Saros families across 1,200 years.',
+            footerTags:  ['Eclipse Seasons', 'Saros'],
             to:          '/earthandspace/eclipse-explorer',
             thumb:       '/EclipseExplorer_thumbnail.png',
             status:      'live',
