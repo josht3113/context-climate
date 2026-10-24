@@ -282,6 +282,15 @@ const SECTIONS = [
         label: 'The Earth–Moon System',
         cards: [
           {
+            tags:        ['Moon Motion', 'Interactive'],
+            title:       'Tracking the Moon',
+            description: 'Follow the real Moon across a Long Island sky: watch it move west with the stars hour by hour, then hold the clock and watch it step east night to night as its phase changes. Prints a matching black-and-white horizon sheet.',
+            footerTags:  ['Rotation', 'Revolution'],
+            to:          '/earthandspace/tracking-the-moon',
+            thumb:       '/TrackingTheMoon_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ['Lunar Cycle', 'Interactive'],
             title:       'Sidereal vs Synodic Month',
             description: 'Why does a complete cycle of Moon phases take 29.5 days when the Moon orbits Earth in just 27.3 days? Explore the geometry behind the sidereal and synodic month through an animated orbital simulation.',
