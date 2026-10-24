@@ -1611,6 +1611,15 @@ function snapSweep(kind, list, setV, getV, ease){
   fr.forEach(function(q){ q.set = function(){ setV(q.v, q.hold); }; });
   return {fr:fr, restore:function(){ setV(saved, true); }};
 }
+/* steady, continuous sweep from a to b — holds only at the two ends */
+function steadySweep(kind, a, b, setV, getV){
+  var saved = getV(), fr = [], n = kind === 'gif' ? 64 : 210, h0 = kind === 'gif' ? 1 : 30, h1 = kind === 'gif' ? 1 : 45, i;
+  for (i = 0; i < h0; i++) fr.push({v:a, delay:kind === 'gif' ? 120 : 0, hold:true});
+  for (i = 1; i < n; i++) fr.push({v:a + (b - a)*i/n, delay:7});
+  for (i = 0; i < h1; i++) fr.push({v:b, delay:kind === 'gif' ? 300 : 0, hold:true});
+  fr.forEach(function(q){ q.set = function(){ setV(q.v, q.hold, kind); }; });
+  return {fr:fr, restore:function(){ setV(saved, true, kind); }};
+}
 function wireExports(){
   var menu = document.getElementById('pngMenu');
   document.getElementById('bPNG').onclick = function(e){ e.stopPropagation(); menu.classList.toggle('open'); };
@@ -1807,7 +1816,7 @@ function specimen(st, scale, light, stage, R){
 function specRes(D, o){
   var maxR = o.export ? 1300 : 720;
   var R = clamp(Math.round(D * (o.pr || 1)), 96, maxR);
-  if (o.quick) R = Math.round(R * (o.export ? 0.6 : 0.5));
+  if (o.quick) R = Math.round(R * (o.export ? 0.75 : 0.5));
   return Math.max(64, R - R % 4);
 }
 function drawScaleBar(c, cx, y, fov, D, full){
@@ -2147,7 +2156,7 @@ function renderControls(){
 function syncControls(){
   var a = activeSnap();
   ctl.querySelectorAll('.snap').forEach(function(b){ b.classList.toggle('is-active', +b.dataset.i === a); });
-  var pb = $('bPlay'); if (pb){ var t = S.tween ? '❚❚ Pause' : (nextSnap() < 0 && S.played ? '↺ Replay' : '▶ Play'); if (pb.textContent !== t) pb.textContent = t; }
+  var pb = $('bPlay'); if (pb){ var t = S.tween ? '❚❚ Pause' : (atEnd() ? '↺ Replay' : '▶ Play'); if (pb.textContent !== t) pb.textContent = t; }
   var inp = ctl.querySelector('.slider input'), r = rangeNow();
   if (inp && document.activeElement !== inp) inp.value = Math.round((curV() - r[0])/(r[1] - r[0])*1000);
   var sv = ctl.querySelector('.slider .sv'); if (sv) sv.textContent = stepDef().fmt(curV());
@@ -2182,18 +2191,20 @@ function syncPills(){
 
 /* ═══════════════════════════════ PLAY ══════════════════════════════ */
 function stopTween(){ S.tween = null; }
+var PLAYDUR = [11000, 11000, 10000, 15000];
+function atEnd(){ var r = rangeNow(); return curV() >= r[1] - (r[1] - r[0])*0.002; }
 function play(){
   if (S.tween){ S.tween = null; refresh(false); return; }
-  var L = stepDef().snaps(), i = nextSnap();
-  if (i < 0){ S.v[S.step] = L[0].v; i = 1; }
-  var r = rangeNow(), from = S.v[S.step], to = L[i].v, frac = Math.abs(to - from)/(r[1] - r[0]);
-  S.tween = {from:from, to:to, t0:performance.now(), dur:(1.3 + 4.2*frac)*1000, step:S.step};
+  var r = rangeNow();
+  if (atEnd()) S.v[S.step] = r[0];
+  var from = S.v[S.step], frac = (r[1] - from)/(r[1] - r[0]);
+  S.tween = {from:from, to:r[1], t0:performance.now(), dur:Math.max(600, frac*PLAYDUR[S.step]), step:S.step, lin:true};
   S.played = true; syncControls(); requestAnimationFrame(stepTween);
 }
 function stepTween(now){
   var tw = S.tween; if (!tw || tw.step !== S.step) return;
   var f = clamp((now - tw.t0)/tw.dur, 0, 1);
-  S.v[S.step] = tw.from + (tw.to - tw.from)*easeIO(f);
+  S.v[S.step] = tw.from + (tw.to - tw.from)*(tw.lin ? f : easeIO(f));
   if (f >= 1){ S.v[S.step] = tw.to; S.tween = null; refresh(false); return; }
   refresh(false, true);
   requestAnimationFrame(stepTween);
@@ -2332,8 +2343,8 @@ function slug(){
 }
 function animSlug(){ return 'metamorphic-' + STEP_KEY[S.step] + '-' + (S.step === 1 ? 'four-parents' : S.proto) + (S.step === 3 ? '-' + S.path4 : '') + '-animation'; }
 function sweep(kind){
-  var L = stepDef().snaps().map(function(s){ return s.v; });
-  return snapSweep(kind, L, function(v, hold){ S.v[S.step] = v; EXQ = hold ? 'full' : 'quick'; }, curV);
+  var r = rangeNow();
+  return steadySweep(kind, r[0], r[1], function(v, hold, k){ S.v[S.step] = v; EXQ = hold ? 'full' : 'quick'; }, curV);
 }
 function afterExport(){ EXQ = 'full'; refresh(true); }
 

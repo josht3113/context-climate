@@ -836,6 +836,15 @@ function snapSweep(kind, list, setV, getV, ease){
   fr.forEach(function(q){ q.set = function(){ setV(q.v, q.hold); }; });
   return {fr:fr, restore:function(){ setV(saved, true); }};
 }
+/* steady, continuous sweep from a to b — holds only at the two ends */
+function steadySweep(kind, a, b, setV, getV){
+  var saved = getV(), fr = [], n = kind === 'gif' ? 64 : 210, h0 = kind === 'gif' ? 1 : 30, h1 = kind === 'gif' ? 1 : 45, i;
+  for (i = 0; i < h0; i++) fr.push({v:a, delay:kind === 'gif' ? 120 : 0, hold:true});
+  for (i = 1; i < n; i++) fr.push({v:a + (b - a)*i/n, delay:7});
+  for (i = 0; i < h1; i++) fr.push({v:b, delay:kind === 'gif' ? 300 : 0, hold:true});
+  fr.forEach(function(q){ q.set = function(){ setV(q.v, q.hold, kind); }; });
+  return {fr:fr, restore:function(){ setV(saved, true, kind); }};
+}
 function wireExports(){
   var menu = document.getElementById('pngMenu');
   document.getElementById('bPNG').onclick = function(e){ e.stopPropagation(); menu.classList.toggle('open'); };
@@ -1050,18 +1059,18 @@ function renderControls(){
 function syncControls(){
   var a = activeSnap();
   ctl.querySelectorAll('.snap').forEach(function(b){ b.classList.toggle('is-active', +b.dataset.i === a); });
-  var pb = $('bPlay'); if (pb){ var t = S.tween ? '❚❚ Pause' : (nextSnap() < 0 && S.played ? '↺ Replay' : '▶ Cool'); if (pb.textContent !== t) pb.textContent = t; }
+  var pb = $('bPlay'); if (pb){ var t = S.tween ? '❚❚ Pause' : (atEnd() ? '↺ Replay' : '▶ Cool'); if (pb.textContent !== t) pb.textContent = t; }
   var inp = ctl.querySelector('.slider input'); if (inp && document.activeElement !== inp) inp.value = Math.round(S.p*1000);
   var sv = ctl.querySelector('.slider .sv'); if (sv) sv.textContent = Math.round(tOf(S.p)) + ' °C';
 }
 
 /* ═══════════════════════════════ PLAY ══════════════════════════════ */
 function stopTween(){ S.tween = null; }
+function atEnd(){ return S.p >= 1 - 1e-6; }
 function play(){
   if (S.tween){ S.tween = null; refresh(); return; }
-  var L = snaps(), i = nextSnap();
-  if (i < 0){ S.p = 0; i = 1; }
-  S.tween = {from:S.p, to:L[i].v, t0:performance.now(), dur:Math.max(1200, Math.abs(L[i].v - S.p)*22000)};
+  if (atEnd()) S.p = 0;
+  S.tween = {from:S.p, to:1, t0:performance.now(), dur:Math.max(600, (1 - S.p)*22000)};
   S.played = true; syncControls(); requestAnimationFrame(stepTween);
 }
 function stepTween(now){
@@ -1109,7 +1118,7 @@ function panelPNG(kind){
 }
 function slug(){ return 'bowens-reaction-series-' + Math.round(tOf(S.p)) + 'c'; }
 function animSlug(){ return 'bowens-reaction-series-cooling'; }
-function sweep(kind){ return snapSweep(kind, snaps().map(function(s){ return s.v; }), function(v){ S.p = v; }, function(){ return S.p; }, function(t){ return t; }); }
+function sweep(kind){ return steadySweep(kind, 0, 1, function(v){ S.p = v; }, function(){ return S.p; }); }
 function afterExport(){ refresh(); }
 
 /* ═══════════════════════════════ INIT ══════════════════════════════ */
