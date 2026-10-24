@@ -59,6 +59,32 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .grav:hover { filter: brightness(1.12); }
 .grav:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; }
 
+/* the model switch: Newton (force) | Einstein (spacetime) */
+.model { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--color-border); background: #121714; }
+.model.hidden { display: none; }
+.mbtn { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 8px 14px 7px; border: none; border-top: 4px solid transparent;
+  background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: var(--font-body); text-align: left; transition: background .2s, color .2s, border-color .2s; }
+.mbtn + .mbtn { border-left: 1px solid var(--color-border); }
+.mbtn svg { width: 46px; height: 27px; flex: none; opacity: .6; transition: opacity .2s; }
+.mbtn .mt { display: flex; flex-direction: column; line-height: 1.1; }
+.mbtn .me { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.mbtn .mn { font-family: var(--font-display); font-size: 21px; font-weight: 700; color: var(--color-text-secondary); white-space: nowrap; }
+.mbtn:hover:not(.is-active) { background: rgba(232,228,217,0.05); color: var(--color-text-primary); }
+.mbtn:hover:not(.is-active) .mn { color: var(--color-text-primary); }
+.mbtn:focus-visible { outline: 2px solid var(--mc); outline-offset: -3px; }
+.mbtn.newton { --mc: var(--force); --mbg: rgba(125,167,245,0.17); }
+.mbtn.einstein { --mc: #4FC3CE; --mbg: rgba(60,163,174,0.2); }
+.mbtn.is-active { background: var(--mbg); border-top-color: var(--mc); color: var(--mc); cursor: default; }
+.mbtn.is-active .mn { color: var(--color-text-primary); }
+.mbtn.is-active svg { opacity: 1; }
+.mbtn.einstein.lure:not(.is-active) { animation: lure 2.4s ease-in-out infinite; }
+@keyframes lure { 0%, 100% { background: transparent; } 50% { background: rgba(60,163,174,0.14); } }
+.stage::after { content: ''; position: absolute; inset: 0; pointer-events: none; transition: box-shadow .35s; }
+.stage.m-newton::after { box-shadow: inset 0 0 0 2px rgba(125,167,245,0.55), inset 0 0 50px rgba(125,167,245,0.08); }
+.stage.m-einstein::after { box-shadow: inset 0 0 0 2px rgba(79,195,206,0.6), inset 0 0 50px rgba(79,195,206,0.1); }
+@media (max-width: 1180px) { .mbtn .mn { font-size: 18px; } .mbtn svg { width: 38px; } .mbtn { gap: 10px; } }
+@media (max-height: 700px) { .mbtn { padding: 5px 12px 4px; } .mbtn .mn { font-size: 19px; } }
+
 /* stage chips */
 .chips { position: absolute; display: flex; gap: 6px; }
 .chips .cc-segmented-btn { padding: 6px 12px; font-size: 13px; }
@@ -140,6 +166,16 @@ body { padding: 0; overflow: hidden; min-height: 0; }
   </div>
   <div class="main">
     <div class="scene">
+      <div class="model" id="model">
+        <button class="mbtn newton" data-view="above" type="button">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><circle cx="8" cy="14" r="6.5" fill="#F2C14E"/><circle cx="40" cy="14" r="4" fill="#5DA6EA"/><path d="M16 14h8m-3.5-3.5L24 14l-3.5 3.5M33 14h-8m3.5-3.5L25 14l3.5 3.5" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="mt"><span class="me">Newton's model</span><span class="mn">Gravity is a force</span></span>
+        </button>
+        <button class="mbtn einstein" data-view="space" type="button">
+          <svg viewBox="0 0 48 28" aria-hidden="true"><g stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"><path d="M2 5 C14 5 18 23 24 23 C30 23 34 5 46 5"/><path d="M6 11 C15 11 19 24 24 24 C29 24 33 11 42 11" opacity=".55"/><path d="M10 3 C16 6 20 21 24 22.5"/><path d="M38 3 C32 6 28 21 24 22.5"/></g><circle cx="24" cy="21" r="3.6" fill="#F2C14E"/></svg>
+          <span class="mt"><span class="me">Einstein's model</span><span class="mn">Gravity is curved spacetime</span></span>
+        </button>
+      </div>
       <div class="stage" id="stage">
         <canvas id="cv"></canvas>
         <div class="chips" id="chipsTR"></div>
@@ -386,6 +422,7 @@ const S = {
   az: -0.42, el: 0.6,                                       // spacetime camera
   vis: { M: 1, depth: 1, force: 1 },                         // animated visuals
   v5: { t: null, ph: PHASE5, mode: 'slow', tween: null },
+  mix: 0, seenSpace: false, banner: null,             // mix: 0 = Newton/above … 1 = Einstein/spacetime (animated)
   flash: 0
 };
 const set = () => S.set[Math.min(S.step, 3)];
@@ -901,7 +938,7 @@ function drawSpaceAbove(c, W, H, sc) {
   const { sim, layers, step } = sc;
   c.drawImage(spaceBG(W, H, sc.pr), 0, 0, W, H);
   const b = sc.box, G = Math.max(1.35, Math.hypot(Math.max(Math.abs(b[0]), Math.abs(b[1])), Math.max(Math.abs(b[2]), Math.abs(b[3]))) * 0.92);
-  const well0 = wellFn(G, 1), dep = sc.vis.depth * Math.pow(sc.vis.M, 0.6), well = r => well0(r) * dep;   // deeper for more mass (compressed so the floor stays in view)
+  const well0 = wellFn(G, 1), dep = sc.vis.depth * Math.pow(sc.vis.M, 0.6) * (sc.depthK == null ? 1 : sc.depthK), well = r => well0(r) * dep;   // deeper for more mass (compressed so the floor stays in view)
   const paths = [];
   const ownMem = sc.mem.find(m => m.sim === sim);
   if (layers.path) {
@@ -912,7 +949,7 @@ function drawSpaceAbove(c, W, H, sc) {
   const gone = sim.done === 'impact', inGrid = Math.abs(sim.x) < G && Math.abs(sim.y) < G;
   const top = step === 3 ? 92 : 30, left = step === 2 ? 280 : 16;
   const R = drawSurface(c, left, top, W - left - 120, H - top - 46, {
-    G, well, az: sc.az, el: sc.el, clock: sc.clock, fitDepth: wellFn(G, 1)(0) * Math.max(1, dep),
+    G, well, az: sc.azO == null ? sc.az : sc.azO, el: sc.elO == null ? sc.el : sc.elO, clock: sc.clock, fitDepth: wellFn(G, 1)(0) * Math.max(1, sc.vis.depth * Math.pow(sc.vis.M, 0.6)),
     sun: { M: sc.vis.M, a: 1 }, refR: step >= 1 && step <= 3 ? 1 : null, paths,
     earth: !gone && inGrid ? { x: sim.x, y: sim.y, m: sim.m, lit: true, vel: layers.vel ? { vx: sim.vx, vy: sim.vy, kms: speedKms(sim) } : null } : null
   });
@@ -1145,13 +1182,18 @@ function syncControls() {
 
 /* chips on the stage */
 const chipsTR = document.getElementById('chipsTR'), chipsBL = document.getElementById('chipsBL'), vanishBtn = document.getElementById('vanish');
+const modelEl = document.getElementById('model');
+function setView(k) {
+  if (S.view === k) return;
+  S.view = k; if (k === 'space') S.seenSpace = true;
+  S.banner = { t: k === 'space' ? "EINSTEIN'S MODEL" : "NEWTON'S MODEL", s: k === 'space' ? 'Gravity is curved spacetime' : 'Gravity is a force', col: k === 'space' ? '#4FC3CE' : C.force, age: 0 };
+  syncChips(); draw();
+}
+modelEl.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setView(b.dataset.view));
 function renderChips() {
   chipsTR.innerHTML = ''; chipsBL.innerHTML = '';
   if (S.step === 4) { chipsTR.style.display = 'none'; chipsBL.style.display = 'none'; syncChips(); return; }
   chipsTR.style.display = 'flex'; chipsBL.style.display = 'flex';
-  const seg = mk('div', 'cc-segmented');
-  [['above', 'Above'], ['space', 'Spacetime']].forEach(([k, t]) => { const b = mk('button', 'cc-segmented-btn', t); b.dataset.view = k; b.onclick = () => { S.view = k; syncChips(); draw(); }; seg.appendChild(b); });
-  chipsTR.appendChild(seg);
   const lay = mk('div', 'lay');
   [['force', 'Gravity force', C.force], ['vel', 'Velocity', C.vel], ['path', 'Path', C.path], ['grid', 'Grid', '#A6A499']].forEach(([k, t, col]) => {
     const b = mk('button', 'cc-btn tgl', t); b.dataset.layer = k; b.style.setProperty('--chip-col', col);
@@ -1167,8 +1209,11 @@ function renderChips() {
 }
 function syncChips() {
   vanishBtn.style.display = S.step === 4 && S.v5.t == null && !capturing ? 'flex' : 'none';
+  modelEl.classList.toggle('hidden', S.step === 4);
+  stage.classList.toggle('m-newton', S.step < 4 && S.view === 'above');
+  stage.classList.toggle('m-einstein', S.step < 4 && S.view === 'space');
   if (S.step === 4) return;
-  chipsTR.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('is-active', b.dataset.view === S.view));
+  modelEl.querySelectorAll('[data-view]').forEach(b => { const on = b.dataset.view === S.view; b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on); b.classList.toggle('lure', !S.seenSpace); });
   chipsTR.querySelectorAll('[data-layer]').forEach(b => { const k = b.dataset.layer; b.classList.toggle('is-active', S.layers[k]); b.disabled = S.view === 'space' && (k === 'force' || k === 'grid'); });
   chipsBL.querySelectorAll('[data-rate]').forEach(b => b.classList.toggle('is-active', b.dataset.rate === S.rate));
   const cl = document.getElementById('bClear'); if (cl) cl.style.display = S.step >= 1 && S.step <= 3 && S.memory[S.step].length ? '' : 'none';
@@ -1212,18 +1257,45 @@ function resize() {
 }
 function liveScene() {
   return { step: S.step, sim: S.sim, box: S.cam, mem: S.memory[S.step] || [], layers: S.layers, vis: S.vis, clock, flash: S.flash, running: S.running,
-    az: S.az, el: S.el, az5: S.az5, el5: S.el5, t5: S.v5.t, ph5: S.v5.ph, f5: f5(S.v5.mode), view: S.view };
+    az: S.az, el: S.el, mix: S.mix, az5: S.az5, el5: S.el5, t5: S.v5.t, ph5: S.v5.ph, f5: f5(S.v5.mode), view: S.view };
 }
 function renderScene(c, W, H, sc) {
   UI = clamp(Math.min(W, H) / 470, 1, 1.7);
   if (sc.step === 4) return drawVanish(c, W, H, sc);
-  return sc.view === 'space' ? drawSpaceAbove(c, W, H, sc) : drawAbove(c, W, H, sc);
+  const m = sc.mix == null ? (sc.view === 'space' ? 1 : 0) : sc.mix;
+  if (m <= 0.001) return drawAbove(c, W, H, sc);
+  if (m >= 0.999) return drawSpaceAbove(c, W, H, sc);
+  // the flat grid tilts and sinks into the sheet (and back)
+  const e = ease(m);
+  drawSpaceAbove(c, W, H, Object.assign({}, sc, { elO: lerp(1.5, sc.el, e), azO: lerp(0, sc.az, e), depthK: e, hit: null }));
+  const a = 1 - smooth(m / 0.45);
+  if (a > 0.01) {
+    const pr = sc.pr || 1;
+    if (!morphCv) morphCv = document.createElement('canvas');
+    if (morphCv.width !== Math.round(W * pr) || morphCv.height !== Math.round(H * pr)) { morphCv.width = Math.round(W * pr); morphCv.height = Math.round(H * pr); }
+    const oc = morphCv.getContext('2d'); oc.setTransform(pr, 0, 0, pr, 0, 0); oc.clearRect(0, 0, W, H);
+    drawAbove(oc, W, H, Object.assign({}, sc, { hit: null }));
+    c.save(); c.globalAlpha = a; c.drawImage(morphCv, 0, 0, W, H); c.restore();
+  }
+}
+let morphCv = null;
+function drawBanner(c, W, H) {
+  const b = S.banner; if (!b) return;
+  const a = b.age < 0.15 ? b.age / 0.15 : b.age < 1.1 ? 1 : Math.max(0, 1 - (b.age - 1.1) / 0.6);
+  if (b.age > 1.7) { S.banner = null; return; }
+  if (a <= 0) return;
+  const y = H * 0.5;
+  c.save(); c.globalAlpha = a * 0.82; const g = c.createLinearGradient(0, y - 60, 0, y + 60); g.addColorStop(0, 'rgba(8,11,10,0)'); g.addColorStop(0.3, 'rgba(8,11,10,0.85)'); g.addColorStop(0.7, 'rgba(8,11,10,0.85)'); g.addColorStop(1, 'rgba(8,11,10,0)');
+  c.fillStyle = g; c.fillRect(0, y - 60, W, 120); c.restore();
+  label(c, b.t, W / 2, y - 14, { font: `700 ${Math.round(clamp(W / 22, 26, 44))}px ${FD}`, color: b.col, alpha: a });
+  label(c, b.s, W / 2, y + 22, { font: `600 17px ${FB}`, color: C.text, alpha: a });
 }
 function draw() {
   if (capturing || !CW || !S.sim) return;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0); HIT = {};
   const sc = liveScene(); sc.pr = DPR; sc.hit = HIT;
   renderScene(ctx, CW, CH, sc);
+  if (S.step < 4) drawBanner(ctx, CW, CH);
 }
 function liveLimit() {
   if (S.view === 'space') {
@@ -1246,6 +1318,8 @@ function loop(now) {
       S.vis.M += (S.sim.M - S.vis.M) * kv;
       S.vis.depth += ((S.sim.gravity ? 1 : 0) - S.vis.depth) * kv;
       S.vis.force += ((S.view === 'above' ? 1 : 0) - S.vis.force) * kv;
+      const mt = S.view === 'space' ? 1 : 0; S.mix = mt > S.mix ? Math.min(mt, S.mix + dt / 1.1) : Math.max(mt, S.mix - dt / 0.8);
+      if (S.banner) S.banner.age += dt;
       if (S.flash > 0) S.flash = Math.max(0, S.flash - dt * 0.8);
       cardT += dt; if (S.running && cardT > 0.06) { cardT = 0; renderCard(); }
     } else tick5(dt);
@@ -1257,7 +1331,7 @@ function setStep(i) {
   if (S.sim && S.step <= 3 && S.sim.t > 0.5 && !S.sim.done) remember(S.sim);
   S.step = i; S.running = false; S.v5.tween = null;
   document.querySelectorAll('#tabs .cc-segmented-btn').forEach((b, k) => b.classList.toggle('is-active', k === i));
-  if (i < 4) { newRun(true); S.vis.M = S.sim.M; S.vis.depth = 1; }
+  if (i < 4) { newRun(true); S.vis.M = S.sim.M; S.vis.depth = 1; S.mix = S.view === 'space' ? 1 : 0; S.banner = null; }
   else { S.v5.t = null; S.v5.ph = PHASE5; }
   renderControls(); renderChips(); renderCard(); updateExportButtons(); draw();
 }
@@ -1298,7 +1372,9 @@ cv.addEventListener('pointermove', e => { const p = ptr(e); if (drag) applyDrag(
 const endDrag = () => { if (drag && drag.kind === 'earth') { refit(); } drag = null; cv.style.cursor = 'default'; };
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
 window.addEventListener('keydown', e => {
-  if (e.code !== 'Space' || /INPUT|BUTTON|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
+  if (e.code === 'KeyV' && S.step < 4) { setView(S.view === 'space' ? 'above' : 'space'); return; }
+  if (e.code !== 'Space' || document.activeElement.tagName === 'BUTTON') return;
   e.preventDefault(); play();
 });
 
@@ -1308,7 +1384,7 @@ function stampText(sc) {
   if (sc.step === 4) return 'The Sun vanishes · thought experiment · ' + (sc.f5 > 1 ? 'light & gravity slowed ×' + nf(sc.f5, 0) + ' · ' : 'real speed · ') + (sc.t5 == null ? 'before' : fmt5(sc.t5, sc.f5) + ' after');
   const s = sc.sim, c = s.cfg, base = `Sun ×${trimNum(c.M)} · Earth ×${trimNum(c.m)} · launched from ${fmtAU(c.r0)} AU at ${nf(c.v0, 1)} km/s`;
   const ev = s.events.map(e => (e.k === 'grav' ? 'gravity ' + (e.v ? 'on' : 'off') : e.k === 'M' ? 'Sun ×' + trimNum(e.v) : 'Earth ×' + trimNum(e.v)) + ' on day ' + Math.round(e.t)).join(' · ');
-  return STEPS[sc.step].eb + ' · ' + base + (ev ? ' · ' + ev : '') + (sc.view === 'space' ? ' · spacetime view' : '');
+  return STEPS[sc.step].eb + ' · ' + base + (ev ? ' · ' + ev : '') + (sc.view === 'space' ? " · Einstein's model" : " · Newton's model");
 }
 function drawCardCanvas(c, x, y, w, h, m) {
   c.fillStyle = '#262B27'; rrect(c, x, y, w, h, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.stroke();
@@ -1336,7 +1412,8 @@ function compose(c, scale, sc) {
   c.textAlign = 'right'; c.font = `700 14px ${FM}`; c.fillStyle = '#3CA3AE'; c.fillText('contextclimate.io', EW - 18, 30);
   const sx = 16, sy = 74, cw = 290, sw = EW - 32 - cw - 12, sh = EH - sy - 34;
   c.save(); rrect(c, sx, sy, sw, sh, 6); c.clip(); c.translate(sx, sy);
-  sc.pr = scale; renderScene(c, sw, sh, sc);
+  sc.pr = scale; sc.mix = null; renderScene(c, sw, sh, sc);
+  if (sc.step < 4) { const sp = sc.view === 'space'; pill(c, sp ? "EINSTEIN'S MODEL · CURVED SPACETIME" : "NEWTON'S MODEL · FORCE", sw - 12, 22, sp ? '#4FC3CE' : C.force, { align: 'right', font: `700 14px ${FM}`, h: 28 }); }
   c.restore();
   c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; rrect(c, sx + 0.5, sy + 0.5, sw - 1, sh - 1, 6); c.stroke();
   drawCardCanvas(c, sx + sw + 12, sy, cw, sh, sc.card);
