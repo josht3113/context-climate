@@ -202,6 +202,15 @@ const SECTIONS = [
         label: "Orbital Mechanics & Kepler's Laws",
         cards: [
           {
+            tags:        ['Gravity', 'Interactive'],
+            title:       'Gravity & Orbits',
+            description: "Turn gravity off mid-orbit, change the Sun's mass, move Earth closer or farther, and launch it faster or slower. Then compare Newton's forces with Einstein's curved spacetime, and make the Sun vanish to see how fast gravity travels.",
+            footerTags:  ['Inertia', 'Universal Gravitation', 'Spacetime'],
+            to:          '/earthandspace/gravity-orbits',
+            thumb:       '/gravity_orbits_thumbnail.png',
+            status:      'live',
+},
+          {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
             title:       "Kepler's First Law",
             description: "Explore how eccentricity changes as the shape of planetary orbits range from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
