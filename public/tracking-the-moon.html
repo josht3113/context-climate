@@ -1265,7 +1265,7 @@ function tweenStep(dt) {
 /* keep the Moon on screen while time moves; force = choose a fresh view (S unless the Moon needs otherwise) */
 function followMoon(force) {
   if (!lastProj) return;
-  const half = lastProj.half, margin = Math.min(22, half * 0.3);
+  const half = lastProj.half, margin = force ? 8 : Math.min(22, half * 0.3);     // a fresh view stays facing south unless the Moon would be off screen
   if (half >= 179) return;
   const ms = curMS(), m = moonAt(ms); let az = m.az;
   if (m.alt < 0) { if (!force) return; const rt = nextRise(ms); if (rt == null || rt - ms > 14 * HR) { S.vcTo = 180; return; } az = body('Moon', rt).az; }
@@ -1578,7 +1578,7 @@ function compose(c, scale) {
   c.font = `500 14px ${FM}`; c.fillStyle = C.sec; c.fillText(stampText(), 18, 56);
   c.textAlign = 'right'; c.font = `700 14px ${FM}`; c.fillStyle = C.accent; c.fillText('contextclimate.io', EW - 18, 30);
   const sx = 16, sy = 74, sw = EW - 32 - ECW - 12, sh = EH - sy - 34;
-  const vc0 = S.vc; frameMoon(sw, sh);
+  const vc0 = S.vc; if (!sweeping) frameMoon(sw, sh);
   c.save(); c.beginPath(); rrect(c, sx, sy, sw, sh, 6); c.clip(); c.translate(sx, sy); drawStage(c, sw, sh, { capture: true }); c.restore();
   S.vc = vc0;
   c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.beginPath(); rrect(c, sx + 0.5, sy + 0.5, sw - 1, sh - 1, 6); c.stroke();
@@ -1607,6 +1607,7 @@ async function exportPNG(kind) {
   } finally { capturing = false; setBusy(false); updateExportButtons(); dirty = true; draw(); }
 }
 
+let sweeping = false;
 function frameMoon(W, H) {      // keep the Moon well inside an export frame of a different size
   if (S.fov === 360) return;
   const P = makeProj(W, H, S.vc, S.fov), m = moonAt(curMS()), d = wrap180(m.az - S.vc), mg = Math.min(30, P.half * 0.3);
@@ -1623,22 +1624,11 @@ function sweepKeys() {
   const sn = snaps1(); if (sn.length < 2) return [];
   const ks = []; for (let k = sn[0].v; k <= sn[sn.length - 1].v; k++) ks.push(k); return ks;
 }
-function framingFor(keys, set, W, H) {     // a view that holds every Moon position in the sweep
-  const azs = [];
-  for (const v of keys) { set(v); const m = moonAt(curMS()); if (m.alt > 0) azs.push(m.az); }
-  const P = makeProj(W, H, 180, 180);
-  if (!azs.length) return { vc: S.vc, fov: S.fov };
-  azs.sort((a, b) => a - b);
-  let gap = 0, gi = 0; for (let i = 0; i < azs.length; i++) { const nx = i === azs.length - 1 ? azs[0] + 360 : azs[i + 1], g = nx - azs[i]; if (g > gap) { gap = g; gi = i; } }
-  const start = azs[(gi + 1) % azs.length], span = 360 - gap, mid = wrap360(start + span / 2);
-  if (span + 24 <= 2 * P.half) return { vc: Math.abs(wrap180(mid - 180)) < P.half - span / 2 - 12 ? 180 : mid, fov: 180 };
-  return { vc: mid, fov: 360 };
-}
 function sweep(kind, W, H) {
   const keys = sweepKeys(), st = stepDef(), saved = { v: st.get(), vc: S.vc, fov: S.fov, live: S.live }, fr = [];
   S.live = false;
   const fset = v => st.set(v);
-  const fv = framingFor(keys, fset, W, H);
+  const fv = { vc: S.vcTo ?? S.vc, fov: S.fov };      // the view the viewer has selected
   if (S.step === 0) {
     const seg = kind === 'gif' ? 9 : 30, hold = kind === 'gif' ? 1 : 14;
     for (let i = 0; i < keys.length; i++) {
@@ -1651,7 +1641,8 @@ function sweep(kind, W, H) {
   }
   if (kind !== 'gif') for (let h = 0; h < 30; h++) fr.push({ v: keys[keys.length - 1] });
   fr.forEach(f => f.set = () => { st.set(f.v); S.vc = fv.vc; S.fov = fv.fov; });
-  return { fr, restore: () => { st.set(saved.v); S.vc = saved.vc; S.fov = saved.fov; S.live = saved.live; } };
+  sweeping = true;
+  return { fr, restore: () => { sweeping = false; st.set(saved.v); S.vc = saved.vc; S.fov = saved.fov; S.live = saved.live; } };
 }
 /* ── GIF encoder: median-cut palette, LZW, inter-frame differencing (from Angle of Insolation) ── */
 function buildPalette(frames) {
