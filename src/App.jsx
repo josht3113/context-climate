@@ -129,6 +129,7 @@ import CloudShades                 from './pages/CloudShades'
 import LIGlacialTerrain            from './pages/LIGlacialTerrain'
 import BigBangModel                from './pages/BigBangModel'
 import GravityOrbits               from './pages/GravityOrbits'
+import SnowSleetFreezingRain       from './pages/SnowSleetFreezingRain'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -268,6 +269,7 @@ export default function App() {
           <Route path="/earthandspace/jet-stream"                  element={<JetStream />}                 />
           <Route path="/earthandspace/fronts-cross-section"        element={<FrontsCrossSection />}        />
           <Route path="/earthandspace/fronts-map-analysis"         element={<FrontsMapAnalysis />}         />
+          <Route path="/earthandspace/snow-sleet-freezing-rain"    element={<SnowSleetFreezingRain />}     />
           <Route path="/earthandspace/spectral-fingerprint-lab"    element={<SpectralFingerprintLab />}    />
           <Route path="/earthandspace/doppler-shift-explorer"      element={<DopplerShiftExplorer />}      />
           <Route path="/earthandspace/hubbles-law-explorer"        element={<HubblesLawExplorer />}        />
