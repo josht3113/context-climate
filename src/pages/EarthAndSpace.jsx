@@ -507,6 +507,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['Precipitation Types', 'Fronts', 'Interactive'],
+        title:       'Snow, Sleet & Freezing Rain',
+        description: 'Drop a snowflake through a temperature profile and watch it melt, refreeze or stay frozen on the way down — then follow an advancing warm front as Philadelphia, New York, Islip, Hartford and Albany change from snow to sleet to freezing rain to rain.',
+        footerTags:  ['Thermal Profiles', 'Warm Fronts'],
+        to:          '/earthandspace/snow-sleet-freezing-rain',
+        thumb:       '/snow_sleet_freezing_rain_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Bermuda High', 'Hurricanes', 'Interactive'],
         title:       'Hurricane Steering Currents',
         description: 'Explore how upper-level atmospheric flow guides hurricane tracks — visualize how Bermuda High placement and strength can influence the path of tropical systems across the Atlantic basin.',
