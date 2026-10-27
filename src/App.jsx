@@ -130,6 +130,7 @@ import LIGlacialTerrain            from './pages/LIGlacialTerrain'
 import BigBangModel                from './pages/BigBangModel'
 import GravityOrbits               from './pages/GravityOrbits'
 import SnowSleetFreezingRain       from './pages/SnowSleetFreezingRain'
+import RadiationalCooling          from './pages/RadiationalCooling'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -292,6 +293,7 @@ export default function App() {
           <Route path="/earthandspace/light-pollution-explorer"    element={<LightPollutionExplorer />}     />
           <Route path="/earthandspace/angle-of-insolation"         element={<AngleOfInsolation />}          />
           <Route path="/earthandspace/sky-color"                   element={<SkyColor />}                   />
+          <Route path="/earthandspace/radiational-cooling"         element={<RadiationalCooling />}         />
           <Route path="/earthandspace/cloud-shades"                element={<CloudShades />}                />
           <Route path="/earthandspace/long-island-glacial-terrain" element={<LIGlacialTerrain />}           />
           <Route path="/earthandspace/gravity-orbits"              element={<GravityOrbits />}              />
