@@ -588,6 +588,15 @@ const SECTIONS = [
         thumb:       '/sky_color_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['Radiation', 'Clouds', 'Interactive'],
+        title:       'Radiational Cooling',
+        description: 'Watch infrared escape to space on a clear night and bounce back off clouds, see a calm night build an inversion that wind stirs away, then compare real nights across Long Island and sand, lawn and pavement under the same sky.',
+        footerTags:  ['Infrared', 'Cloud Cover', 'Inversions'],
+        to:          '/earthandspace/radiational-cooling',
+        thumb:       '/radiational_cooling_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
