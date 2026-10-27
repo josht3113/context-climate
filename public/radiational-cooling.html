@@ -36,6 +36,9 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .chip { position: absolute; display: none; z-index: 2; }
 .chip .cc-segmented-btn { padding: 6px 12px; font-size: 12px; }
+.chip.speed { align-items: center; gap: 10px; padding: 5px 12px; background: rgba(30,35,32,0.92); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
+.chip.speed label { font-family: var(--font-mono); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-secondary); white-space: nowrap; }
+.chip.speed input { width: 110px; accent-color: var(--tool-accent); height: 18px; margin: 0; cursor: pointer; }
 .chip.small .cc-btn { padding: 4px 10px; font-size: 13px; background: rgba(30,35,32,0.92); }
 
 /* controls */
@@ -177,6 +180,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
           <button class="cc-segmented-btn is-active" data-v="vis">Visible</button>
           <button class="cc-segmented-btn" data-v="ir">Infrared</button>
         </div></div>
+        <div class="chip speed" id="chipSpeed"><label for="irSpeed">Arrow speed</label><input type="range" id="irSpeed" min="0.08" max="1" step="0.01" value="0.3" aria-label="Infrared arrow speed"></div>
         <div class="chip" id="chipLi"><div class="cc-segmented" id="liSeg">
           <button class="cc-segmented-btn is-active" data-v="stations">Stations</button>
           <button class="cc-segmented-btn" data-v="ground">Ground</button>
@@ -269,7 +273,7 @@ function profileT(sim, t, z) { const T = at(sim, 'T', t), Ta = at(sim, 'Ta', t),
 const S = { tab: 'clouds', units: 'us', view: 'vis', liView: 'stations', night: 'a', station: 'FOK',
   time: { clouds: 0, wind: 0, stations: 0, ground: 0 }, play: null,
   segs: { clouds: [{ t: 0, N: 0, ht: 'low', U: 0.3 }], wind: [{ t: 0, N: 0, ht: 'low', U: 0.3 }] },
-  cloud: { N: 0, ht: 'low' }, wind: 'calm', ghosts: { clouds: [], wind: [] } };
+  cloud: { N: 0, ht: 'low' }, wind: 'calm', ghosts: { clouds: [], wind: [] }, irSpeed: 0.3 };
 const isUS = () => S.units === 'us';
 const MINUS = '−';
 const cF = c => c * 9 / 5 + 32;
@@ -318,8 +322,9 @@ function sceneGeom(R) { const gy = R.y + R.h * 0.8; return { gy, sky: gy - R.y, 
 
 // infrared particles
 const IRP = [];
-function stepIR(dt, R, st) {
-  const g = sceneGeom(R); const spawn = st.Lup / 364 * 24 * dt * clamp(R.w / 560, 0.7, 2.2); let n = Math.floor(spawn + Math.random()) ;
+function stepIR(dt, R, st) { if (!IRP.length) { const n = Math.ceil(1.6 / IR_SPEED_K / S.irSpeed / 0.05); for (let k = 0; k < n; k++) stepIRcore(0.05, R, st); } stepIRcore(dt, R, st); }
+function stepIRcore(dt, R, st) {
+  const sp = IR_SPEED_K * S.irSpeed; const g = sceneGeom(R); const spawn = st.Lup / 364 * 24 * dt * S.irSpeed * clamp(R.w / 560, 0.7, 2.2); let n = Math.floor(spawn + Math.random()) ;
   for (let k = 0; k < n; k++) {
     const xf = Math.random(), cov = coverAt(xf, st.N, st.ht);
     const Lcol = cov ? st.Lcol : st.Lclr; const pRet = clamp(Lcol / st.Lup, 0, 1);
@@ -329,11 +334,11 @@ function stepIR(dt, R, st) {
     IRP.push({ xf, y: 0, v: 0.55 + Math.random() * 0.25, dir: 1, stopF, src, ph: Math.random() * 6.28, life: 0 });
   }
   for (let i = IRP.length - 1; i >= 0; i--) { const p = IRP[i]; p.life += dt;
-    if (p.dir > 0) { p.y += p.v * dt; if (p.stopF !== null && p.y >= p.stopF) { p.dir = -1; p.y = p.stopF; p.flip = 0; } else if (p.y > 1.15) IRP.splice(i, 1); }
-    else { p.flip += dt; if (p.flip > 0.05) p.y -= p.v * dt; if (p.y <= 0) IRP.splice(i, 1); } }
+    if (p.dir > 0) { p.y += p.v * sp * dt; if (p.stopF !== null && p.y >= p.stopF) { p.dir = -1; p.y = p.stopF; p.flip = 0; } else if (p.y > 1.15) IRP.splice(i, 1); }
+    else { p.flip += dt * S.irSpeed; if (p.flip > 0.05) p.y -= p.v * sp * dt; if (p.y <= 0) IRP.splice(i, 1); } }
   if (IRP.length > 700) IRP.splice(0, IRP.length - 700);
 }
-const IR_UP = '#FF7A45', IR_DN = '#FFC24A';
+const IR_UP = '#FF7A45', IR_DN = '#FFC24A'; const IR_SPEED_K = 1;
 function drawIRArrows(c, R) {
   const g = sceneGeom(R); const h = g.sky;
   c.save(); c.beginPath(); c.rect(R.x, R.y - 30, R.w, g.gy - R.y + 30); c.clip(); c.lineCap = 'round';
@@ -527,7 +532,7 @@ function drawClouds(c, W, H, o) {
       c.strokeStyle = col; c.fillStyle = col; c.lineWidth = 2; c.beginPath(); for (let k = 0; k <= 8; k++) { const f = k / 8; const yy = ly + dir * (6 - f * 12); const xx = lx + 8 + Math.sin(f * 4 * Math.PI) * 2.5; k ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke();
       c.beginPath(); c.moveTo(lx + 8, ly - dir * 9); c.lineTo(lx + 4, ly - dir * 4); c.lineTo(lx + 12, ly - dir * 4); c.closePath(); c.fill();
       c.fillStyle = 'rgba(232,228,217,0.86)'; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillText(lab, lx + 22, ly + 0.5); ly += 26; }
-    pill(c, 'TO SPACE ↑', R.x + R.w / 2, R.y + 14, { align: 'center' });
+    pill(c, 'TO SPACE ↑', R.x + R.w - 10, R.y + 18, { align: 'right' });
   } else irLegend(c, R.x + 20, g.gy + 30, Math.min(220, R.w * 0.45));
   pill(c, 'HEIGHTS NOT TO SCALE', R.x + R.w - 10, R.y + R.h - 14, { align: 'right', font: `700 12px ${FM}`, fg: 'rgba(232,228,217,0.7)' });
   // graph
@@ -798,6 +803,8 @@ document.querySelectorAll('#units [data-u]').forEach(b => b.onclick = () => { S.
 document.querySelectorAll('#viewSeg [data-v]').forEach(b => b.onclick = () => { S.view = b.dataset.v; document.querySelectorAll('#viewSeg [data-v]').forEach(x => x.classList.toggle('is-active', x === b)); draw(); });
 document.querySelectorAll('#liSeg [data-v]').forEach(b => b.onclick = () => { S.liView = b.dataset.v; stopPlay(); document.querySelectorAll('#liSeg [data-v]').forEach(x => x.classList.toggle('is-active', x === b)); refresh(true); });
 document.getElementById('bClear').onclick = () => { S.ghosts.clouds = []; draw(); };
+{ const sp = document.getElementById('irSpeed'); try { const v = parseFloat(localStorage.getItem('rc-ir-speed')); if (v >= 0.08 && v <= 1) { S.irSpeed = v; sp.value = v; } } catch (e) {}
+  sp.oninput = () => { S.irSpeed = +sp.value; try { localStorage.setItem('rc-ir-speed', sp.value); } catch (e) {} }; }
 
 /* ═══════════════════════ CANVAS / LOOP ════════════════════════════ */
 const cv = document.getElementById('cv'), stage = document.getElementById('stage'), ctx = cv.getContext('2d');
@@ -809,6 +816,8 @@ function renderScene(c, W, H, o) { if (S.tab === 'clouds') return drawClouds(c, 
 function placeChips() {
   const L = LAST || {}; const cvw = document.getElementById('chipView'), cli = document.getElementById('chipLi'), ccl = document.getElementById('chipClear');
   cvw.style.display = S.tab === 'clouds' ? 'block' : 'none'; if (S.tab === 'clouds' && L.scene) { cvw.style.left = (L.scene.x + 10) + 'px'; cvw.style.top = (L.scene.y + 8) + 'px'; }
+  const csp = document.getElementById('chipSpeed'); const showSp = S.tab === 'clouds' && S.view === 'vis' && L.scene; csp.style.display = showSp ? 'flex' : 'none';
+  if (showSp) { csp.style.left = (L.scene.x + 10) + 'px'; csp.style.top = (L.scene.y + 48) + 'px'; }
   cli.style.display = S.tab === 'li' ? 'block' : 'none'; if (S.tab === 'li' && L) { const K = S.liView === 'stations' ? L.key : L.graph; if (K) { cli.style.right = (CW - K.x - K.w + 10) + 'px'; cli.style.top = (K.y + 8) + 'px'; } }
   const showClr = S.tab === 'clouds' && S.ghosts.clouds.length > 0 && L.graph; ccl.style.display = showClr ? 'block' : 'none'; if (showClr) { ccl.style.right = (CW - L.graph.x - L.graph.w + 14) + 'px'; ccl.style.top = (L.graph.y + 32) + 'px'; }
 }
