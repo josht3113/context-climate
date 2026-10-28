@@ -596,7 +596,7 @@ export default function Home() {
           color:         'var(--color-text-secondary)',
           letterSpacing: '0.01em',
         }}>
-          Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
+          Created by Josh Timlin <span style={{ color: 'var(--color-text-muted)' }}>·</span> Meteorologist <span style={{ color: 'var(--color-text-muted)' }}>·</span> Long Island, NY
         </p>
         <p className="page-intro" style={{ marginBottom: '16px' }}>
           Interactive tools for digging into a specific phenomenon, tracking trends in the data, or getting context on what's happening right now. Have an idea for a tool, or spot something that looks wrong? I'd genuinely like to hear about it. Send an{' '}
