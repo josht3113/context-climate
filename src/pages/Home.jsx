@@ -1,9 +1,16 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './Home.module.css'
 import SectionNav from './SectionNav'
 import HeroMeta from './HeroMeta'
 import { parseQuery, filterSections, countCards } from './toolSearch'
+import AdUnit from '../components/AdUnit'
+import AdRails from '../components/AdRails'
+
+// In-page ad: responsive banner, placed after this section while the tool
+// filter is empty.
+const AD_SLOT_INLINE  = '5331535145'
+const AD_AFTER_SECTION = 'temperature'
 
 // ── Section & card data ───────────────────────────────────────────────────────
 // To add a card: drop a new object into the cards array of the right section.
@@ -571,6 +578,8 @@ export default function Home() {
   return (
     <div className="page-container">
 
+      <AdRails />
+
       {/* Hero */}
       <section className="page-hero">
         {/* Hero meta tags — display notice + tool count.
@@ -638,8 +647,8 @@ export default function Home() {
 
       {/* Sections */}
       {visibleSections.map((section, i) => (
+        <Fragment key={section.id}>
         <section
-          key={section.id}
           id={section.id}
           style={{
             paddingBottom: '2.5rem',
@@ -662,6 +671,10 @@ export default function Home() {
             ))}
           </div>
         </section>
+        {section.id === AD_AFTER_SECTION && !query.trim() && (
+          <AdUnit slot={AD_SLOT_INLINE} format="horizontal" className={styles.adBreak} />
+        )}
+        </Fragment>
       ))}
 
     </div>
