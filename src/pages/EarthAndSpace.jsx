@@ -614,6 +614,15 @@ const SECTIONS = [
     accent: ACCENT.geology,
     cards: [
       {
+        tags:        ['Minerals', 'Interactive'],
+        title:       'Mineral Properties Lab',
+        description: 'Streak, scratch, crack open and test real-looking hand samples, then identify unknowns with the ESSRT mineral flowchart.',
+        footerTags:  ['Mineral ID', 'Hardness', 'Cleavage & Fracture'],
+        to:          '/earthandspace/mineral-properties-lab',
+        thumb:       '/MineralPropertiesLab_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Igneous Rocks', 'Interactive'],
         title:       'Igneous Crystallization Simulator',
         description: 'Explore how cooling rate and magma composition control crystal size and rock texture in igneous systems.',
