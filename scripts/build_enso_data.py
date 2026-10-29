@@ -22,6 +22,18 @@ FAILURES = []
 
 MISSING = 9.0          # PSL uses -99.99 / -9.99; anything |v| >= 9 is a fill value
 SPLICE_YEAR = 1950     # HadISST below, ERSST v5 at and above
+BASE = (1991, 2020)    # common base period for the spliced series (CPC's current)
+
+# Known CPC ERSSTv5 Niño 3.4 monthly anomalies (1991-2020 base), used to prove
+# a download is the operational index and not a damped look-alike. The PSL
+# "nina34.anom.data" file this pipeline used until Oct 2026 read ~0.6 °C low
+# at these months. Tolerance allows for routine ERSST reprocessing.
+ANCHORS = {(1997, 10): 2.36, (1997, 11): 2.41, (1997, 12): 2.29}
+ANCHOR_TOL = 0.25
+
+# Max mean offset (°C) between rebased HadISST and ERSST over their overlap
+# before the splice is refused — a larger bias means a base-period mismatch.
+SPLICE_MAX_BIAS = 0.15
 
 MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
@@ -138,8 +150,103 @@ def not_shrinking(name, new_text, path):
     return True
 
 
+
 # ──────────────────────────────────────────────────────────────────────────
-# CPC weekly file (wksst8110.for)
+# CPC monthly ERSSTv5 (ersst5.nino.mth.91-20.ascii)
+# ──────────────────────────────────────────────────────────────────────────
+def parse_cpc_monthly(text):
+    """Return {year: [12 Niño 3.4 anomalies or None]} from CPC's monthly file.
+
+    Rows look like:
+        YR   MON  NINO1+2  ANOM   NINO3    ANOM   NINO4    ANOM   NINO3.4  ANOM
+      1997    11   26.12   4.47   28.37    3.27   29.39    0.69   29.12    2.41
+    Niño 3.4 SST and anomaly are the last two of the ten numbers.
+    """
+    data = {}
+    for line in text.split("\n"):
+        parts = line.split()
+        if len(parts) != 10:
+            continue
+        try:
+            yr, mon = int(parts[0]), int(parts[1])
+            sst, anom = float(parts[8]), float(parts[9])
+        except ValueError:
+            continue
+        if not (1850 <= yr <= 2200 and 1 <= mon <= 12):
+            continue
+        if not (20 < sst < 32) or abs(anom) > 5:
+            continue
+        data.setdefault(yr, [None] * 12)[mon - 1] = round(anom, 2)
+    return data
+
+
+def check_anchors(name, data):
+    for (y, m), want in ANCHORS.items():
+        got = data.get(y, [None] * 12)[m - 1]
+        if got is None or abs(got - want) > ANCHOR_TOL:
+            fail(name, f"{MONTHS[m - 1].title()} {y} Niño 3.4 is {got}, expected "
+                       f"{want:+.2f} ±{ANCHOR_TOL} — not the operational CPC index")
+            return False
+    return True
+
+
+def to_psl(data, footer):
+    """Standard PSL Format text: '<lo> <hi>' header, 12 values per year, footer."""
+    lo, hi = min(data), max(data)
+    out = [f"{lo:>10d}{hi:>12d}"]
+    for y in range(lo, hi + 1):
+        row = data.get(y, [None] * 12)
+        out.append(f"{y:>5d}" + "".join(
+            f"{(-99.99 if v is None else v):>9.2f}" for v in row))
+    out.append("  -99.99")
+    out += [f"  {line}" for line in footer]
+    return "\n".join(out) + "\n"
+
+
+def monthly_means(data, y0, y1):
+    """Per-calendar-month mean over [y0, y1]; None if any month is incomplete."""
+    means = []
+    for m in range(12):
+        vals = [data[y][m] for y in range(y0, y1 + 1)
+                if y in data and data[y][m] is not None]
+        if len(vals) != y1 - y0 + 1:
+            return None
+        means.append(sum(vals) / len(vals))
+    return means
+
+
+def build_splice(had, ers):
+    """HadISST rebased to 1991-2020 before SPLICE_YEAR, ERSSTv5 from it on.
+
+    Re-basing an anomaly series to a new window is anomaly − its own mean over
+    that window, per calendar month; the original climatology cancels out.
+    Returns (spliced dict, stats) or (None, reason).
+    """
+    clim = monthly_means(had, *BASE)
+    if clim is None:
+        return None, f"HadISST lacks a complete {BASE[0]}-{BASE[1]} window"
+
+    rebased = {y: [None if v is None else round(v - clim[m], 2)
+                   for m, v in enumerate(row)] for y, row in had.items()}
+
+    diffs = [ers[y][m] - rebased[y][m]
+             for y in ers if y in rebased
+             for m in range(12)
+             if ers[y][m] is not None and rebased[y][m] is not None]
+    if len(diffs) < 600:
+        return None, f"only {len(diffs)} overlapping months to check the splice"
+    bias = sum(diffs) / len(diffs)
+    rms = (sum(d * d for d in diffs) / len(diffs)) ** 0.5
+    if abs(bias) > SPLICE_MAX_BIAS:
+        return None, f"mean ERSST − HadISST offset {bias:+.3f} °C over overlap exceeds ±{SPLICE_MAX_BIAS}"
+
+    out = {y: row[:] for y, row in rebased.items() if y < SPLICE_YEAR}
+    out.update({y: row[:] for y, row in ers.items() if y >= SPLICE_YEAR})
+    return out, {"overlap_months": len(diffs),
+                 "bias": round(bias, 3), "rms": round(rms, 3)}
+
+# ──────────────────────────────────────────────────────────────────────────
+# CPC weekly file (wksst9120.for)
 # ──────────────────────────────────────────────────────────────────────────
 def parse_weekly(text):
     """Return [{date, sst, anom}] of Niño 3.4 weekly values, oldest first.
@@ -219,31 +326,95 @@ def main():
             "file": "nino34.long.anom.data",
             "label": "HadISST 1.1",
             "role": f"pre-{SPLICE_YEAR}",
+            "base_period": "1981-2010",
             "sha": sha(t),
             "years": [min(d), max(d)] if d else None,
             "latest": f"{lm[0]}-{lm[1] + 1:02d}" if lm else None,
         }
 
-    # ── ERSST v5 ──────────────────────────────────────────────────────────
-    print("ERSST v5 (nina34.anom.data)")
+    # ── ERSST v5 (NOAA CPC monthly, 1991-2020 base) ───────────────────────
+    print("ERSST v5 (CPC ersst5.nino.mth.91-20.ascii)")
     ers_path = os.path.join(PUB, "nino34.ersst5.anom.data")
+    ers_footer = [
+        "NINO34 ERSSTv5 monthly anomaly (5N-5S, 170W-120W), degC",
+        f"Anomaly from {BASE[0]}-{BASE[1]}",
+        "Source: NOAA CPC https://www.cpc.ncep.noaa.gov/data/indices/ersst5.nino.mth.91-20.ascii",
+    ]
     text = read_raw("ersst5")
-    if text is not None and looks_like_data("ersst5", text) \
-            and not_shrinking("ersst5", text, ers_path):
-        # This is the operational source — 2 months stale is already a problem.
-        data = check_series("ersst5", text, min_years=60, expect_recent_within=2)
-        if data:
-            with open(ers_path, "w") as f:
-                f.write(text)
+    if text is not None:
+        data = parse_cpc_monthly(text)
+        last = latest_month(data) if data else None
+        now = datetime.now(timezone.utc)
+        if len(data) < 70:
+            fail("ersst5", f"only parsed {len(data)} years (expected >= 70)")
+        elif last is None:
+            fail("ersst5", "parsed but contains no real values")
+        elif (now.year - last[0]) * 12 + (now.month - 1 - last[1]) > 2:
+            # Operational source — 2 months stale is already a problem.
+            fail("ersst5", f"latest value is {MONTHS[last[1]].title()} {last[0]}")
+        elif check_anchors("ersst5", data):
+            psl = to_psl(data, ers_footer)
+            if not_shrinking("ersst5", psl, ers_path):
+                with open(ers_path, "w") as f:
+                    f.write(psl)
+                print(f"  ✓ ersst5: {len(data)} years, latest "
+                      f"{MONTHS[last[1]].title()} {last[0]}")
+
+    ers = {}
     if os.path.exists(ers_path):
         with open(ers_path) as f:
             t = f.read()
+        ers, _ = parse_psl(t)
+        # A committed file from the old PSL source must never feed the splice.
+        if "cpc.ncep.noaa.gov" not in t:
+            fail("ersst5", "committed nino34.ersst5.anom.data is not the CPC file")
+            ers = {}
+        else:
+            lm = latest_month(ers)
+            meta["sources"]["ersst5"] = {
+                "file": "nino34.ersst5.anom.data",
+                "label": "ERSST v5 (NOAA CPC)",
+                "role": f"{SPLICE_YEAR}-present",
+                "base_period": f"{BASE[0]}-{BASE[1]}",
+                "sha": sha(t),
+                "years": [min(ers), max(ers)] if ers else None,
+                "latest": f"{lm[0]}-{lm[1] + 1:02d}" if lm else None,
+            }
+
+    # ── Spliced series (what the tools read) ──────────────────────────────
+    print("Spliced HadISST/ERSST (nino34.spliced.anom.data)")
+    spl_path = os.path.join(PUB, "nino34.spliced.anom.data")
+    had = {}
+    if os.path.exists(had_path):
+        with open(had_path) as f:
+            had, _ = parse_psl(f.read())
+    if had and ers:
+        spl, info = build_splice(had, ers)
+        if spl is None:
+            fail("spliced", info)
+        else:
+            psl = to_psl(spl, [
+                "NINO34 monthly SST anomaly (5N-5S, 170W-120W), degC",
+                f"Anomaly from {BASE[0]}-{BASE[1]}",
+                f"Before {SPLICE_YEAR}: HadISST 1.1 (NOAA PSL), rebased to {BASE[0]}-{BASE[1]}",
+                f"{SPLICE_YEAR}-present: ERSSTv5 (NOAA CPC)",
+            ])
+            with open(spl_path, "w") as f:
+                f.write(psl)
+            print(f"  ✓ spliced: overlap {info['overlap_months']} months, "
+                  f"bias {info['bias']:+.3f} °C, rms {info['rms']:.3f} °C")
+    else:
+        fail("spliced", "needs both HadISST and CPC ERSST on disk")
+
+    if os.path.exists(spl_path):
+        with open(spl_path) as f:
+            t = f.read()
         d, _ = parse_psl(t)
         lm = latest_month(d)
-        meta["sources"]["ersst5"] = {
-            "file": "nino34.ersst5.anom.data",
-            "label": "ERSST v5",
-            "role": f"{SPLICE_YEAR}-present",
+        meta["sources"]["spliced"] = {
+            "file": "nino34.spliced.anom.data",
+            "label": f"HadISST 1.1 (pre-{SPLICE_YEAR}) + ERSST v5 ({SPLICE_YEAR}-present)",
+            "base_period": f"{BASE[0]}-{BASE[1]}",
             "sha": sha(t),
             "years": [min(d), max(d)] if d else None,
             "latest": f"{lm[0]}-{lm[1] + 1:02d}" if lm else None,
@@ -253,7 +424,7 @@ def main():
     # Fail-soft by design: the chart is fully correct without this, it just
     # loses the sub-monthly tip. A format change upstream must not break the
     # page, so a bad parse drops the block rather than poisoning meta.
-    print("CPC weekly (wksst8110.for)")
+    print("CPC weekly (wksst9120.for)")
     text = read_raw("weekly")
     if text is not None:
         obs = parse_weekly(text)
@@ -279,7 +450,7 @@ def main():
 
     # ── Version stamp used for client cache-busting ───────────────────────
     stamp = "|".join(
-        str(meta["sources"].get(k, {}).get("sha", "")) for k in ("hadisst", "ersst5")
+        str(meta["sources"].get(k, {}).get("sha", "")) for k in ("hadisst", "ersst5", "spliced")
     ) + "|" + str(meta.get("weekly", {}).get("latest_date", ""))
     meta["version"] = hashlib.sha256(stamp.encode()).hexdigest()[:10]
 
