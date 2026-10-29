@@ -495,20 +495,6 @@ function parse(text) {
   return data;
 }
 
-/** HadISST for the deep record, ERSST v5 from the splice year forward. */
-function spliceSeries(had, ers, spliceYear) {
-  const out = {};
-  for (const y of Object.keys(had)) if (+y < spliceYear) out[+y] = had[y].slice();
-  for (const y of Object.keys(ers)) if (+y >= spliceYear) out[+y] = ers[y].slice();
-  // ERSST is the operational source but publishes month by month; if it is
-  // missing a month HadISST already has, fall back rather than leave a hole.
-  for (const y of Object.keys(had)) {
-    const yr = +y;
-    if (yr < spliceYear || !out[yr]) { if (!out[yr]) out[yr] = had[y].slice(); continue; }
-    for (let m = 0; m < 12; m++) if (out[yr][m] === null && had[y][m] !== null) out[yr][m] = had[y][m];
-  }
-  return out;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ONI — 3-month centered running mean
@@ -1336,7 +1322,7 @@ function renderFreshness() {
   let stale = false;
 
   const src = META?.sources || {};
-  const metaLatest = src.ersst5?.latest || src.hadisst?.latest;
+  const metaLatest = src.spliced?.latest;
   // Without meta, fall back to the month the loaded data actually ends at —
   // staleness matters most in exactly the state where meta is missing.
   const fromData = latestMonth(rawData);
@@ -1362,8 +1348,7 @@ let footLines = [];
 function renderFooter() {
   const src = META?.sources || {};
   const bits = [];
-  if (src.hadisst) bits.push(`HadISST 1.1 (pre-${META.splice_year})`);
-  if (src.ersst5) bits.push(`ERSST v5 (${META.splice_year}–present)`);
+  if (src.spliced) bits.push(`HadISST 1.1 (pre-${META.splice_year}, rebased) · ERSST v6 (${META.splice_year}–present) · 1991–2020 base`);
   if (META?.weekly) bits.push('CPC weekly SST');
   footLines = [
     `contextclimate.io · Niño 3.4 (5°N–5°S, 170°–120°W) · ONI is a 3-month centered mean of the monthly anomaly.`,
@@ -1372,7 +1357,7 @@ function renderFooter() {
   document.getElementById('foot').innerHTML = footLines.join('<br>');
 
   const sub = document.getElementById('subtitle');
-  const span = src.hadisst?.years ? `${src.hadisst.years[0]}–present` : '1870–present';
+  const span = src.spliced?.years ? `${src.spliced.years[0]}–present` : '1870–present';
   sub.textContent = `Historical event trajectories aligned by development year · Niño 3.4 · ${span} · 24-month window`;
 }
 
@@ -1646,23 +1631,12 @@ async function init() {
   try {
     META = await loadMeta();
     const version = META?.version || '';
-    const spliceYear = META?.splice_year ?? 1950;
-
-    let had = {}, ers = {};
+    // One series, spliced and put on a 1991–2020 base by the pipeline
+    // (scripts/build_enso_data.py): HadISST before 1950, CPC ERSSTv6 after.
     try {
-      had = await loadSeries(META?.sources?.hadisst?.file || 'nino34.long.anom.data', version);
-    } catch (e) { problems.push(`HadISST: ${e.message}`); }
-    try {
-      ers = await loadSeries(META?.sources?.ersst5?.file || 'nino34.ersst5.anom.data', version);
-    } catch (e) { problems.push(`ERSST v5: ${e.message}`); }
-
-    if (!Object.keys(had).length && !Object.keys(ers).length) {
-      throw new Error('no usable source');
-    }
-
-    rawData = (Object.keys(had).length && Object.keys(ers).length)
-      ? spliceSeries(had, ers, spliceYear)
-      : (Object.keys(ers).length ? ers : had);
+      rawData = await loadSeries(META?.sources?.spliced?.file || 'nino34.spliced.anom.data', version);
+    } catch (e) { problems.push(`Niño 3.4: ${e.message}`); }
+    if (!Object.keys(rawData).length) throw new Error('no usable source');
 
     const { oni, years } = calcONI(rawData);
     oniData = oni;
