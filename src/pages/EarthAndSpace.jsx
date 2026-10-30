@@ -688,7 +688,7 @@ const SECTIONS = [
       {
         tags:         ['Seismic Waves', 'Earth\'s Interior'],
         title:       'Seismic Wave Explorer',
-        description: 'Visualize P- and S-wave propagation through Earth\'s interior layers and discover how seismic data reveals internal structure.',
+        description: 'Record an earthquake on 72 stations around the globe, read the seismograms, then test models of Earth\'s interior against what the stations recorded.',
         footerTags:   ['Earth\'s Layers', 'Seismology'],
         to:           '/earthandspace/seismic-wave-explorer',
         accentVar:    '--accent',
