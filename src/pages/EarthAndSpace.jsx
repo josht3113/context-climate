@@ -668,9 +668,9 @@ const SECTIONS = [
         status:      'live',
       },
       {
-        tags:        ['Stream Velocity', 'Interactive'],
-        title:       'Stream Sediment Transport Simulator',
-        description: 'Control stream velocity and observe how erosion, saltation, suspension, and deposition respond.',
+        tags:        ['Erosion & Deposition', 'Interactive'],
+        title:       'Stream Sediment Transport',
+        description: 'Four linked labs: what a current can move, how grains settle, how meanders migrate and cut off, and how a river sorts its load from mountains to delta.',
         footerTags:  ['Stream Transport', 'Erosion & Deposition'],
         to:          '/stream-transport',
         thumb:       '/StreamTransport_thumbnail.png',
