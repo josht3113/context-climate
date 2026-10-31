@@ -577,8 +577,9 @@ function drawTracers(ctx) {
 const ZTOP = 20;
 let XL = null;   // current layout for the section
 function xRange() { return S.hemi === 'n' ? [-14, 92] : [-93, 93]; }
-function X(lat) { const [a, b] = xRange(), p = XL.plot; return p.l + (lat - a) / (b - a) * (p.r - p.l); }
-function latOfX(px) { const [a, b] = xRange(), p = XL.plot; return a + (px - p.l) / (p.r - p.l) * (b - a); }
+// North on the left, equator (N only) or south (Both) on the right, as on ESSRT p. 19
+function X(lat) { const [a, b] = xRange(), p = XL.plot; return p.l + (b - lat) / (b - a) * (p.r - p.l); }
+function latOfX(px) { const [a, b] = xRange(), p = XL.plot; return b - (px - p.l) / (p.r - p.l) * (b - a); }
 function Y(km) { const p = XL.plot; return p.b - km / ZTOP * (p.b - p.t); }
 function kmOfY(py) { const p = XL.plot; return (p.b - py) / (p.b - p.t) * ZTOP; }
 function ptChi(chi, z) { const s = shiftNow(), c = cells(); return [X(phiOf(chi, s)), Y(z * tropo(chi, c))]; }
@@ -646,9 +647,9 @@ function drawXBase(ctx, L) {
   ctx.fillStyle = C.ocean; ctx.fillRect(p.l, p.t, p.r - p.l, p.b - p.t);
   const [a, b] = xRange();
   // stratosphere tint
-  ctx.beginPath(); ctx.moveTo(p.l, p.t);
+  ctx.beginPath(); ctx.moveTo(X(a), p.t);
   for (let i = 0; i <= 240; i++) { const lat = lerp(a, b, i / 240); ctx.lineTo(X(lat), Y(tropo(chiOf(lat, s), c))); }
-  ctx.lineTo(p.r, p.t); ctx.closePath(); ctx.fillStyle = 'rgba(60,163,174,0.08)'; ctx.fill();
+  ctx.lineTo(X(b), p.t); ctx.closePath(); ctx.fillStyle = 'rgba(60,163,174,0.08)'; ctx.fill();
   // streamlines
   ctx.save(); ctx.beginPath(); ctx.rect(p.l, p.t, p.r - p.l, p.b - p.t); ctx.clip();
   ctx.beginPath();
@@ -667,11 +668,12 @@ function drawXBase(ctx, L) {
       else tower(ctx, px, Y(top - 0.6), Y(0.4));
     } else if (wetdry) {
       const sgn = Math.sign(chi), x1 = X(phiOf(chi - 9 * sgn, s)), x2 = X(phiOf(chi + 7 * sgn, s)), wpx = Math.abs(x2 - x1), sp = cloudSprite('ns', wpx, Y(1.0) - Y(top - 1.8), pr);
-      ctx.save(); ctx.globalAlpha = 0.82; const left = Math.min(x1, x2);
-      if (sgn < 0) { ctx.translate(left + wpx, 0); ctx.scale(-1, 1); ctx.drawImage(sp.cv, sp.ox, Y(top - 1.8) + sp.oy, sp.w, sp.h); }
+      const left = Math.min(x1, x2), mir = sgn > 0; ctx.save(); ctx.globalAlpha = 0.82;
+
+      if (mir) { ctx.translate(left + wpx, 0); ctx.scale(-1, 1); ctx.drawImage(sp.cv, sp.ox, Y(top - 1.8) + sp.oy, sp.w, sp.h); }
       else ctx.drawImage(sp.cv, left + sp.ox, Y(top - 1.8) + sp.oy, sp.w, sp.h);
       ctx.restore();
-      rain(ctx, Math.min(x1, x2) + wpx * 0.08, Math.min(x1, x2) + wpx * 0.6, Y(1.1), Y(0));
+      rain(ctx, left + wpx * (mir ? 0.4 : 0.08), left + wpx * (mir ? 0.92 : 0.6), Y(1.1), Y(0));
     }
   }
   ctx.restore();
@@ -701,12 +703,12 @@ function drawXBase(ctx, L) {
   const ticks = S.hemi === 'n' ? [0, 30, 60, 90] : [-90, -60, -30, 0, 30, 60, 90];
   for (const l of ticks) { const px = X(l); ctx.strokeStyle = 'rgba(232,228,217,0.35)'; ctx.beginPath(); ctx.moveTo(px, gy + 15); ctx.lineTo(px, gy + 19); ctx.stroke(); ctx.fillText(l === 0 ? 'EQ' : Math.abs(l) + (l > 0 ? '°N' : '°S'), px, gy + 44); }
   ctx.restore();
-  // jets: westerly, toward the viewer (equator left / north right puts the viewer facing west)
+  // jets: circled J, as on ESSRT p. 19
   if (c === 'three') for (const j of JETS) for (const sg of S.hemi === 'n' ? [1] : [1, -1]) {
     const chi = j.chi * sg, lat = phiOf(chi, s); if (lat < a || lat > b) continue;
     const px = X(lat), py = Y((tropo(chi - 2.5, c) + tropo(chi + 2.5, c)) / 2);
     ctx.beginPath(); ctx.arc(px, py, 11, 0, 7); ctx.fillStyle = 'rgba(7,10,8,0.92)'; ctx.fill(); ctx.strokeStyle = C.jet; ctx.lineWidth = 2; ctx.stroke();
-    ctx.beginPath(); ctx.arc(px, py, 3.4, 0, 7); ctx.fillStyle = C.jet; ctx.fill();
+    label(ctx, 'J', px, py + 1, { font: `700 16px ${FD}`, color: C.jet, halo: false });
     if (S.hemi === 'n') label(ctx, j.name, px, py - 22, { font: `700 13px ${FM}`, color: C.jet });
   }
   // direct ray
@@ -716,7 +718,7 @@ function drawXBase(ctx, L) {
       ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(242,193,78,0.55)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(px, p.t + 18); ctx.lineTo(px, gy); ctx.stroke(); ctx.restore();
       ctx.beginPath(); ctx.arc(px, p.t + 9, 7, 0, 7); ctx.fillStyle = C.sun; ctx.fill();
       for (let k = 0; k < 8; k++) { const an = k * Math.PI / 4; ctx.beginPath(); ctx.moveTo(px + Math.cos(an) * 10, p.t + 9 + Math.sin(an) * 10); ctx.lineTo(px + Math.cos(an) * 13, p.t + 9 + Math.sin(an) * 13); ctx.strokeStyle = C.sun; ctx.lineWidth = 1.6; ctx.stroke(); }
-      label(ctx, 'Direct ray', px + 18, p.t + 9, { align: 'left', color: C.sun, font: `700 13px ${FM}` });
+      const lft = px > p.r - 130; label(ctx, 'Direct ray', px + (lft ? -18 : 18), p.t + 9, { align: lft ? 'right' : 'left', color: C.sun, font: `700 13px ${FM}` });
     }
   }
 }
@@ -790,8 +792,8 @@ function drawXDynamic(ctx, L, phase) {
     if (two && n.includes(' ')) { const [w1, w2] = n.split(' '); label(ctx, w1, px, py - 9, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.72)' }); label(ctx, w2, px, py + 8, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.72)' }); }
     else label(ctx, n, px, py, { font: `700 14px ${FM}`, color: 'rgba(232,228,217,0.72)' });
   }
-  label(ctx, 'STRATOSPHERE', p.r - 8, Y(18.6), { align: 'right', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
-  label(ctx, 'TROPOSPHERE', p.r - 8, Y(Math.max(1.2, tropo(chiOf(b - 4, s), c) - 0.9)), { align: 'right', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
+  label(ctx, 'STRATOSPHERE', (p.l + p.r) / 2, Y(18.6), { align: 'center', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
+  label(ctx, 'TROPOSPHERE', X(phiOf(42, s)), Y(tropo(42, c) - 2.6), { align: 'center', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
   // marker
   if (S.lat >= a && S.lat <= b) { const mx = X(S.lat); ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(232,228,217,0.8)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(mx, p.t); ctx.lineTo(mx, Y(0) + 12); ctx.stroke(); ctx.restore(); }
   }
@@ -858,8 +860,9 @@ function drawCharts(ctx, L) {
     if (ch.key === 'p' && f.itcz >= a && f.itcz <= b) label(ctx, 'ITCZ', X(f.itcz), yv(zonAt(arr, f.itcz)) - 12, { font: `700 13px ${FM}`, color: C.rise });
     ctx.restore();
     ctx.save(); ctx.font = `400 13px ${FM}`; const uw = ctx.measureText(ch.unit).width; ctx.restore();
-    label(ctx, ch.unit, p.r - 8, r.t + 11, { align: 'right', font: `400 13px ${FM}`, color: C.ink3 });
-    label(ctx, ch.title, p.r - 16 - uw, r.t + 11, { align: 'right', font: `700 13px ${FM}`, color: C.ink2 });
+    ctx.save(); ctx.font = `700 13px ${FM}`; const tw = ctx.measureText(ch.title).width; ctx.restore(); void uw;
+    label(ctx, ch.title, p.l + 8, r.t + 11, { align: 'left', font: `700 13px ${FM}`, color: C.ink2 });
+    label(ctx, ch.unit, p.l + 16 + tw, r.t + 11, { align: 'left', font: `400 13px ${FM}`, color: C.ink3 });
     // marker dot
     if (S.lat >= a && S.lat <= b) { const v = zonAt(arr, S.lat); if (v != null) { ctx.beginPath(); ctx.arc(X(S.lat), yv(v), 4.5, 0, 7); ctx.fillStyle = C.ink; ctx.fill(); ctx.strokeStyle = C.bg; ctx.lineWidth = 1.5; ctx.stroke(); } }
   });
@@ -1068,7 +1071,7 @@ function cardModel() {
   if (S.parcels.length) { const q = S.parcels[S.parcels.length - 1], up = cellW(q.chi, q.z, c) > 0;
     rows.push({ l: 'Parcel', v: `${latStr(phiOf(q.chi, s))} · ${(q.z * tropo(q.chi, c)).toFixed(1)} km`, u: up ? 'rising' : 'sinking', dot: up ? 'rise' : 'sink' }); }
   const legend = st === 'norot' ? [['rise', 'Rising air', 'c'], ['sink', 'Sinking air', 'c']]
-    : st === 'rot' ? [['rise', 'Rising air', 'c'], ['sink', 'Sinking air', 'c'], ['east', 'Easterlies'], ['west', 'Westerlies'], ['jet', '⊙ Jet, toward you', 'c']]
+    : st === 'rot' ? [['rise', 'Rising air', 'c'], ['sink', 'Sinking air', 'c'], ['east', 'Easterlies'], ['west', 'Westerlies'], ['jet', 'Jet stream', 'c']]
     : st === 'moist' ? [['wet', 'Wet'], ['dry', 'Dry'], ['rise', 'Rising air', 'c'], ['sink', 'Sinking air', 'c'], ['east', 'Easterlies'], ['west', 'Westerlies']]
     : [['wet', 'Wet'], ['dry', 'Dry'], ['sun', 'Direct ray'], ['east', 'Easterlies'], ['west', 'Westerlies']];
   const src = st === 'season' ? 'Idealized model. Belts shift up to 8° at the solstices (GPCP 1979–2010 rain belt).'
