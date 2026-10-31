@@ -670,7 +670,7 @@ const SECTIONS = [
       {
         tags:        ['Erosion & Deposition', 'Interactive'],
         title:       'Stream Sediment Transport',
-        description: 'Four linked labs: what a current can move, how grains settle, how meanders migrate and cut off, and how a river sorts its load from mountains to delta.',
+        description: 'Five linked labs: what a current can move, how grains settle, how a mountain stream cuts its valley, how meanders migrate and cut off, and how a river sorts its load from mountains to delta.',
         footerTags:  ['Stream Transport', 'Erosion & Deposition'],
         to:          '/stream-transport',
         thumb:       '/StreamTransport_thumbnail.png',
