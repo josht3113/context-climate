@@ -47,6 +47,8 @@
   }
   .sw-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
   .sw-row + .sw-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border); }
+  .xp-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--color-border); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+  .xp-read, .xp-status { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-secondary); }
   .sw-spacer { flex: 1 1 auto; }
   .sw-ctl-name {
     font-family: var(--font-mono); font-size: 14px; letter-spacing: 0.08em;
@@ -126,6 +128,8 @@
       <button class="cc-btn" id="btnClear">Clear evidence</button>
       <span class="sw-spacer"></span>
       <button class="cc-btn cc-btn-sm" id="btnPng">&darr; PNG</button>
+      <button class="cc-btn cc-btn-sm" id="btnGif">&darr; GIF</button>
+      <button class="cc-btn cc-btn-sm" id="btnMp4">&darr; MP4</button>
     </div>
     <div class="sw-row" id="rowModel" hidden>
       <span class="sw-ctl-name">Interior</span>
@@ -144,6 +148,7 @@
       <button class="cc-btn sw-toggle is-on" id="tgRays"><span class="dot"></span>Rays</button>
       <button class="cc-btn sw-toggle" id="tgGaps"><span class="dot"></span>Mark gaps</button>
     </div>
+    <div class="xp-row" id="expRow" hidden></div>
     <div class="sw-hint">Click inside the globe to set an earthquake &middot; click a station to see its seismogram</div>
   </div>
 
@@ -178,6 +183,561 @@
   </div>
 </div>
 
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  ANIMATED EXPORT — GIF + MP4 (shared ContextClimate pattern)
+//  Encoders from pacific-sst-anomaly-map.html: median-cut GIF with frame
+//  deltas; WebCodecs H.264 into a hand-built MP4; MediaRecorder fallback.
+//  An animation is { W, H, frames, prepare(k), draw(ctx, fr, k, scale) }:
+//  frames are drawn off-screen at W×H logical (GIF 1×, video 4/3×) on a
+//  private copy of the scene, so the live tool is never touched.
+// ═══════════════════════════════════════════════════════════════════
+var ANIMX = (function () {
+'use strict';
+const VIDEO_SCALE = 4 / 3, VIDEO_FPS = 24, VIDEO_BITRATE = 3e6, HOLD_S = 2;
+const GIF_MAX = 160;
+const AVC_CODECS = ['avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.420028'];   // High/Main/Baseline, level 4.0
+const VIDEO_MIMES = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/webm;codecs=vp9',
+                     'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+class ExportCancelled extends Error {}
+
+// ── GIF encoder (median-cut global palette, frame deltas, LZW) ──
+function medianCutPalette(hist, nColors) {          // hist over 18-bit (6-6-6) keys
+  const bins = [];
+  for (let key = 0; key < hist.length; key++) if (hist[key]) bins.push([(key >> 12) & 63, (key >> 6) & 63, key & 63, hist[key]]);
+  if (!bins.length) bins.push([0, 0, 0, 1]);
+  const boxes = [bins];
+  while (boxes.length < nColors) {
+    let bi = -1, best = -1, bestCh = 0;
+    boxes.forEach((b, i) => {
+      if (b.length < 2) return;
+      for (let ch = 0; ch < 3; ch++) {
+        let lo = 64, hi = -1;
+        for (const e of b) { if (e[ch] < lo) lo = e[ch]; if (e[ch] > hi) hi = e[ch]; }
+        const score = (hi - lo) * Math.log(1 + b.length);
+        if (score > best) { best = score; bi = i; bestCh = ch; }
+      }
+    });
+    if (bi < 0 || best <= 0) break;
+    const box = boxes[bi];
+    box.sort((a, b) => a[bestCh] - b[bestCh]);
+    let total = 0; for (const e of box) total += e[3];
+    let acc = 0, cut = 1;
+    for (let j = 0; j < box.length - 1; j++) { acc += box[j][3]; cut = j + 1; if (acc >= total / 2) break; }
+    boxes.splice(bi, 1, box.slice(0, cut), box.slice(cut));
+  }
+  return boxes.map(b => {
+    let r = 0, g = 0, bl = 0, n = 0;
+    for (const e of b) { r += e[0] * e[3]; g += e[1] * e[3]; bl += e[2] * e[3]; n += e[3]; }
+    return [Math.round(r / n * 255 / 63), Math.round(g / n * 255 / 63), Math.round(bl / n * 255 / 63)];
+  });
+}
+function makeMapper(palette) {
+  const cache = new Int16Array(1 << 18).fill(-1);
+  return (r, g, b) => {
+    const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2), v = cache[key];
+    if (v >= 0) return v;
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < palette.length; i++) {
+      const dr = palette[i][0] - r, dg = palette[i][1] - g, db = palette[i][2] - b;
+      const d = dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11;
+      if (d < bd) { bd = d; best = i; }
+    }
+    cache[key] = best;
+    return best;
+  };
+}
+class ByteSink {
+  constructor() { this.chunks = []; this.buf = new Uint8Array(1 << 16); this.len = 0; }
+  byte(b) { if (this.len === this.buf.length) this.flush(); this.buf[this.len++] = b; }
+  u16(v) { this.byte(v & 255); this.byte((v >> 8) & 255); }
+  str(s) { for (let i = 0; i < s.length; i++) this.byte(s.charCodeAt(i)); }
+  flush() { if (this.len) { this.chunks.push(this.buf.slice(0, this.len)); this.len = 0; } }
+  blob(type) { this.flush(); return new Blob(this.chunks, { type }); }
+}
+function lzwEncode(sink, px, minCode) {
+  const clear = 1 << minCode, eoi = clear + 1, initBits = minCode + 1;
+  let nBits = initBits, maxcode = (1 << nBits) - 1, freeEnt = clear + 2, clearFlg = false;
+  const dict = new Map(), block = new Uint8Array(255);
+  let acc = 0, accBits = 0, blen = 0;
+  const putByte = b => {
+    block[blen++] = b;
+    if (blen === 255) { sink.byte(255); for (let i = 0; i < 255; i++) sink.byte(block[i]); blen = 0; }
+  };
+  const output = code => {
+    acc |= code << accBits; accBits += nBits;
+    while (accBits >= 8) { putByte(acc & 255); acc >>>= 8; accBits -= 8; }
+    if (freeEnt > maxcode || clearFlg) {
+      if (clearFlg) { nBits = initBits; maxcode = (1 << nBits) - 1; clearFlg = false; }
+      else { nBits++; maxcode = nBits === 12 ? 4096 : (1 << nBits) - 1; }
+    }
+  };
+  sink.byte(minCode);
+  output(clear);
+  let ent = px[0];
+  for (let i = 1; i < px.length; i++) {
+    const ch = px[i], key = ent * 256 + ch, v = dict.get(key);
+    if (v !== undefined) { ent = v; continue; }
+    output(ent); ent = ch;
+    if (freeEnt < 4096) dict.set(key, freeEnt++);
+    else { dict.clear(); freeEnt = clear + 2; clearFlg = true; output(clear); }
+  }
+  output(ent); output(eoi);
+  if (accBits > 0) putByte(acc & 255);
+  if (blen) { sink.byte(blen); for (let j = 0; j < blen; j++) sink.byte(block[j]); }
+  sink.byte(0);
+}
+const tick = () => new Promise(res => setTimeout(res, 0));
+
+async function encodeGif(anim, fps, job, onProgress) {
+  const W = anim.W, H = anim.H, N = anim.frames, TRANSP = 255;
+  const delay = Math.round(100 / fps);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const hist = new Uint32Array(1 << 18);
+  // pass 1: palette from ~14 sampled frames
+  const every = Math.max(1, Math.round(N / 14));
+  for (let k = 0; k < N; k++) {
+    if (k % every !== 0 && k !== N - 1) continue;
+    if (job.cancelled) throw new ExportCancelled();
+    anim.draw(ctx, await anim.prepare(k), k, 1);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    for (let i = 0; i < d.length; i += 12) hist[((d[i] >> 2) << 12) | ((d[i + 1] >> 2) << 6) | (d[i + 2] >> 2)]++;
+    onProgress(0.12 * k / N); await tick();
+  }
+  const palette = medianCutPalette(hist, 255), map = makeMapper(palette);
+  while (palette.length < 256) palette.push([0, 0, 0]);
+  // pass 2: encode
+  const sink = new ByteSink();
+  sink.str('GIF89a'); sink.u16(W); sink.u16(H); sink.byte(0xF7); sink.byte(0); sink.byte(0);
+  for (const [r, g, b] of palette) { sink.byte(r); sink.byte(g); sink.byte(b); }
+  sink.byte(0x21); sink.byte(0xFF); sink.byte(11); sink.str('NETSCAPE2.0'); sink.byte(3); sink.byte(1); sink.u16(0); sink.byte(0);
+  let prev = null;
+  for (let f = 0; f < N; f++) {
+    if (job.cancelled) throw new ExportCancelled();
+    anim.draw(ctx, await anim.prepare(f), f, 1);
+    const data = ctx.getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
+    for (let q = 0, o = 0; q < idx.length; q++, o += 4) idx[q] = map(data[o], data[o + 1], data[o + 2]);
+    let x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+    if (prev) {
+      x0 = W; y0 = H; x1 = -1; y1 = -1;
+      for (let yy = 0; yy < H; yy++) {
+        const row = yy * W;
+        for (let xx = 0; xx < W; xx++) {
+          if (idx[row + xx] !== prev[row + xx]) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; y1 = yy; }
+        }
+      }
+      if (x1 < 0) { x0 = 0; y0 = 0; x1 = 0; y1 = 0; }
+    }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
+    for (let sy = 0; sy < h; sy++) {
+      const srow = (y0 + sy) * W;
+      for (let sx = 0; sx < w; sx++) {
+        const v = idx[srow + x0 + sx];
+        sub[sy * w + sx] = prev && prev[srow + x0 + sx] === v ? TRANSP : v;
+      }
+    }
+    const dl = f === N - 1 ? delay + HOLD_S * 100 : delay;
+    sink.byte(0x21); sink.byte(0xF9); sink.byte(4); sink.byte(prev ? 0x05 : 0x04); sink.u16(dl); sink.byte(TRANSP); sink.byte(0);
+    sink.byte(0x2C); sink.u16(x0); sink.u16(y0); sink.u16(w); sink.u16(h); sink.byte(0);
+    lzwEncode(sink, sub, 8);
+    prev = idx;
+    onProgress(0.12 + 0.88 * (f + 1) / N);
+    await tick();
+  }
+  sink.byte(0x3B);
+  return sink.blob('image/gif');
+}
+
+// ── MP4: WebCodecs H.264 → hand-built MP4 (frame-exact, faster than real time) ──
+function splitAnnexB(u8) {
+  const nals = [], n = u8.length;
+  let i = 0, start = -1;
+  while (i + 2 < n) {
+    if (u8[i] === 0 && u8[i + 1] === 0 && (u8[i + 2] === 1 || (u8[i + 2] === 0 && i + 3 < n && u8[i + 3] === 1))) {
+      if (start >= 0) nals.push(u8.subarray(start, i));
+      i += u8[i + 2] === 1 ? 3 : 4; start = i;
+    } else i++;
+  }
+  if (start >= 0) nals.push(u8.subarray(start));
+  return nals.map(x => { let e = x.length; while (e > 1 && x[e - 1] === 0) e--; return x.subarray(0, e); });
+}
+// True when 4-byte big-endian NAL lengths tile the buffer exactly (AVCC). Checking
+// the first bytes for 00 00 01 is not enough: a 256–511-byte NAL's length prefix
+// is 00 00 01 xx.
+function isAvccFramed(u8) {
+  let o = 0;
+  while (o + 4 <= u8.length) {
+    const n = u8[o] * 16777216 + (u8[o + 1] << 16) + (u8[o + 2] << 8) + u8[o + 3];
+    if (n === 0 || o + 4 + n > u8.length) return false;
+    o += 4 + n;
+  }
+  return o === u8.length;
+}
+function avcCFrom(sps, pps) {
+  const out = new Uint8Array(11 + sps.length + pps.length);
+  out.set([1, sps[1], sps[2], sps[3], 0xFF, 0xE1, sps.length >> 8, sps.length & 255], 0);
+  out.set(sps, 8);
+  const o = 8 + sps.length;
+  out.set([1, pps.length >> 8, pps.length & 255], o);
+  out.set(pps, o + 3);
+  return out;
+}
+function nalsToAvcc(nals) {                      // 4-byte length prefixes; parameter sets live in avcC
+  const keep = nals.filter(x => { const t = x[0] & 31; return t !== 7 && t !== 8 && t !== 9; });
+  const out = new Uint8Array(keep.reduce((s, x) => s + 4 + x.length, 0));
+  let o = 0;
+  for (const x of keep) { out.set([x.length >>> 24, (x.length >> 16) & 255, (x.length >> 8) & 255, x.length & 255], o); out.set(x, o + 4); o += 4 + x.length; }
+  return out;
+}
+
+// samples: [{data, cts, key}] in decode order (cts in timescale units); returns Blob parts.
+function muxMp4({ width, height, timescale, frameDur, samples, avcC }) {
+  const u32 = v => [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255];
+  const u16 = v => [(v >> 8) & 255, v & 255];
+  const str = s => Array.from(s, ch => ch.charCodeAt(0));
+  const zeros = n => new Array(n).fill(0);
+  const box = (type, ...parts) => {
+    let len = 8; for (const p of parts) len += p.length;
+    const out = new Uint8Array(len);
+    out.set(u32(len), 0); out.set(str(type), 4);
+    let o = 8; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  };
+  const full = (type, v, flags, ...parts) => box(type, [v, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255], ...parts);
+  const n = samples.length;
+  const cts = samples.map(s => s.cts);
+  const dts = cts.slice().sort((a, b) => a - b);
+  const dur = dts.map((d, i) => i < n - 1 ? dts[i + 1] - d : frameDur);
+  const offs = cts.map((c, i) => c - dts[i]);
+  const mediaDur = dts[n - 1] - dts[0] + dur[n - 1];
+  const movieDur = Math.round(mediaDur * 1000 / timescale);
+  const matrix = [...u32(0x00010000), ...u32(0), ...u32(0), ...u32(0), ...u32(0x00010000), ...u32(0), ...u32(0), ...u32(0), ...u32(0x40000000)];
+  const runs = (arr) => { const r = []; for (const v of arr) { if (r.length && r[r.length - 1][1] === v) r[r.length - 1][0]++; else r.push([1, v]); } return r; };
+
+  const sttsR = runs(dur), cttsR = runs(offs);
+  const keys = []; samples.forEach((s, i) => { if (s.key) keys.push(i + 1); });
+  const dataLen = samples.reduce((s, x) => s + x.data.length, 0);
+
+  const ftyp = box('ftyp', str('isom'), u32(512), str('isom'), str('iso2'), str('avc1'), str('mp41'));
+  const moovWith = (chunkOffset) => {
+    const stsd = full('stsd', 0, 0, u32(1), box('avc1',
+      zeros(6), u16(1), zeros(16), u16(width), u16(height), u32(0x00480000), u32(0x00480000), u32(0), u16(1),
+      zeros(32), u16(0x18), u16(0xFFFF), box('avcC', avcC)));
+    const stts = full('stts', 0, 0, u32(sttsR.length), sttsR.flatMap(([c, d]) => [...u32(c), ...u32(d)]));
+    const ctts = offs.some(x => x !== 0)
+      ? full('ctts', 1, 0, u32(cttsR.length), cttsR.flatMap(([c, d]) => [...u32(c), ...u32(d >>> 0)])) : null;
+    const stss = full('stss', 0, 0, u32(keys.length), keys.flatMap(u32));
+    const stsc = full('stsc', 0, 0, u32(1), u32(1), u32(n), u32(1));
+    const szs = new Uint8Array(4 * n); samples.forEach((s, i) => szs.set(u32(s.data.length), 4 * i));
+    const stsz = full('stsz', 0, 0, u32(0), u32(n), szs);
+    const stco = full('stco', 0, 0, u32(1), u32(chunkOffset));
+    const stbl = box('stbl', stsd, stts, ...(ctts ? [ctts] : []), stss, stsc, stsz, stco);
+    const minf = box('minf', full('vmhd', 0, 1, zeros(8)), box('dinf', full('dref', 0, 0, u32(1), full('url ', 0, 1))), stbl);
+    const mdia = box('mdia',
+      full('mdhd', 0, 0, u32(0), u32(0), u32(timescale), u32(mediaDur), u16(0x55C4), u16(0)),
+      full('hdlr', 0, 0, u32(0), str('vide'), zeros(12), [...str('VideoHandler'), 0]),
+      minf);
+    const tkhd = full('tkhd', 0, 3, u32(0), u32(0), u32(1), u32(0), u32(movieDur), zeros(8), u16(0), u16(0), u16(0), u16(0),
+      matrix, u32(width * 65536), u32(height * 65536));
+    const mvhd = full('mvhd', 0, 0, u32(0), u32(0), u32(1000), u32(movieDur), u32(0x00010000), u16(0x0100), zeros(10),
+      matrix, zeros(24), u32(2));
+    return box('moov', mvhd, box('trak', tkhd, mdia));
+  };
+  const probe = moovWith(0);
+  const moov = moovWith(ftyp.length + probe.length + 8);
+  const mdatHdr = new Uint8Array([...u32(8 + dataLen), ...str('mdat')]);
+  return [ftyp, moov, mdatHdr, ...samples.map(s => s.data)];
+}
+
+async function pickAvcConfig(width, height) {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') return null;
+  for (const codec of AVC_CODECS) {
+    const cfg = { codec, width, height, bitrate: VIDEO_BITRATE, bitrateMode: 'variable', framerate: VIDEO_FPS, avc: { format: 'avc' } };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) { /* try next */ }
+  }
+  return null;
+}
+function recorderMime() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return null;
+  return VIDEO_MIMES.find(m => MediaRecorder.isTypeSupported(m)) || null;
+}
+const videoDims = anim => [Math.round(anim.W * VIDEO_SCALE / 2) * 2, Math.round(anim.H * VIDEO_SCALE / 2) * 2];
+
+async function encodeMp4(anim, cfg, fps, job, onProgress) {
+  const [W, H] = [cfg.width, cfg.height], N = anim.frames;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const out = []; let desc = null, encErr = null;
+  const enc = new VideoEncoder({
+    output: (chunk, meta) => {
+      const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b);
+      out.push({ data: b, ts: chunk.timestamp, key: chunk.type === 'key' });
+      const d = meta && meta.decoderConfig && meta.decoderConfig.description;
+      if (d && !desc) desc = d instanceof ArrayBuffer ? new Uint8Array(d.slice(0)) : new Uint8Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength));
+    },
+    error: e => { encErr = e; },
+  });
+  enc.configure(cfg);
+  const rep = Math.round(VIDEO_FPS / fps), hold = HOLD_S * VIDEO_FPS, total = N * rep + hold, us = 1e6 / VIDEO_FPS;
+  let idx = 0;
+  const push = async () => {
+    const vf = new VideoFrame(cv, { timestamp: Math.round(idx * us), duration: Math.round(us), alpha: 'discard' });
+    enc.encode(vf, { keyFrame: idx % (VIDEO_FPS * 2) === 0 });
+    vf.close(); idx++;
+    while (enc.encodeQueueSize > 6 && !encErr) {
+      await new Promise(r => { enc.addEventListener('dequeue', r, { once: true }); setTimeout(r, 40); });
+    }
+    if (encErr) throw encErr;
+  };
+  try {
+    for (let k = 0; k < N; k++) {
+      if (job.cancelled) throw new ExportCancelled();
+      const fr = await anim.prepare(k);
+      ctx.setTransform(W / anim.W, 0, 0, H / anim.H, 0, 0);
+      anim.draw(ctx, fr, k, W / anim.W);
+      for (let r = 0; r < rep; r++) await push();
+      onProgress(idx / total);
+    }
+    for (let r = 0; r < hold; r++) await push();
+    await enc.flush();
+    if (encErr) throw encErr;
+  } finally {
+    if (enc.state !== 'closed') enc.close();
+  }
+  // With a description the chunks are AVCC by spec; without one they are Annex B
+  // → build avcC from SPS/PPS and length-prefix the samples.
+  if (!desc) {
+    let sps = null, pps = null;
+    for (const s of out) {
+      if (isAvccFramed(s.data)) continue;
+      const nals = splitAnnexB(s.data);
+      for (const x of nals) { const t = x[0] & 31; if (t === 7 && !sps) sps = x; if (t === 8 && !pps) pps = x; }
+      s.data = nalsToAvcc(nals);
+    }
+    if (!sps || !pps) throw new Error('encoder produced no SPS/PPS');
+    desc = avcCFrom(sps, pps);
+  }
+  const TS = 90000, frameDur = TS / VIDEO_FPS;
+  const parts = muxMp4({
+    width: W, height: H, timescale: TS, frameDur, avcC: desc,
+    samples: out.map(s => ({ data: s.data, key: s.key, cts: Math.round(s.ts * TS / 1e6) })),
+  });
+  return new Blob(parts, { type: 'video/mp4' });
+}
+
+// Fallback: real-time MediaRecorder capture. Next frame is composed on a back
+// canvas while the current one is on screen, then blitted at its due time.
+async function recordVideo(anim, mime, fps, job, onProgress) {
+  const [W, H] = videoDims(anim), N = anim.frames;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const back = document.createElement('canvas'); back.width = W; back.height = H;
+  const bctx = back.getContext('2d');
+  const paintBack = async k => {
+    bctx.setTransform(W / anim.W, 0, 0, H / anim.H, 0, 0);
+    anim.draw(bctx, await anim.prepare(k), k, W / anim.W);
+  };
+  const stream = cv.captureStream(0), track = stream.getVideoTracks()[0];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6e6 }), chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((res, rej) => { rec.onstop = res; rec.onerror = e => rej(e.error || e); });
+  const frameMs = 1000 / fps, total = N * frameMs + HOLD_S * 1000;
+  const blit = () => { ctx.drawImage(back, 0, 0); if (track.requestFrame) track.requestFrame(); };
+  const sleepUntil = t => new Promise(r => setTimeout(r, Math.max(0, t - performance.now())));
+  await paintBack(0);
+  rec.start(250);
+  const t0 = performance.now();
+  try {
+    for (let k = 0; k < N; k++) {
+      if (job.cancelled) throw new ExportCancelled();
+      await sleepUntil(t0 + k * frameMs);
+      blit();
+      if (k + 1 < N) await paintBack(k + 1);
+      onProgress((performance.now() - t0) / total);
+    }
+    const end = t0 + total;
+    while (performance.now() < end) {              // keep repainting through the hold
+      if (job.cancelled) throw new ExportCancelled();
+      blit(); onProgress((performance.now() - t0) / total);
+      await sleepUntil(Math.min(end, performance.now() + 1000 / 30));
+    }
+  } finally {
+    if (rec.state !== 'inactive') rec.stop();
+  }
+  await stopped;
+  const type = mime.split(';')[0], blob = new Blob(chunks, { type });
+  if (type === 'video/mp4') return { blob, ext: 'mp4' };
+  return { blob: await fixWebmDuration(blob, total), ext: 'webm' };
+}
+
+// MediaRecorder WebM files carry no Duration; insert one into Segment › Info.
+function fixWebmDuration(blob, durationMs) {
+  return blob.slice(0, Math.min(blob.size, 65536)).arrayBuffer().then(buf => {
+    const b = new Uint8Array(buf);
+    const vint = (pos, keepMarker) => {
+      const first = b[pos]; let len = 1, mask = 0x80;
+      while (len <= 8 && !(first & mask)) { len++; mask >>= 1; }
+      if (len > 8) throw new Error('bad vint');
+      let val = keepMarker ? first : first & (mask - 1);
+      for (let i = 1; i < len; i++) val = val * 256 + b[pos + i];
+      return { len, val };
+    };
+    let pos = 0, id = vint(pos, true);
+    if (id.val !== 0x1A45DFA3) throw new Error('not EBML');
+    let sz = vint(pos + id.len, false); pos += id.len + sz.len + sz.val;
+    id = vint(pos, true); if (id.val !== 0x18538067) throw new Error('no Segment');
+    sz = vint(pos + id.len, false); pos += id.len + sz.len;
+    for (let guard = 0; guard < 16 && pos < b.length - 8; guard++) {
+      id = vint(pos, true); sz = vint(pos + id.len, false);
+      const dataStart = pos + id.len + sz.len;
+      if (id.val === 0x1549A966) {
+        let q = dataStart; const end = dataStart + sz.val;
+        while (q < end) { const cid = vint(q, true), csz = vint(q + cid.len, false); if (cid.val === 0x4489) return blob; q += cid.len + csz.len + csz.val; }
+        const dur = new Uint8Array(11); dur[0] = 0x44; dur[1] = 0x89; dur[2] = 0x88;
+        new DataView(dur.buffer).setFloat64(3, durationMs);
+        const sizeBytes = new Uint8Array(8); sizeBytes[0] = 0x01;
+        for (let i = 7, v = sz.val + 11; i >= 1; i--) { sizeBytes[i] = v & 255; v = Math.floor(v / 256); }
+        const head = new Uint8Array(buf, 0, pos + id.len), body = new Uint8Array(buf, dataStart, sz.val);
+        return new Blob([head, sizeBytes, body, dur, blob.slice(end)], { type: blob.type });
+      }
+      pos = dataStart + sz.val;
+    }
+    return blob;
+  }).catch(() => blob);
+}
+
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// ── shared frame chrome ──
+var FONT = {
+  mono: function (s, w) { return (w || 400) + ' ' + s + "px 'Courier Prime', monospace"; },
+  body: function (s, w) { return (w || 400) + ' ' + s + "px 'Public Sans', sans-serif"; },
+  disp: function (s, w) { return (w || 700) + ' ' + s + "px 'Zilla Slab', serif"; }
+};
+// eyebrow / title / subtitle on the left, live readout on the right; returns header height
+function header(c, W, h) {
+  c.fillStyle = '#1E2320'; c.fillRect(0, 0, W, 96);
+  c.textBaseline = 'top'; c.textAlign = 'left';
+  c.fillStyle = '#948F82'; c.font = FONT.mono(12, 700); c.fillText(h.eyebrow, 20, 14);
+  c.fillStyle = '#E8E4D9'; c.font = FONT.disp(26); c.fillText(h.title, 20, 32);
+  c.fillStyle = '#A6A499'; c.font = FONT.body(13);
+  var sub = h.sub || '';
+  while (sub && c.measureText(sub).width > W - 40) sub = sub.slice(0, -2);
+  c.fillText(sub, 20, 68);
+  if (h.readout) {
+    c.textAlign = 'right'; c.fillStyle = '#E8E4D9'; c.font = FONT.mono(15, 700);
+    c.fillText(h.readout, W - 20, 36);
+    if (h.readout2) { c.fillStyle = '#A6A499'; c.font = FONT.mono(13); c.fillText(h.readout2, W - 20, 56); }
+  }
+  return 96;
+}
+function footer(c, W, H, text) {
+  c.fillStyle = '#1E2320'; c.fillRect(0, H - 34, W, 34);
+  c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillStyle = '#948F82';
+  var size = 12; c.font = FONT.mono(size);
+  var t = text + '  ·  contextclimate.io';
+  while (c.measureText(t).width > W - 40 && size > 9) { size -= 0.5; c.font = FONT.mono(size); }
+  c.fillText(t, 20, H - 17);
+}
+
+// ── video capability, detected once ──
+var videoPath = null, detected = false, waiters = [];
+function detect() {
+  if (detected) return Promise.resolve(videoPath);
+  return pickAvcConfig(1280, 720).then(function (cfg) {
+    videoPath = cfg ? 'mp4' : recorderMime(); detected = true;
+    waiters.forEach(function (f) { f(videoPath); }); return videoPath;
+  }, function () { videoPath = recorderMime(); detected = true; return videoPath; });
+}
+function fmtSec(s) { s = Math.round(s); return s < 60 ? s + ' s' : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+
+// ── export row controller ──
+// cfg: { gif, mp4, row: element ids; name(opt) → file stem; fps;
+//        options: { label, values: [[v, text]...], def } | null;
+//        count(opt) → frames; make(opt) → animation; busy(b) optional }
+function attach(cfg) {
+  var gifB = document.getElementById(cfg.gif), mp4B = document.getElementById(cfg.mp4), row = document.getElementById(cfg.row);
+  var ui = { open: false, fmt: 'gif', opt: cfg.options ? cfg.options.def : null }, job = null;
+  var optHTML = cfg.options ? '<span class="xp-name">' + cfg.options.label + '</span><div class="cc-segmented xp-opt">' +
+    cfg.options.values.map(function (v) { return '<button class="cc-segmented-btn" data-v="' + v[0] + '">' + v[1] + '</button>'; }).join('') + '</div>' : '';
+  row.innerHTML = optHTML + '<span class="xp-read"></span><button class="cc-btn primary xp-go"></button><span class="xp-status"></span>';
+  var read = row.querySelector('.xp-read'), go = row.querySelector('.xp-go'), status = row.querySelector('.xp-status');
+  row.querySelectorAll('.xp-opt .cc-segmented-btn').forEach(function (b) {
+    b.addEventListener('click', function () { if (job) return; ui.opt = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v; sync(); });
+  });
+  function vidLabel() { return videoPath && videoPath !== 'mp4' && !/mp4/.test(videoPath) ? 'WebM' : 'MP4'; }
+  function sync() {
+    gifB.classList.toggle('is-active', ui.open && ui.fmt === 'gif');
+    mp4B.classList.toggle('is-active', ui.open && ui.fmt !== 'gif');
+    row.hidden = !ui.open;
+    row.querySelectorAll('.xp-opt .cc-segmented-btn').forEach(function (b) { b.classList.toggle('is-active', String(ui.opt) === b.dataset.v); });
+    if (job) return;
+    var n = cfg.count(ui.opt), over = ui.fmt === 'gif' && n > GIF_MAX;
+    read.textContent = n + ' frames · ' + fmtSec(n / cfg.fps + HOLD_S) + (over ? ' · GIF max ' + GIF_MAX : '');
+    go.textContent = '↓ Make ' + (ui.fmt === 'gif' ? 'GIF' : vidLabel());
+    go.disabled = over || (ui.fmt !== 'gif' && !videoPath);
+  }
+  function open(fmt) {
+    if (job) return;
+    if (ui.open && ui.fmt === fmt) { ui.open = false; sync(); return; }
+    ui.open = true; ui.fmt = fmt; status.textContent = ''; sync();
+  }
+  function setBusy(b) {
+    gifB.disabled = b; mp4B.disabled = b || !videoPath;
+    row.querySelectorAll('.xp-opt .cc-segmented-btn').forEach(function (x) { x.disabled = b; });
+    go.textContent = b ? 'Cancel' : go.textContent; go.disabled = false;
+    if (cfg.busy) cfg.busy(b);
+    if (!b) sync();
+  }
+  async function run() {
+    if (job) { job.cancelled = true; return; }
+    var opt = ui.opt, fmt = ui.fmt, thisJob = job = { cancelled: false };
+    setBusy(true);
+    try {
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      var anim = cfg.make(opt), res;
+      var pct = function (p) { status.textContent = (fmt === 'gif' ? 'Encoding ' : 'Rendering ') + Math.min(100, Math.round(p * 100)) + '%'; };
+      if (fmt === 'gif') res = { blob: await encodeGif(anim, cfg.fps, thisJob, pct), ext: 'gif' };
+      else {
+        var dims = videoDims(anim), vc = await pickAvcConfig(dims[0], dims[1]);
+        if (vc) res = { blob: await encodeMp4(anim, vc, cfg.fps, thisJob, pct), ext: 'mp4' };
+        else {
+          var mime = recorderMime();
+          if (!mime) throw new Error('video export not supported in this browser');
+          res = await recordVideo(anim, mime, cfg.fps, thisJob, pct);
+        }
+      }
+      if (anim.done) anim.done();
+      saveBlob(res.blob, cfg.name(opt) + '.' + res.ext);
+      job = null; setBusy(false);
+      status.textContent = 'Saved · ' + (res.blob.size / 1e6).toFixed(1) + ' MB';
+    } catch (e) {
+      job = null; setBusy(false);
+      if (e instanceof ExportCancelled || thisJob.cancelled) status.textContent = 'Cancelled';
+      else { console.error(e); status.textContent = 'Export failed — ' + (e && e.message || e); }
+    }
+  }
+  gifB.addEventListener('click', function () { open('gif'); });
+  mp4B.addEventListener('click', function () { open('mp4'); });
+  go.addEventListener('click', run);
+  detect().then(function () {
+    if (!videoPath) { mp4B.disabled = true; mp4B.title = 'Video export not supported in this browser'; }
+    else if (vidLabel() === 'WebM') mp4B.textContent = '↓ WebM';
+    sync();
+  });
+  return { refresh: sync };
+}
+
+return { attach: attach, header: header, footer: footer, FONT: FONT, GIF_MAX: GIF_MAX, HOLD_S: HOLD_S,
+         encodeGif: encodeGif, muxMp4: muxMp4, isAvccFramed: isAvccFramed };
+})();
+</script>
 <script>
 // ═══════════════════════════════════════════════════════════════════
 //  PHYSICS — seismic rays through PREM and hypothetical interiors
@@ -1021,9 +1581,9 @@ function setupPointer() {
   });
 }
 
-// ── PNG export (fixed EXPORT_SCALE, independent of devicePixelRatio) ─
-function exportPNG() {
-  var pad = 36, gS = 620, pw = 820, ph = 360, sh = 220, gap = 24, head = 104, foot = 64;
+// Composite layout shared by the PNG and the animated exports.
+function composite(o) {
+  var pad = o.pad, gS = o.gS, pw = o.pw, ph = o.ph, sh = o.sh, gap = o.gap, head = o.head, foot = o.foot;
   // lay the legend out first so the canvas is tall enough for it
   var mc = document.createElement('canvas').getContext('2d'); mc.font = F.mono(12, 700);
   var lines = 1, lxm = 6;
@@ -1035,54 +1595,86 @@ function exportPNG() {
   var legendH = 16 + lines * 22 + 8;
   var W = pad * 2 + gS + gap + pw;
   var H = head + Math.max(gS + legendH, ph + 16 + sh) + foot;
+  function paint(c) {
+    c.fillStyle = COL.bg; c.fillRect(0, 0, W, H);
+    c.textAlign = 'left'; c.textBaseline = 'top';
+    c.fillStyle = COL.muted; c.font = F.mono(13, 700); c.fillText("EARTH'S INTERIOR · ESSRT 2026 P. 11", pad, 22);
+    c.fillStyle = COL.text; c.font = F.disp(32); c.fillText('Seismic Wave Explorer', pad, 40);
+    var ctx;
+    if (S.mode === 'observe') ctx = 'Observed · ' + OBS.length + ' earthquake' + (OBS.length === 1 ? '' : 's') + ' recorded · ' + NST + ' stations';
+    else ctx = 'Model · ' + SW.MODELS[S.model].label + (modelHasCore() ? ' · core radius ' + fmtKm(S.Rc) + ' km' : '')
+      + ' · P gap ' + gapText(GAPS.P) + ' · S gap ' + gapText(GAPS.S);
+    if (o.clock) {
+      c.textAlign = 'right'; c.fillStyle = COL.text; c.font = F.mono(26, 700); c.fillText(mmss(S.t), W - pad, 34);
+      c.fillStyle = COL.text2; c.font = F.mono(13); c.fillText('after the earthquake', W - pad, 68);
+      c.textAlign = 'left';
+    } else ctx += ' · ' + mmss(S.t) + ' after the earthquake';
+    c.fillStyle = COL.text2; c.font = F.body(15);
+    while (o.clock && ctx.length > 4 && c.measureText(ctx).width > W - 2 * pad - 190) ctx = ctx.slice(0, -2);
+    c.fillText(ctx, pad, 80);
+
+    function panel(x, y, w, h, fn) { c.save(); c.translate(x, y); c.beginPath(); c.rect(0, 0, w, h); c.clip(); fn(c, w, h); c.restore(); }
+    panel(pad, head, gS, gS, function (cc, w) { drawGlobe(cc, w); });
+    // legend under the globe
+    var lx = pad + 6, ly = head + gS + 16;
+    c.font = F.mono(12, 700); c.textBaseline = 'middle';
+    legendItems().forEach(function (x) {
+      var wtxt = c.measureText(x[2]).width + 34;
+      if (lx + wtxt > pad + gS) { lx = pad + 6; ly += 22; }
+      c.fillStyle = x[1]; c.strokeStyle = x[1];
+      if (x[0] === 'sw') c.fillRect(lx, ly - 7, 14, 14);
+      else if (x[0] === 'ln') c.fillRect(lx, ly - 1.5, 18, 3);
+      else if (x[0] === 'tri') { c.beginPath(); c.moveTo(lx + 1, ly + 5); c.lineTo(lx + 7, ly - 6); c.lineTo(lx + 13, ly + 5); c.fill(); }
+      else if (x[0] === 'dot') { c.beginPath(); c.arc(lx + 6, ly, 4, 0, Math.PI * 2); c.fill(); }
+      else if (x[0] === 'dotw') { c.globalAlpha = 0.5; c.beginPath(); c.arc(lx + 6, ly, 2.8, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1; }
+      else if (x[0] === 'ring') { c.lineWidth = 1.4; c.beginPath(); c.arc(lx + 6, ly, 3.4, 0, Math.PI * 2); c.stroke(); }
+      else drawStar(c, lx + 7, ly, 7, x[1]);
+      c.fillStyle = COL.text2; c.textAlign = 'left'; c.fillText(x[2], lx + 22, ly);
+      lx += wtxt;
+    });
+    var rx = pad + gS + gap;
+    c.fillStyle = COL.muted; c.font = F.mono(12, 700); c.textBaseline = 'alphabetic';
+    panel(rx, head, pw, ph, drawPlot);
+    panel(rx, head + ph + 16, pw, sh, drawSeis);
+
+    c.fillStyle = COL.muted; c.font = F.mono(12); c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+    var src = 'Rays, travel times and amplitudes: PREM (Dziewonski & Anderson, 1981), 10 km shells, crust and attenuation omitted · Layer depths: ESSRT 2026 p. 11';
+    if (c.measureText(src).width > W - 2 * pad) src = 'PREM (Dziewonski & Anderson, 1981), 10 km shells, crust and attenuation omitted · Layers: ESSRT 2026 p. 11';
+    c.fillText(src, pad, H - 34);
+    c.fillText('contextclimate.io', pad, H - 16);
+  }
+  return { W: W, H: H, paint: paint };
+}
+
+// ── PNG export (fixed EXPORT_SCALE, independent of devicePixelRatio) ─
+function exportPNG() {
+  var L = composite({ pad: 36, gS: 620, pw: 820, ph: 360, sh: 220, gap: 24, head: 104, foot: 64 });
   var off = document.createElement('canvas');
-  off.width = Math.round(W * EXPORT_SCALE); off.height = Math.round(H * EXPORT_SCALE);
+  off.width = Math.round(L.W * EXPORT_SCALE); off.height = Math.round(L.H * EXPORT_SCALE);
   var c = off.getContext('2d'); c.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
-  c.fillStyle = COL.bg; c.fillRect(0, 0, W, H);
-
-  c.textAlign = 'left'; c.textBaseline = 'top';
-  c.fillStyle = COL.muted; c.font = F.mono(13, 700); c.fillText("EARTH'S INTERIOR · ESSRT 2026 P. 11", pad, 22);
-  c.fillStyle = COL.text; c.font = F.disp(32); c.fillText('Seismic Wave Explorer', pad, 40);
-  var ctx;
-  if (S.mode === 'observe') ctx = 'Observed · ' + OBS.length + ' earthquake' + (OBS.length === 1 ? '' : 's') + ' recorded · ' + NST + ' stations';
-  else ctx = 'Model · ' + SW.MODELS[S.model].label + (modelHasCore() ? ' · core radius ' + fmtKm(S.Rc) + ' km' : '')
-    + ' · P gap ' + gapText(GAPS.P) + ' · S gap ' + gapText(GAPS.S);
-  ctx += ' · ' + mmss(S.t) + ' after the earthquake';
-  c.fillStyle = COL.text2; c.font = F.body(15); c.fillText(ctx, pad, 80);
-
-  function panel(x, y, w, h, fn) { c.save(); c.translate(x, y); c.beginPath(); c.rect(0, 0, w, h); c.clip(); fn(c, w, h); c.restore(); }
-  panel(pad, head, gS, gS, function (cc, w) { drawGlobe(cc, w); });
-  // legend under the globe
-  var lx = pad + 6, ly = head + gS + 16;
-  c.font = F.mono(12, 700); c.textBaseline = 'middle';
-  legendItems().forEach(function (x) {
-    var wtxt = c.measureText(x[2]).width + 34;
-    if (lx + wtxt > pad + gS) { lx = pad + 6; ly += 22; }
-    c.fillStyle = x[1]; c.strokeStyle = x[1];
-    if (x[0] === 'sw') c.fillRect(lx, ly - 7, 14, 14);
-    else if (x[0] === 'ln') c.fillRect(lx, ly - 1.5, 18, 3);
-    else if (x[0] === 'tri') { c.beginPath(); c.moveTo(lx + 1, ly + 5); c.lineTo(lx + 7, ly - 6); c.lineTo(lx + 13, ly + 5); c.fill(); }
-    else if (x[0] === 'dot') { c.beginPath(); c.arc(lx + 6, ly, 4, 0, Math.PI * 2); c.fill(); }
-    else if (x[0] === 'dotw') { c.globalAlpha = 0.5; c.beginPath(); c.arc(lx + 6, ly, 2.8, 0, Math.PI * 2); c.fill(); c.globalAlpha = 1; }
-    else if (x[0] === 'ring') { c.lineWidth = 1.4; c.beginPath(); c.arc(lx + 6, ly, 3.4, 0, Math.PI * 2); c.stroke(); }
-    else drawStar(c, lx + 7, ly, 7, x[1]);
-    c.fillStyle = COL.text2; c.textAlign = 'left'; c.fillText(x[2], lx + 22, ly);
-    lx += wtxt;
-  });
-  var rx = pad + gS + gap;
-  c.fillStyle = COL.muted; c.font = F.mono(12, 700); c.textBaseline = 'alphabetic';
-  panel(rx, head, pw, ph, drawPlot);
-  panel(rx, head + ph + 16, pw, sh, drawSeis);
-
-  c.fillStyle = COL.muted; c.font = F.mono(12); c.textBaseline = 'alphabetic'; c.textAlign = 'left';
-  c.fillText('Rays, travel times and amplitudes: PREM (Dziewonski & Anderson, 1981), 10 km shells, crust and attenuation omitted · Layer depths: ESSRT 2026 p. 11', pad, H - 34);
-  c.fillText('contextclimate.io', pad, H - 16);
-
+  L.paint(c);
   off.toBlob(function (blob) {
     var url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = 'seismic-wave-explorer-' + S.mode + '.png'; a.click();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
   }, 'image/png');
+}
+
+// ── GIF / MP4: the current earthquake playing out, in the current view ─
+var ANIM_FRAMES = 120;
+function makeAnim() {
+  if (S.running) { S.running = false; syncPlay(); }
+  var L = composite({ pad: 24, gS: 470, pw: 600, ph: 300, sh: 180, gap: 20, head: 104, foot: 56, clock: true });
+  var tEnd = tMax();
+  return {
+    W: L.W, H: L.H, frames: ANIM_FRAMES,
+    prepare: function (k) { return k; },
+    draw: function (c, k) {
+      var keep = { t: S.t, running: S.running };
+      S.t = tEnd * k / (ANIM_FRAMES - 1); S.running = k < ANIM_FRAMES - 1;
+      try { L.paint(c); } finally { S.t = keep.t; S.running = keep.running; }
+    }
+  };
 }
 
 // ── init ────────────────────────────────────────────────────────────
@@ -1105,6 +1697,11 @@ function init() {
   $('rgCore').addEventListener('input', onCore);
   $('btnCoreReset').addEventListener('click', function () { $('rgCore').value = RC_PREM; onCore(); });
   $('btnPng').addEventListener('click', exportPNG);
+  ANIMX.attach({
+    gif: 'btnGif', mp4: 'btnMp4', row: 'expRow', fps: 24, options: null,
+    count: function () { return ANIM_FRAMES; }, make: makeAnim,
+    name: function () { return 'seismic-wave-explorer-' + S.mode; }
+  });
   setupPointer();
 
   var rt = null;
