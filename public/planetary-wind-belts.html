@@ -59,6 +59,9 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .tgl::before { content: ''; display: inline-block; width: 11px; height: 11px; border: 1.5px solid var(--color-text-muted);
   border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
 .tgl.is-active::before { background: var(--tool-accent); border-color: var(--tool-accent); }
+.spd { align-items: center; gap: 8px; height: 32px; padding: 0 10px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary);
+  background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); white-space: nowrap; }
+.spd input { width: 92px; accent-color: var(--tool-accent); cursor: pointer; }
 .ctx-link { position: absolute; z-index: 4; padding: 6px 12px; font-size: 13px; background: var(--color-surface); }
 .hint { position: absolute; z-index: 4; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); white-space: nowrap; pointer-events: none; line-height: 32px; }
 
@@ -145,6 +148,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
             <button class="cc-segmented-btn" data-hemi="both">Both</button>
           </div>
         </div>
+        <label class="chip spd" id="chipSpeed">Cell speed<input type="range" id="cellSpd" min="0.1" max="1.5" step="0.05" value="0.5" aria-label="Cell circulation speed"></label>
         <a class="cc-btn x-link ctx-link" id="ctxLink" target="_top" href="#"></a>
         <span class="hint" id="hint">Click to release a parcel</span>
       </div>
@@ -313,7 +317,7 @@ function zonExtrema(arr, lo, hi, kind) { // lat of max (kind=1) or min (-1) with
 }
 
 /* ── state (read by the renderers) ── */
-const S = { step: 'rot', view: 'tilt', hemi: 'n', lat: 40, day: 79, month: 'jan', camLon: -40, freeze: false, parcels: [] };
+const S = { step: 'rot', view: 'tilt', hemi: 'n', lat: 40, day: 79, month: 'jan', camLon: -40, freeze: false, cellSpeed: 0.5, parcels: [] };
 const STEPS = ['norot', 'rot', 'moist', 'season', 'real'];
 const STEP_NAME = { norot: 'No rotation', rot: 'Rotating Earth', moist: 'Wet & dry', season: 'Seasons', real: 'Real Earth' };
 function cells() { return S.step === 'norot' ? 'one' : 'three'; }
@@ -576,6 +580,7 @@ function drawTracers(ctx) {
 /* ══ Cross section ════════════════════════════════════════════════════ */
 const ZTOP = 20;
 let XL = null;   // current layout for the section
+let SPD_RIGHT = 0;   // right edge of the speed chip when it sits inside the plot (0 = top row)
 function xRange() { return S.hemi === 'n' ? [-14, 92] : [-93, 93]; }
 // North on the left, equator (N only) or south (Both) on the right, as on ESSRT p. 19
 function X(lat) { const [a, b] = xRange(), p = XL.plot; return p.l + (b - lat) / (b - a) * (p.r - p.l); }
@@ -718,7 +723,7 @@ function drawXBase(ctx, L) {
       ctx.save(); ctx.setLineDash([5, 5]); ctx.strokeStyle = 'rgba(242,193,78,0.55)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(px, p.t + 18); ctx.lineTo(px, gy); ctx.stroke(); ctx.restore();
       ctx.beginPath(); ctx.arc(px, p.t + 9, 7, 0, 7); ctx.fillStyle = C.sun; ctx.fill();
       for (let k = 0; k < 8; k++) { const an = k * Math.PI / 4; ctx.beginPath(); ctx.moveTo(px + Math.cos(an) * 10, p.t + 9 + Math.sin(an) * 10); ctx.lineTo(px + Math.cos(an) * 13, p.t + 9 + Math.sin(an) * 13); ctx.strokeStyle = C.sun; ctx.lineWidth = 1.6; ctx.stroke(); }
-      const lft = px > p.r - 130; label(ctx, 'Direct ray', px + (lft ? -18 : 18), p.t + 9, { align: lft ? 'right' : 'left', color: C.sun, font: `700 13px ${FM}` });
+      const lft = px + 120 > p.r && px - 120 > SPD_RIGHT; label(ctx, 'Direct ray', px + (lft ? -18 : 18), p.t + 9, { align: lft ? 'right' : 'left', color: C.sun, font: `700 13px ${FM}` });
     }
   }
 }
@@ -744,13 +749,13 @@ for (let i = 0; i < NX; i++) { const t = {}; resetX(t, true); xtr.push(t); }
 const DT = 0.011 * 0.25;
 function stepX(fu) {
   const c = cells(), s = shiftNow(), [a, b] = xRange();
-  for (const t of xtr) { [t.chi, t.z] = advectN(t.chi, t.z, c, DT * fu); t.age += fu; const lat = phiOf(t.chi, s); if (t.age > 300 || lat < a - 3 || lat > b + 3) resetX(t, false); }
+  for (const t of xtr) { [t.chi, t.z] = advectN(t.chi, t.z, c, DT * S.cellSpeed * fu); t.age += fu; const lat = phiOf(t.chi, s); if (t.age > 300 || lat < a - 3 || lat > b + 3) resetX(t, false); }
   for (const p of S.parcels) {
-    const chi0 = p.chi, z0 = p.z; [p.chi, p.z] = advectN(p.chi, p.z, c, DT * fu); p.age += fu;
+    const chi0 = p.chi, z0 = p.z; [p.chi, p.z] = advectN(p.chi, p.z, c, DT * S.cellSpeed * fu); p.age += fu;
     p.hist.push([p.chi, p.z]); if (p.hist.length > 900) p.hist.shift();
     const lat = phiOf(p.chi, s), dlat = (p.chi - chi0);
     // zonal drift on the globe: same time base as the cross section (π·dt per unit v)
-    p.lon += uAt(lat, p.chi, p.z, c) / 6 * Math.PI * DT * fu / DEG / Math.max(0.15, Math.cos(lat * DEG));
+    p.lon += uAt(lat, p.chi, p.z, c) / 6 * Math.PI * DT * S.cellSpeed * fu / DEG / Math.max(0.15, Math.cos(lat * DEG));
     p.lon = ((p.lon + 540) % 360) - 180;
     p.ghist.push([p.lon, lat, cellW(p.chi, p.z, c) > 0 ? 1 : 0]); if (p.ghist.length > 900) p.ghist.shift();
     void dlat; void z0;
@@ -792,7 +797,7 @@ function drawXDynamic(ctx, L, phase) {
     if (two && n.includes(' ')) { const [w1, w2] = n.split(' '); label(ctx, w1, px, py - 9, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.72)' }); label(ctx, w2, px, py + 8, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.72)' }); }
     else label(ctx, n, px, py, { font: `700 14px ${FM}`, color: 'rgba(232,228,217,0.72)' });
   }
-  label(ctx, 'STRATOSPHERE', (p.l + p.r) / 2, Y(18.6), { align: 'center', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
+  label(ctx, 'STRATOSPHERE', clamp(Math.max((p.l + p.r) / 2, SPD_RIGHT + 70), p.l, p.r - 62), Y(18.6), { align: 'center', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
   label(ctx, 'TROPOSPHERE', X(phiOf(42, s)), Y(tropo(42, c) - 2.6), { align: 'center', font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)' });
   // marker
   if (S.lat >= a && S.lat <= b) { const mx = X(S.lat); ctx.save(); ctx.setLineDash([5, 4]); ctx.strokeStyle = 'rgba(232,228,217,0.8)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(mx, p.t); ctx.lineTo(mx, Y(0) + 12); ctx.stroke(); ctx.restore(); }
@@ -1094,6 +1099,7 @@ document.querySelectorAll('[data-hemi]').forEach(b => b.onclick = () => {
   S.hemi = b.dataset.hemi; if (S.hemi === 'n' && S.lat < 0) S.lat = -S.lat;
   xtr.forEach(t => resetX(t, true)); S.parcels.length = 0; refresh(true);
 });
+document.getElementById('cellSpd').oninput = e => { S.cellSpeed = +e.target.value; };
 document.getElementById('tFreeze').onclick = () => { S.freeze = !S.freeze; syncChips(); };
 function syncChips() {
   document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('is-active', b.dataset.view === S.view));
@@ -1109,9 +1115,16 @@ function placeChips(L) {
   if (overlap) { fz.style.top = '50px'; fz.style.left = (L.g.x + 10) + 'px'; }
   hm.style.left = (L.x.x + 10) + 'px'; hm.style.top = '10px';
   ln.style.right = '10px'; ln.style.top = '10px';
-  const hint = document.getElementById('hint');
-  hint.style.left = (L.x.x + 20 + hm.offsetWidth) + 'px'; hint.style.top = '10px';
-  const room = L.x.w - hm.offsetWidth - (ln.style.display === 'none' ? 0 : ln.offsetWidth) - 50;
+  const hint = document.getElementById('hint'), sp = document.getElementById('chipSpeed');
+  sp.style.display = S.step === 'real' ? 'none' : '';
+  const lw = ln.style.display === 'none' ? 0 : ln.offsetWidth;
+  let x = L.x.x + 20 + hm.offsetWidth;
+  if (S.step !== 'real') {
+    if (hm.offsetWidth + sp.offsetWidth + lw + 50 <= L.x.w) { sp.style.left = x + 'px'; sp.style.top = '10px'; x += sp.offsetWidth + 10; SPD_RIGHT = 0; }
+    else { sp.style.left = (L.x.plot.l + 6) + 'px'; sp.style.top = (L.x.plot.t + 6) + 'px'; SPD_RIGHT = L.x.plot.l + 6 + sp.offsetWidth; }   // second row, clear stratosphere over the pole
+  }
+  hint.style.left = x + 'px'; hint.style.top = '10px';
+  const room = L.x.x + L.x.w - x - lw - 20;
   hint.style.display = ''; hint.style.display = S.step !== 'real' && hint.offsetWidth <= room ? '' : 'none';
 }
 
@@ -1299,7 +1312,7 @@ function drawCardCanvas(c, x, y, w, h, m) {
   yy += 24; c.font = `400 12px ${FB}`; c.fillStyle = C.ink3; wrapText(c, m.src, px, yy, pw, 16);
 }
 function compose(c, scale, phase) {
-  const savePR = PR; PR = scale;
+  const savePR = PR, saveSR = SPD_RIGHT; PR = scale; SPD_RIGHT = 0;
   c.setTransform(scale, 0, 0, scale, 0, 0);
   c.fillStyle = C.bg; c.fillRect(0, 0, EW, EH);
   c.textBaseline = 'middle'; c.textAlign = 'left';
@@ -1314,7 +1327,7 @@ function compose(c, scale, phase) {
   drawCardCanvas(c, sx + sw + 12, sy, CARDW, sh, cardModel());
   c.textAlign = 'left'; c.font = `400 12px ${FM}`; c.fillStyle = C.ink3;
   c.fillText(S.step === 'real' ? 'GPCP v2.2 · NCEP/NCAR Reanalysis · ERA-Interim · coastlines Natural Earth 50 m' : 'Idealized model of ESSRT p. 19 · coastlines Natural Earth 50 m', 18, EH - 16);
-  PR = savePR;
+  PR = savePR; SPD_RIGHT = saveSR;
 }
 function slug() {
   const st = S.step;
@@ -1337,7 +1350,7 @@ async function exportPNG(which) {
     else {
       const W = 1360, H = 700, sc = 3, HD = 56, full = document.createElement('canvas'); full.width = W * sc; full.height = H * sc;
       const fc = full.getContext('2d'), save = PR; PR = sc; fc.setTransform(sc, 0, 0, sc, 0, 0);
-      const L = renderScene(fc, W, H, clock, { capture: true }); PR = save;
+      const sr = SPD_RIGHT; SPD_RIGHT = 0; const L = renderScene(fc, W, H, clock, { capture: true }); PR = save; SPD_RIGHT = sr;
       const r = which === 'globe' ? L.g : L.x;
       oc = document.createElement('canvas'); oc.width = Math.round(r.w * sc); oc.height = (H + HD) * sc;
       const c = oc.getContext('2d'); c.setTransform(sc, 0, 0, sc, 0, 0); c.fillStyle = C.bg; c.fillRect(0, 0, r.w, H + HD);
@@ -1452,6 +1465,8 @@ document.getElementById('bMP4').onclick = exportMP4;
   if (d >= 1 && d <= 365) S.day = d;
   if (m === 'jan' || m === 'jul') S.month = m;
   if (p.get('paused') === '1' || REDUCE) S.freeze = true;
+  const cs = parseFloat(p.get('cell')); if (cs >= 0.1 && cs <= 1.5) S.cellSpeed = cs;
+  document.getElementById('cellSpd').value = S.cellSpeed;
   xtr.forEach(t => resetX(t, true));
 }
 (async function init() {
