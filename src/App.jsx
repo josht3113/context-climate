@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Header                      from './components/Header'
 import Home                        from './pages/Home'
 import HourlyData                  from './pages/HourlyData'
@@ -27,7 +27,9 @@ import ScrollToTop                 from './components/ScrollToTop'
 import EarthAndSpace               from './pages/EarthAndSpace'
 import Bowens                      from './pages/Bowens'
 import Metamorphic                 from './pages/Metamorphic'
-import StreamTransport             from './pages/StreamTransport'
+import SedimentTransport           from './pages/SedimentTransport'
+import DepositionSorting           from './pages/DepositionSorting'
+import RiverLandscapes             from './pages/RiverLandscapes'
 import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
@@ -194,7 +196,7 @@ export default function App() {
           <Route path="/earthandspace"                       element={<EarthAndSpace />}           />
           <Route path="/bowens"                              element={<Bowens />}                  />
           <Route path="/metamorphic"                         element={<Metamorphic />}             />
-          <Route path="/stream-transport"                    element={<StreamTransport />}         />
+          <Route path="/stream-transport"                    element={<Navigate to="/earthandspace/sediment-transport" replace />} />
           <Route path="/bowens_goldich"                      element={<BowensGoldich />}           />
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
@@ -286,6 +288,9 @@ export default function App() {
           <Route path="/earthandspace/atmospheric-density"         element={<AtmosphericDensity />}         />
           <Route path="/earthandspace/station-model-builder"       element={<StationModelBuilder />}        />
           <Route path="/earthandspace/contact-metamorphism"        element={<ContactMetamorphism />}        />
+          <Route path="/earthandspace/sediment-transport"         element={<SedimentTransport />}        />
+          <Route path="/earthandspace/deposition-sorting"         element={<DepositionSorting />}        />
+          <Route path="/earthandspace/river-landscapes"           element={<RiverLandscapes />}          />
           <Route path="/earthandspace/planetary-wind-belts"        element={<PlanetaryWindBelts />}         />
           <Route path="/earthandspace/doppler-shift-challenge"     element={<DopplerShiftChallenge />}      />
           <Route path="/earthandspace/big-bang-model"              element={<BigBangModel />}               />
