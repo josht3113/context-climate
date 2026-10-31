@@ -551,6 +551,15 @@ const SECTIONS = [
         status: 'live',
       },
       {
+        tags:        ['Contrails', 'Saturation', 'Interactive'],
+        title:       'Contrails',
+        description: 'Mix hot jet exhaust with frigid air at cruising altitude and see when a contrail forms, why some vanish in seconds while others linger, and how lasting trails spread into sheets of cirrus.',
+        footerTags:  ['Mixing Line', 'Ice Saturation'],
+        to:          '/earthandspace/contrails',
+        thumb:       '/contrails_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['Air Density', 'Baseball', 'Interactive'],
         title:       'Homerun Derby Simulator',
         description: 'Step up to the plate and discover how altitude, air density, and temperature determine how far a baseball travels. Hit the ball and watch atmospheric physics decide if it clears the fence — with real MLB stadium dimensions from Fenway to Coors Field.',
