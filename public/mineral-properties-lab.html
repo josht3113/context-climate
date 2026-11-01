@@ -597,7 +597,32 @@ function solidVC(sol) {
 }
 function solidTranslate(sol, t) {
   const sm = new Map(), mv = s => { if (!s) return null; if (!sm.has(s)) sm.set(s, s.moved(t)); return sm.get(s); };
-  return { P: sol.P.map(p => p.clone().add(t)), T: sol.T, F: sol.F.map(f => Object.assign({}, f, { surf: mv(f.surf) })) };
+  const F = sol.F.map(f => { const g = Object.assign({}, f, { surf: mv(f.surf) }); if (f.bevel) g.bevel = f.bevel.map(mv); return g; });
+  const C = sol.C ? { P: sol.C.P.map(p => p.clone().add(t)), N: sol.C.N, A: sol.C.A, T: sol.C.T } : null;
+  return { P: sol.P.map(p => p.clone().add(t)), T: sol.T, F, C, off: (sol.off || new V3()).clone().add(t) };
+}
+/* inclusion soups: open triangle meshes (internal cracks, veils) carried inside a solid and cut along with it.
+   C: { P: [V3], N: [V3], A: [[u, v, edge, kind]], T: [[a, b, c]] } */
+function clipSoup(C, surf) {
+  if (!C || !C.T.length) return { neg: C, pos: null };
+  const N = C.P.length, phi = C.P.map(p => { const f = surf.phi(p); return Math.abs(f) < 1e-7 ? 1e-7 : f; });
+  const P = C.P.slice(), NN = C.N.slice(), A = C.A.slice(), ek = new Map();
+  const edgePt = (a, b) => { const k = a < b ? a * N + b : b * N + a; let id = ek.get(k); if (id !== undefined) return id;
+    let fa = phi[a], fb = phi[b], t = fa / (fa - fb), lo = 0, hi = 1;
+    if (surf.h) for (let it = 0; it < 4; it++) { const f = surf.phi(C.P[a].clone().lerp(C.P[b], t)); if (Math.abs(f) < 1e-9) break;
+      if ((f < 0) === (fa < 0)) { lo = t; fa = f; } else { hi = t; fb = f; } t = lo + (hi - lo) * fa / (fa - fb); }
+    id = P.length; P.push(C.P[a].clone().lerp(C.P[b], t)); NN.push(C.N[a].clone().lerp(C.N[b], t).normalize());
+    A.push(C.A[a].map((x, i) => i === 3 ? x : x + (C.A[b][i] - x) * t)); ek.set(k, id); return id; };
+  const neg = [], pos = [];
+  for (const t of C.T) { const [a, b, c] = t, sa = phi[a] > 0, sb = phi[b] > 0, sc = phi[c] > 0;
+    if (sa === sb && sb === sc) { (sa ? pos : neg).push(t); continue; }
+    let X, Y, Z; if (sa !== sb && sa !== sc) [X, Y, Z] = [a, b, c]; else if (sb !== sa && sb !== sc) [X, Y, Z] = [b, c, a]; else [X, Y, Z] = [c, a, b];
+    const xy = edgePt(X, Y), xz = edgePt(X, Z), lone = phi[X] > 0 ? pos : neg, other = lone === pos ? neg : pos;
+    lone.push([X, xy, xz]); other.push([xy, Y, Z], [xy, Z, xz]); }
+  const pack = T => { if (!T.length) return null; const vm = new Map(), o = { P: [], N: [], A: [], T: [] };
+    for (const t of T) o.T.push(t.map(i => { let j = vm.get(i); if (j === undefined) { j = o.P.length; vm.set(i, j); o.P.push(P[i]); o.N.push(NN[i]); o.A.push(A[i]); } return j; }));
+    return o; };
+  return { neg: pack(neg), pos: pack(pos) };
 }
 function compactSolid(P, T, F) {
   const vm = new Int32Array(P.length).fill(-1), fm = new Map(), nP = [], nF = [], nT = [];
@@ -692,17 +717,38 @@ function clipOnce(sol, surf, kind, extra, h) {
   const faceP = Object.assign({}, ex, { n: surf.nc.clone().negate(), kind, surf, side: -1, disp: curved });
   const F2 = F.concat([faceN, faceP]);
   for (const [a, b, c] of cap) { negT.push([a, b, c, fN]); posT.push([a, c, b, fP]); }
-  return { neg: compactSolid(NP, negT, F2), pos: compactSolid(NP, posT, F2), surf };
+  const neg = compactSolid(NP, negT, F2), pos = compactSolid(NP, posT, F2), cs = clipSoup(sol.C, surf);
+  neg.off = pos.off = sol.off; neg.C = cs.neg; pos.C = cs.pos;
+  return { neg, pos, surf };
+}
+// worn edges: a narrow chamfer along every edge where two flat (or stepped) faces of the hand sample meet
+let BEVEL_W = 0.032;
+function bevelPlanes(planes) {
+  const ok = pl => !(pl.extra && pl.extra.disp && !pl.extra.disp.flat), poly = planarFromPlanes(planes.map((pl, i) => ({ n: pl.n, d: pl.d, kind: 'p' + i })));
+  if (!poly || !(BEVEL_W > 0)) return [];
+  const out = [], F = poly.faces, idx = f => +f.kind.slice(1);
+  for (let a = 0; a < F.length; a++) for (let b = a + 1; b < F.length; b++) {
+    const ia = idx(F[a]), ib = idx(F[b]); if (!ok(planes[ia]) || !ok(planes[ib])) continue;
+    const sh = F[a].pts.filter(p => F[b].pts.some(q => q.distanceToSquared(p) < 1e-9)); if (sh.length < 2) continue;
+    const na = planes[ia].n.clone().normalize(), nb = planes[ib].n.clone().normalize(), al = Math.acos(clamp(na.dot(nb), -1, 1)) / 2;
+    if (al < 12 * DEG) continue;
+    const n = na.clone().add(nb).normalize(), X = sh[0], w = BEVEL_W * (sh[0].distanceTo(sh[1]) < 0.25 ? 0.5 : 1);
+    out.push({ n, d: n.dot(X) - w * Math.sin(al), kind: planes[ia].kind, extra: Object.assign({}, planes[ia].extra || {}, { disp: undefined, bevel: [ia, ib] }) });
+  }
+  return out;
 }
 function solidFromPlanes(planes) {
-  const surfs = planes.map(pl => makeSurf(pl.n, pl.d, pl.extra && pl.extra.disp));
+  const bev = bevelPlanes(planes), all = planes.concat(bev);
+  const surfs = all.map(pl => makeSurf(pl.n, pl.d, pl.extra && pl.extra.disp));
   const hull = planarFromPlanes(planes.map((pl, i) => ({ n: pl.n, d: pl.d + 0.06 + maxH(surfs[i]), kind: 'hull' })));
   if (!hull) return null;
-  let sol = solidFromPolyhedron(hull);
-  planes.forEach((pl, i) => { const ex = Object.assign({}, pl.extra || {}); delete ex.disp;
+  let sol = solidFromPolyhedron(hull); const used = [];
+  all.forEach((pl, i) => { const ex = Object.assign({}, pl.extra || {}, { worn: 1 }); delete ex.disp;
+    if (ex.bevel) ex.bevel = ex.bevel.map(k => surfs[k]);
     let res = clipSolid(sol, surfs[i], pl.kind, ex);
     if (!res && surfs[i].D && surfs[i].D.flat) { window.__STEPFAIL = (window.__STEPFAIL || 0) + 1; res = clipSolid(sol, makeSurf(pl.n, pl.d, null), pl.kind, ex); }
-    if (res && res.neg) sol = res.neg; });
+    if (res && res.neg) { sol = res.neg; used.push(res.surf); } });
+  sol.cutSurfs = used;
   return sol;
 }
 const polyFromPlanes = solidFromPlanes;
@@ -796,6 +842,93 @@ function cleavageCells(sol, impact, r, normals, cuts, stripes) {
   return cells;
 }
 
+/* ── Inclusions: internal cracks (reflective, iridescent) and veils (planes of tiny fluid bubbles) ── */
+const INCL = {
+  quartz: { clear: [{ k: 1, n: 2, R: [0.7, 1.2], curve: 0.12, wav: 0.05 }, { k: 0, n: 1, R: [0.6, 1.0], curve: 0.08, wav: 0.03 }],
+    amethyst: [{ k: 1, n: 1, R: [0.6, 1.0], curve: 0.1, wav: 0.05 }, { k: 0, n: 1, R: [0.5, 0.9], curve: 0.08, wav: 0.03 }],
+    smoky: [{ k: 1, n: 1, R: [0.6, 1.0], curve: 0.1, wav: 0.05 }, { k: 0, n: 1, R: [0.5, 0.9], curve: 0.08, wav: 0.03 }] },
+  garnet: { '*': [{ k: 0, n: 1, R: [0.5, 0.8], curve: 0.1, wav: 0.03 }] },
+  calcite: { clear: [{ k: 0, n: 2, R: [0.6, 1.1], cleave: true }], honey: [{ k: 0, n: 2, R: [0.6, 1.0], cleave: true }] },
+  fluorite: { '*': [{ k: 0, n: 3, R: [0.5, 1.0], cleave: true }] },
+  halite: { '*': [{ k: 0, n: 1, R: [0.6, 1.0], cleave: true }, { k: 1, n: 1, R: [0.7, 1.1], curve: 0.03, wav: 0.08 }] },
+  gypsum: { '*': [{ k: 0, n: 2, R: [0.6, 1.0], cleave: true }] },
+};
+const INCL_LOOK = { quartz: { tint: '#f4f2ee', iri: 0.55, op: 1 }, garnet: { tint: '#ffb0a8', iri: 0.3, op: 0.7 }, calcite: { tint: '#fffaf0', iri: 0.7, op: 1 },
+  fluorite: { tint: '#f6f0ff', iri: 0.6, op: 0.9 }, halite: { tint: '#ffffff', iri: 0.35, op: 0.9 }, gypsum: { tint: '#ffffff', iri: 0.6, op: 0.8 } };
+function makeInclusions(sol, r, specs, cleaveN) {
+  if (!specs || !sol || !sol.cutSurfs) return null;
+  const P = [], N = [], A = [], T = [], { c } = solidVC(sol); let ext = 0; for (const p of sol.P) ext = Math.max(ext, p.distanceTo(c));
+  const inside = (x, m) => sol.cutSurfs.every(s => s.phi(x) < -m);
+  for (const sp of specs) for (let q = 0; q < sp.n; q++) {
+    let ctr = null; for (let t = 0; t < 60 && !ctr; t++) { const x = c.clone().add(rndUnit(r).multiplyScalar(ext * 0.6 * Math.cbrt(r()))); if (inside(x, 0.35)) ctr = x; }
+    if (!ctr) continue;
+    const n = sp.cleave && cleaveN ? new V3(...cleaveN[Math.floor(r() * cleaveN.length)]).normalize() : rndUnit(r), { u, v } = basisOf(n);
+    const R = lerp(sp.R[0], sp.R[1], r()), kap = (sp.curve || 0) * (r() < 0.5 ? -1 : 1), wz = noise2(1 + Math.floor(r() * 1e6), 1.2, 6, 8), wa = sp.wav || 0.004;
+    const rim = noise2(1 + Math.floor(r() * 1e6), 0.6, 3, 6), ox = r() * 50, oy = r() * 50;
+    const hgt = (a, b) => kap * (a * a + b * b) + wa * wz(a, b);
+    const NR = 8, NS = 36, base = P.length;
+    const put = (a, b, e) => { const h = hgt(a, b), ga = 2 * kap * a + wa * (wz(a + 1e-3, b) - wz(a - 1e-3, b)) / 2e-3, gb = 2 * kap * b + wa * (wz(a, b + 1e-3) - wz(a, b - 1e-3)) / 2e-3;
+      P.push(ctr.clone().addScaledVector(u, a).addScaledVector(v, b).addScaledVector(n, h)); N.push(n.clone().addScaledVector(u, -ga).addScaledVector(v, -gb).normalize()); A.push([a + ox, b + oy, e, sp.k]); };
+    put(0, 0, 0);
+    for (let i = 1; i <= NR; i++) for (let j = 0; j < NS; j++) { const th = j / NS * 6.2832, Rt = R * (0.62 + 0.38 * clamp(0.5 + 0.5 * rim(Math.cos(th) * 1.3, Math.sin(th) * 1.3), 0, 1)), rho = i / NR * Rt;
+      put(rho * Math.cos(th), rho * Math.sin(th), i / NR); }
+    const id = (i, j) => i === 0 ? base : base + 1 + (i - 1) * NS + ((j % NS) + NS) % NS;
+    for (let j = 0; j < NS; j++) T.push([id(0, 0), id(1, j), id(1, j + 1)]);
+    for (let i = 1; i < NR; i++) for (let j = 0; j < NS; j++) T.push([id(i, j), id(i + 1, j), id(i + 1, j + 1)], [id(i, j), id(i + 1, j + 1), id(i, j + 1)]);
+  }
+  let C = { P, N, A, T };
+  for (const s of sol.cutSurfs) { C = clipSoup(C, s.shift(-0.04)).neg; if (!C) return null; }
+  return C;
+}
+const CRACK_VS = `
+  attribute vec4 aC; varying vec4 vC; varying vec3 vN; varying vec3 vWP; varying vec3 vOP;
+  void main() { vC = aC; vOP = position; vN = normalize(mat3(modelMatrix) * normal); vec4 wp = modelMatrix * vec4(position, 1.0); vWP = wp.xyz;
+    gl_Position = projectionMatrix * viewMatrix * wp; }`;
+const CRACK_FS = () => `
+  uniform float uDim, uIri, uOp; uniform vec3 uTint;
+  varying vec4 vC; varying vec3 vN; varying vec3 vWP; varying vec3 vOP;
+  ${WEAR_GLSL.replace('varying vec4 vWear;', '')}
+  void main() {
+    vec3 V = normalize(cameraPosition - vWP), N = normalize(vN); if (dot(N, V) < 0.0) N = -N;
+    vec3 q = vOP * 3.0; N = normalize(N + 0.24 * (vec3(wNoise(q), wNoise(q + 31.7), wNoise(q + 77.1)) - 0.5));
+    float cv = clamp(dot(N, V), 0.0, 1.0), fres = pow(1.0 - cv, 4.0);
+    vec3 R = reflect(-V, N);
+    float flash = pow(max(dot(R, normalize(vec3(-9.0, 15.0, 10.0))), 0.0), 36.0) + 0.6 * pow(max(dot(R, normalize(vec3(7.0, 7.0, -11.0))), 0.0), 28.0)
+      + 0.5 * pow(max(R.y, 0.0), 14.0);
+    float edge = 1.0 - smoothstep(0.45, 1.0, vC.z);
+    float patchy = smoothstep(0.25, 0.75, wFbm(vec3(vC.xy * 1.1, 3.0)));
+    vec3 col; float a;
+    if (vC.w < 0.5) {
+      float d = 0.6 + 1.8 * wFbm(vec3(vC.xy * 1.3, 9.0));
+      vec3 iri = 0.5 + 0.5 * cos(6.2832 * (d * (0.6 + cv) + vec3(0.0, 0.33, 0.67)));
+      float glint = clamp(flash * 1.6 + fres * 0.7, 0.0, 1.5);
+      col = mix(uTint, iri * 1.2, uIri * clamp(glint * 1.5, 0.0, 1.0)) * (0.55 + 1.1 * glint);
+      a = (0.05 + 0.5 * glint) * edge * mix(0.4, 1.0, patchy);
+    } else {
+      float sp = smoothstep(0.66, 0.9, wNoise(vec3(vC.xy * 60.0, 1.0))) + 0.6 * smoothstep(0.75, 0.95, wNoise(vec3(vC.xy * 150.0, 5.0)));
+      float cl = smoothstep(0.32, 0.72, wFbm(vec3(vC.xy * 1.6, 2.0)));
+      col = uTint * (0.8 + 0.5 * fres + 0.9 * flash);
+      a = (0.4 * sp + 0.06) * cl * edge;
+    }
+    a *= uOp * mix(0.2, 1.0, uDim); col *= mix(0.15, 1.0, uDim);
+    gl_FragColor = vec4(col, clamp(a, 0.0, 0.8));
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }`;
+function crackMaterial(key) {
+  const L = INCL_LOOK[key] || INCL_LOOK.quartz;
+  return new THREE.ShaderMaterial({ vertexShader: CRACK_VS, fragmentShader: CRACK_FS(), transparent: true, blending: THREE.AdditiveBlending, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uDim: { value: 1 }, uIri: { value: L.iri }, uOp: { value: L.op }, uTint: { value: new THREE.Color(L.tint) } },
+    stencilWrite: true, stencilFunc: THREE.EqualStencilFunc, stencilRef: 1, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp });
+}
+function crackGeometry(C) {
+  const n = C.T.length * 3, pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), at = new Float32Array(n * 4); let w = 0;
+  for (const t of C.T) for (const i of t) { const p = C.P[i], q = C.N[i], a = C.A[i];
+    pos.set([p.x, p.y, p.z], w * 3); nor.set([q.x, q.y, q.z], w * 3); at.set(a, w * 4); w++; }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('aC', new THREE.BufferAttribute(at, 4)); g.computeBoundingSphere(); return g;
+}
+
 /* ════════════════════════════ MESH BUILDING ══════════════════════════ */
 const KINDS = ['crystal', 'facet', 'cleave', 'fracture'];
 function faceUV(f) {
@@ -808,7 +941,11 @@ function buildGeometry(sol) {
   const { P, T, F } = sol;
   const order = T.map((t, i) => i).sort((i, j) => Math.max(0, KINDS.indexOf(F[T[i][3]].kind)) - Math.max(0, KINDS.indexOf(F[T[j][3]].kind)));
   const n3 = T.length * 3, pos = new Float32Array(n3 * 3), nor = new Float32Array(n3 * 3), uvs = new Float32Array(n3 * 2), sh = new Float32Array(n3 * 4), su = new Float32Array(n3 * 3);
+  const wr = new Float32Array(n3 * 4), off = sol.off || new V3();
   const triFace = [], groups = [], uvf = F.map(faceUV), nCache = new Map();
+  // chamfer shading: blend from one neighbor face's normal to the other across the strip, so the worn edge reads as rounded
+  const bevN = (f, p) => { const [A, B] = f.bevel, a = Math.min(0, A.phi(p)), b = Math.min(0, B.phi(p)), w = a + b < -1e-9 ? a / (a + b) : 0.5;
+    return A.nc.clone().multiplyScalar(1 - w).addScaledVector(B.nc, w).normalize(); };
   let cur = null, gStart = 0, w = 0;
   for (const ti of order) {
     const t = T[ti], f = F[t[3]], mi = Math.max(0, KINDS.indexOf(f.kind));
@@ -817,8 +954,10 @@ function buildGeometry(sol) {
     for (let k = 0; k < 3; k++) {
       const vi = t[k], p = P[vi];
       let n; if (f.surf && f.surf.D && f.surf.D.flat) { if (k === 0) { const A = P[t[0]], B = P[t[1]], C = P[t[2]]; f._tn = new V3().crossVectors(B.clone().sub(A), C.clone().sub(A)); f._tn = f._tn.lengthSq() > 1e-14 ? f._tn.normalize() : f.n; } n = f._tn; }
-      else if (f.surf && f.surf.h) { const ck = vi * 4096 + t[3]; n = nCache.get(ck); if (!n) { n = f.surf.normal(p).multiplyScalar(f.side); nCache.set(ck, n); } } else n = f.n;
+      else if (f.surf && f.surf.h) { const ck = vi * 4096 + t[3]; n = nCache.get(ck); if (!n) { n = f.surf.normal(p).multiplyScalar(f.side); nCache.set(ck, n); } }
+      else if (f.bevel && f.side === 1) n = bevN(f, p); else n = f.n;
       const uv = uvf[t[3]](p);
+      wr[w * 4] = p.x - off.x; wr[w * 4 + 1] = p.y - off.y; wr[w * 4 + 2] = p.z - off.z; wr[w * 4 + 3] = f.worn ? 1 : 0;
       pos[w * 3] = p.x; pos[w * 3 + 1] = p.y; pos[w * 3 + 2] = p.z; nor[w * 3] = n.x; nor[w * 3 + 1] = n.y; nor[w * 3 + 2] = n.z;
       uvs[w * 2] = uv[0]; uvs[w * 2 + 1] = uv[1];
       if (ring) { const U = f.surf.u; sh[w * 4] = o.x; sh[w * 4 + 1] = o.y; sh[w * 4 + 2] = o.z; sh[w * 4 + 3] = ring; su[w * 3] = U.x; su[w * 3 + 1] = U.y; su[w * 3 + 2] = U.z; }
@@ -832,13 +971,57 @@ function buildGeometry(sol) {
   g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   g.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   g.setAttribute('aShell', new THREE.BufferAttribute(sh, 4)); g.setAttribute('aShU', new THREE.BufferAttribute(su, 3));
+  g.setAttribute('aWear', new THREE.BufferAttribute(wr, 4));
   for (const [s, c, m] of groups) g.addGroup(s, c, m);
   g.computeBoundingSphere(); g.computeBoundingBox();
   return { g, triFace };
 }
 /* conchoidal ripple marks: bend the shading normal in broken arcs around each shell's point of origin */
+// shader patches stack: each adds its own code and cache key
+function addPatch(mat, key, fn) {
+  const ps = mat._patches || (mat._patches = []); ps.push([key, fn]);
+  mat.onBeforeCompile = sh => { for (const p of ps) p[1](sh); };
+  mat.customProgramCacheKey = () => ps.map(p => p[0]).join('|');
+  return mat;
+}
+/* handling wear on the hand sample's original surfaces (aWear.w = 1; fresh breaks are 0):
+   dull smudged patches, faint tarnish, gentle waviness and a few tiny pits */
+const WEAR_GLSL = `
+  varying vec4 vWear;
+  float wHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+  float wNoise(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(wHash(i), wHash(i + vec3(1, 0, 0)), f.x), mix(wHash(i + vec3(0, 1, 0)), wHash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(wHash(i + vec3(0, 0, 1)), wHash(i + vec3(1, 0, 1)), f.x), mix(wHash(i + vec3(0, 1, 1)), wHash(i + vec3(1, 1, 1)), f.x), f.y), f.z); }
+  float wFbm(vec3 p) { return 0.5 * wNoise(p) + 0.25 * wNoise(p * 2.03 + 3.1) + 0.125 * wNoise(p * 4.01 + 7.7) + 0.0625 * wNoise(p * 8.07 + 1.3); }`;
+function wearPatch(mat, W) {
+  const f = x => (+x).toFixed(4), R = f(W.r), M = f(W.m), B = f(W.b), Pt = f(W.p), Tn = f(W.t), CR = f(W.cr ?? W.r);
+  return addPatch(mat, 'wear' + [R, M, B, Pt, Tn, CR].join(','), sh => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aWear;\nvarying vec4 vWear;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWear = aWear;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\n' + WEAR_GLSL)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float wOn = step(0.5, vWear.w), wSm = wOn * smoothstep(0.5, 0.75, wFbm(vWear.xyz * 0.75 + 11.0)) * (0.55 + 0.45 * wNoise(vWear.xyz * 9.0));
+        diffuseColor.rgb *= 1.0 - ${Tn} * wSm;`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+        roughnessFactor = clamp(roughnessFactor + ${R} * wSm + wOn * ${M} * (wNoise(vWear.xyz * 46.0) - 0.5), 0.0, 1.0);`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+        vec3 wBump = vec3(0.0);
+        if (wOn > 0.5) {
+          float hh = ${B} * wFbm(vWear.xyz * 2.4) - ${Pt} * smoothstep(0.80, 0.93, wNoise(vWear.xyz * 26.0 + 5.0));
+          vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition), r1 = cross(dpy, normal), r2 = cross(normal, dpx);
+          float det = dot(dpx, r1);
+          if (abs(det) > 1e-14) wBump = (dFdx(hh) * r1 + dFdy(hh) * r2) / det;
+          normal = normalize(normal - wBump);
+        }`)
+      .replace('#include <clearcoat_normal_fragment_maps>', '#include <clearcoat_normal_fragment_maps>\n#ifdef USE_CLEARCOAT\nclearcoatNormal = normalize(clearcoatNormal - wBump);\n#endif')
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+        #ifdef USE_CLEARCOAT
+        material.clearcoatRoughness = clamp(material.clearcoatRoughness + ${CR} * wSm, 0.0525, 1.0);
+        #endif`);
+  });
+}
 function ringPatch(mat, amp = 0.14) {
-  mat.onBeforeCompile = sh => {
+  return addPatch(mat, 'rings' + amp, sh => {
     sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nattribute vec4 aShell;\nattribute vec3 aShU;\nvarying vec4 vShD;\nvarying vec3 vShU;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvShD = vec4(normalMatrix * (position - aShell.xyz), aShell.w);\nvShU = normalMatrix * aShU;');
     const fn = `
@@ -857,9 +1040,7 @@ function ringPatch(mat, amp = 0.14) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec4 vShD;\nvarying vec3 vShU;' + fn)
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = ringNormal(normal);')
       .replace('#include <clearcoat_normal_fragment_maps>', '#include <clearcoat_normal_fragment_maps>\n#ifdef USE_CLEARCOAT\nclearcoatNormal = ringNormal(clearcoatNormal);\n#endif');
-  };
-  mat.customProgramCacheKey = () => 'rings' + amp;
-  return mat;
+  });
 }
 /* ════════════════════════════ TEXTURES ═══════════════════════════════ */
 function canvasTex(w, h, draw, opt = {}) {
@@ -988,10 +1169,19 @@ function specMaterials(key, variant) {
 function applyEnv(mats) { for (const m of new Set(mats)) if (m.userData.envI) {
   const gen = m.userData.envGen; m.envMap = gen ? GEN_ENV : (m.userData.envRaw && ENV_RAW) || scene.environment; if (gen) m.envMapRotation.set(0, 0, 0); else m.envMapRotation.copy(scene.environmentRotation);
   m.envMapIntensity = m.userData.envI * scene.environmentIntensity / ENV_I; m.needsUpdate = true; } }
+// wear strength per mineral: r smudge roughness, m micro speckle, b waviness, p pits, t tarnish/grime darkening, cr clearcoat smudge
+const WEAR = {
+  base: { r: 0.07, m: 0.03, b: 0.0025, p: 0, t: 0.03 },
+  quartz: { t: 0, r: 0.07, cr: 0.07, b: 0.0015 }, garnet: { t: 0.02 },
+  pyrite: { r: 0.1, t: 0.12 }, galena: { r: 0.08, t: 0.1 }, hematite: { t: 0.05 }, magnetite: { t: 0, r: 0.08 },
+  talc: { r: 0.05, b: 0.004 }, 'hematite:earthy': { r: 0.04, t: 0 }, olivine: { r: 0.08 }, graphite: { r: 0.08, t: 0 },
+};
 function mineralMaterials(key, variant) {
   const mats = mineralMaterials0(key, variant);
 
   if (MINERALS[key].break === 'conchoidal') { if (mats.slice(0, 3).includes(mats[3])) mats[3] = mats[3].clone(); ringPatch(mats[3]); }
+  const W = Object.assign({}, WEAR.base, WEAR[key] || {}, WEAR[key + ':' + variant] || {});
+  for (const m of new Set(mats)) wearPatch(m, W);
   applyEnv(mats);
   return mats;
 }
@@ -1030,7 +1220,7 @@ function mineralMaterials0(key, variant) {
 
 /* ════════════════════════════ SCENE ══════════════════════════════════ */
 const cv = document.getElementById('cv'), stageEl = document.getElementById('stage');
-const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: false });
+const renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: true, preserveDrawingBuffer: false, stencil: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
@@ -1130,7 +1320,13 @@ function makePiece(poly, mats) {
   const { g, triFace } = buildGeometry(local);
   local.faces = local.F; local.area = solidArea(local);
   const mesh = new THREE.Mesh(g, mats); mesh.castShadow = true; mesh.receiveShadow = false;
-  mesh.userData = { poly: local, V, triFace, marks: [] };
+  mesh.userData = { poly: local, V, triFace, marks: [], sid: 1 + (SID++ % 250) };
+  // the sample writes its id to the stencil buffer where it is visible; its internal cracks draw only there
+  mesh.onBeforeRender = (r, s, c, g, mat) => { mat.stencilRef = mesh.userData.sid; };
+  if (local.C && local.C.T.length && CRACK_MAT) {
+    const cm = new THREE.Mesh(crackGeometry(local.C), CRACK_MAT); cm.renderOrder = 1; cm.frustumCulled = false;
+    cm.onBeforeRender = (r, s, c, g, mat) => { mat.stencilRef = mesh.userData.sid; mat.uniforms.uDim.value = scene.environmentIntensity / ENV_I; mat.uniformsNeedUpdate = true; };
+    mesh.add(cm); mesh.userData.crack = cm; }
   return { mesh, c };
 }
 function restQuat(mesh, yaw) {
@@ -1144,11 +1340,13 @@ function lowestY(mesh, q) {
   for (let i = 0; i < p.count; i++) { v.fromBufferAttribute(p, i).applyQuaternion(q); if (v.y < m) m = v.y; }
   return m;
 }
-let MATS = null;
+let MATS = null, CRACK_MAT = null, SID = 0;
 function clearPieces() {
-  for (const p of S.pieces) { specimen.remove(p); p.geometry.dispose(); for (const mk of p.userData.marks) mk.mesh.geometry.dispose(); }
+  for (const p of S.pieces) { specimen.remove(p); p.geometry.dispose(); if (p.userData.crack) p.userData.crack.geometry.dispose(); for (const mk of p.userData.marks) mk.mesh.geometry.dispose(); }
   S.pieces = [];
 }
+// worn-edge width per mineral: soft minerals are rounded more by handling
+const BEVEL = { quartz: 0.024, garnet: 0.022, pyrite: 0.026, halite: 0.05, calcite: 0.045, dolomite: 0.04, gypsum: 0.045, fluorite: 0.038, galena: 0.03, muscovite: 0.03, biotite: 0.03 };
 function newSpecimen() {
   endTool(true);
   clearPieces(); clearPlateMarks(); clearPick();
@@ -1156,7 +1354,13 @@ function newSpecimen() {
   const r = rnd(S.seed * 7919 + ORDER.indexOf(S.key) * 31 + 5);
   if (MATS) for (const m of new Set(MATS)) m.dispose();
   MATS = mineralMaterials(S.key, S.variant);
+  BEVEL_W = BEVEL[S.key] ?? 0.032;
   const poly = SHAPES[M().shape](r);
+  const inc = INCL[S.key] && (INCL[S.key][S.variant || ''] || INCL[S.key]['*']);
+  if (CRACK_MAT) { CRACK_MAT.dispose(); CRACK_MAT = null; }
+  if (inc) { poly.C = makeInclusions(poly, rnd(S.seed * 613 + ORDER.indexOf(S.key) * 17 + 3), inc, M().cleave);
+    if (poly.C) { CRACK_MAT = crackMaterial(S.key);
+      for (const m of new Set(MATS)) Object.assign(m, { stencilWrite: true, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp }); } }
   const { mesh } = makePiece(poly, MATS);
   const yaw = S.key === 'quartz' ? -0.35 : 0.5;
   mesh.quaternion.copy(restQuat(mesh, yaw));
@@ -1940,7 +2144,13 @@ function faceOverlay(piece, fi, mat) {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   const m = new THREE.Mesh(g, mat); m.renderOrder = 3; piece.add(m); return m;
 }
-function faceAt(e) { const h = hitPieces(e); if (!h) return null; const piece = h.object, fi = piece.userData.triFace[h.faceIndex]; return { piece, fi, face: piece.userData.poly.faces[fi] }; }
+function faceAt(e) { const h = hitPieces(e); if (!h) return null; const piece = h.object, sol = piece.userData.poly; let fi = piece.userData.triFace[h.faceIndex];
+  // a worn edge counts as the nearer of the two faces it rounds off
+  const bv = sol.faces[fi].bevel;
+  if (bv) { const p = piece.worldToLocal(h.point.clone()), [A, B] = bv, nb = Math.abs(A.phi(p)) <= Math.abs(B.phi(p)) ? A.nc : B.nc;
+    const used = new Set(piece.userData.triFace), k = sol.faces.findIndex((f, i) => used.has(i) && !f.bevel && !f.disp && f.n.dot(nb) > 0.9995);
+    if (k >= 0) fi = k; }
+  return { piece, fi, face: sol.faces[fi] }; }
 function hoverFace(e) {
   const f = faceAt(e);
   if (hoverOverlay && (!f || hoverOverlay.userData.key !== f.piece.id + ':' + f.fi)) { hoverOverlay.parent.remove(hoverOverlay); hoverOverlay.geometry.dispose(); hoverOverlay = null; requestRender(); }
@@ -2313,7 +2523,7 @@ document.getElementById('bMP4').onclick = exportMP4;
 renderTray(); renderPicker(); resize();
 try { await Promise.all([`700 16px ${FD}`, `600 14px ${FB}`, `700 14px ${FM}`].map(f => document.fonts.load(f))); } catch (e) {}
 newSpecimen();
-window.__ML = { THREE, setEnvI: v => { ENV_I = v; scene.environmentIntensity = v; if (MATS) applyEnv(MATS); requestRender(); }, S, MINERALS, renderCard, setTool, setView, newSpecimen, wipe, breakPiece, pickUnknown, camera, controls, renderer, scene, requestRender, cardLines, exportPNG, compose,
+window.__ML = { THREE, faceAt, clipSoup, makeInclusions, bevelPlanes, setEnvI: v => { ENV_I = v; scene.environmentIntensity = v; if (MATS) applyEnv(MATS); requestRender(); }, S, MINERALS, renderCard, setTool, setView, newSpecimen, wipe, breakPiece, pickUnknown, camera, controls, renderer, scene, requestRender, cardLines, exportPNG, compose,
   polyVolCent, solidVC, clipSolid, clipOnce, capTris, inRegion, makeSurf, solidFromPolyhedron, planarFromPlanes, solidFromPlanes, SHAPES, rnd, V3, PLATES, PROPS, hitPieces, frame: () => frame(performance.now()),
   proj: (x, y, z) => { const v = new V3(x, y, z).project(camera), r = cv.getBoundingClientRect(); return [r.left + (v.x + 1) / 2 * r.width, r.top + (1 - v.y) / 2 * r.height]; },
   pieceScreen: (i = 0) => { const p = S.pieces[i]; const b = new THREE.Box3().setFromObject(p), c = b.getCenter(new V3());
