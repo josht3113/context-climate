@@ -422,7 +422,7 @@ function halitePoly(r) {
   const P = [];
   for (const [n, d] of [[[1, 0, 0], a], [[-1, 0, 0], a], [[0, 1, 0], b], [[0, -1, 0], b], [[0, 0, 1], c], [[0, 0, -1], c]])
     P.push({ n: new V3(...n), d: d * (0.97 + 0.06 * r()), kind: 'crystal' });
-  return polyFromPlanes(P);
+  return polyFromPlanes(stepFaces(r, P));
 }
 function pyritePoly(r) {
   const h = 1.42, P = [];
@@ -501,7 +501,13 @@ function gypsumPoly(r) {
 function rhombPoly(r, normals, d0) {
   const P = [];
   for (const a of normals) { const n = new V3(...a); P.push({ n, d: d0 * (0.9 + 0.2 * r()), kind: 'crystal' }, { n: n.clone().negate(), d: d0 * (0.9 + 0.2 * r()), kind: 'crystal' }); }
-  return polyFromPlanes(P);
+  return polyFromPlanes(stepFaces(r, P));
+}
+// cleavage fragments: give two or three of their faces small steps
+function stepFaces(r, P) {
+  const ns = P.map(p => p.n), pick = new Set(); while (pick.size < 2 + (r() < 0.5 ? 1 : 0)) pick.add(Math.floor(r() * P.length));
+  for (const i of pick) { const D = stepsD(r, P[i].n, ns.filter(q => Math.abs(q.dot(P[i].n)) < 0.95), 1); if (D) P[i].extra = Object.assign({}, P[i].extra || {}, { disp: D }); }
+  return P;
 }
 const SHAPES = {
   quartz: quartzPoly, halite: halitePoly, pyrite: pyritePoly,
@@ -511,7 +517,7 @@ const SHAPES = {
   talc: r => lumpPoly(r, 2.0, 1.0, 1.7, 16, 'uneven'),
   calcite: r => rhombPoly(r, CAL_N, 1.45), dolomite: r => rhombPoly(r, DOL_N, 1.4),
   fluorite: r => polyFromPlanes(boxPlanes(r, 1.45, 1.4, 1.45, 'crystal', null, 0.08)),
-  galena: r => polyFromPlanes(boxPlanes(r, 1.65, 1.25, 1.5, 'crystal', null, 0.1)),
+  galena: r => polyFromPlanes(stepFaces(r, boxPlanes(r, 1.65, 1.25, 1.5, 'crystal', null, 0.1))),
   magnetite: r => lumpPoly(r, 1.8, 1.35, 1.6, 18, 'uneven'),
   graphite: r => lumpPoly(r, 2.0, 0.85, 1.6, 16, 'uneven'),
   hematite: r => lumpPoly(r, 2.1, 1.0, 1.7, 18, 'uneven'),
@@ -533,7 +539,13 @@ function noise2(seed, kmin = 1.8, kmax = 11, n = 12, ex = 0.85) {
   return (a, b) => { let s = 0; for (const o of w) s += Math.sin(o.x * a + o.y * b + o.p) * o.a; return s / norm; };
 }
 function heightFn(D) {
-  if (D.type === 'uneven') { const nz = noise2(D.seed, D.kmin || 3, D.kmax || 17, 16, 0.5), amp = D.amp ?? 0.028; return (a, b) => amp * nz(a, b); }
+  if (D.type === 'uneven') {   // smooth undulation plus sharp ridges: a hackly, jagged break
+    const nz = noise2(D.seed, D.kmin || 3, D.kmax || 17, 16, 0.5), rz = noise2(D.seed + 3, 4, 15, 9, 0.45), amp = D.amp ?? 0.028;
+    return (a, b) => amp * (0.75 * nz(a, b) + 0.55 * (0.6 - Math.abs(rz(a, b)))); }
+  if (D.type === 'steps') {     // cleavage terraces: flat treads joined by short risers along the other cleavage directions
+    const L = D.lines, w = D.w;
+    return (a, b) => { let h = 0; for (const l of L) { const t = clamp((a * l.p[0] + b * l.p[1] - l.off + w) / (2 * w), 0, 1); h += l.dh * t * t * (3 - 2 * t); } return h; };
+  }
   // conchoidal: a Hertzian-cone-like hyperboloid plus a bowl, slightly elliptical, with a faint wobble
   const r = rnd(D.seed);
   const k = D.k ?? (0.06 + r() * 0.1), R = D.R ?? (0.5 + r() * 0.6), B = D.B ?? (2.5 + r() * 3), s = D.sign ?? (r() < 0.5 ? -1 : 1);
@@ -611,17 +623,30 @@ function capTris(surf, segs, NP, h) {
     j0 = Math.floor((Math.min(e[1], e[3]) - h) / cs), j1 = Math.floor((Math.max(e[1], e[3]) + h) / cs);
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const kk = key(i, j); if (!grid.has(kk)) grid.set(kk, []); grid.get(kk).push(k); } });
   const pts = uv.slice(), clr2 = (0.5 * h) ** 2, dy = h * 0.866, jr = rnd(bid.length * 31 + 7);
+  const SL = surf.D && surf.D.lines, sw = SL ? surf.D.w : 0, nearLine = (x, y, gap) => SL.some(l => Math.abs(x * l.p[0] + y * l.p[1] - l.off) < gap);
   for (let j = 0, y = y0 + dy * 0.5; y < y1; j++, y += dy) for (let x = x0 + (j % 2 ? h * 0.5 : 0) + h * 0.25; x < x1; x += h) {
     const px = x + (jr() - .5) * h * 0.12, py = y + (jr() - .5) * h * 0.12;
+    if (SL && nearLine(px, py, 0.55 * h)) continue;
     const cand = grid.get(key(Math.floor(px / cs), Math.floor(py / cs)));
     if (cand && cand.some(k => segDist2(px, py, E[k]) < clr2)) continue;
     if (inRegion(px, py, E)) pts.push([px, py]); }
+  // terrace edges: a row of points on each side of every step line, joined by constrained edges
+  const rowE = [];
+  if (SL) for (const l of SL) { const tx = -l.p[1], ty = l.p[0]; let t0 = 1e9, t1 = -1e9;
+    for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) { const t = x * tx + y * ty; t0 = Math.min(t0, t); t1 = Math.max(t1, t); }
+    for (const sd of [-1, 1]) { let prev = -1; const s = l.off + sd * sw;
+      for (let t = t0; t <= t1; t += h * 0.7) { const x = l.p[0] * s + tx * t, y = l.p[1] * s + ty * t;
+        const cand = grid.get(key(Math.floor(x / cs), Math.floor(y / cs)));
+        const ok = inRegion(x, y, E) && !(cand && cand.some(k => segDist2(x, y, E[k]) < (0.3 * h) ** 2))
+          && !SL.some(o => o !== l && Math.abs(x * o.p[0] + y * o.p[1] - o.off) < 2 * sw + 0.3 * h);
+        if (ok) { pts.push([x, y]); if (prev >= 0) rowE.push([prev, pts.length - 1]); prev = pts.length - 1; } else prev = -1; } } }
   // helper points outside the region keep boundary points off the hull of the point set (no flat triangles)
   const nIn = pts.length, pad = Math.max(x1 - x0, y1 - y0) * 0.5 + h * 3;
   for (const [x, y] of [[x0 - pad, y0 - pad], [x1 + pad, y0 - pad], [x1 + pad, y1 + pad], [x0 - pad, y1 + pad], [(x0 + x1) / 2, y0 - pad * 1.3], [(x0 + x1) / 2, y1 + pad * 1.3]]) pts.push([x, y]);
   const co = new Float64Array(pts.length * 2); pts.forEach((p, i) => { co[2 * i] = p[0]; co[2 * i + 1] = p[1]; });
-  const del = new CDT.Delaunator(co);
-  new CDT.Constrainautor(del, segs.map(([a, b]) => [loc.get(a), loc.get(b)]));
+  let del = new CDT.Delaunator(co); const bE = segs.map(([a, b]) => [loc.get(a), loc.get(b)]);
+  if (rowE.length) { try { new CDT.Constrainautor(del, bE.concat(rowE)); } catch (e) { del = new CDT.Delaunator(co); new CDT.Constrainautor(del, bE); } }
+  else new CDT.Constrainautor(del, bE);
   const ids = pts.map((p, i) => { if (i < bid.length) return bid[i]; if (i >= nIn) return -1; NP.push(surf.lift(p[0], p[1])); return NP.length - 1; });
   const out = [], tr = del.triangles;
   for (let i = 0; i < tr.length; i += 3) { if (tr[i] >= nIn || tr[i + 1] >= nIn || tr[i + 2] >= nIn) continue;
@@ -662,7 +687,7 @@ function clipOnce(sol, surf, kind, extra, h) {
   let cap; try { cap = capTris(surf, segs, NP, h); } catch (e) { return null; }
   if (!cap.length) return null;
   const F = sol.F, fN = F.length, fP = F.length + 1, ex = extra || {};
-  const curved = surf.h ? (surf.D || true) : undefined;
+  const curved = surf.h && !(surf.D && surf.D.flat) ? (surf.D || true) : undefined;
   const faceN = Object.assign({}, ex, { n: surf.nc.clone(), kind, surf, side: 1, disp: curved });
   const faceP = Object.assign({}, ex, { n: surf.nc.clone().negate(), kind, surf, side: -1, disp: curved });
   const F2 = F.concat([faceN, faceP]);
@@ -675,7 +700,9 @@ function solidFromPlanes(planes) {
   if (!hull) return null;
   let sol = solidFromPolyhedron(hull);
   planes.forEach((pl, i) => { const ex = Object.assign({}, pl.extra || {}); delete ex.disp;
-    const res = clipSolid(sol, surfs[i], pl.kind, ex); if (res && res.neg) sol = res.neg; });
+    let res = clipSolid(sol, surfs[i], pl.kind, ex);
+    if (!res && surfs[i].D && surfs[i].D.flat) { window.__STEPFAIL = (window.__STEPFAIL || 0) + 1; res = clipSolid(sol, makeSurf(pl.n, pl.d, null), pl.kind, ex); }
+    if (res && res.neg) sol = res.neg; });
   return sol;
 }
 const polyFromPlanes = solidFromPlanes;
@@ -734,7 +761,19 @@ function shatterUneven(sol, p, r, n) {
   }
   return pieces;
 }
+// cleavage terraces: 1–3 small steps whose risers run along the other cleavage directions
+function stepsD(r, n, others, prob = 0.85) {
+  if (!others.length || r() > prob) return null;
+  const { u, v } = basisOf(n), lines = [], k = 1 + Math.floor(r() * 3);
+  for (let i = 0; i < k; i++) {
+    const mm = others[Math.floor(r() * others.length)], mp = mm.clone().addScaledVector(n, -mm.dot(n)); if (mp.lengthSq() < 0.05) continue; mp.normalize();
+    const pa = mp.dot(u), pb = mp.dot(v), L = Math.hypot(pa, pb);
+    lines.push({ p: [pa / L, pb / L], off: (r() - .5) * 2.4, dh: (r() < .5 ? -1 : 1) * (0.025 + r() * 0.05) });
+  }
+  return lines.length ? { type: 'steps', flat: true, seed: 1, lines, w: 0.008 } : null;
+}
 function cleavageCells(sol, impact, r, normals, cuts, stripes) {
+  const NV = normals.map(a => new V3(...a));
   let cells = [sol];
   normals.forEach((a, k) => {
     const n = new V3(...a); let lo = 1e9, hi = -1e9; for (const p of sol.P) { const d = n.dot(p); lo = Math.min(lo, d); hi = Math.max(hi, d); }
@@ -745,7 +784,8 @@ function cleavageCells(sol, impact, r, normals, cuts, stripes) {
     for (const c of cells) {
       let rest = c;
       for (const o of offs) {
-        const res = clipSolid(rest, makeSurf(n, o, null), 'cleave', ex, MESH_H * 1.4); if (!res) continue;
+        let res = clipSolid(rest, makeSurf(n, o, stepsD(r, n, NV.filter((_, j) => j !== k))), 'cleave', ex, MESH_H * 1.4);
+        if (!res) { window.__STEPFAIL = (window.__STEPFAIL || 0) + 1; res = clipSolid(rest, makeSurf(n, o, null), 'cleave', ex, MESH_H * 1.4); } if (!res) continue;
         if (res.neg && solidVC(res.neg).V > 1e-3) next.push(res.neg);
         rest = res.pos; if (!rest) break;
       }
@@ -776,7 +816,8 @@ function buildGeometry(sol) {
     const ring = f.disp && f.surf && f.surf.D && f.surf.D.ring ? f.surf.D.ring : 0, o = f.surf ? f.surf.o : null;
     for (let k = 0; k < 3; k++) {
       const vi = t[k], p = P[vi];
-      let n; if (f.surf && f.surf.h) { const ck = vi * 4096 + t[3]; n = nCache.get(ck); if (!n) { n = f.surf.normal(p).multiplyScalar(f.side); nCache.set(ck, n); } } else n = f.n;
+      let n; if (f.surf && f.surf.D && f.surf.D.flat) { if (k === 0) { const A = P[t[0]], B = P[t[1]], C = P[t[2]]; f._tn = new V3().crossVectors(B.clone().sub(A), C.clone().sub(A)); f._tn = f._tn.lengthSq() > 1e-14 ? f._tn.normalize() : f.n; } n = f._tn; }
+      else if (f.surf && f.surf.h) { const ck = vi * 4096 + t[3]; n = nCache.get(ck); if (!n) { n = f.surf.normal(p).multiplyScalar(f.side); nCache.set(ck, n); } } else n = f.n;
       const uv = uvf[t[3]](p);
       pos[w * 3] = p.x; pos[w * 3 + 1] = p.y; pos[w * 3 + 2] = p.z; nor[w * 3] = n.x; nor[w * 3 + 1] = n.y; nor[w * 3 + 2] = n.z;
       uvs[w * 2] = uv[0]; uvs[w * 2 + 1] = uv[1];
@@ -836,7 +877,31 @@ function heightToNormal(ctx, w, h, hf, k) {
   ctx.putImageData(im, 0, 0);
 }
 const TEX = {};
+// jittered-grid Voronoi on a torus: per pixel, nearest and second-nearest cell (for facets and grains)
+function voronoiTex(w, G, seed, shade) {
+  const r = rnd(seed), C = [];
+  for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) C.push({ x: (i + 0.15 + 0.7 * r()) / G, y: (j + 0.15 + 0.7 * r()) / G, a: r(), b: r(), c: r() });
+  return canvasTex(w, w, (ctx, W, H) => { const im = ctx.createImageData(W, H);
+    for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
+      const u = px / W, v = py / H, gi = Math.floor(u * G), gj = Math.floor(v * G); let b1 = 9, b2 = 9, id = 0;
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = (gi + di + G) % G, jj = (gj + dj + G) % G, c = C[jj * G + ii];
+        let dx = u - c.x, dy = v - c.y; dx -= Math.round(dx); dy -= Math.round(dy); const d = dx * dx + dy * dy;
+        if (d < b1) { b2 = b1; b1 = d; id = jj * G + ii; } else if (d < b2) b2 = d; }
+      const out = shade(C[id], (Math.sqrt(b2) - Math.sqrt(b1)) * G), k = (py * W + px) * 4;
+      im.data[k] = out[0]; im.data[k + 1] = out[1]; im.data[k + 2] = out[2]; im.data[k + 3] = 255; }
+    ctx.putImageData(im, 0, 0); }, { color: !!shade.color });
+}
 function makeTextures() {
+  // granular facets: each tiny grain face tilted its own way, so a rough break glitters instead of looking dented
+  const tilt = (c, e, s) => { const tx = (c.a - .5) * s, ty = (c.b - .5) * s, ed = e < 0.06 ? (0.06 - e) * 2 : 0, L = Math.hypot(tx, ty, 1);
+    return [(-tx / L * 0.5 + 0.5) * 255, (ty / L * 0.5 + 0.5) * 255, (1 / L * 0.5 + 0.5 - ed) * 255]; };
+  TEX.facets = voronoiTex(512, 64, 51, (c, e) => tilt(c, e, 0.5));
+  // olivine: sugary aggregate of glassy green grains, color and tilt per grain
+  TEX.cells = voronoiTex(512, 36, 21, (c, e) => tilt(c, e, 0.4));
+  const oliv = (c, e) => { const pal = [[92, 116, 42], [104, 126, 46], [84, 106, 38], [112, 130, 54], [98, 112, 44], [80, 100, 36]];
+    const p = pal[Math.floor(c.c * pal.length)], k = (0.9 + 0.18 * c.a) * (e < 0.05 ? 0.8 : 1); return [p[0] * k, p[1] * k, p[2] * k]; };
+  oliv.color = true;
   // striations: fine parallel grooves (lines of constant u)
   TEX.stripes = canvasTex(256, 256, (c, w, h) => { const r = rnd(11), lines = [];
     for (let i = 0; i < 20; i++) lines.push({ x: r(), a: 0.4 + r() * 0.8, w: 0.006 + r() * 0.01 });
@@ -848,15 +913,7 @@ function makeTextures() {
   // fine surface grain (milky quartz, rough fracture)
   TEX.grain = canvasTex(256, 256, (c, w, h) => { const r = rnd(3), g = new Float32Array(w * h); for (let i = 0; i < g.length; i++) g[i] = r();
     heightToNormal(c, w, h, (u, v) => { const x = Math.floor(u * w), y = Math.floor(v * h); return (g[y * w + x] + g[y * w + (x + 1) % w] + g[((y + 1) % h) * w + x]) / 3; }, 0.9); });
-  // granular grains (olivine): Voronoi cells, shared points for color and bump
-  { const r = rnd(21), pts = []; for (let i = 0; i < 150; i++) pts.push([r(), r(), r()]);
-    const near = (u, v) => { let b = 9, b2 = 9, id = 0; for (let i = 0; i < pts.length; i++) { let dx = Math.abs(u - pts[i][0]), dy = Math.abs(v - pts[i][1]); dx = Math.min(dx, 1 - dx); dy = Math.min(dy, 1 - dy);
-      const d = dx * dx + dy * dy; if (d < b) { b2 = b; b = d; id = i; } else if (d < b2) b2 = d; } return { id, edge: Math.sqrt(b2) - Math.sqrt(b) }; };
-    TEX.cells = canvasTex(256, 256, (c, w, h) => heightToNormal(c, w, h, (u, v) => Math.min(0.02, near(u, v).edge) * 40, 1.3));
-    TEX.olivineMap = canvasTex(256, 256, (c, w, h) => { const im = c.createImageData(w, h), pal = [[98, 128, 46], [122, 146, 52], [80, 108, 40], [140, 150, 70], [104, 120, 58], [70, 96, 44]];
-      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const n = near(x / w, y / h), col = pal[n.id % pal.length], k = n.edge < 0.004 ? 0.7 : 1, i = (y * w + x) * 4;
-        im.data[i] = col[0] * k; im.data[i + 1] = col[1] * k; im.data[i + 2] = col[2] * k; im.data[i + 3] = 255; }
-      c.putImageData(im, 0, 0); }, { color: true }); }
+  TEX.olivineMap = voronoiTex(512, 36, 21, oliv);
   // sodium plagioclase: wavy dissolution lines; potassium feldspar: fine perthite lamellae
   TEX.dissolve = canvasTex(256, 256, (c, w, h) => { const r = rnd(31), L = []; for (let i = 0; i < 9; i++) L.push({ y: r(), a: 0.02 + r() * 0.03, f: 1 + Math.floor(r() * 3), p: r() * 6.28 });
     heightToNormal(c, w, h, (u, v) => { let s = 0; for (const l of L) { let d = Math.abs(v - l.y - l.a * Math.sin(u * 6.283 * l.f + l.p)); d = Math.min(d, 1 - d); s += Math.exp(-(d * d) / 0.00004); } return s; }, 1.4); });
@@ -878,15 +935,15 @@ const DS = THREE.DoubleSide;
 const MATSPEC = {
   garnet: () => ({ base: { t: 'P', color: '#7a1c22', attenuationColor: '#5a0a12', attenuationDistance: 0.8, transmission: 0.3, roughness: 0.12, thickness: 2, ior: 1.8, envMapIntensity: 1.8 },
     over: { fracture: { roughness: 0.06 } } }),
-  olivine: () => ({ base: { t: 'S', map: 'olivineMap', nm: 'cells', ns: 0.7, roughness: 0.32, envMapIntensity: 1.5 } }),
+  olivine: () => ({ base: { t: 'S', map: 'olivineMap', nm: 'cells', ns: 0.7, roughness: 0.22, envMapIntensity: 1.5 } }),
   hornblende: () => ({ base: { t: 'S', color: '#232a24', roughness: 0.22, envMapIntensity: 1.5 },
-    over: { crystal: { nm: 'stripes', ns: 0.12 }, cleave: { roughness: 0.12 }, fracture: { roughness: 0.42, nm: 'grain', ns: 0.3 } } }),
+    over: { crystal: { nm: 'stripes', ns: 0.12 }, cleave: { roughness: 0.12 }, fracture: { roughness: 0.42, nm: 'facets', ns: 0.55 } } }),
   plagCa: () => ({ base: { t: 'S', color: '#7c7f82', roughness: 0.3, envMapIntensity: 1.3 },
-    over: { crystal: { nm: 'stripes', ns: 0.28 }, cleave: { nm: 'stripes', ns: 0.32, roughness: 0.22 }, fracture: { roughness: 0.5, nm: 'grain', ns: 0.3 } } }),
+    over: { crystal: { nm: 'stripes', ns: 0.28 }, cleave: { nm: 'stripes', ns: 0.32, roughness: 0.22 }, fracture: { roughness: 0.5, nm: 'facets', ns: 0.55 } } }),
   plagNa: () => ({ base: { t: 'S', color: '#ebe8df', roughness: 0.32, envMapIntensity: 1.2, nm: 'dissolve', ns: 0.22 },
-    over: { cleave: { roughness: 0.24 }, fracture: { roughness: 0.55, nm: 'grain', ns: 0.3 } } }),
+    over: { cleave: { roughness: 0.24 }, fracture: { roughness: 0.55, nm: 'facets', ns: 0.55 } } }),
   kspar: v => ({ base: { t: 'S', color: v === 'white' ? '#ece5d8' : '#d79b85', roughness: 0.34, envMapIntensity: 1.2, nm: 'perthite', ns: 0.16 },
-    over: { cleave: { roughness: 0.24 }, fracture: { roughness: 0.55, nm: 'grain', ns: 0.3 } } }),
+    over: { cleave: { roughness: 0.24 }, fracture: { roughness: 0.55, nm: 'facets', ns: 0.55 } } }),
   sulfur: () => ({ base: { t: 'P', color: '#f4d531', attenuationColor: '#d79a00', attenuationDistance: 1.6, transmission: 0.25, roughness: 0.3, thickness: 2, ior: 1.95, envMapIntensity: 1.2 },
     over: { fracture: { roughness: 0.22 } } }),
   muscovite: () => ({ base: { t: 'P', color: '#ece7cd', attenuationColor: '#d6d2a8', attenuationDistance: 3, transmission: 0.55, roughness: 0.08, thickness: 0.9, ior: 1.58, side: DS, envMapIntensity: 1.6 },
@@ -905,21 +962,22 @@ const MATSPEC = {
     over: { cleave: { roughness: 0.24 } } }),
   fluorite: v => ({ base: Object.assign({ t: 'P', transmission: 0.92, roughness: 0.05, thickness: 2.4, ior: 1.43, side: DS, envMapIntensity: 1.8 },
     v === 'green' ? { color: '#e0f3e2', attenuationColor: '#3e9a5b', attenuationDistance: 2.3 } : { color: '#ebdff6', attenuationColor: '#7c48b9', attenuationDistance: 2.1 }) }),
-  magnetite: () => ({ base: { t: 'S', color: '#2b2c2e', metalness: 0.55, roughness: 0.45, nm: 'grain', ns: 0.35, envMapIntensity: 1.4 } }),
+  magnetite: () => ({ base: { t: 'S', color: '#1f2022', metalness: 0.45, roughness: 0.55, nm: 'facets', ns: 0.5, envI: 0.35 } }),
   graphite: () => ({ base: { t: 'S', color: '#3e4043', metalness: 0.45, roughness: 0.48, nm: 'grain', ns: 0.25, envMapIntensity: 1.4 },
     over: { cleave: { roughness: 0.35 } } }),
-  galena: () => ({ base: { t: 'S', color: '#bfc3c8', metalness: 0.95, roughness: 0.24, nm: 'steps', ns: 0.04, envMapIntensity: 1.5 },
+  galena: () => ({ base: { t: 'S', color: '#c3c7cc', metalness: 0.95, roughness: 0.24, nm: 'steps', ns: 0.04, envI: 1.4, envGen: true },
     over: { cleave: { roughness: 0.08, ns: 0.02 } } }),
-  hematite: v => ({ base: v === 'earthy' ? { t: 'S', color: '#6a271b', roughness: 0.92, nm: 'grain', ns: 0.6, envMapIntensity: 0.8 }
-    : { t: 'S', color: '#5f6368', metalness: 0.85, roughness: 0.3, nm: 'grain', ns: 0.3, envMapIntensity: 1.5 } }),
+  hematite: v => ({ base: v === 'earthy' ? { t: 'S', color: '#4a1c15', roughness: 0.92, nm: 'grain', ns: 0.6, envMapIntensity: 0.8 }
+    : { t: 'S', color: '#5f6368', metalness: 0.85, roughness: 0.36, nm: 'facets', ns: 0.55, envMapIntensity: 1.5 } }),
 };
 function mk(spec) {
   const o = Object.assign({}, spec), T = o.t === 'S' ? THREE.MeshStandardMaterial : THREE.MeshPhysicalMaterial; delete o.t;
   if (o.nm) { o.normalMap = TEX[o.nm]; o.normalScale = new THREE.Vector2(o.ns || 0.3, o.ns || 0.3); }
   delete o.nm; delete o.ns;
+  const ud = { envI: o.envI, envGen: o.envGen }; delete o.envI; delete o.envGen;
   if (typeof o.map === 'string') o.map = TEX[o.map];
   if (T === THREE.MeshPhysicalMaterial) { if (o.ior === undefined) o.ior = 1.55; if (o.specularIntensity === undefined) o.specularIntensity = 1; }
-  return new T(o);
+  const mat = new T(o); if (ud.envI) Object.assign(mat.userData, ud); return mat;
 }
 function specMaterials(key, variant) {
   const s = MATSPEC[key](variant), cache = new Map();
@@ -928,7 +986,7 @@ function specMaterials(key, variant) {
 }
 // materials that carry their own environment strength (userData.envI) get the env map directly
 function applyEnv(mats) { for (const m of new Set(mats)) if (m.userData.envI) {
-  const gen = m.userData.envGen; m.envMap = gen ? GEN_ENV : scene.environment; if (gen) m.envMapRotation.set(0, 0, 0); else m.envMapRotation.copy(scene.environmentRotation);
+  const gen = m.userData.envGen; m.envMap = gen ? GEN_ENV : (m.userData.envRaw && ENV_RAW) || scene.environment; if (gen) m.envMapRotation.set(0, 0, 0); else m.envMapRotation.copy(scene.environmentRotation);
   m.envMapIntensity = m.userData.envI * scene.environmentIntensity / ENV_I; m.needsUpdate = true; } }
 function mineralMaterials(key, variant) {
   const mats = mineralMaterials0(key, variant);
@@ -953,7 +1011,7 @@ function mineralMaterials0(key, variant) {
     const crystal = P(base);
     const facet = P(base);
     const frac = P(Object.assign({}, base, { roughness: Math.max(0.03, base.roughness * 0.75) }));
-    for (const m of [crystal, facet, frac]) { m.userData.envI = envI; m.userData.envGen = variant === 'clear'; }
+    for (const m of [crystal, facet, frac]) { m.userData.envI = envI; m.userData.envGen = variant === 'clear'; m.userData.envRaw = true; }
     return [crystal, facet, frac, frac];
   }
   if (key === 'halite') {
@@ -965,7 +1023,8 @@ function mineralMaterials0(key, variant) {
   }
   // pyrite
   const crystal = S({ color: '#dfc06a', metalness: 0.88, roughness: 0.27, normalMap: TEX.stripes, normalScale: new THREE.Vector2(0.035, 0.035), envMapIntensity: 1.45 });
-  const frac = S({ color: '#d6ba72', metalness: 0.88, roughness: 0.33, normalMap: TEX.grain, normalScale: new THREE.Vector2(0.3, 0.3), envMapIntensity: 1.45 });
+  const frac = S({ color: '#ccae64', metalness: 0.86, roughness: 0.42, normalMap: TEX.facets, normalScale: new THREE.Vector2(0.6, 0.6), envMapIntensity: 1.45 });
+  for (const q of [crystal, frac]) { q.userData.envI = 1.5; q.userData.envGen = true; }   // brassy: reflect the brighter generated studio
   return [crystal, crystal, frac, frac];
 }
 
@@ -1003,9 +1062,14 @@ const GEN_ENV = studioEnv(); scene.environment = GEN_ENV;
 let ENV_I = 1.0, BENCH_ENV = 1.0;
 scene.environmentIntensity = ENV_I;
 // photographed studio (Poly Haven "Studio Small 03", CC0) replaces the generated one once it loads
-const ENV_HDR = { file: 'mineral-lab-studio.hdr', i: 0.8, yaw: 5.2 };
-new RGBELoader().load(ENV_HDR.file, tex => {
+const ENV_HDR = { file: 'mineral-lab-studio.hdr', i: 1.4, yaw: 5.2, clampAt: 30 };
+let ENV_RAW = null;
+new RGBELoader().setDataType(THREE.FloatType).load(ENV_HDR.file, tex => {
   tex.mapping = THREE.EquirectangularReflectionMapping;
+  ENV_RAW = pmrem.fromEquirectangular(tex).texture;   // full-strength lamp: quartz glints
+  // everything else sees the lamp clamped, so rough and dark minerals don't wash out under its glow
+  const d = tex.image.data; for (let i = 0; i < d.length; i += 4) { const mx = Math.max(d[i], d[i + 1], d[i + 2]); if (mx > ENV_HDR.clampAt) { const s = ENV_HDR.clampAt / mx; d[i] *= s; d[i + 1] *= s; d[i + 2] *= s; } }
+  tex.needsUpdate = true;
   const env = pmrem.fromEquirectangular(tex).texture; tex.dispose();
   scene.environment = env; scene.environmentRotation.set(0, ENV_HDR.yaw, 0); ENV_I = ENV_HDR.i;
   if (!S.uv) scene.environmentIntensity = ENV_I; if (MATS) applyEnv(MATS); requestRender(); window.__envReady = true;
