@@ -109,6 +109,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .card .lg i.ln.do { border-top-style: dotted; }
 .card .src { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); padding-top: 8px; line-height: 1.4; }
 @media (max-height: 700px) {
+  #thermoCv { height: 104px !important; }
   .card .r { padding: 3px 0 3px; }
   .card .v { font-size: 20px; }
   .card .lay { padding: 3px 8px; }
@@ -697,10 +698,12 @@ function setTab(t) {
   if (t === 'diff') resetParticles();
   syncChips(); renderControls(); renderCard(); resize();
 }
-/* ═══════════════════════════ 1 · CONDENSATION ═════════════════════════ */
-const RX0 = 0.2, RX1 = 40;
+/* ═══════════════════════════ 1 · CONDENSATION ═════════════════════════
+   One edge-on disk fills the stage. Grains appear only where their material is solid; past the ice line
+   every seed shows (rock/metal seeds plus ice-coated seeds), so the grain count jumps by the Hayashi factor 30/7.1. */
+const RX0 = 0.2, RX1 = 40, ICE_JUMP = SIG_ICE / SIG_ROCK;
 const GRAINS = (() => { const r = mulberry32(20260915), o = [];
-  for (let i = 0; i < 3200; i++) { const m = r(); o.push({ u: r(), v: (r() + r() + r() - 1.5) / 1.5, k: m < 0.16 ? 'metal' : m < 0.5 ? 'rock' : 'ice', s: 0.9 + r() * 1.4 }); }
+  for (let i = 0; i < 7000; i++) { const m = r(), rm = m < 1 / ICE_JUMP; o.push({ u: r(), v: (r() + r() + r() - 1.5) / 1.5, k: rm ? (r() < 0.33 ? 'metal' : 'rock') : 'ice', s: 1.3 + r() * 1.5, tw: r() }); }
   return o; })();
 const PROF_N = 300; let profCache = { t: -1, T: null };
 function tProfile(t) {
@@ -711,110 +714,60 @@ function tProfile(t) {
 function tAt(prof, r) { const f = clamp(Math.log(r / RX0) / Math.log(RX1 / RX0), 0, 1) * (PROF_N - 1), i = Math.min(PROF_N - 2, Math.floor(f)), u = f - i;
   return Math.exp(lerp(Math.log(prof[i]), Math.log(prof[i + 1]), u)); }
 function condLayout(W, H) {
-  const top = 50, x0 = 76, x1 = W - 24, lane = clamp(Math.round((H - 300) * 0.07), 17, 22), avail = H - top - 22 - 3 * lane - 10 - 30 - 22;
-  const disk = Math.round(avail * 0.33), temp = Math.round(avail * 0.38), solid = Math.round(avail * 0.29);
-  const L = { x0, x1, dT: top, dB: top + disk };
-  L.plY = L.dB + 12; L.tT = L.dB + 26; L.tB = L.tT + temp;
-  L.lanes = []; let y = L.tB + 12; for (let i = 0; i < 3; i++) { L.lanes.push([y, y + lane]); y += lane + 5; }
-  L.mT = y + 6; L.mB = L.mT + solid; L.axY = L.mB + 13;
+  const x0 = 96, x1 = W - 26, dT = 92, dB = H - 58;
+  const L = { x0, x1, dT, dB, mid: (dT + dB) / 2, zoneY: 70, plY: dB + 16, axY: dB + 36 };
   L.X = r => x0 + (x1 - x0) * Math.log(r / RX0) / Math.log(RX1 / RX0);
   L.R = x => RX0 * Math.pow(RX1 / RX0, clamp((x - x0) / (x1 - x0), 0, 1));
-  L.TY = T => L.tB - 4 - (L.tB - L.tT - 8) * Math.log(clamp(T, 60, 3000) / 60) / Math.log(3000 / 60);
-  L.SY = s => L.mB - (L.mB - L.mT) * Math.log(clamp(s, 0.05, 100) / 0.05) / Math.log(100 / 0.05);
+  const maxH = (dB - dT) / 2 - 6;
+  L.half = r => 14 + (maxH - 14) * Math.pow(clamp(Math.log(r / RX0) / Math.log(RX1 / RX0), 0, 1), 1.15);
   return L;
 }
+function condFronts(t) { return { rock: frontAU(MAT.metal.tCond, t), ice: frontAU(MAT.ice.tCond, t) }; }
 const condBG = { key: '', cv: null };
 function drawCondBase(c, W, H, t) {
-  const L = condLayout(W, H), prof = tProfile(t), mid = (L.dT + L.dB) / 2, maxH = (L.dB - L.dT) / 2 - 4;
+  const L = condLayout(W, H), prof = tProfile(t), mid = L.mid, fr = condFronts(t);
   c.fillStyle = '#191d1a'; c.fillRect(0, 0, W, H);
-  STARS.forEach(s => { if (s[1] * H < L.dB) { c.fillStyle = `rgba(232,228,217,${0.05 + s[2] * 0.16})`; c.fillRect(s[0] * W, s[1] * H, 1.2, 1.2); } });
-  const half = r => 3 + maxH * Math.pow(clamp(Math.log(r / RX0) / Math.log(RX1 / RX0), 0, 1), 1.25) * 0.95;
-  // disk wedge colored by temperature
-  c.save(); c.beginPath(); c.moveTo(L.x0 - 30, mid - 2);
-  for (let x = L.x0; x <= L.x1; x += 3) c.lineTo(x, mid - half(L.R(x)));
-  for (let x = L.x1; x >= L.x0; x -= 3) c.lineTo(x, mid + half(L.R(x)));
-  c.lineTo(L.x0 - 30, mid + 2); c.closePath(); c.clip();
-  const gx = c.createLinearGradient(L.x0 - 30, 0, L.x1, 0);
-  for (let i = 0; i <= 40; i++) { const r = RX0 * Math.pow(RX1 / RX0, i / 40), x = L.X(r); gx.addColorStop(clamp((x - (L.x0 - 30)) / (L.x1 - L.x0 + 30), 0, 1), rgbS(tempRGB(tAt(prof, r)), 0.78)); }
-  c.fillStyle = gx; c.fillRect(L.x0 - 30, L.dT, L.x1 - L.x0 + 30, L.dB - L.dT);
-  const gy = c.createLinearGradient(0, mid - maxH, 0, mid + maxH);
-  gy.addColorStop(0, 'rgba(25,29,26,0.9)'); gy.addColorStop(0.42, 'rgba(25,29,26,0.05)'); gy.addColorStop(0.58, 'rgba(25,29,26,0.05)'); gy.addColorStop(1, 'rgba(25,29,26,0.9)');
-  c.fillStyle = gy; c.fillRect(L.x0 - 30, L.dT, L.x1 - L.x0 + 30, L.dB - L.dT);
+  STARS.forEach(s => { c.fillStyle = `rgba(232,228,217,${0.05 + s[2] * 0.16})`; c.fillRect(s[0] * W, s[1] * H, 1.2, 1.2); });
+  // disk wedge, colored by temperature
+  const sx = L.x0 - 52;
+  c.save(); c.beginPath(); c.moveTo(sx, mid - 6);
+  for (let x = L.x0; x <= L.x1; x += 3) c.lineTo(x, mid - L.half(L.R(x)));
+  for (let x = L.x1; x >= L.x0; x -= 3) c.lineTo(x, mid + L.half(L.R(x)));
+  c.lineTo(sx, mid + 6); c.closePath(); c.clip();
+  const gx = c.createLinearGradient(sx, 0, L.x1, 0);
+  for (let i = 0; i <= 48; i++) { const r = RX0 * Math.pow(RX1 / RX0, i / 48), x = L.X(r); gx.addColorStop(clamp((x - sx) / (L.x1 - sx), 0, 1), rgbS(tempRGB(tAt(prof, r)), 0.82)); }
+  c.fillStyle = gx; c.fillRect(sx, L.dT, L.x1 - sx, L.dB - L.dT);
+  const gy = c.createLinearGradient(0, L.dT, 0, L.dB);
+  gy.addColorStop(0, 'rgba(25,29,26,0.92)'); gy.addColorStop(0.4, 'rgba(25,29,26,0.08)'); gy.addColorStop(0.6, 'rgba(25,29,26,0.08)'); gy.addColorStop(1, 'rgba(25,29,26,0.92)');
+  c.fillStyle = gy; c.fillRect(sx, L.dT, L.x1 - sx, L.dB - L.dT);
   c.restore();
-  // grains: only materials that are solid where they sit
-  const fr = { metal: frontAU(MAT.metal.tCond, t), rock: frontAU(MAT.rock.tCond, t), ice: frontAU(MAT.ice.tCond, t) };
+  // grains
   GRAINS.forEach(g => {
-    const r = RX0 * Math.pow(RX1 / RX0, g.u); if (r < fr[g.k]) return;
-    const x = L.X(r), y = mid + g.v * half(r) * 0.92;
-    c.fillStyle = rgba(MAT[g.k].color, g.k === 'ice' ? 0.8 : 0.9); c.fillRect(x - g.s / 2, y - g.s / 2, g.s, g.s);
+    const r = RX0 * Math.pow(RX1 / RX0, g.u);
+    if (g.k === 'ice' ? r < fr.ice : r < fr.rock) return;
+    const x = L.X(r), y = mid + g.v * L.half(r) * 0.9, s = g.s;
+    if (g.k === 'ice') { c.fillStyle = 'rgba(200,232,252,0.32)'; c.beginPath(); c.arc(x, y, s * 1.15, 0, 7); c.fill(); c.fillStyle = 'rgba(214,238,252,0.95)'; c.beginPath(); c.arc(x, y, s * 0.6, 0, 7); c.fill(); }
+    else { const q = s + 0.7; c.fillStyle = g.k === 'metal' ? '#D5D9E0' : '#C9A07A'; c.fillRect(x - q / 2, y - q / 2, q, q); }
   });
   // Sun
-  const sx = L.x0 - 40, sg = c.createRadialGradient(sx, mid, 2, sx, mid, 46);
+  const sg = c.createRadialGradient(sx, mid, 2, sx, mid, 54);
   sg.addColorStop(0, 'rgba(255,240,205,1)'); sg.addColorStop(0.3, 'rgba(255,205,120,0.55)'); sg.addColorStop(1, 'rgba(255,190,100,0)');
-  c.fillStyle = sg; c.beginPath(); c.arc(sx, mid, 46, 0, 7); c.fill(); c.fillStyle = '#FFEBC0'; c.beginPath(); c.arc(sx, mid, 13, 0, 7); c.fill();
-  // planet ticks
+  c.fillStyle = sg; c.beginPath(); c.arc(sx, mid, 54, 0, 7); c.fill(); c.fillStyle = '#FFEBC0'; c.beginPath(); c.arc(sx, mid, 15, 0, 7); c.fill();
+  // zone boundaries and labels
+  const xr = L.X(clamp(fr.rock, RX0, RX1)), xi = L.X(clamp(fr.ice, RX0, RX1));
+  [[fr.rock, '#E2C9A6'], [fr.ice, C.iceLine]].forEach(([f, col]) => { if (f <= RX0 * 1.001 || f >= RX1 * 0.999) return; const x = L.X(f);
+    c.strokeStyle = rgba(col, 0.9); c.lineWidth = 2; c.setLineDash([7, 6]); c.beginPath(); c.moveTo(x, L.zoneY + 12); c.lineTo(x, L.dB); c.stroke(); c.setLineDash([]); });
+  const zones = [[L.x0, xr, 'Too hot for solids', '#F0A060'], [xr, xi, 'Rock & metal', '#E2C9A6'], [xi, L.x1, 'Rock, metal & ice', C.iceLine]];
+  zones.forEach(([a, b, txt, col]) => { if (b - a < 40) return; c.font = `700 15px ${FM}`; let t2 = txt;
+    if (c.measureText(t2).width + 24 > b - a) t2 = txt === 'Too hot for solids' ? 'Too hot' : txt === 'Rock & metal' ? 'Rock' : txt;
+    if (c.measureText(t2).width + 24 > b - a) return;
+    pill(c, t2, (a + b) / 2, L.zoneY, { align: 'center', color: col, font: `700 15px ${FM}`, h: 24 }); });
+  if (fr.ice > RX0 && fr.ice < RX1) pill(c, 'Ice line ' + fmtAU(fr.ice) + ' AU', xi + 8, L.dT + 12, { color: C.iceLine });
+  // planets and distance
   c.font = `700 13px ${FM}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  PLANETS8.forEach(k => { const x = L.X(ACC_BY_KEY[k].a); c.strokeStyle = 'rgba(232,228,217,0.4)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, L.dB - 6); c.lineTo(x, L.dB + 2); c.stroke();
-    c.fillStyle = 'rgba(232,228,217,0.62)'; c.fillText(ACC_BY_KEY[k].name, x, L.plY); });
-
-  // temperature panel
-  c.fillStyle = '#1d221e'; c.fillRect(L.x0, L.tT, L.x1 - L.x0, L.tB - L.tT);
-  c.font = `400 13px ${FM}`; c.textAlign = 'right'; c.textBaseline = 'middle';
-  (L.tB - L.tT < 135 ? [100, 300, 1000] : [100, 200, 500, 1000, 2000]).forEach(T => { const y = L.TY(T); c.strokeStyle = C.grid; c.lineWidth = 1; c.beginPath(); c.moveTo(L.x0, y); c.lineTo(L.x1, y); c.stroke();
-    c.fillStyle = C.ink2; c.fillText(fmtInt(T) + ' K', L.x0 - 7, y); });
-  [0.5, 1, 2, 5, 10, 20].forEach(r => { const x = L.X(r); c.strokeStyle = C.grid; c.beginPath(); c.moveTo(x, L.tT); c.lineTo(x, L.mB); c.stroke(); });
-  c.font = `700 13px ${FM}`; c.textAlign = 'left'; c.textBaseline = 'bottom'; c.fillStyle = C.ink; c.fillText('Disk temperature', L.x0 + 8, L.tB - 4);
-  // condensation lines
-  const lines = [{ T: 1340, col: '#D2B595', txt: 'Rock 1,343 K · Metal 1,338 K' }, { T: MAT.ice.tCond, col: C.iceLine, txt: 'Water ice 183 K' }];
-  lines.forEach(l => { const y = L.TY(l.T); c.strokeStyle = rgba(l.col, 0.85); c.lineWidth = 1.4; c.setLineDash([7, 5]);
-    c.beginPath(); c.moveTo(L.x0, y); c.lineTo(L.x1, y); c.stroke(); c.setLineDash([]);
-    c.font = `700 13px ${FM}`; c.textAlign = 'right'; c.textBaseline = 'bottom'; c.fillStyle = l.col; c.fillText(l.txt, L.x1 - 8, y - 4); });
-  // temperature curve
-  c.lineWidth = 3; c.lineCap = 'round';
-  for (let i = 0; i < PROF_N - 1; i++) { const r0 = RX0 * Math.pow(RX1 / RX0, i / (PROF_N - 1)), r1 = RX0 * Math.pow(RX1 / RX0, (i + 1) / (PROF_N - 1));
-    c.strokeStyle = rgbS(tempRGB(prof[i]).map(v => Math.min(255, v * 1.15 + 30))); c.beginPath(); c.moveTo(L.X(r0), L.TY(prof[i])); c.lineTo(L.X(r1), L.TY(prof[i + 1])); c.stroke(); }
-  c.lineCap = 'butt';
-  // fronts: where the curve crosses each line, drop to the lanes
-  [{ r: fr.rock, T: 1343, col: '#D2B595' }, { r: fr.ice, T: MAT.ice.tCond, col: C.iceLine }].forEach(f => {
-    if (f.r <= RX0 * 1.001 || f.r >= RX1 * 0.999) return;
-    const x = L.X(f.r), y = L.TY(f.T);
-    c.strokeStyle = rgba(f.col, 0.7); c.lineWidth = 1.4; c.setLineDash([3, 4]); c.beginPath(); c.moveTo(x, y); c.lineTo(x, L.mB); c.stroke(); c.setLineDash([]);
-    c.fillStyle = f.col; c.beginPath(); c.arc(x, y, 5, 0, 7); c.fill();
-  });
-  // ice line through the disk
-  if (fr.ice > RX0 && fr.ice < RX1) { const x = L.X(fr.ice);
-    c.strokeStyle = rgba(C.iceLine, 0.8); c.lineWidth = 1.5; c.setLineDash([6, 5]); c.beginPath(); c.moveTo(x, L.dT + 18); c.lineTo(x, L.dB); c.stroke(); c.setLineDash([]);
-    pill(c, 'Ice line ' + fmtAU(fr.ice) + ' AU', x, L.dT + 8, { align: 'center', color: C.iceLine }); }
-
-  // lanes
-  MAT_KEYS.forEach((k, i) => {
-    const [y0, y1] = L.lanes[i], m = MAT[k], f = clamp(frontAU(m.tCond, t), RX0, RX1), xf = L.X(f), hh = y1 - y0;
-    c.font = `700 13px ${FM}`; c.textAlign = 'right'; c.textBaseline = 'middle'; c.fillStyle = m.color; c.fillText(m.name, L.x0 - 7, (y0 + y1) / 2);
-    c.strokeStyle = 'rgba(232,228,217,0.18)'; c.lineWidth = 1; rrect(c, L.x0 + 0.5, y0 + 0.5, L.x1 - L.x0 - 1, hh - 1, 4); c.stroke();
-    if (xf > L.x0 + 2) {   // vapor part
-      c.save(); rrect(c, L.x0 + 0.5, y0 + 0.5, xf - L.x0, hh - 1, 4); c.clip();
-      c.fillStyle = rgba(m.color, 0.07); c.fillRect(L.x0, y0, xf - L.x0, hh);
-      c.fillStyle = rgba(m.color, 0.35); for (let x = L.x0 + 4; x < xf; x += 7) for (let yy = y0 + 4; yy < y1 - 2; yy += 6) c.fillRect(x + ((yy / 6) % 2) * 3, yy, 1.3, 1.3);
-      c.restore();
-      if (xf - L.x0 > 60) { c.font = `400 13px ${FM}`; c.textAlign = 'center'; c.fillStyle = C.ink2; pill(c, 'vapor', (L.x0 + xf) / 2, (y0 + y1) / 2, { align: 'center', color: C.ink2, h: hh - 4, bg: 'rgba(25,29,26,0.8)', font: `400 13px ${FM}` }); }
-    }
-    if (xf < L.x1 - 2) {
-      c.save(); rrect(c, xf, y0 + 0.5, L.x1 - xf - 0.5, hh - 1, 4); c.clip();
-      const gg = c.createLinearGradient(xf, 0, L.x1, 0); gg.addColorStop(0, rgba(m.color, 0.95)); gg.addColorStop(1, rgba(m.color, 0.7));
-      c.fillStyle = gg; c.fillRect(xf, y0, L.x1 - xf, hh); c.restore();
-      if (L.x1 - xf > 60) { c.font = `700 13px ${FM}`; c.textAlign = 'left'; c.textBaseline = 'middle'; c.fillStyle = '#1E2320'; c.fillText('solid', xf + 8, (y0 + y1) / 2 + 0.5); }
-    }
-  });
-  // solid material (g/cm² of disk), rock+metal stacked under ice
-  c.fillStyle = '#1d221e'; c.fillRect(L.x0, L.mT, L.x1 - L.x0, L.mB - L.mT);
-  c.font = `400 13px ${FM}`; c.textAlign = 'right'; c.textBaseline = 'middle';
-  [0.1, 1, 10, 100].forEach(s => { const y = L.SY(s); c.strokeStyle = C.grid; c.beginPath(); c.moveTo(L.x0, y); c.lineTo(L.x1, y); c.stroke(); c.fillStyle = C.ink2; c.fillText(String(s), L.x0 - 7, y); });
-  const pts = []; for (let x = L.x0; x <= L.x1; x += 2) { const r = L.R(x), st = condState(r, t), rm = Math.pow(r, -1.5) * SIG_ROCK * ((st.solid.metal ? 32.5 : 0) + (st.solid.rock ? 67.5 : 0)) / 100; pts.push([x, st.sigma, rm]); }
-  const area = (idx, col) => { c.beginPath(); c.moveTo(L.x0, L.mB); pts.forEach(p => c.lineTo(p[0], p[idx] > 0 ? L.SY(p[idx]) : L.mB)); c.lineTo(L.x1, L.mB); c.closePath(); c.fillStyle = col; c.fill(); };
-  area(1, rgba(MAT.ice.color, 0.8)); area(2, rgba(MAT.rock.color, 0.9));
-  c.font = `700 13px ${FM}`; c.textAlign = 'left'; c.textBaseline = 'top'; c.fillStyle = C.ink; c.fillText('Solid material · g per cm² of disk', L.x0 + 8, L.mT + 5);
-  // x axis
-  c.font = `400 13px ${FM}`; c.textBaseline = 'middle'; c.fillStyle = C.ink2; c.textAlign = 'center';
+  PLANETS8.forEach(k => { const x = L.X(ACC_BY_KEY[k].a); c.strokeStyle = 'rgba(232,228,217,0.45)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, L.dB - 4); c.lineTo(x, L.dB + 5); c.stroke();
+    c.fillStyle = 'rgba(232,228,217,0.75)'; c.fillText(ACC_BY_KEY[k].name, x, L.plY); });
+  c.font = `400 13px ${FM}`; c.fillStyle = C.ink2;
   [0.2, 0.5, 1, 2, 5, 10, 20, 40].forEach((r, i, a) => c.fillText(i === 0 || i === a.length - 1 ? r + ' AU' : String(r), clamp(L.X(r), L.x0 + 18, L.x1 - 22), L.axY));
   return L;
 }
@@ -827,15 +780,26 @@ function drawCond(c, W, H, opts = {}) {
       const bc = condBG.cv.getContext('2d'); bc.setTransform(PR, 0, 0, PR, 0, 0); drawCondBase(bc, W, H, t); condBG.key = key; }
     c.drawImage(condBG.cv, 0, 0, W, H); L = condLayout(W, H);
   }
-  const r = clamp(S.cond.r, RX0, RX1), x = L.X(r), T = tMid(r, t), np = nearPlanet(r);
-  c.strokeStyle = C.accHi; c.lineWidth = 2; c.beginPath(); c.moveTo(x, L.dT + 22); c.lineTo(x, L.mB); c.stroke();
-  c.fillStyle = C.accHi; c.beginPath(); c.arc(x, L.TY(T), 6.5, 0, 7); c.fill(); c.strokeStyle = '#191d1a'; c.lineWidth = 2; c.stroke();
-  const lbl = fmtAU(r) + ' AU' + (np ? ' · ' + ACC_BY_KEY[np].name : '');
-  pill(c, lbl, clamp(x, L.x0 + 60, L.x1 - 60), L.plY, { align: 'center', color: '#1E2320', bg: C.accHi, h: 21 });
-  const tl = fmtInt(T) + ' K', tx = x + 12, ty = L.TY(T) - 14;
-  c.font = `700 13px ${FM}`; const tw = c.measureText(tl).width;
-  pill(c, tl, tx + tw + 20 > L.x1 ? x - 12 : tx, ty, { align: tx + tw + 20 > L.x1 ? 'right' : undefined, color: C.accHi, stroke: rgba(C.acc, 0.6) });
+  const r = clamp(S.cond.r, RX0, RX1), x = L.X(r), T = tMid(r, t), hh = L.half(r);
+  c.strokeStyle = C.accHi; c.lineWidth = 2; c.beginPath(); c.moveTo(x, L.mid - hh - 14); c.lineTo(x, L.mid + hh + 14); c.stroke();
+  c.fillStyle = C.accHi; c.beginPath(); c.arc(x, L.mid + hh + 14, 6, 0, 7); c.fill(); c.beginPath(); c.arc(x, L.mid - hh - 14, 6, 0, 7); c.fill();
+  pill(c, fmtAU(r) + ' AU · ' + fmtInt(T) + ' K', clamp(x, L.x0 + 70, L.x1 - 70), L.mid - hh - 32, { align: 'center', color: '#1E2320', bg: C.accHi, h: 22, font: `700 14px ${FM}` });
   return L;
+}
+/* Thermometer: log scale, marks at the condensation temperatures */
+function drawThermo(c, x, y, w, h, T) {
+  const tx = x + 18, top = y + 8, bot = y + h - 24, br = 11, lo = 40, hi = 3000;
+  const Y = v => bot - (bot - top) * Math.log(clamp(v, lo, hi) / lo) / Math.log(hi / lo);
+  c.save();
+  c.fillStyle = '#161a17'; rrect(c, tx - 6, top - 4, 12, bot - top + 8, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.4)'; c.lineWidth = 1; c.stroke();
+  const col = rgbS(tempRGB(T).map(v => Math.min(255, v * 1.1 + 25)));
+  c.fillStyle = col; rrect(c, tx - 3.5, Y(T), 7, bot - Y(T) + 4, 3.5); c.fill();
+  c.beginPath(); c.arc(tx, bot + br - 2, br, 0, 7); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.4)'; c.stroke();
+  [[1340, '#E2C9A6', 'Rock & metal solid', '≈ 1,340 K'], [183, C.iceLine, 'Water ice', '183 K']].forEach(([v, cl, a, b]) => {
+    const yy = Y(v); c.strokeStyle = cl; c.lineWidth = 2; c.beginPath(); c.moveTo(tx - 9, yy); c.lineTo(tx + 14, yy); c.stroke();
+    c.font = `700 13px ${FB}`; c.fillStyle = cl; c.textAlign = 'left'; c.textBaseline = 'bottom'; c.fillText(a, tx + 20, yy + 1);
+    c.font = `400 13px ${FM}`; c.fillStyle = C.ink2; c.textBaseline = 'top'; c.fillText(b, tx + 20, yy + 2); });
+  c.restore();
 }
 function drawGrain(c, x, y, s, st) {
   c.save(); c.translate(x, y);
@@ -849,7 +813,7 @@ function drawGrain(c, x, y, s, st) {
     c.fillStyle = col; c.fill(); if (hi) { c.fillStyle = 'rgba(255,255,255,0.45)'; c.beginPath(); c.arc(bx - br * 0.3, by - br * 0.35, br * 0.3, 0, 7); c.fill(); } };
   const sc = s / 92;
   const parts = [[-8, -6, 13], [9, -9, 11], [12, 7, 12], [-6, 10, 11], [0, 0, 12], [-15, 4, 8], [4, 15, 8]];
-  if (st.solid.ice) {   // frost coat
+  if (st.solid.ice) {
     c.fillStyle = 'rgba(190,225,248,0.28)'; c.beginPath(); for (let k = 0; k < 18; k++) { const a = k / 18 * Math.PI * 2, rr = (35 + r() * 6) * sc; const px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr; k ? c.lineTo(px, py) : c.moveTo(px, py); } c.closePath(); c.fill();
     c.strokeStyle = 'rgba(205,235,255,0.75)'; c.lineWidth = 1.5; c.stroke();
   }
@@ -862,14 +826,13 @@ function condCard() {
   const r = S.cond.r, t = S.cond.age, st = condState(r, t), np = nearPlanet(r), ice = frontAU(MAT.ice.tCond, t);
   const rows = [
     { t: 'kv', l: 'Distance', v: fmtAU(r), u: 'AU · ' + fmtMkm(r) },
-    { t: 'kv', l: 'Disk temperature', v: fmtInt(st.T) + ' K', u: fmtInt(st.T - 273) + ' °C' },
+    { t: 'thermo', l: 'Disk temperature', v: fmtInt(st.T) + ' K', u: fmtInt(st.T - 273) + ' °C', T: st.T },
     { t: 'comp', l: 'Solid here · share of mass', st },
-    { t: 'kv', l: 'Solid material', v: st.sigma > 0 ? (st.sigma < 1 ? st.sigma.toFixed(2) : st.sigma.toFixed(1)) : '0', u: 'g per cm² of disk' },
-    { t: 'two', a: { l: 'Solids density', v: st.rho > 0 ? st.rho.toFixed(2) : '—', u: st.rho > 0 ? 'g/cm³' : '' }, b: { l: 'Ice line', v: fmtAU(ice), u: 'AU' } }
+    { t: 'two', a: { l: 'Ice line', v: fmtAU(ice), u: 'AU' }, b: { l: 'Solids density', v: st.rho > 0 ? st.rho.toFixed(2) : '—', u: st.rho > 0 ? 'g/cm³' : '' } }
   ];
   if (np) rows.push({ t: 'kv', l: ACC_BY_KEY[np].name + ' today · mean density', v: MEAN_RHO[np].toFixed(2), u: 'g/cm³', dim: true });
   return { eb: 'At the probe', rows, go: np ? { label: 'Watch ' + ACC_BY_KEY[np].name + ' grow →', act: () => { S.acc.sel = np; setTab('acc'); } } : null,
-    src: 'Viscous disk model · solids after Hayashi (1981) · condensation temperatures Wood et al. (2019) · densities NASA NSSDCA' };
+    src: 'Viscous disk model · grain counts ×4.2 past the ice line (Hayashi 1981) · condensation temperatures Wood et al. (2019) · densities NASA NSSDCA' };
 }
 /* ═════════════════════════════ 2 · ACCRETION ══════════════════════════ */
 const EMBRYO_COLOR = '#B9A48C', DUST_COL = '#CBB9A4', ROCKY_PL = '#BE9C7E', ICY_PL = '#A9CBE2';
@@ -1367,6 +1330,7 @@ function renderCard() {
   const kv = r => `<div class="l">${esc(r.l)}</div><div class="v">${esc(r.v)}${r.u ? `<span class="u">${esc(r.u)}</span>` : ''}</div>`;
   m.rows.forEach(r => {
     if (r.t === 'kv') h += `<div class="r${r.dim ? ' dim' : ''}">${kv(r)}</div>`;
+    else if (r.t === 'thermo') h += `<div class="r">${kv(r)}<canvas id="thermoCv" style="width:100%;height:118px;display:block;margin-top:2px" aria-label="Thermometer"></canvas></div>`;
     else if (r.t === 'two') h += `<div class="r two"><div>${kv(r.a)}</div><div>${kv(r.b)}</div></div>`;
     else if (r.t === 'comp') {
       const st = r.st, segs = MAT_KEYS.filter(k => st.shares[k] > 0);
@@ -1392,6 +1356,7 @@ function renderCard() {
   if (m.go) $('goBtn').onclick = m.go.act;
   el.querySelectorAll('.lay').forEach(b => { if (S.tab === 'diff') b.onclick = () => { const i = +b.dataset.i; S.diff.layer = S.diff.layer === i ? -1 : i; dirty = true; renderCard(); }; });
   el.querySelectorAll('.pick').forEach(b => b.onclick = () => { S.acc.sel = b.dataset.k; dirty = true; renderCard(); });
+  const tc = $('thermoCv'); if (tc) { const w = tc.clientWidth || 250, hh = tc.clientHeight || 118; tc.width = w * 2; tc.height = hh * 2; const g = tc.getContext('2d'); g.setTransform(2, 0, 0, 2, 0, 0); drawThermo(g, 0, 0, w, hh, m.rows.find(r => r.t === 'thermo').T); }
   const gc = $('grainCv'); if (gc) { const g = gc.getContext('2d'); g.setTransform(2, 0, 0, 2, 0, 0); drawGrain(g, 0, 0, 92, m.rows.find(r => r.t === 'comp').st); }
 }
 function rhoRange(b, l) { const a = rhoAt(b, l.rOut), z = rhoAt(b, l.rIn); return a.toFixed(a < 1 ? 2 : 1) + '–' + z.toFixed(1) + ' g/cm³'; }
@@ -1488,6 +1453,7 @@ function drawCardCanvas(c, x, y, w, h, m) {
   for (const r of m.rows) {
     if (yy > y + h - 90) break;
     if (r.t === 'kv') { kv(r, px, pw); yy += 46; line(); }
+    else if (r.t === 'thermo') { kv(r, px, pw); yy += 40; drawThermo(c, px, yy, pw, 104, r.T); yy += 106; line(); }
     else if (r.t === 'two') { kv(r.a, px, pw / 2); kv(r.b, px + pw / 2 + 5, pw / 2); yy += 46; line(); }
     else if (r.t === 'comp') {
       const st = r.st; c.font = `400 12px ${FM}`; c.fillStyle = C.ink2; c.fillText(r.l.toUpperCase(), px, yy + 13);
