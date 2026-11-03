@@ -374,10 +374,12 @@ function dashLine(c, x0, y0, x1, y1, col, w, d) { c.save(); c.strokeStyle = col;
 const nf = (v, d) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
 function fmtAU(r) { return r < 10 ? nf(r, 2) : r < 100 ? nf(r, 1) : nf(r, 0); }
 function fmtMkm(r) { const v = r * AU_KM / 1e6; return (v < 1000 ? nf(v, 1) : nf(v, 0)) + ' million km'; }
-function fracX(x) {                                         // 1.5 → '3/2'; null unless a fraction with denominator ≤ 4
-  for (let q = 1; q <= 4; q++) { const p = Math.round(x * q); if (p > 0 && Math.abs(x - p / q) < 0.002 * Math.max(1, x)) { let a = p, b = q; while (b) [a, b] = [b, a % b]; return q / a === 1 ? String(p / a) : (p / a) + '/' + (q / a); } }
-  return null;
+function fracR(r) {                                         // force (× today) at a whole or half AU as a fraction: 2 AU → '1/4', 1.5 AU → '4/9'
+  const n = Math.round(2 * r); if (n < 1 || Math.abs(r - n / 2) > 0.001 * r) return null;
+  let p = 4, q = n * n, a = p, b = q; while (b) [a, b] = [b, a % b]; p /= a; q /= a;
+  return q === 1 ? String(p) : p + '/' + q;
 }
+function forceFrac(sim) { return S.step === 2 && sim.gravity && (sim.t === 0 || elements(sim).kind === 'circle') ? fracR(rNow(sim)) : null; }
 function fmtX(x) { return x === 0 ? '0' : x < 10 ? nf(x, 2) : x < 100 ? nf(x, 1) : nf(x, 0); }
 const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
 function fmtSci(v) { if (!v) return '0'; const e = Math.floor(Math.log10(v)), m = v / Math.pow(10, e); return nf(m, 2) + ' × 10' + String(e).split('').map(ch => SUP[ch]).join(''); }
@@ -725,7 +727,7 @@ function drawAbove(c, W, H, sc) {
     if (!off) arrow(c, ex, ey, ex + ux * L, ey + uy * L, C.force, { brk, alpha: fa });
     arrow(c, sx, sy, sx - ux * L, sy - uy * L, C.force, { brk, alpha: fa });
     const vx = sim.vx, vy = -sim.vy, side = (-uy * vx + ux * vy) > 0 ? -1 : 1;  // Earth's label away from the velocity arrow
-    const fr = sc.step === 1 && (sim.t === 0 || elements(sim).kind === 'circle') ? fracX(F) : null;
+    const fr = sc.step === 2 ? forceFrac(sim) : null;
     const t = (fr || fmtX(F)) + '×', close = d < 90, a = close ? 0 : L * 0.5, hw = tw(c, t, `700 15px ${FM}`) / 2, o = (close ? 14 : 6) + hw * Math.abs(uy) + 11 * Math.abs(ux);   // clear of the shaft at any angle
     if (!off) label(c, t, ex + ux * a - uy * o * side, ey + uy * a + ux * o * side, { font: `700 15px ${FM}`, color: C.force, alpha: fa });
     if (d > 74) label(c, t, sx - ux * Math.max(a, Math.min(L * 0.8, sunPx(sc.vis.M) + 14)) + uy * o * side, sy - uy * Math.max(a, Math.min(L * 0.8, sunPx(sc.vis.M) + 14)) - ux * o * side, { font: `700 15px ${FM}`, color: C.force, alpha: fa });
@@ -1103,7 +1105,7 @@ function cardModel() {
   rows.push({ l: 'Distance from Sun', v: fmtAU(r), u: 'AU', nt: fmtMkm(r) });
   rows.push({ l: 'Speed', v: nf(v, 1), u: 'km/s', col: C.vel });
   if (S.view !== 'space') {
-    const fr = S.step === 1 && F && (s.t === 0 || el.kind === 'circle') ? fracX(F) : null;
+    const fr = F ? forceFrac(s) : null;
     rows.push(fr ? { l: 'Gravitational force', v: fr, u: '× today', nt: fmtX(F) + ' × today · ' + fmtSci(F * F_TODAY) + ' newtons', col: C.force }
                  : { l: 'Gravitational force', v: fmtX(F), u: '× today', nt: (F ? fmtSci(F * F_TODAY) : '0') + ' newtons', col: C.force });
   }
