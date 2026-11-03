@@ -438,7 +438,7 @@ function newRun(keep) {
   const prev = S.sim;
   if (!keep && prev && prev.t > 0.5 && !prev.done) remember(prev);
   S.sim = makeSim(cfgFor(Math.min(S.step, 3)));
-  S.running = false; S.flash = 0; S.front = null;
+  S.running = false; S.flash = 0;
   refit(true);
 }
 function midRun() { return S.sim && S.sim.t > 0 && !S.sim.done; }
@@ -484,30 +484,9 @@ function setParam(k, v) {
 }
 function setGravity(on) {
   const s = S.sim;
-  if (S.front) endFront();
   if (s.gravity === on) return;
   if (s.done) { newRun(true); applyEvent(S.sim, { k: 'grav', v: on }, true); S.running = true; }
-  else if (S.view === 'space' && S.step === 0 && s.t > 0) { S.front = { on, R: 0, hit: false }; S.running = true; }
   else { applyEvent(s, { k: 'grav', v: on }, true); if (s.t === 0) S.running = true; }
-  refit(); syncControls(); renderCard();
-}
-/* Einstein's model, step 1: a change in gravity spreads outward from the Sun at the speed of light.
-   Time is slowed while the front crosses the sheet; Earth's gravity switches when the front reaches it. */
-const FRONT_S = 1.6;                                       // real seconds per AU while time is slowed
-function sheetG() { const b = S.cam; return Math.max(1.35, Math.hypot(Math.max(Math.abs(b[0]), Math.abs(b[1])), Math.max(Math.abs(b[2]), Math.abs(b[3]))) * 0.92); }
-function slowFactor() { return RATES[S.rate] / (LIGHT_S / 86400 / FRONT_S); }
-function tickFront(dt) {
-  const f = S.front, s = S.sim, dR = dt / FRONT_S;
-  f.R += dR;
-  advance(s, dR * LIGHT_S / 86400, liveLimit());
-  if (!f.hit && f.R >= rNow(s)) { f.hit = true; applyEvent(s, { k: 'grav', v: f.on }, true); refit(); renderCard(); }
-  if (s.done) { endFront(); onRunEnd(); return; }
-  if (f.hit && f.R > sheetG() * 1.5) endFront();
-}
-function endFront() {
-  const f = S.front; if (!f) return;
-  if (!f.hit) applyEvent(S.sim, { k: 'grav', v: f.on }, true);
-  S.vis.depth = f.on ? 1 : 0; S.front = null;
   refit(); syncControls(); renderCard();
 }
 
@@ -935,7 +914,7 @@ function drawSurface(c, bx, by, bw, bh, P) {
   if (P.ring && P.ring.R < G * 1.5) {                    // the last sunlight, on the sheet
     c.save(); c.globalCompositeOperation = 'lighter';
     for (const [lw, al] of [[10, 0.12], [2.5, 0.85]]) {
-      c.strokeStyle = `rgba(${P.ring.rgb || '255,217,120'},${al * P.ring.a})`; c.lineWidth = lw; c.beginPath(); let st = false;
+      c.strokeStyle = `rgba(255,217,120,${al * P.ring.a})`; c.lineWidth = lw; c.beginPath(); let st = false;
       for (let k = 0; k <= 160; k++) { const a = k / 160 * TAU, x = P.ring.R * Math.cos(a), y = P.ring.R * Math.sin(a); if (Math.abs(x) > G || Math.abs(y) > G) { st = false; continue; } const p = P3(x, y); st ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); st = true; }
       c.stroke();
     }
@@ -965,12 +944,7 @@ function drawSpaceAbove(c, W, H, sc) {
   const { sim, layers, step } = sc;
   c.drawImage(spaceBG(W, H, sc.pr), 0, 0, W, H);
   const b = sc.box, G = Math.max(1.35, Math.hypot(Math.max(Math.abs(b[0]), Math.abs(b[1])), Math.max(Math.abs(b[2]), Math.abs(b[3]))) * 0.92);
-  const fr = sc.front, fw = 0.12 * G, fA = 0.06 * G;
-  const well0 = wellFn(G, 1), dep = (fr ? 1 : sc.vis.depth) * Math.pow(sc.vis.M, 0.6) * (sc.depthK == null ? 1 : sc.depthK);
-  // front: inside it the dent fills in (gravity off) or forms (gravity on); outside, the sheet is unchanged; a low crest marks the front
-  const well = fr ? (r => { const d = (r - fr.R) / fw, crest = fA * Math.exp(-d * d);
-                            return (fr.on ? well0(Math.min(r, fr.R)) - well0(fr.R) : well0(Math.max(r, fr.R))) * dep + crest; })
-                  : (r => well0(r) * dep);   // deeper for more mass (compressed so the floor stays in view)
+  const well0 = wellFn(G, 1), dep = sc.vis.depth * Math.pow(sc.vis.M, 0.6) * (sc.depthK == null ? 1 : sc.depthK), well = r => well0(r) * dep;   // deeper for more mass (compressed so the floor stays in view)
   const paths = [];
   const ownMem = sc.mem.find(m => m.sim === sim);
   if (layers.path) {
@@ -981,12 +955,11 @@ function drawSpaceAbove(c, W, H, sc) {
   const gone = sim.done === 'impact', inGrid = Math.abs(sim.x) < G && Math.abs(sim.y) < G;
   const top = step === 3 ? 92 : 30, left = step === 2 ? 280 : 16;
   const R = drawSurface(c, left, top, W - left - 120, H - top - 46, {
-    G, well, N: fr ? 48 : 30, az: sc.azO == null ? sc.az : sc.azO, el: sc.elO == null ? sc.el : sc.elO, clock: sc.clock, fitDepth: wellFn(G, 1)(0) * Math.max(1, sc.vis.depth * Math.pow(sc.vis.M, 0.6)),
-    sun: { M: sc.vis.M, a: 1 }, refR: step >= 1 && step <= 3 ? 1 : null, paths, ring: fr ? { R: fr.R, a: 1, rgb: '79,195,206' } : null,
+    G, well, az: sc.azO == null ? sc.az : sc.azO, el: sc.elO == null ? sc.el : sc.elO, clock: sc.clock, fitDepth: wellFn(G, 1)(0) * Math.max(1, sc.vis.depth * Math.pow(sc.vis.M, 0.6)),
+    sun: { M: sc.vis.M, a: 1 }, refR: step >= 1 && step <= 3 ? 1 : null, paths,
     earth: !gone && inGrid ? { x: sim.x, y: sim.y, m: sim.m, lit: true, vel: layers.vel ? { vx: sim.vx, vy: sim.vy, kms: speedKms(sim) } : null } : null
   });
   drawClock(c, sim, sc);
-  if (sc.front) label(c, 'TIME SLOWED ×' + nf(Math.round(slowFactor() / 100) * 100, 0), W / 2, 22, { font: `700 13px ${FM}`, color: C.solar, hw: 3 });
   tag(c, 'SCHEMATIC · DEPTH EXAGGERATED', W - 14, H - 20);
   if (step === 2) drawForceGraph(c, 14, 128, 256, Math.min(196, H - 186), sc);
   if (step === 3) drawSpeedGauge(c, W / 2 - 40, 16, Math.min(400, W - 470), sc);
@@ -1028,7 +1001,7 @@ function drawVanish(c, W, H, sc) {
     label(c, 'TIME SINCE THE SUN VANISHED', W / 2, 18, { font: `700 13px ${FM}`, color: C.sec });
     label(c, t == null ? '—' : fmt5(t, F), W / 2, 46, { font: `700 30px ${FD}`, color: t == null ? C.muted : C.text });
   }
-  tag(c, 'THOUGHT EXPERIMENT', W - 14, 20);
+  tag(c, 'THOUGHT EXPERIMENT · NOT TO SCALE', W - 14, 20);
   if (F > 1) label(c, 'SPEED OF LIGHT SLOWED ×' + nf(F, 0), W - 14, 42, { font: `700 13px ${FM}`, color: C.solar, align: 'right', hw: 3 });
   const gap = 12, top = 70, pw = (W - gap * 3) / 2, ph5 = H - top - gap;
   const boxes = [[gap, top, pw, ph5], [gap * 2 + pw, top, pw, ph5]];
@@ -1099,7 +1072,7 @@ function trimNum(v) { return String(+v.toFixed(2)); }
 function cardModel() {
   if (S.step === 4) return card5();
   const s = S.sim, el = elements(s), F = forceX(s), r = rNow(s), v = speedKms(s), rows = [];
-  if (S.step === 0) { const gOn = S.front ? S.front.on : s.gravity; rows.push({ l: 'Gravity', v: gOn ? 'On' : 'Off', col: gOn ? C.force : C.sec, dim: true }); }
+  if (S.step === 0) rows.push({ l: 'Gravity', v: s.gravity ? 'On' : 'Off', col: s.gravity ? C.force : C.sec, dim: true });
   if (S.step === 1) { rows.push({ l: 'Sun mass', v: trimNum(s.M), u: '× our Sun', dim: true }); rows.push({ l: 'Earth mass', v: trimNum(s.m), u: '× Earth', dim: true }); }
   if (S.step === 2) rows.push({ l: 'Starting distance', v: fmtAU(s.cfg.r0), u: 'AU', dim: true });
   if (S.step === 3) rows.push({ l: 'Launch speed', v: nf(s.cfg.v0, 1), u: 'km/s', dim: true });
@@ -1182,10 +1155,6 @@ function renderControls() {
   } else {
     ctl.appendChild(snapGroup('t5', snaps5(S.v5.mode), () => S.v5.t, v => jump5(v)));
     const sl = sliderEl('t5', 0, 1, 0.001, 'Time since the Sun vanished'); sl.querySelector('input').oninput = e => { S.v5.tween = null; set5(u2t(+e.target.value)); }; ctl.appendChild(sl);
-    ctl.appendChild(mk('div', 'sep'));
-    const seg = mk('div', 'cc-segmented'); seg.id = 'mode5';
-    [['slow', 'Slowed'], ['real', 'Real speed']].forEach(([k, txt]) => { const b = mk('button', 'cc-segmented-btn', txt); b.dataset.mode = k; b.onclick = () => setMode5(k); seg.appendChild(b); });
-    ctl.appendChild(seg);
   }
   syncControls();
 }
@@ -1201,7 +1170,7 @@ function syncControls() {
     if (pb.textContent !== t) pb.textContent = t;
   }
   const g = document.getElementById('bGrav');
-  if (g) { const on = S.front ? S.front.on : S.sim.gravity; g.classList.toggle('off', !on); g.querySelector('.gt').textContent = on ? 'Gravity ON' : 'Gravity OFF'; g.setAttribute('aria-pressed', on); }
+  if (g) { const on = S.sim.gravity; g.classList.toggle('off', !on); g.querySelector('.gt').textContent = on ? 'Gravity ON' : 'Gravity OFF'; g.setAttribute('aria-pressed', on); }
   ctl.querySelectorAll('.grp[data-key]').forEach(gr => {
     const key = gr.dataset.key, snaps = key === 't5' ? snaps5(S.v5.mode) : SNAPS[key], v = key === 't5' ? S.v5.t : key === 'M' || key === 'm' ? S.sim[key] : set()[key];
     gr.querySelectorAll('.snap').forEach(b => { const sv = snaps[+b.dataset.i].v; b.classList.toggle('is-active', v != null && Math.abs(sv - v) < (key === 't5' ? 0.6 : key === 'v0' ? 0.004 : 0.001)); });
@@ -1224,7 +1193,6 @@ const chipsTR = document.getElementById('chipsTR'), chipsBL = document.getElemen
 const modelEl = document.getElementById('model');
 function setView(k) {
   if (S.view === k) return;
-  if (S.front && k === 'above') endFront();
   S.view = k; if (k === 'space') S.seenSpace = true;
   renderCard();
   S.banner = { t: k === 'space' ? "EINSTEIN'S MODEL" : "NEWTON'S MODEL", s: k === 'space' ? 'Gravity is curved spacetime' : 'Gravity is a force', col: k === 'space' ? '#4FC3CE' : C.force, age: 0 };
@@ -1298,7 +1266,7 @@ function resize() {
 }
 function liveScene() {
   return { step: S.step, sim: S.sim, box: S.cam, mem: S.memory[S.step] || [], layers: S.layers, vis: S.vis, clock, flash: S.flash, running: S.running,
-    az: S.az, el: S.el, mix: S.mix, az5: S.az5, el5: S.el5, t5: S.v5.t, ph5: S.v5.ph, f5: f5(S.v5.mode), view: S.view, front: S.front ? { on: S.front.on, R: S.front.R } : null };
+    az: S.az, el: S.el, mix: S.mix, az5: S.az5, el5: S.el5, t5: S.v5.t, ph5: S.v5.ph, f5: f5(S.v5.mode), view: S.view };
 }
 function renderScene(c, W, H, sc) {
   UI = clamp(Math.min(W, H) / 470, 1, 1.7);
@@ -1352,12 +1320,12 @@ function loop(now) {
   if (!capturing && !document.hidden && S.sim) {
     clock += dt;
     if (S.step < 4) {
-      if (S.running) { if (S.front) tickFront(dt); else { advance(S.sim, dt * RATES[S.rate], liveLimit()); if (S.sim.done) onRunEnd(); } }
+      if (S.running) { advance(S.sim, dt * RATES[S.rate], liveLimit()); if (S.sim.done) onRunEnd(); }
       const k = 1 - Math.exp(-dt * 4.5);
       for (let i = 0; i < 4; i++) S.cam[i] += (S.camT[i] - S.cam[i]) * k;
       const kv = 1 - Math.exp(-dt * 6);
       S.vis.M += (S.sim.M - S.vis.M) * kv;
-      if (!S.front) S.vis.depth += ((S.sim.gravity ? 1 : 0) - S.vis.depth) * kv;
+      S.vis.depth += ((S.sim.gravity ? 1 : 0) - S.vis.depth) * kv;
       S.vis.force += ((S.view === 'above' ? 1 : 0) - S.vis.force) * kv;
       const mt = S.view === 'space' ? 1 : 0; S.mix = mt > S.mix ? Math.min(mt, S.mix + dt / 1.1) : Math.max(mt, S.mix - dt / 0.8);
       if (S.banner) S.banner.age += dt;
@@ -1370,7 +1338,7 @@ function loop(now) {
 }
 function setStep(i) {
   if (S.sim && S.step <= 3 && S.sim.t > 0.5 && !S.sim.done) remember(S.sim);
-  S.step = i; S.running = false; S.v5.tween = null; S.front = null;
+  S.step = i; S.running = false; S.v5.tween = null;
   document.querySelectorAll('#tabs .cc-segmented-btn').forEach((b, k) => b.classList.toggle('is-active', k === i));
   if (i < 4) { newRun(true); S.vis.M = S.sim.M; S.vis.depth = 1; S.mix = S.view === 'space' ? 1 : 0; S.banner = null; }
   else { if (!S.sim) newRun(true); S.v5.t = null; S.v5.ph = PHASE5; }
@@ -1490,7 +1458,7 @@ function makeReplayer(cfg, events, lim) {
   } };
 }
 function sceneAt(base, s, box) {
-  return Object.assign({}, base, { sim: s, box, front: null, vis: { M: s.M, depth: s.gravity ? 1 : 0, force: base.view === 'above' ? 1 : 0 }, flash: s.done === 'impact' ? 0.5 : 0, running: true, hit: null });
+  return Object.assign({}, base, { sim: s, box, vis: { M: s.M, depth: s.gravity ? 1 : 0, force: base.view === 'above' ? 1 : 0 }, flash: s.done === 'impact' ? 0.5 : 0, running: true, hit: null });
 }
 function cardFor(s) { const keep = S.sim; S.sim = s; const m = cardModel(); S.sim = keep; return m; }
 /* frames: [{ sc, delay(cs) }] built lazily */
