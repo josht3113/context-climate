@@ -1,9 +1,11 @@
 export default function Hurricanes() {
   return (
-    <iframe
-      src="/ENSO_Charts_Hurricanes.html"
-      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
-      title="Tropical Cyclones ENSO Phase Comparison"
-    />
+    <div style={{ position: 'fixed', top: '56px', left: 0, right: 0, bottom: 0 }}>
+      <iframe
+        src="/ENSO_Charts_Hurricanes.html"
+        title="Tropical Cyclones ENSO Phase Comparison"
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+      />
+    </div>
   )
 }
