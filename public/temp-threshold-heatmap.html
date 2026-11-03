@@ -327,6 +327,7 @@
   <div class="tt-detail" id="tt-detail"></div>
 </div>
 
+<script src="iem-climo.js"></script>
 <script>
 'use strict';
 // ═══════════════════════════════════════════════════════════════
@@ -334,6 +335,7 @@
 // ═══════════════════════════════════════════════════════════════
 const CLIMO_START   = 1991;
 const CLIMO_END     = 2025;
+const CLIMO_TOOL  = 'temp-threshold-heatmap';   // IndexedDB cache namespace
 const TOTAL_YEARS   = CLIMO_END - CLIMO_START + 1;
 let CANVAS_HEIGHT = 504; // on screen: fills the stage; export: fixed 21px × 24 rows
 const EXPORT_W = 1400, EXPORT_H = 504;
@@ -1017,6 +1019,11 @@ async function loadClimatology() {
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
+  if (!climoCache.has(requestStationId)) {
+    const saved = await IEMClimo.cacheGet(CLIMO_TOOL, requestStationId, CLIMO_START, CLIMO_END);
+    if (myToken !== loadToken) return;
+    if (saved) { climoCache.set(requestStationId, saved); hideLoading(); }
+  }
   if (climoCache.has(requestStationId)) {
     const c = climoCache.get(requestStationId);
     coldCount = c.coldCount; heatCount = c.heatCount; dataCount = c.dataCount;
@@ -1026,10 +1033,15 @@ async function loadClimatology() {
 
   // Request-local grids so a slower/older request can't clobber a newer one.
   const reqGrids = initGrids();
-  showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM… (may take ~30s)`);
+  showLoading(`Fetching ${CLIMO_START}–${CLIMO_END} from IEM…`);
 
   try {
-    const csv = await fetchRangeCSV(CLIMO_START, CLIMO_END);
+    const csv = await IEMClimo.fetchRangeChunked(fetchRangeCSV, CLIMO_START, CLIMO_END, {
+      isStale: () => myToken !== loadToken,
+      onProgress: (done, total) => setProgress(Math.round(55 * done / total),
+        `Fetching ${CLIMO_START}–${CLIMO_END} from IEM… ${done} of ${total} years`),
+    });
+    if (csv === null) return; // superseded while fetching
     if (myToken !== loadToken) return; // superseded by a later station switch
     setProgress(55, 'Parsing temperature observations…');
     await sleep(30);
@@ -1047,6 +1059,7 @@ async function loadClimatology() {
       heatCount: reqGrids.heatCount.map(arr => arr.map(r => Int16Array.from(r))),
       dataCount: reqGrids.dataCount.map(r => Int16Array.from(r)),
     });
+    IEMClimo.cacheSet(CLIMO_TOOL, requestStationId, CLIMO_START, CLIMO_END, climoCache.get(requestStationId));
 
     if (myToken !== loadToken) return; // abandoned while we were caching
     coldCount = reqGrids.coldCount; heatCount = reqGrids.heatCount; dataCount = reqGrids.dataCount;
