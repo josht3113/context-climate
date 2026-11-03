@@ -75,6 +75,18 @@
   .canvas-container { position:relative; min-height:160px; }
   #heatmap-canvas { display:block; cursor:crosshair; }
 
+  /* ── Side chart (rows aligned with the grid) ── */
+  .side { flex-shrink:0; margin-left:20px; display:none; }
+  .side.on { display:block; }
+  #side-canvas { display:block; }
+
+  /* ── Card: month in context ── */
+  .ctx { border-bottom:none; }
+  #ctx-canvas { display:block; margin-top:2px; }
+  .ctx-axis { display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--color-text-secondary); margin-top:2px; }
+  .ctx-v { font-family:var(--font-display); font-weight:700; font-size:22px; line-height:1.2; color:var(--color-text-primary); margin-top:6px; }
+  .ctx-r { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--color-text-secondary); }
+
   /* ── Bar: fields ── */
   .bar-col { display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
   .field-toggle { display:flex; align-items:stretch; flex-wrap:wrap; gap:6px 10px; }
@@ -263,6 +275,7 @@
                 </div>
               </div>
             </div>
+            <div class="side" id="side"><canvas id="side-canvas"></canvas></div>
           </div>
         </div>
       </div>
@@ -354,6 +367,14 @@
         <div class="card-row"><button class="cc-btn" style="flex:1" id="range-row-btn" onclick="toggleRangeRow()">Range Row</button></div>
       </div>
 
+      <div class="cc-card-grp ctx" id="ctx-grp" style="display:none">
+        <div class="cc-card-l" id="ctx-label"></div>
+        <canvas id="ctx-canvas"></canvas>
+        <div class="ctx-axis"><span id="ctx-lo"></span><span id="ctx-hi"></span></div>
+        <div class="ctx-v" id="ctx-v"></div>
+        <div class="ctx-r" id="ctx-r"></div>
+      </div>
+
       <div class="cc-card-src">
         <span id="footer-tz">Local Time</span><br>
         Data: IEM ASOS &middot; NOAA ACIS (daily high / low)
@@ -406,7 +427,16 @@ function fitCells() {
       const cs = getComputedStyle(st);
       const w = st.clientWidth  - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - HOUR_COL_W - 2;
       const h = st.clientHeight - parseFloat(cs.paddingTop)  - parseFloat(cs.paddingBottom) - DAYBAR_H - 2;
-      CELL_W = Math.max(CELL_W_MIN, Math.floor((w - AVG_GAP) / 32 * 4) / 4);
+      // Cells stay near their original width (cap 32 px); the width left
+      // over goes to the side chart. If the cap leaves too little for it,
+      // fall back to the original 29 px before giving the chart up.
+      const fit = Math.max(CELL_W_MIN, Math.floor((w - AVG_GAP) / 32 * 4) / 4);
+      const capped = Math.min(fit, CELL_W_CAP);
+      const room = cw => w - (32 * cw + AVG_GAP) - SIDE_GAP;
+      if (room(capped) >= SIDE_MIN) { CELL_W = capped; SIDE_W = Math.min(SIDE_MAX, room(capped)); }
+      else if (fit >= EXPORT_CELL_W && room(EXPORT_CELL_W) >= SIDE_MIN) { CELL_W = EXPORT_CELL_W; SIDE_W = Math.min(SIDE_MAX, room(EXPORT_CELL_W)); }
+      else { CELL_W = capped; SIDE_W = 0; }
+      if (window.innerWidth <= 760) SIDE_W = 0;
       CELL_H = Math.max(CELL_H_MIN, Math.min(CELL_H_MAX,
                Math.floor((h - FOOTER_GAP) / (24 + footerRows()) * 4) / 4));
     }
@@ -1861,6 +1891,7 @@ function renderHeatmap() {
 
   // ── Cell values ──
   renderCellValues(cw, ch, mDays, cells, avgCol, footer, AVG_X);
+  afterRender();
 }
 
 // Compare mode's renderer: one full grid+Avg-column block per selected
@@ -2021,6 +2052,7 @@ function renderCompareHeatmap() {
   });
   ctx.restore();
   drawMissingMarks(marks);
+  afterRender();
 }
 
 // Dispatches to the correct renderer for the active mode -- renderHeatmap()
@@ -2143,6 +2175,7 @@ function renderCompareStrips() {
   });
   ctx.restore();
   drawMissingMarks(marks);
+  afterRender();
 }
 
 function renderActiveHeatmap() {
@@ -2363,6 +2396,7 @@ async function refreshCompareView() {
     updateTitle();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     updateStats();
+    afterRender();
     return;
   }
   document.getElementById('compare-empty').style.display = 'none';
@@ -3731,6 +3765,7 @@ function downloadPNG() {
   // we've captured the high-res version into the export canvas above.
   dpr = origDpr;
   exportCells = false;
+  compareStripH = screenStripH;
   setupCanvas();
   renderActiveHeatmap();
 
@@ -4011,6 +4046,373 @@ function downloadCSV(shape) {
 // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// SIDE CHART (aligned to the grid rows) + MONTH IN CONTEXT (card)
+// ═══════════════════════════════════════════════════════════
+let SIDE_W = 0;
+const SIDE_GAP = 20, SIDE_MIN = 200, SIDE_MAX = 520, CELL_W_CAP = 32;
+const SIDE_AXIS_H = 20;
+
+function niceStep(raw) {
+  const p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * p;
+}
+function niceDomain(lo, hi, n) {
+  if (!(hi - lo > 1e-9)) { lo -= 1; hi += 1; }
+  const step = niceStep((hi - lo) / Math.max(1, n));
+  const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let v = a; v <= b + step * 1e-6; v += step) ticks.push(+v.toFixed(6));
+  return { lo: a, hi: b, ticks, step };
+}
+function fmtSide(v) {
+  const f = activeField;
+  if (f === 'temp_z' || f === 'td_z') return (v >= 0 ? '+' : '') + v.toFixed(2);
+  if (ANOM_FIELDS.includes(f) || TREND_FIELDS.includes(f)) return (v >= 0 ? '+' : '') + v.toFixed(1);
+  return v.toFixed(1);
+}
+function fmtTick(v, step) {
+  const d = step < 1 ? (step < 0.1 ? 2 : 1) : 0;
+  return v.toFixed(d);
+}
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// Per-hour mean (same aggregate as the Avg column), min-max across the
+// month's days, and -- in Single Year with a Multi-Year Avg loaded -- the
+// normal for that hour.
+function sideHourRows() {
+  if (mode === 'single' ? !singleData : !climoData) return null;
+  refreshNow();
+  const mDays = getMonthDays();
+  const normF = (mode === 'single' && climoData && BASE_FIELDS.includes(activeField))
+    ? climoData.mean[activeField] : null;
+  const items = [];
+  for (let h = 0; h < 24; h++) {
+    const states = [];
+    let lo = Infinity, hi = -Infinity, ns = 0, nc = 0;
+    for (let d = 0; d < mDays; d++) {
+      const doy = MONTH_START_DOY[activeMonth] + d;
+      const s = singleCellState(doy, h);
+      states.push(s);
+      if (s.st === 'v') { if (s.v < lo) lo = s.v; if (s.v > hi) hi = s.v; }
+      if (normF) { const v = normF[doy * 24 + h]; if (!isNaN(v)) { ns += v; nc++; } }
+    }
+    const a = aggregateStates(states);
+    items.push({ y: (h + 0.5) * CELL_H, mean: a.st === 'v' ? a.v : null,
+                 lo: isFinite(lo) ? lo : null, hi: isFinite(hi) ? hi : null,
+                 norm: nc ? ns / nc : null });
+  }
+  const zero = ANOM_FIELDS.includes(activeField) || TREND_FIELDS.includes(activeField);
+  return { items, rowsH: CANVAS_HEIGHT, band: true, normal: !!normF, zero, labels: false };
+}
+
+// One monthly mean per compared year, beside that year's strip.
+function sideCompareRows() {
+  if (!compareYears.length) return null;
+  const items = compareYears.map((year, ri) => {
+    const arr = getCompareDailyArray(year, activeField);
+    const states = [];
+    for (let d = 0; d < getMonthDaysForYear(year); d++) {
+      const v = arr[MONTH_START_DOY[activeMonth] + d];
+      states.push(isNaN(v) ? EMPTY_STATE : { v, st: 'v' });
+    }
+    const a = aggregateStates(states);
+    return { y: (ri + 0.5) * compareStripH, mean: a.st === 'v' ? a.v : null, year };
+  });
+  const zero = ANOM_FIELDS.includes(activeField);
+  return { items, rowsH: compareYears.length * compareStripH, band: false, normal: false, zero,
+           labels: compareStripH >= 13, avgLine: true };
+}
+
+function renderSidePanel() {
+  const el = document.getElementById('side');
+  if (!el || exportCells) return;
+  const rows = (SIDE_W > 0 && !(mode === 'compare' && compareDetail !== 'daily'))
+    ? (mode === 'compare' ? sideCompareRows() : sideHourRows()) : null;
+  el.classList.toggle('on', !!rows);
+  if (!rows) return;
+
+  const W = SIDE_W, H = DAYBAR_H + rows.rowsH + SIDE_AXIS_H;
+  const cv = document.getElementById('side-canvas');
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+
+  const vals = [];
+  for (const r of rows.items) for (const v of [r.mean, r.lo, r.hi, r.norm]) if (v != null) vals.push(v);
+  if (rows.zero) vals.push(0);
+  if (!vals.length) return;
+  const dom = niceDomain(Math.min(...vals), Math.max(...vals), Math.max(3, Math.floor(W / 85)));
+  const L = 8, R = W - (rows.labels ? 52 : 12), top = DAYBAR_H, bot = DAYBAR_H + rows.rowsH;
+  const x = v => L + (v - dom.lo) / (dom.hi - dom.lo) * (R - L);
+  const scale = SCALES[activeField];
+  const unit = SCALE_LABELS[activeField] || '';
+
+  // Key, in the row level with the day numbers
+  c.font = '700 12px "Courier Prime", monospace';
+  c.textBaseline = 'middle';
+  let kx = L;
+  const keyY = DAYBAR_H / 2;
+  const key = (draw, label) => { draw(kx, keyY); kx += 18; c.fillStyle = '#C4C0B4'; c.fillText(label, kx, keyY); kx += c.measureText(label).width + 14; };
+  key((kx0, ky) => { c.fillStyle = '#E8E4D9'; c.beginPath(); c.arc(kx0 + 6, ky, 4, 0, Math.PI * 2); c.fill(); },
+      mode === 'compare' ? 'Month mean' : (isPeakField() ? 'Peak' : 'Mean'));
+  if (rows.band) key((kx0, ky) => { c.fillStyle = 'rgba(232,228,217,0.28)'; c.fillRect(kx0, ky - 4, 13, 8); }, 'Range');
+  if (rows.normal) key((kx0, ky) => { c.strokeStyle = '#D08425'; c.lineWidth = 2; c.setLineDash([4, 3]); c.beginPath(); c.moveTo(kx0, ky); c.lineTo(kx0 + 13, ky); c.stroke(); c.setLineDash([]); }, 'Normal');
+  if (rows.avgLine) key((kx0, ky) => { c.strokeStyle = '#D08425'; c.lineWidth = 2; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(kx0 + 6, ky - 6); c.lineTo(kx0 + 6, ky + 6); c.stroke(); c.setLineDash([]); }, 'Average');
+
+  // Gridlines + tick labels under the rows
+  c.lineWidth = 1;
+  c.font = '700 12px "Courier Prime", monospace';
+  c.fillStyle = '#A6A499';
+  c.textAlign = 'center';
+  for (const t of dom.ticks) {
+    const tx = Math.round(x(t)) + 0.5;
+    c.strokeStyle = (rows.zero && Math.abs(t) < 1e-9) ? 'rgba(232,228,217,0.45)' : 'rgba(232,228,217,0.09)';
+    c.beginPath(); c.moveTo(tx, top); c.lineTo(tx, bot); c.stroke();
+    c.fillText(fmtTick(t, dom.step), tx, bot + SIDE_AXIS_H / 2 + 2);
+  }
+  c.textAlign = 'left';
+  if (unit && kx + c.measureText(unit).width < W) {
+    c.textAlign = 'right'; c.fillStyle = '#A6A499'; c.fillText(unit, W - 2, keyY); c.textAlign = 'left';
+  }
+
+  // Row separators matching the grid
+  c.strokeStyle = 'rgba(232,228,217,0.05)';
+  c.beginPath();
+  const rowH = mode === 'compare' ? compareStripH : CELL_H;
+  for (let i = 1; i < rows.items.length; i++) { const yy = Math.round(top + i * rowH) + 0.5; c.moveTo(L, yy); c.lineTo(R, yy); }
+  c.stroke();
+
+  // Range bars
+  if (rows.band) {
+    c.fillStyle = 'rgba(232,228,217,0.16)';
+    const bh = Math.max(4, rowH * 0.55);
+    for (const r of rows.items) {
+      if (r.lo == null || r.hi == null) continue;
+      const x0 = x(r.lo), x1 = Math.max(x(r.hi), x0 + 2);
+      c.fillRect(x0, top + r.y - bh / 2, x1 - x0, bh);
+    }
+  }
+  // Average of the compared years
+  if (rows.avgLine) {
+    const ms = rows.items.filter(r => r.mean != null).map(r => r.mean);
+    if (ms.length) {
+      const ax = Math.round(x(ms.reduce((a, b) => a + b, 0) / ms.length)) + 0.5;
+      c.strokeStyle = '#D08425'; c.lineWidth = 2; c.setLineDash([3, 3]);
+      c.beginPath(); c.moveTo(ax, top); c.lineTo(ax, bot); c.stroke(); c.setLineDash([]);
+    }
+  }
+  // Normal
+  if (rows.normal) {
+    c.strokeStyle = '#D08425'; c.lineWidth = 2; c.setLineDash([5, 4]);
+    c.beginPath(); let on = false;
+    for (const r of rows.items) {
+      if (r.norm == null) { on = false; continue; }
+      const px = x(r.norm), py = top + r.y;
+      if (on) c.lineTo(px, py); else { c.moveTo(px, py); on = true; }
+    }
+    c.stroke(); c.setLineDash([]);
+  }
+  // Mean line (hour rows only) + dots coloured on the grid's scale
+  if (!rows.avgLine) {
+    c.strokeStyle = 'rgba(232,228,217,0.85)'; c.lineWidth = 1.5;
+    c.beginPath(); let on = false;
+    for (const r of rows.items) {
+      if (r.mean == null) { on = false; continue; }
+      const px = x(r.mean), py = top + r.y;
+      if (on) c.lineTo(px, py); else { c.moveTo(px, py); on = true; }
+    }
+    c.stroke();
+  }
+  const dotR = Math.max(2.5, Math.min(5, rowH * 0.24));
+  let hiR = null, loR = null;
+  for (const r of rows.items) if (r.mean != null) {
+    if (!hiR || r.mean > hiR.mean) hiR = r;
+    if (!loR || r.mean < loR.mean) loR = r;
+  }
+  for (const r of rows.items) {
+    if (r.mean == null) continue;
+    const [cr, cg, cb] = getColorRGB(r.mean, scale);
+    c.fillStyle = `rgb(${cr},${cg},${cb})`;
+    c.strokeStyle = '#1E2320'; c.lineWidth = 1.5;
+    c.beginPath(); c.arc(x(r.mean), top + r.y, dotR, 0, Math.PI * 2); c.fill(); c.stroke();
+    if (rows.labels) {
+      const ext = r === hiR || r === loR;
+      c.font = `${ext ? 700 : 400} 12px "Courier Prime", monospace`;
+      c.fillStyle = ext ? '#E8E4D9' : '#A6A499';
+      c.textBaseline = 'middle';
+      c.fillText(fmtSide(r.mean), x(r.mean) + dotR + 5, top + r.y + 1);
+    }
+  }
+}
+
+// ── Month in context: every year's monthly mean from NOAA ACIS ──
+const monthlyCache = new Map();   // stationId -> { status, by: Map(year -> 12 × {avg,max,min}) }
+async function ensureMonthly(stId) {
+  if (monthlyCache.has(stId)) return;
+  monthlyCache.set(stId, { status: 'loading' });
+  try {
+    const acisId = stId.startsWith('K') ? stId.slice(1) : stId;
+    const el = name => ({ name, interval: 'mly', duration: 'mly', reduce: 'mean', maxmissing: 3 });
+    const resp = await fetch('https://data.rcc-acis.org/StnData', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sid: acisId, sdate: 'por', edate: 'por', elems: [el('avgt'), el('maxt'), el('mint')] }),
+    });
+    if (!resp.ok) throw new Error(`ACIS HTTP ${resp.status}`);
+    const json = await resp.json();
+    const by = new Map();
+    const num = v => { const f = parseFloat(v); return isNaN(f) ? null : f; };
+    for (const row of (json.data || [])) {
+      if (!Array.isArray(row) || row.length < 4) continue;
+      const y = parseInt(row[0].slice(0, 4), 10), m = parseInt(row[0].slice(5, 7), 10) - 1;
+      if (isNaN(y) || isNaN(m)) continue;
+      if (!by.has(y)) by.set(y, new Array(12).fill(null));
+      by.get(y)[m] = { avg: num(row[1]), max: num(row[2]), min: num(row[3]) };
+    }
+    monthlyCache.set(stId, { status: 'ok', by });
+  } catch (e) {
+    monthlyCache.set(stId, { status: 'err' });
+  }
+  if (stId === activeStationId) renderContext();
+}
+
+function renderContext() {
+  const grp = document.getElementById('ctx-grp');
+  if (!grp || exportCells) return;
+  const kind = baseFieldOf(activeField) === 'temp' ? 'avg' : (activeField === 'dtr' ? 'dtr' : null);
+  const mc = kind ? monthlyCache.get(activeStationId) : null;
+  if (kind && !mc) ensureMonthly(activeStationId);
+  if (!kind || !mc || mc.status !== 'ok') { grp.style.display = 'none'; return; }
+
+  const pts = [];
+  for (const [y, months] of mc.by) {
+    const e = months[activeMonth];
+    if (!e) continue;
+    const v = kind === 'avg' ? e.avg : (e.max != null && e.min != null ? e.max - e.min : null);
+    if (v != null) pts.push({ y, v });
+  }
+  // The selected month still in progress: its month-to-date from the
+  // daily highs/lows this view already loaded.
+  let partial = null;
+  if (mode === 'single' && singleData && !pts.some(p => p.y === currentYear)) {
+    let s = 0, n = 0;
+    for (let d = 0; d < getMonthDays(); d++) {
+      const doy = MONTH_START_DOY[activeMonth] + d;
+      const hi = singleData.dayHigh[doy], lo = singleData.dayLow[doy];
+      if (!isNaN(hi) && !isNaN(lo)) { s += kind === 'avg' ? (hi + lo) / 2 : hi - lo; n++; }
+    }
+    if (n) partial = { y: currentYear, v: s / n, days: n };
+  }
+  if (pts.length < 5) { grp.style.display = 'none'; return; }
+  grp.style.display = '';
+
+  const all = partial ? pts.concat([partial]) : pts.slice();
+  const yrs = pts.map(p => p.y);
+  const y0 = Math.min(...yrs), y1 = Math.max(...yrs);
+  const hl = mode === 'single' ? new Set([currentYear])
+           : mode === 'climatology' ? new Set(all.filter(p => p.y >= fromYear && p.y <= toYear).map(p => p.y))
+           : new Set(compareYears);
+  const what = kind === 'avg' ? 'mean temp' : 'mean daily range';
+  document.getElementById('ctx-label').textContent = `${MONTHS_FULL[activeMonth]} ${what} · ${y0}–${y1}`;
+
+  // Dot plot: one dot per year, stacked in value bins
+  const cv = document.getElementById('ctx-canvas');
+  const W = Math.max(160, cv.parentElement.clientWidth);
+  const dom = niceDomain(Math.min(...all.map(p => p.v)), Math.max(...all.map(p => p.v)), 4);
+  let D = 8;
+  const binsFor = d => Math.max(8, Math.floor((W - 8) / (d + 1)));
+  let nb = binsFor(D), stacks;
+  const place = () => {
+    stacks = new Map();
+    for (const p of all.slice().sort((a, b) => (hl.has(a.y) - hl.has(b.y)) || a.y - b.y)) {
+      const b = Math.round((p.v - dom.lo) / (dom.hi - dom.lo) * (nb - 1));
+      if (!stacks.has(b)) stacks.set(b, []);
+      stacks.get(b).push(p);
+    }
+    return Math.max(...[...stacks.values()].map(s => s.length));
+  };
+  let tall = place();
+  while (tall * (D + 1) > 72 && D > 4) { D--; nb = binsFor(D); tall = place(); }
+  const H = tall * (D + 1) + 6;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  const c = cv.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, W, H);
+  const sc = kind === 'avg' ? SCALES.temp : SCALES.dtr;
+  const bx = b => 4 + (b + 0.5) * ((W - 8) / nb);
+  for (const [b, stack] of stacks) {
+    stack.forEach((p, i) => {
+      const cx = bx(b), cy = H - 3 - (i + 0.5) * (D + 1);
+      const [r, g, bb] = getColorRGB(p.v, sc);
+      const on = hl.has(p.y);
+      c.globalAlpha = on || !hl.size ? 1 : 0.35;
+      c.fillStyle = `rgb(${r},${g},${bb})`;
+      c.beginPath(); c.arc(cx, cy, D / 2, 0, Math.PI * 2); c.fill();
+      if (on && mode !== 'climatology') {
+        c.globalAlpha = 1; c.strokeStyle = '#FFFFFF'; c.lineWidth = 2;
+        if (p === partial) c.setLineDash([2, 2]);
+        c.beginPath(); c.arc(cx, cy, D / 2 + 1.5, 0, Math.PI * 2); c.stroke(); c.setLineDash([]);
+      }
+    });
+  }
+  c.globalAlpha = 1;
+  if (mode === 'climatology') {
+    const sel = all.filter(p => hl.has(p.y));
+    if (sel.length) {
+      const m = sel.reduce((a, p) => a + p.v, 0) / sel.length;
+      const mx = Math.round(4 + (m - dom.lo) / (dom.hi - dom.lo) * (W - 8)) + 0.5;
+      c.strokeStyle = '#D08425'; c.lineWidth = 2; c.setLineDash([3, 3]);
+      c.beginPath(); c.moveTo(mx, 0); c.lineTo(mx, H); c.stroke(); c.setLineDash([]);
+    }
+  }
+  document.getElementById('ctx-lo').textContent = fmtTick(dom.lo, dom.step) + '°';
+  document.getElementById('ctx-hi').textContent = fmtTick(dom.hi, dom.step) + '°';
+
+  // Readout
+  const word = kind === 'avg' ? ['warmest', 'coldest'] : ['largest', 'smallest'];
+  const f1 = v => v.toFixed(1) + '°';
+  const rankOf = (p, list) => {
+    const sorted = list.slice().sort((a, b) => b.v - a.v);
+    const r = sorted.findIndex(q => q === p) + 1, n = sorted.length;
+    return r <= n / 2 ? `${ordinal(r)} ${word[0]} of ${n}` : `${ordinal(n - r + 1)} ${word[1]} of ${n}`;
+  };
+  let v = '', r = '';
+  if (mode === 'single') {
+    const p = partial || pts.find(q => q.y === currentYear);
+    if (p) {
+      v = `${currentYear}: ${f1(p.v)}${partial ? ' so far' : ''}`;
+      r = rankOf(p, all) + (partial ? ` · ${partial.days} days` : '');
+    } else { v = `${currentYear}: ${currentYear === CURRENT_YEAR ? 'no data yet' : 'no data'}`; }
+  } else if (mode === 'climatology') {
+    const sel = all.filter(p => hl.has(p.y));
+    if (sel.length) {
+      v = `${fromYear}–${toYear}: ${f1(sel.reduce((a, p) => a + p.v, 0) / sel.length)}`;
+      r = `${sel.length} of ${all.length} years`;
+    }
+  } else {
+    const sel = all.filter(p => hl.has(p.y));
+    if (sel.length) {
+      const hi = sel.reduce((a, p) => p.v > a.v ? p : a), lo = sel.reduce((a, p) => p.v < a.v ? p : a);
+      v = `${word[0][0].toUpperCase() + word[0].slice(1)}: ${hi.y} ${f1(hi.v)}`;
+      r = `${word[1][0].toUpperCase() + word[1].slice(1)}: ${lo.y} ${f1(lo.v)}`;
+    }
+  }
+  document.getElementById('ctx-v').textContent = v;
+  document.getElementById('ctx-r').textContent = r;
+}
+
+function afterRender() {
+  if (exportCells) return;
+  renderSidePanel();
+  renderContext();
+}
+
 function init() {
   // Populate month selectors
   const monthSelSingle  = document.getElementById('month-select');
@@ -4086,6 +4488,7 @@ function init() {
     if (hasData) renderActiveHeatmap();
   };
   window.addEventListener('resize', relayout);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(afterRender);
   let lastStage = '';
   if (window.ResizeObserver) new ResizeObserver(() => {
     const st = document.getElementById('hm-stage');
