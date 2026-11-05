@@ -325,6 +325,15 @@ const SECTIONS = [
             status:      'live',
           },
           {
+            tags:        ['Tidal Forces', 'Interactive'],
+            title:       'Tidal Locking',
+            description: 'Why we only ever see one side of the Moon: steer a moon so one crater always faces its planet, watch tides brake a fast-spinning moon until it locks, see the bulges and twist that do it, then follow Earth\'s own slowing spin from Devonian corals to a far-future lock.',
+            footerTags:  ['Tidal Locking', 'Rotation & Revolution'],
+            to:          '/earthandspace/tidal-locking',
+            thumb:       '/TidalLocking_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ['Eclipses', 'Interactive'],
             title:       'Eclipse Explorer',
             description: 'Why the Moon\'s shadow misses Earth most months: tilt the orbit, watch eclipse seasons line up twice a year, see every real new and full moon around today, and follow Saros families across 1,200 years.',
