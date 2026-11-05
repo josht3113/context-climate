@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidal Locking</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="https://cdn.jsdelivr.net/npm/d3-array@3.2.4/dist/d3-array.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3.1.1/dist/d3-geo.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<style>
+:root { --tool-accent: var(--accent-earth); }
+html, body { height: 100%; }
+body { padding: 0; overflow: hidden; min-height: 0; }
+.app { height: 100vh; display: flex; flex-direction: column; padding: 10px 12px 12px; gap: 10px; }
+
+/* header */
+.top { display: flex; align-items: center; gap: 16px; min-height: 42px; }
+.top h1 { margin: 0; font-size: 24px; white-space: nowrap; }
+.tabs .cc-segmented-btn { font-size: 13px; padding: 11px 22px; white-space: nowrap; }
+.top .spacer { flex: 1; }
+.x-link { padding: 6px 12px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; color: var(--tool-accent); border-color: var(--tool-accent); }
+.exp { display: flex; align-items: center; gap: 6px; }
+.exp .cc-btn { padding: 6px 12px; font-size: 13px; }
+.exp .cc-btn:disabled { opacity: .4; cursor: default; }
+#status { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); min-width: 0; white-space: nowrap; }
+
+/* body */
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
+.scene { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.stage { flex: 1; position: relative; min-height: 0; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.controls { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid var(--color-border);
+  background: var(--color-surface); min-height: 58px; }
+.controls .grp { display: flex; gap: 6px; align-items: center; }
+.controls .sep { width: 1px; align-self: stretch; background: var(--color-border); margin: 2px 4px; }
+.play { min-width: 112px; padding: 10px 16px; font-size: 15px; font-weight: 700; background: var(--tool-accent); border-color: var(--tool-accent);
+  color: var(--color-bg); white-space: nowrap; }
+.play:hover { filter: brightness(1.1); background: var(--tool-accent); color: var(--color-bg); }
+.preset { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; min-width: 66px; padding: 5px 11px;
+  color: var(--color-text-primary); line-height: 1.1; }
+.preset b { font-family: var(--font-display); font-size: 17px; font-weight: 700; }
+.preset i { font-style: normal; font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; color: var(--color-text-secondary); white-space: nowrap; }
+.preset.is-active { background: var(--tool-accent); border-color: var(--tool-accent); color: var(--color-bg); }
+.preset.is-active i { color: var(--color-bg); opacity: .85; }
+.slider { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 110px; }
+.slider input { flex: 1; accent-color: var(--tool-accent); height: 22px; cursor: pointer; min-width: 60px; }
+.slider .sv { font-family: var(--font-mono); font-size: 17px; font-weight: 700; color: var(--color-text-primary); min-width: 92px; text-align: right; white-space: nowrap; }
+.tgl { padding: 8px 14px; font-size: 14px; white-space: nowrap; }
+.tgl::before { content: ''; display: inline-block; width: 11px; height: 11px; border: 1.5px solid var(--color-text-muted);
+  border-radius: 2px; margin-right: 8px; vertical-align: -1px; }
+.tgl.is-active::before { background: var(--tool-accent); border-color: var(--tool-accent); }
+.chips { position: absolute; top: 10px; left: 10px; display: flex; flex-wrap: wrap; gap: 8px; max-width: calc(100% - 20px); }
+.chips .cc-segmented-btn { padding: 6px 12px; font-size: 13px; }
+.chips .tgl { padding: 5px 11px; font-size: 13px; background: var(--color-surface); }
+
+/* card */
+.card { padding: 12px 16px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+.card .eb { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--tool-accent); font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.card .r { padding: 7px 0 6px; border-bottom: 1px solid var(--color-border); }
+.card .l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--color-text-secondary); }
+.card .v { font-family: var(--font-display); font-weight: 700; font-size: 25px; line-height: 1.15; color: var(--color-text-primary); }
+.card .v .u { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--color-text-secondary); margin-left: 5px; }
+.card .v.hi { color: var(--tool-accent); }
+.card .r.dim .v { font-size: 20px; color: var(--color-text-secondary); }
+.card .r.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.card .r.pair .l { font-size: 12px; letter-spacing: .03em; }
+.card .r.pair .v { font-size: 19px; color: var(--color-text-secondary); }
+.card .r.pair .v .u { font-size: 13px; margin-left: 4px; }
+.card .note { margin-top: 12px; padding: 10px 12px; background: var(--color-surface-2); border-left: 3px solid var(--tool-accent);
+  border-radius: 4px; font-family: var(--font-body); font-size: 14.5px; line-height: 1.45; color: var(--color-text-primary); }
+.card .src { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); margin-top: auto; padding-top: 10px; line-height: 1.4; }
+@media (max-height: 780px) {
+  .card .r { padding: 4px 0 3px; }
+  .card .v { font-size: 22px; }
+  .card .r.dim .v { font-size: 18px; }
+  .card .note { font-size: 14px; line-height: 1.4; padding: 8px 10px; margin-top: 8px; }
+  .card .src { padding-top: 6px; }
+}
+@media (max-width: 1340px) { .x-link .nm { display: none; } .tabs .cc-segmented-btn { padding: 11px 16px; } }
+@media (max-width: 1200px) { .slider .sv { display: none; } .top { gap: 10px; } .top h1 { font-size: 21px; } }
+@media (max-width: 1120px) { .preset { min-width: 0; padding: 5px 8px; } .play { min-width: 0; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <h1 class="cc-title">Tidal Locking</h1>
+    <div class="cc-segmented tabs" id="tabs">
+      <button class="cc-segmented-btn is-active" data-tab="face">Same Face</button>
+      <button class="cc-segmented-btn" data-tab="spin">Spin-Down</button>
+      <button class="cc-segmented-btn" data-tab="brake">The Brake</button>
+      <button class="cc-segmented-btn" data-tab="earth">Earth &amp; Moon</button>
+    </div>
+    <div class="spacer"></div>
+    <span id="status"></span>
+    <a class="cc-btn x-link" id="trLink" target="_top" href="#"><span class="nm">Tidal Rhythm </span>&rarr;</a>
+    <div class="exp">
+      <button class="cc-btn" id="bPNG">↓ PNG</button>
+      <button class="cc-btn" id="bGIF">↓ GIF</button>
+      <button class="cc-btn" id="bMP4">↓ MP4</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="scene">
+      <div class="stage" id="stage">
+        <canvas id="cv"></canvas>
+        <div class="chips" id="chips"></div>
+      </div>
+      <div class="controls" id="controls"></div>
+    </div>
+    <div class="cc-panel card" id="card"></div>
+  </div>
+</div>
+
+<script>/* mp4-muxer 5.2.2 (MIT) — Vanilagy */
+"use strict";var Mp4Muxer=(()=>{var e=Object.defineProperty,t=Object.getOwnPropertyDescriptor,i=Object.getOwnPropertyNames,s=Object.prototype.hasOwnProperty,a=(e,t,i)=>{if(!t.has(e))throw TypeError("Cannot "+i)},r=(e,t,i)=>(a(e,t,"read from private field"),i?i.call(e):t.get(e)),n=(e,t,i)=>{if(t.has(e))throw TypeError("Cannot add the same private member more than once");t instanceof WeakSet?t.add(e):t.set(e,i)},o=(e,t,i,s)=>(a(e,t,"write to private field"),s?s.call(e,i):t.set(e,i),i),h=(e,t,i)=>(a(e,t,"access private method"),i),l={};((t,i)=>{for(var s in i)e(t,s,{get:i[s],enumerable:!0})})(l,{ArrayBufferTarget:()=>Me,FileSystemWritableFileStreamTarget:()=>Oe,Muxer:()=>Rt,StreamTarget:()=>We});var d,f,u,m,p,c,w,g,b=new Uint8Array(8),y=new DataView(b.buffer),k=e=>[(e%256+256)%256],T=e=>(y.setUint16(0,e,!1),[b[0],b[1]]),C=e=>(y.setUint32(0,e,!1),[b[1],b[2],b[3]]),v=e=>(y.setUint32(0,e,!1),[b[0],b[1],b[2],b[3]]),S=e=>(y.setUint32(0,Math.floor(e/2**32),!1),y.setUint32(4,e,!1),[b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]]),x=e=>(y.setInt16(0,256*e,!1),[b[0],b[1]]),z=e=>(y.setInt32(0,65536*e,!1),[b[0],b[1],b[2],b[3]]),E=e=>(y.setInt32(0,2**30*e,!1),[b[0],b[1],b[2],b[3]]),A=(e,t=!1)=>{let i=Array(e.length).fill(null).map((t,i)=>e.charCodeAt(i));return t&&i.push(0),i},M=e=>e&&e[e.length-1],W=e=>{let t;for(let i of e)(!t||i.presentationTimestamp>t.presentationTimestamp)&&(t=i);return t},O=(e,t,i=!0)=>{let s=e*t;return i?Math.round(s):s},B=e=>{let t=e*(Math.PI/180),i=Math.cos(t),s=Math.sin(t);return[i,s,0,-s,i,0,0,0,1]},U=B(0),D=e=>[z(e[0]),z(e[1]),E(e[2]),z(e[3]),z(e[4]),E(e[5]),z(e[6]),z(e[7]),E(e[8])],j=e=>e?"object"!=typeof e?e:Array.isArray(e)?e.map(j):Object.fromEntries(Object.entries(e).map(([e,t])=>[e,j(t)])):e,R=e=>e>=0&&e<2**32,I=(e,t,i)=>({type:e,contents:t&&new Uint8Array(t.flat(10)),children:i}),N=(e,t,i,s,a)=>I(e,[k(t),C(i),s??[]],a),V=e=>({type:"mdat",largeSize:e}),F=(e,t,i=!1)=>I("moov",null,[L(t,e),...e.map(e=>$(e,t)),i?me(e):null]),L=(e,t)=>{let i=O(Math.max(0,...t.filter(e=>e.samples.length>0).map(e=>{const t=W(e.samples);return t.presentationTimestamp+t.duration})),Bt),s=Math.max(...t.map(e=>e.id))+1,a=!R(e)||!R(i),r=a?S:v;return N("mvhd",+a,0,[r(e),r(e),v(Bt),r(i),z(1),x(1),Array(10).fill(0),D(U),Array(24).fill(0),v(s)])},$=(e,t)=>I("trak",null,[P(e,t),H(e,t)]),P=(e,t)=>{let i,s=W(e.samples),a=O(s?s.presentationTimestamp+s.duration:0,Bt),r=!R(t)||!R(a),n=r?S:v;return i="video"===e.info.type?"number"==typeof e.info.rotation?B(e.info.rotation):e.info.rotation:U,N("tkhd",+r,3,[n(t),n(t),v(e.id),v(0),n(a),Array(8).fill(0),T(0),T(0),x("audio"===e.info.type?1:0),T(0),D(i),z("video"===e.info.type?e.info.width:0),z("video"===e.info.type?e.info.height:0)])},H=(e,t)=>I("mdia",null,[_(e,t),q("video"===e.info.type?"vide":"soun"),G(e)]),_=(e,t)=>{let i=W(e.samples),s=O(i?i.presentationTimestamp+i.duration:0,e.timescale),a=!R(t)||!R(s),r=a?S:v;return N("mdhd",+a,0,[r(t),r(t),v(e.timescale),r(s),T(21956),T(0)])},q=e=>N("hdlr",0,0,[A("mhlr"),A(e),v(0),v(0),v(0),A("mp4-muxer-hdlr",!0)]),G=e=>I("minf",null,["video"===e.info.type?J():K(),Q(),Z(e)]),J=()=>N("vmhd",0,1,[T(0),T(0),T(0),T(0)]),K=()=>N("smhd",0,0,[T(0),T(0)]),Q=()=>I("dinf",null,[X()]),X=()=>N("dref",0,0,[v(1)],[Y()]),Y=()=>N("url ",0,1),Z=e=>{const t=e.compositionTimeOffsetTable.length>1||e.compositionTimeOffsetTable.some(e=>0!==e.sampleCompositionTimeOffset);return I("stbl",null,[ee(e),oe(e),he(e),le(e),de(e),fe(e),t?ue(e):null])},ee=e=>N("stsd",0,0,[v(1)],["video"===e.info.type?te(Se[e.info.codec],e):ne(ze[e.info.codec],e)]),te=(e,t)=>{return I(e,[Array(6).fill(0),T(1),T(0),T(0),Array(12).fill(0),T(t.info.width),T(t.info.height),v(4718592),v(4718592),v(0),T(1),Array(32).fill(0),T(24),(i=65535,y.setInt16(0,i,!1),[b[0],b[1]])],[xe[t.info.codec](t),t.info.decoderConfig.colorSpace?re(t):null]);var i},ie={bt709:1,bt470bg:5,smpte170m:6},se={bt709:1,smpte170m:6,"iec61966-2-1":13},ae={rgb:0,bt709:1,bt470bg:5,smpte170m:6},re=e=>I("colr",[A("nclx"),T(ie[e.info.decoderConfig.colorSpace.primaries]),T(se[e.info.decoderConfig.colorSpace.transfer]),T(ae[e.info.decoderConfig.colorSpace.matrix]),k((e.info.decoderConfig.colorSpace.fullRange?1:0)<<7)]),ne=(e,t)=>I(e,[Array(6).fill(0),T(1),T(0),T(0),v(0),T(t.info.numberOfChannels),T(16),T(0),T(0),z(t.info.sampleRate)],[Ee[t.info.codec](t)]),oe=e=>N("stts",0,0,[v(e.timeToSampleTable.length),e.timeToSampleTable.map(e=>[v(e.sampleCount),v(e.sampleDelta)])]),he=e=>{if(e.samples.every(e=>"key"===e.type))return null;let t=[...e.samples.entries()].filter(([,e])=>"key"===e.type);return N("stss",0,0,[v(t.length),t.map(([e])=>v(e+1))])},le=e=>N("stsc",0,0,[v(e.compactlyCodedChunkTable.length),e.compactlyCodedChunkTable.map(e=>[v(e.firstChunk),v(e.samplesPerChunk),v(1)])]),de=e=>N("stsz",0,0,[v(0),v(e.samples.length),e.samples.map(e=>v(e.size))]),fe=e=>e.finalizedChunks.length>0&&M(e.finalizedChunks).offset>=2**32?N("co64",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>S(e.offset))]):N("stco",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>v(e.offset))]),ue=e=>N("ctts",0,0,[v(e.compositionTimeOffsetTable.length),e.compositionTimeOffsetTable.map(e=>[v(e.sampleCount),v(e.sampleCompositionTimeOffset)])]),me=e=>I("mvex",null,e.map(pe)),pe=e=>N("trex",0,0,[v(e.id),v(1),v(0),v(0),v(0)]),ce=(e,t)=>I("moof",null,[we(e),...t.map(be)]),we=e=>N("mfhd",0,0,[v(e)]),ge=e=>{let t=0,i=0,s="delta"===e.type;return i|=+s,t|=s?1:2,t<<24|i<<16},be=e=>I("traf",null,[ye(e),ke(e),Te(e)]),ye=e=>{let t=0;t|=8,t|=16,t|=32,t|=131072;let i=e.currentChunk.samples[1]??e.currentChunk.samples[0],s={duration:i.timescaleUnitsToNextSample,size:i.size,flags:ge(i)};return N("tfhd",0,131128,[v(e.id),v(s.duration),v(s.size),v(s.flags)])},ke=e=>N("tfdt",1,0,[S(O(e.currentChunk.startTimestamp,e.timescale))]),Te=e=>{let t=e.currentChunk.samples.map(e=>e.timescaleUnitsToNextSample),i=e.currentChunk.samples.map(e=>e.size),s=e.currentChunk.samples.map(ge),a=e.currentChunk.samples.map(t=>O(t.presentationTimestamp-t.decodeTimestamp,e.timescale)),r=new Set(t),n=new Set(i),o=new Set(s),h=new Set(a),l=2===o.size&&s[0]!==s[1],d=r.size>1,f=n.size>1,u=!l&&o.size>1,m=h.size>1||[...h].some(e=>0!==e),p=0;return p|=1,p|=4*+l,p|=256*+d,p|=512*+f,p|=1024*+u,p|=2048*+m,N("trun",1,p,[v(e.currentChunk.samples.length),v(e.currentChunk.offset-e.currentChunk.moofOffset||0),l?v(s[0]):[],e.currentChunk.samples.map((e,r)=>{return[d?v(t[r]):[],f?v(i[r]):[],u?v(s[r]):[],m?(n=a[r],y.setInt32(0,n,!1),[b[0],b[1],b[2],b[3]]):[]];var n})])},Ce=(e,t)=>N("tfra",1,0,[v(e.id),v(63),v(e.finalizedChunks.length),e.finalizedChunks.map(i=>[S(O(i.startTimestamp,e.timescale)),S(i.moofOffset),v(t+1),v(1),v(1)])]),ve=()=>N("mfro",0,0,[v(0)]),Se={avc:"avc1",hevc:"hvc1",vp9:"vp09",av1:"av01"},xe={avc:e=>e.info.decoderConfig&&I("avcC",[...new Uint8Array(e.info.decoderConfig.description)]),hevc:e=>e.info.decoderConfig&&I("hvcC",[...new Uint8Array(e.info.decoderConfig.description)]),vp9:e=>{if(!e.info.decoderConfig)return null;let t=e.info.decoderConfig;if(!t.colorSpace)throw new Error("'colorSpace' is required in the decoder config for VP9.");let i=t.codec.split("."),s=Number(i[1]),a=Number(i[2]),r=0+(Number(i[3])<<4)+Number(t.colorSpace.fullRange);return N("vpcC",1,0,[k(s),k(a),k(r),k(2),k(2),k(2),T(0)])},av1:()=>I("av1C",[129,0,0,0])},ze={aac:"mp4a",opus:"Opus"},Ee={aac:e=>{let t=new Uint8Array(e.info.decoderConfig.description);return N("esds",0,0,[v(58753152),k(32+t.byteLength),T(1),k(0),v(75530368),k(18+t.byteLength),k(64),k(21),C(0),v(130071),v(130071),v(92307584),k(t.byteLength),...t,v(109084800),k(1),k(2)])},opus:e=>{let t=3840,i=0;const s=e.info.decoderConfig?.description;if(s){if(s.byteLength<18)throw new TypeError("Invalid decoder description provided for Opus; must be at least 18 bytes long.");const e=ArrayBuffer.isView(s)?new DataView(s.buffer,s.byteOffset,s.byteLength):new DataView(s);t=e.getUint16(10,!0),i=e.getInt16(14,!0)}return I("dOps",[k(0),k(e.info.numberOfChannels),T(t),v(e.info.sampleRate),x(i),k(0)])}},Ae=(Symbol("isTarget"),class{}),Me=class extends Ae{constructor(){super(...arguments),this.buffer=null}},We=class extends Ae{constructor(e){if(super(),this.options=e,"object"!=typeof e)throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");if(e.onData){if("function"!=typeof e.onData)throw new TypeError("options.onData, when provided, must be a function.");if(e.onData.length<2)throw new TypeError("options.onData, when provided, must be a function that takes in at least two arguments (data and position). Ignoring the position argument, which specifies the byte offset at which the data is to be written, can lead to broken outputs.")}if(void 0!==e.chunked&&"boolean"!=typeof e.chunked)throw new TypeError("options.chunked, when provided, must be a boolean.");if(void 0!==e.chunkSize&&(!Number.isInteger(e.chunkSize)||e.chunkSize<1024))throw new TypeError("options.chunkSize, when provided, must be an integer and not smaller than 1024.")}},Oe=class extends Ae{constructor(e,t){if(super(),this.stream=e,this.options=t,!(e instanceof FileSystemWritableFileStream))throw new TypeError("FileSystemWritableFileStreamTarget requires a FileSystemWritableFileStream instance.");if(void 0!==t&&"object"!=typeof t)throw new TypeError("FileSystemWritableFileStreamTarget's options, when provided, must be an object.");if(t&&void 0!==t.chunkSize&&(!Number.isInteger(t.chunkSize)||t.chunkSize<=0))throw new TypeError("options.chunkSize, when provided, must be a positive integer")}},Be=class{constructor(){this.pos=0,n(this,d,new Uint8Array(8)),n(this,f,new DataView(r(this,d).buffer)),this.offsets=new WeakMap}seek(e){this.pos=e}writeU32(e){r(this,f).setUint32(0,e,!1),this.write(r(this,d).subarray(0,4))}writeU64(e){r(this,f).setUint32(0,Math.floor(e/2**32),!1),r(this,f).setUint32(4,e,!1),this.write(r(this,d).subarray(0,8))}writeAscii(e){for(let t=0;t<e.length;t++)r(this,f).setUint8(t%8,e.charCodeAt(t)),t%8==7&&this.write(r(this,d));e.length%8!=0&&this.write(r(this,d).subarray(0,e.length%8))}writeBox(e){if(this.offsets.set(e,this.pos),e.contents&&!e.children)this.writeBoxHeader(e,e.size??e.contents.byteLength+8),this.write(e.contents);else{let t=this.pos;if(this.writeBoxHeader(e,0),e.contents&&this.write(e.contents),e.children)for(let t of e.children)t&&this.writeBox(t);let i=this.pos,s=e.size??i-t;this.seek(t),this.writeBoxHeader(e,s),this.seek(i)}}writeBoxHeader(e,t){this.writeU32(e.largeSize?1:t),this.writeAscii(e.type),e.largeSize&&this.writeU64(t)}measureBoxHeader(e){return 8+(e.largeSize?8:0)}patchBox(e){let t=this.pos;this.seek(this.offsets.get(e)),this.writeBox(e),this.seek(t)}measureBox(e){if(e.contents&&!e.children){return this.measureBoxHeader(e)+e.contents.byteLength}{let t=this.measureBoxHeader(e);if(e.contents&&(t+=e.contents.byteLength),e.children)for(let i of e.children)i&&(t+=this.measureBox(i));return t}}};d=new WeakMap,f=new WeakMap;var Ue=class extends Be{constructor(e){super(),n(this,w),n(this,u,void 0),n(this,m,new ArrayBuffer(65536)),n(this,p,new Uint8Array(r(this,m))),n(this,c,0),o(this,u,e)}write(e){h(this,w,g).call(this,this.pos+e.byteLength),r(this,p).set(e,this.pos),this.pos+=e.byteLength,o(this,c,Math.max(r(this,c),this.pos))}finalize(){h(this,w,g).call(this,this.pos),r(this,u).buffer=r(this,m).slice(0,Math.max(r(this,c),this.pos))}};u=new WeakMap,m=new WeakMap,p=new WeakMap,c=new WeakMap,w=new WeakSet,g=function(e){let t=r(this,m).byteLength;for(;t<e;)t*=2;if(t===r(this,m).byteLength)return;let i=new ArrayBuffer(t),s=new Uint8Array(i);s.set(r(this,p),0),o(this,m,i),o(this,p,s)};var De,je,Re,Ie,Ne,Ve,Fe,Le,$e,Pe,He,_e,qe,Ge=class extends Be{constructor(e){super(),n(this,Ve),n(this,Le),n(this,Pe),n(this,_e),n(this,De,void 0),n(this,je,[]),n(this,Re,void 0),n(this,Ie,void 0),n(this,Ne,[]),o(this,De,e),o(this,Re,e.options?.chunked??!1),o(this,Ie,e.options?.chunkSize??16777216)}write(e){r(this,je).push({data:e.slice(),start:this.pos}),this.pos+=e.byteLength}flush(){if(0===r(this,je).length)return;let e=[],t=[...r(this,je)].sort((e,t)=>e.start-t.start);e.push({start:t[0].start,size:t[0].data.byteLength});for(let i=1;i<t.length;i++){let s=e[e.length-1],a=t[i];a.start<=s.start+s.size?s.size=Math.max(s.size,a.start+a.data.byteLength-s.start):e.push({start:a.start,size:a.data.byteLength})}for(let t of e){t.data=new Uint8Array(t.size);for(let e of r(this,je))t.start<=e.start&&e.start<t.start+t.size&&t.data.set(e.data,e.start-t.start);r(this,Re)?(h(this,Ve,Fe).call(this,t.data,t.start),h(this,_e,qe).call(this)):r(this,De).options.onData?.(t.data,t.start)}r(this,je).length=0}finalize(){r(this,Re)&&h(this,_e,qe).call(this,!0)}};De=new WeakMap,je=new WeakMap,Re=new WeakMap,Ie=new WeakMap,Ne=new WeakMap,Ve=new WeakSet,Fe=function(e,t){let i=r(this,Ne).findIndex(e=>e.start<=t&&t<e.start+r(this,Ie));-1===i&&(i=h(this,Pe,He).call(this,t));let s=r(this,Ne)[i],a=t-s.start,n=e.subarray(0,Math.min(r(this,Ie)-a,e.byteLength));s.data.set(n,a);let o={start:a,end:a+n.byteLength};if(h(this,Le,$e).call(this,s,o),0===s.written[0].start&&s.written[0].end===r(this,Ie)&&(s.shouldFlush=!0),r(this,Ne).length>2){for(let e=0;e<r(this,Ne).length-1;e++)r(this,Ne)[e].shouldFlush=!0;h(this,_e,qe).call(this)}n.byteLength<e.byteLength&&h(this,Ve,Fe).call(this,e.subarray(n.byteLength),t+n.byteLength)},Le=new WeakSet,$e=function(e,t){let i=0,s=e.written.length-1,a=-1;for(;i<=s;){let r=Math.floor(i+(s-i+1)/2);e.written[r].start<=t.start?(i=r+1,a=r):s=r-1}for(e.written.splice(a+1,0,t),(-1===a||e.written[a].end<t.start)&&a++;a<e.written.length-1&&e.written[a].end>=e.written[a+1].start;)e.written[a].end=Math.max(e.written[a].end,e.written[a+1].end),e.written.splice(a+1,1)},Pe=new WeakSet,He=function(e){let t={start:Math.floor(e/r(this,Ie))*r(this,Ie),data:new Uint8Array(r(this,Ie)),written:[],shouldFlush:!1};return r(this,Ne).push(t),r(this,Ne).sort((e,t)=>e.start-t.start),r(this,Ne).indexOf(t)},_e=new WeakSet,qe=function(e=!1){for(let t=0;t<r(this,Ne).length;t++){let i=r(this,Ne)[t];if(i.shouldFlush||e){for(let e of i.written)r(this,De).options.onData?.(i.data.subarray(e.start,e.end),i.start+e.start);r(this,Ne).splice(t--,1)}}};var Je,Ke,Qe,Xe,Ye,Ze,et,tt,it,st,at,rt,nt,ot,ht,lt,dt,ft,ut,mt,pt,ct,wt,gt,bt,yt,kt,Tt,Ct,vt,St,xt,zt,Et,At,Mt,Wt,Ot=class extends Ge{constructor(e){super(new We({onData:(t,i)=>e.stream.write({type:"write",data:t,position:i}),chunked:!0,chunkSize:e.options?.chunkSize}))}},Bt=1e3,Ut=["avc","hevc","vp9","av1"],Dt=["aac","opus"],jt=["strict","offset","cross-track-offset"],Rt=class{constructor(e){if(n(this,nt),n(this,ht),n(this,dt),n(this,ut),n(this,pt),n(this,wt),n(this,bt),n(this,kt),n(this,Ct),n(this,St),n(this,zt),n(this,At),n(this,Je,void 0),n(this,Ke,void 0),n(this,Qe,void 0),n(this,Xe,void 0),n(this,Ye,null),n(this,Ze,null),n(this,et,Math.floor(Date.now()/1e3)+2082844800),n(this,tt,[]),n(this,it,1),n(this,st,[]),n(this,at,[]),n(this,rt,!1),h(this,nt,ot).call(this,e),e.video=j(e.video),e.audio=j(e.audio),e.fastStart=j(e.fastStart),this.target=e.target,o(this,Je,{firstTimestampBehavior:"strict",...e}),e.target instanceof Me)o(this,Ke,new Ue(e.target));else if(e.target instanceof We)o(this,Ke,new Ge(e.target));else{if(!(e.target instanceof Oe))throw new Error(`Invalid target: ${e.target}`);o(this,Ke,new Ot(e.target))}h(this,ut,mt).call(this),h(this,ht,lt).call(this)}addVideoChunk(e,t,i,s){if(!(e instanceof EncodedVideoChunk))throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");if(t&&"object"!=typeof t)throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number.");if(void 0!==s&&!Number.isFinite(s))throw new TypeError("addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number.");let a=new Uint8Array(e.byteLength);e.copyTo(a),this.addVideoChunkRaw(a,e.type,i??e.timestamp,e.duration,t,s)}addVideoChunkRaw(e,t,i,s,a,n){if(!(e instanceof Uint8Array))throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");if(void 0!==n&&!Number.isFinite(n))throw new TypeError("addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number.");if(h(this,At,Mt).call(this),!r(this,Je).video)throw new Error("No video track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ye).samples.length===r(this,Je).fastStart.expectedVideoChunks)throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedVideoChunks}).`);let o=h(this,wt,gt).call(this,r(this,Ye),e,t,i,s,a,n);if("fragmented"===r(this,Je).fastStart&&r(this,Ze)){for(;r(this,at).length>0&&r(this,at)[0].decodeTimestamp<=o.decodeTimestamp;){let e=r(this,at).shift();h(this,bt,yt).call(this,r(this,Ze),e)}o.decodeTimestamp<=r(this,Ze).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ye),o):r(this,st).push(o)}else h(this,bt,yt).call(this,r(this,Ye),o)}addAudioChunk(e,t,i){if(!(e instanceof EncodedAudioChunk))throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");if(t&&"object"!=typeof t)throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number.");let s=new Uint8Array(e.byteLength);e.copyTo(s),this.addAudioChunkRaw(s,e.type,i??e.timestamp,e.duration,t)}addAudioChunkRaw(e,t,i,s,a){if(!(e instanceof Uint8Array))throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");if(h(this,At,Mt).call(this),!r(this,Je).audio)throw new Error("No audio track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ze).samples.length===r(this,Je).fastStart.expectedAudioChunks)throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedAudioChunks}).`);let n=h(this,wt,gt).call(this,r(this,Ze),e,t,i,s,a);if("fragmented"===r(this,Je).fastStart&&r(this,Ye)){for(;r(this,st).length>0&&r(this,st)[0].decodeTimestamp<=n.decodeTimestamp;){let e=r(this,st).shift();h(this,bt,yt).call(this,r(this,Ye),e)}n.decodeTimestamp<=r(this,Ye).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ze),n):r(this,at).push(n)}else h(this,bt,yt).call(this,r(this,Ze),n)}finalize(){if(r(this,rt))throw new Error("Cannot finalize a muxer more than once.");if("fragmented"===r(this,Je).fastStart){for(let e of r(this,st))h(this,bt,yt).call(this,r(this,Ye),e);for(let e of r(this,at))h(this,bt,yt).call(this,r(this,Ze),e);h(this,St,xt).call(this,!1)}else r(this,Ye)&&h(this,Ct,vt).call(this,r(this,Ye)),r(this,Ze)&&h(this,Ct,vt).call(this,r(this,Ze));let e=[r(this,Ye),r(this,Ze)].filter(Boolean);if("in-memory"===r(this,Je).fastStart){let t;for(let i=0;i<2;i++){let i=F(e,r(this,et)),s=r(this,Ke).measureBox(i);t=r(this,Ke).measureBox(r(this,Xe));let a=r(this,Ke).pos+s+t;for(let e of r(this,tt)){e.offset=a;for(let{data:i}of e.samples)a+=i.byteLength,t+=i.byteLength}if(a<2**32)break;t>=2**32&&(r(this,Xe).largeSize=!0)}let i=F(e,r(this,et));r(this,Ke).writeBox(i),r(this,Xe).size=t,r(this,Ke).writeBox(r(this,Xe));for(let e of r(this,tt))for(let t of e.samples)r(this,Ke).write(t.data),t.data=null}else if("fragmented"===r(this,Je).fastStart){let t=r(this,Ke).pos,i=(e=>I("mfra",null,[...e.map(Ce),ve()]))(e);r(this,Ke).writeBox(i);let s=r(this,Ke).pos-t;r(this,Ke).seek(r(this,Ke).pos-4),r(this,Ke).writeU32(s)}else{let t=r(this,Ke).offsets.get(r(this,Xe)),i=r(this,Ke).pos-t;r(this,Xe).size=i,r(this,Xe).largeSize=i>=2**32,r(this,Ke).patchBox(r(this,Xe));let s=F(e,r(this,et));if("object"==typeof r(this,Je).fastStart){r(this,Ke).seek(r(this,Qe)),r(this,Ke).writeBox(s);let e=t-r(this,Ke).pos;r(this,Ke).writeBox({type:"free",size:e})}else r(this,Ke).writeBox(s)}h(this,zt,Et).call(this),r(this,Ke).finalize(),o(this,rt,!0)}};return Je=new WeakMap,Ke=new WeakMap,Qe=new WeakMap,Xe=new WeakMap,Ye=new WeakMap,Ze=new WeakMap,et=new WeakMap,tt=new WeakMap,it=new WeakMap,st=new WeakMap,at=new WeakMap,rt=new WeakMap,nt=new WeakSet,ot=function(e){if("object"!=typeof e)throw new TypeError("The muxer requires an options object to be passed to its constructor.");if(!(e.target instanceof Ae))throw new TypeError("The target must be provided and an instance of Target.");if(e.video){if(!Ut.includes(e.video.codec))throw new TypeError(`Unsupported video codec: ${e.video.codec}`);if(!Number.isInteger(e.video.width)||e.video.width<=0)throw new TypeError(`Invalid video width: ${e.video.width}. Must be a positive integer.`);if(!Number.isInteger(e.video.height)||e.video.height<=0)throw new TypeError(`Invalid video height: ${e.video.height}. Must be a positive integer.`);const t=e.video.rotation;if("number"==typeof t&&![0,90,180,270].includes(t))throw new TypeError(`Invalid video rotation: ${t}. Has to be 0, 90, 180 or 270.`);if(Array.isArray(t)&&(9!==t.length||t.some(e=>"number"!=typeof e)))throw new TypeError(`Invalid video transformation matrix: ${t.join()}`);if(void 0!==e.video.frameRate&&(!Number.isInteger(e.video.frameRate)||e.video.frameRate<=0))throw new TypeError(`Invalid video frame rate: ${e.video.frameRate}. Must be a positive integer.`)}if(e.audio){if(!Dt.includes(e.audio.codec))throw new TypeError(`Unsupported audio codec: ${e.audio.codec}`);if(!Number.isInteger(e.audio.numberOfChannels)||e.audio.numberOfChannels<=0)throw new TypeError(`Invalid number of audio channels: ${e.audio.numberOfChannels}. Must be a positive integer.`);if(!Number.isInteger(e.audio.sampleRate)||e.audio.sampleRate<=0)throw new TypeError(`Invalid audio sample rate: ${e.audio.sampleRate}. Must be a positive integer.`)}if(e.firstTimestampBehavior&&!jt.includes(e.firstTimestampBehavior))throw new TypeError(`Invalid first timestamp behavior: ${e.firstTimestampBehavior}`);if("object"==typeof e.fastStart){if(e.video){if(void 0===e.fastStart.expectedVideoChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedVideoChunks'.");if(!Number.isInteger(e.fastStart.expectedVideoChunks)||e.fastStart.expectedVideoChunks<0)throw new TypeError("'expectedVideoChunks' must be a non-negative integer.")}if(e.audio){if(void 0===e.fastStart.expectedAudioChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedAudioChunks'.");if(!Number.isInteger(e.fastStart.expectedAudioChunks)||e.fastStart.expectedAudioChunks<0)throw new TypeError("'expectedAudioChunks' must be a non-negative integer.")}}else if(![!1,"in-memory","fragmented"].includes(e.fastStart))throw new TypeError("'fastStart' option must be false, 'in-memory', 'fragmented' or an object.");if(void 0!==e.minFragmentDuration&&(!Number.isFinite(e.minFragmentDuration)||e.minFragmentDuration<0))throw new TypeError("'minFragmentDuration' must be a non-negative number.")},ht=new WeakSet,lt=function(){var e;if(r(this,Ke).writeBox((e={holdsAvc:"avc"===r(this,Je).video?.codec,fragmented:"fragmented"===r(this,Je).fastStart}).fragmented?I("ftyp",[A("iso5"),v(512),A("iso5"),A("iso6"),A("mp41")]):I("ftyp",[A("isom"),v(512),A("isom"),e.holdsAvc?A("avc1"):[],A("mp41")])),o(this,Qe,r(this,Ke).pos),"in-memory"===r(this,Je).fastStart)o(this,Xe,V(!1));else if("fragmented"===r(this,Je).fastStart);else{if("object"==typeof r(this,Je).fastStart){let e=h(this,dt,ft).call(this);r(this,Ke).seek(r(this,Ke).pos+e)}o(this,Xe,V(!0)),r(this,Ke).writeBox(r(this,Xe))}h(this,zt,Et).call(this)},dt=new WeakSet,ft=function(){if("object"!=typeof r(this,Je).fastStart)return;let e=0,t=[r(this,Je).fastStart.expectedVideoChunks,r(this,Je).fastStart.expectedAudioChunks];for(let i of t)i&&(e+=8*Math.ceil(2/3*i),e+=4*i,e+=12*Math.ceil(2/3*i),e+=4*i,e+=8*i);return e+=4096,e},ut=new WeakSet,mt=function(){if(r(this,Je).video&&o(this,Ye,{id:1,info:{type:"video",codec:r(this,Je).video.codec,width:r(this,Je).video.width,height:r(this,Je).video.height,rotation:r(this,Je).video.rotation??0,decoderConfig:null},timescale:r(this,Je).video.frameRate??57600,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),r(this,Je).audio&&(o(this,Ze,{id:r(this,Je).video?2:1,info:{type:"audio",codec:r(this,Je).audio.codec,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate,decoderConfig:null},timescale:r(this,Je).audio.sampleRate,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),"aac"===r(this,Je).audio.codec)){let e=h(this,pt,ct).call(this,2,r(this,Je).audio.sampleRate,r(this,Je).audio.numberOfChannels);r(this,Ze).info.decoderConfig={codec:r(this,Je).audio.codec,description:e,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate}}},pt=new WeakSet,ct=function(e,t,i){let s=[96e3,88200,64e3,48e3,44100,32e3,24e3,22050,16e3,12e3,11025,8e3,7350].indexOf(t),a=i,r="";r+=e.toString(2).padStart(5,"0"),r+=s.toString(2).padStart(4,"0"),15===s&&(r+=t.toString(2).padStart(24,"0")),r+=a.toString(2).padStart(4,"0");let n=8*Math.ceil(r.length/8);r=r.padEnd(n,"0");let o=new Uint8Array(r.length/8);for(let e=0;e<r.length;e+=8)o[e/8]=parseInt(r.slice(e,e+8),2);return o},wt=new WeakSet,gt=function(e,t,i,s,a,r,n){let o=s/1e6,l=(s-(n??0))/1e6,d=a/1e6,f=h(this,kt,Tt).call(this,o,l,e);return o=f.presentationTimestamp,l=f.decodeTimestamp,r?.decoderConfig&&(null===e.info.decoderConfig?e.info.decoderConfig=r.decoderConfig:Object.assign(e.info.decoderConfig,r.decoderConfig)),{presentationTimestamp:o,decodeTimestamp:l,duration:d,data:t,size:t.byteLength,type:i,timescaleUnitsToNextSample:O(d,e.timescale)}},bt=new WeakSet,yt=function(e,t){"fragmented"!==r(this,Je).fastStart&&e.samples.push(t);const i=O(t.presentationTimestamp-t.decodeTimestamp,e.timescale);if(null!==e.lastTimescaleUnits){let s=O(t.decodeTimestamp,e.timescale,!1),a=Math.round(s-e.lastTimescaleUnits);if(e.lastTimescaleUnits+=a,e.lastSample.timescaleUnitsToNextSample=a,"fragmented"!==r(this,Je).fastStart){let t=M(e.timeToSampleTable);1===t.sampleCount?(t.sampleDelta=a,t.sampleCount++):t.sampleDelta===a?t.sampleCount++:(t.sampleCount--,e.timeToSampleTable.push({sampleCount:2,sampleDelta:a}));const s=M(e.compositionTimeOffsetTable);s.sampleCompositionTimeOffset===i?s.sampleCount++:e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i})}}else e.lastTimescaleUnits=0,"fragmented"!==r(this,Je).fastStart&&(e.timeToSampleTable.push({sampleCount:1,sampleDelta:O(t.duration,e.timescale)}),e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i}));e.lastSample=t;let s=!1;if(e.currentChunk){let i=t.presentationTimestamp-e.currentChunk.startTimestamp;if("fragmented"===r(this,Je).fastStart){let a=r(this,Ye)??r(this,Ze);const n=r(this,Je).minFragmentDuration??1;e===a&&"key"===t.type&&i>=n&&(s=!0,h(this,St,xt).call(this))}else s=i>=.5}else s=!0;s&&(e.currentChunk&&h(this,Ct,vt).call(this,e),e.currentChunk={startTimestamp:t.presentationTimestamp,samples:[]}),e.currentChunk.samples.push(t)},kt=new WeakSet,Tt=function(e,t,i){const s="strict"===r(this,Je).firstTimestampBehavior,a=-1===i.lastDecodeTimestamp;if(s&&a&&0!==t)throw new Error(`The first chunk for your media track must have a timestamp of 0 (received DTS=${t}).Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of thedocument, which is probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.\n`);if("offset"===r(this,Je).firstTimestampBehavior||"cross-track-offset"===r(this,Je).firstTimestampBehavior){let s;void 0===i.firstDecodeTimestamp&&(i.firstDecodeTimestamp=t),s="offset"===r(this,Je).firstTimestampBehavior?i.firstDecodeTimestamp:Math.min(r(this,Ye)?.firstDecodeTimestamp??1/0,r(this,Ze)?.firstDecodeTimestamp??1/0),t-=s,e-=s}if(t<i.lastDecodeTimestamp)throw new Error(`Timestamps must be monotonically increasing (DTS went from ${1e6*i.lastDecodeTimestamp} to ${1e6*t}).`);return i.lastDecodeTimestamp=t,{presentationTimestamp:e,decodeTimestamp:t}},Ct=new WeakSet,vt=function(e){if("fragmented"===r(this,Je).fastStart)throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");if(e.currentChunk)if(e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),0!==e.compactlyCodedChunkTable.length&&M(e.compactlyCodedChunkTable).samplesPerChunk===e.currentChunk.samples.length||e.compactlyCodedChunkTable.push({firstChunk:e.finalizedChunks.length,samplesPerChunk:e.currentChunk.samples.length}),"in-memory"!==r(this,Je).fastStart){e.currentChunk.offset=r(this,Ke).pos;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null;h(this,zt,Et).call(this)}else e.currentChunk.offset=0},St=new WeakSet,xt=function(e=!0){if("fragmented"!==r(this,Je).fastStart)throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");let t=[r(this,Ye),r(this,Ze)].filter(e=>e&&e.currentChunk);if(0===t.length)return;let i=(s=this,a=it,{set _(e){o(s,a,e,n)},get _(){return r(s,a,l)}})._++;var s,a,n,l;if(1===i){let e=F(t,r(this,et),!0);r(this,Ke).writeBox(e)}let d=r(this,Ke).pos,f=ce(i,t);r(this,Ke).writeBox(f);{let e=V(!1),i=0;for(let e of t)for(let t of e.currentChunk.samples)i+=t.size;let s=r(this,Ke).measureBox(e)+i;s>=2**32&&(e.largeSize=!0,s=r(this,Ke).measureBox(e)+i),e.size=s,r(this,Ke).writeBox(e)}for(let e of t){e.currentChunk.offset=r(this,Ke).pos,e.currentChunk.moofOffset=d;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null}let u=r(this,Ke).pos;r(this,Ke).seek(r(this,Ke).offsets.get(f));let m=ce(i,t);r(this,Ke).writeBox(m),r(this,Ke).seek(u);for(let e of t)e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),e.currentChunk=null;e&&h(this,zt,Et).call(this)},zt=new WeakSet,Et=function(){r(this,Ke)instanceof Ge&&r(this,Ke).flush()},At=new WeakSet,Mt=function(){if(r(this,rt))throw new Error("Cannot add new video or audio chunks after the file has been finalized.")},Wt=l,((a,r,n,o)=>{if(r&&"object"==typeof r||"function"==typeof r)for(let h of i(r))s.call(a,h)||h===n||e(a,h,{get:()=>r[h],enumerable:!(o=t(r,h))||o.enumerable});return a})(e({},"__esModule",{value:!0}),Wt)})();"object"==typeof module&&"object"==typeof module.exports&&Object.assign(module.exports,Mp4Muxer);</script>
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════
+   TIDAL LOCKING — contextclimate.io
+   ════════════════════════════════════════════════════════════════ */
+
+const TAU = Math.PI * 2, DEG = Math.PI / 180;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const wrap = a => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
+const FM = "'Courier Prime', monospace", FB = "'Public Sans', sans-serif", FD = "'Zilla Slab', serif";
+const C = { accent: '#3CA3AE', gold: '#F2C14E', heat: '#F08A3C', brake: '#E86A5C', cream: '#E8E4D9', dim: '#A6A499', bg: '#1E2320', ok: '#5CC48A' };
+
+function rnd(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+function label(ctx, t, x, y, o = {}) {
+  ctx.save();
+  ctx.font = o.font || `600 14px ${FB}`;
+  ctx.textAlign = o.align || 'center'; ctx.textBaseline = o.base || 'middle';
+  if (o.halo !== false) { ctx.lineJoin = 'round'; ctx.lineWidth = o.hw || 4; ctx.strokeStyle = o.halo || 'rgba(14,17,15,0.8)'; ctx.strokeText(t, x, y); }
+  ctx.fillStyle = o.color || '#F1EEE6'; ctx.fillText(t, x, y);
+  ctx.restore();
+}
+function tag(ctx, t, x, y, align = 'left') { label(ctx, t, x, y, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.62)', align, halo: 'rgba(14,17,15,0.85)' }); }
+function rrect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function arrow(ctx, x1, y1, x2, y2, col, w = 3, head = 11) {
+  const a = Math.atan2(y2 - y1, x2 - x1), L = Math.hypot(x2 - x1, y2 - y1); if (L < 2) return;
+  const hb = Math.min(head, L * 0.6);
+  ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2 - Math.cos(a) * hb * 0.7, y2 - Math.sin(a) * hb * 0.7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x2, y2); ctx.lineTo(x2 - hb * Math.cos(a - 0.42), y2 - hb * Math.sin(a - 0.42));
+  ctx.lineTo(x2 - hb * Math.cos(a + 0.42), y2 - hb * Math.sin(a + 0.42)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+// arc arrow in screen coords with y-up angles (a0→a1, positive = counter-clockwise on screen)
+function arcArrow(ctx, cx, cy, r, a0, a1, col, w = 3, head = 11) {
+  ctx.save(); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round';
+  const ccw = a1 > a0, back = (ccw ? -1 : 1) * Math.min(0.5 * Math.abs(a1 - a0), head * 0.7 / r);
+  ctx.beginPath(); ctx.arc(cx, cy, r, -a0, -(a1 + back), ccw); ctx.stroke();
+  const ex = cx + r * Math.cos(a1), ey = cy - r * Math.sin(a1);
+  const ta = -(a1 + (ccw ? Math.PI / 2 : -Math.PI / 2)); // tangent direction on screen
+  ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(ex - head * Math.cos(ta - 0.42), ey - head * Math.sin(ta - 0.42));
+  ctx.lineTo(ex - head * Math.cos(ta + 0.42), ey - head * Math.sin(ta + 0.42)); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+/* ════════════════════════ MOON SURFACE TEXTURE ═════════════════════ */
+const TW = 512, TH = 256, TEX = new Uint8ClampedArray(TW * TH * 3);
+const MARK = { lat: 30 * DEG, lon: 0, r: 8.5 * DEG };   // the marked crater
+(function buildTexture() {
+  const R = rnd(11);
+  const randDir = () => { const z = R() * 2 - 1, lo = R() * TAU, s = Math.sqrt(1 - z * z); return [s * Math.cos(lo), s * Math.sin(lo), z]; };
+  // smooth fields on the sphere: sums of plane waves in random directions
+  const waves = (n, k0, k1) => { const w = []; for (let i = 0; i < n; i++) { const k = k0 * Math.pow(k1 / k0, R()); w.push({ d: randDir(), k, p: R() * TAU, a: 1 / k }); } return w; };
+  const field = (ws, x, y, z) => { let s = 0, n = 0; for (const w of ws) { s += w.a * Math.cos(w.k * (x * w.d[0] + y * w.d[1] + z * w.d[2]) + w.p); n += w.a; } return s / n; };
+  const MARE = waves(14, 1.6, 4.5), EDGE = waves(18, 6, 16), ALB = waves(26, 4, 30);
+  const crat = [];
+  for (let i = 0; i < 300; i++) { const u = R(); crat.push({ v: randDir(), r: (0.5 + 2.6 * u * u * u + (R() < 0.04 ? 4 + R() * 4 : 0)) * DEG, dep: 0.6 + R() * 0.4 }); }
+  const rays = []; for (let i = 0; i < 3; i++) rays.push({ v: randDir(), r: (1.4 + R()) * DEG, n: 9 + (R() * 6 | 0), s: R() * TAU });
+  crat.forEach(c => { c.c = Math.cos(c.r * 1.5); c.d = 1 - Math.cos(c.r); });
+  const mk = [Math.cos(MARK.lat) * Math.cos(MARK.lon), Math.cos(MARK.lat) * Math.sin(MARK.lon), Math.sin(MARK.lat)], mkd = 1 - Math.cos(MARK.r), mkc = Math.cos(MARK.r * 3.2);
+  const N = rnd(5);
+  for (let y = 0; y < TH; y++) {
+    const la = (0.5 - (y + 0.5) / TH) * Math.PI, cl = Math.cos(la), sl = Math.sin(la);
+    for (let x = 0; x < TW; x++) {
+      const lo = ((x + 0.5) / TW - 0.5) * TAU, px = cl * Math.cos(lo), py = cl * Math.sin(lo), pz = sl;
+      const m = field(MARE, px, py, pz) + 0.35 * field(EDGE, px, py, pz);
+      const mare = smooth((m - 0.10) / 0.12);                       // 0 highland … 1 mare
+      let v = lerp(176, 112, mare) + 16 * field(ALB, px, py, pz) + (N() - 0.5) * 9;
+      for (const c of crat) { const d = px * c.v[0] + py * c.v[1] + pz * c.v[2]; if (d > c.c) { const s = Math.sqrt((1 - d) / c.d);
+        v += c.dep * (12 * Math.exp(-(((s - 1) / 0.13) ** 2)) - (s < 0.92 ? 14 * (1 - s * s * 0.6) : 0) + (s > 1 && s < 1.5 ? 5 * (1.5 - s) : 0)); } }
+      for (const q of rays) { const d = px * q.v[0] + py * q.v[1] + pz * q.v[2]; if (d > 0.82) { const ang = Math.acos(Math.min(1, d)), s = ang / q.r;
+        if (s < 1) v += 30; else { const ex = px - q.v[0] * d, ey = py - q.v[1] * d, ez = pz - q.v[2] * d;
+          const az = Math.atan2(ey * q.v[0] - ex * q.v[1], ex + ez * 0.37); v += 26 * Math.max(0, Math.cos(q.n * az + q.s)) ** 8 * Math.max(0, 1 - (s - 1) / 9); } } }
+      let r = v * 1.0, g = v * 0.985, b = v * (0.95 - 0.03 * mare);
+      const dm = px * mk[0] + py * mk[1] + pz * mk[2];
+      if (dm > mkc) { const s = Math.sqrt((1 - dm) / mkd);
+        const rim = Math.exp(-(((s - 1) / 0.17) ** 2)), fl = s < 1 ? 0.82 - 0.25 * (1 - s) : 0, ray = s >= 1 ? Math.max(0, 1 - (s - 1) / 2.2) * 0.28 : 0;
+        const w = clamp(fl + rim + ray, 0, 1);
+        r = lerp(r, 245, w); g = lerp(g, 192, w); b = lerp(b, 72, w); }
+      const i = (y * TW + x) * 3; TEX[i] = r; TEX[i + 1] = g; TEX[i + 2] = b;
+    }
+  }
+})();
+
+/* sphere renderer: 'pole' = view down the spin axis (ang = spin angle φ);
+   'side' = equatorial view centred on body longitude ang (seen from the planet) */
+const SPH = {};
+function sphere(slot, kind, px, ang, tint) {
+  px = Math.max(8, Math.round(px));
+  const key = kind + '|' + px + '|' + ang.toFixed(4) + '|' + (tint ? tint.toFixed(3) : 0);
+  let e = SPH[slot]; if (e && e.key === key) return e.cv;
+  if (!e || e.cv.width !== px) { const cv = document.createElement('canvas'); cv.width = cv.height = px; e = SPH[slot] = { cv, key: '' }; }
+  const c = e.cv.getContext('2d'), img = c.createImageData(px, px), d = img.data, h = px / 2;
+  const ca = Math.cos(ang), sa = Math.sin(ang), invT = 1 / TAU, invP = 1 / Math.PI;
+  for (let py = 0; py < px; py++) {
+    const y = -(py + 0.5 - h) / h;
+    for (let qx = 0; qx < px; qx++) {
+      const x = (qx + 0.5 - h) / h, r2 = x * x + y * y, o = (py * px + qx) * 4;
+      if (r2 > 1.0) { const rr = Math.sqrt(r2); if (rr > 1 + 1.5 / h) { d[o + 3] = 0; continue; } }
+      const z = Math.sqrt(Math.max(0, 1 - r2));
+      let bx, by, bz;
+      if (kind === 'pole') { bx = x * ca + y * sa; by = -x * sa + y * ca; bz = z; }
+      else { bx = -x * sa + z * ca; by = x * ca + z * sa; bz = y; }
+      const lon = Math.atan2(by, bx), lat = Math.asin(clamp(bz, -1, 1));
+      let u = ((lon * invT + 0.5) * TW) | 0; if (u >= TW) u -= TW; if (u < 0) u += TW;
+      const v = clamp(((0.5 - lat * invP) * TH) | 0, 0, TH - 1), ti = (v * TW + u) * 3;
+      const sh = 0.38 + 0.62 * Math.pow(z, 0.5);
+      let R = TEX[ti] * sh, G = TEX[ti + 1] * sh, B = TEX[ti + 2] * sh;
+      if (tint) { const w = tint * (0.35 + 0.65 * z); R = lerp(R, 255, w * 0.85); G = lerp(G, 120, w * 0.8); B = lerp(B, 40, w * 0.85); }
+      d[o] = R; d[o + 1] = G; d[o + 2] = B;
+      d[o + 3] = 255 * clamp((1 - Math.sqrt(r2)) * h + 0.5, 0, 1);
+    }
+  }
+  c.putImageData(img, 0, 0); e.key = key; return e.cv;
+}
+
+/* ═════════════════════════════ STATE ═══════════════════════════════ */
+const S = {
+  tab: 'face', playing: false,
+  // Same Face
+  spin: 0, hand: false, th: 0, ph: Math.PI, lastPh: Math.PI, turns: 0, faceT: 0, orbit: 0, done: false,
+  // Spin-Down / The Brake
+  start: 'fast', t: 0, view: 'above', forces: true, heat: true,
+  // Earth & Moon
+  s: 0.3, eForces: true, eTh: 0.6, eSp: 0
+};
+let capturing = false, play = null;
+
+/* ── Same Face ── */
+const FACE_P = 7;                 // seconds per orbit
+const FACE_TOL = 20 * DEG;
+const FACE_SNAPS = [{ v: 0, t: '0' }, { v: 0.5, t: '½' }, { v: 1, t: '1' }, { v: 2, t: '2' }];
+const facing = () => Math.abs(wrap(S.ph - (S.th + Math.PI))) < FACE_TOL;
+
+/* ── Spin-down model (idealized; time compressed) ── */
+const K = 8, TL = 0.7, R0 = { fast: 6, slow: 0.25 };
+const SPIN_SNAPS = [0, 0.3, 1];
+const gfun = t => t >= TL ? 0 : (1 - t / TL) ** 2;
+const Gfun = t => t >= TL ? TL / 3 : (TL / 3) * (1 - (1 - t / TL) ** 3);
+const rAt = (t, st = S.start) => 1 + (R0[st] - 1) * gfun(t);
+const thAt = t => TAU * K * t;
+function phAt(t, st = S.start) { const r0 = R0[st]; return thAt(t) + TAU * K * (r0 - 1) * (Gfun(t) - TL / 3) + Math.PI; }
+const lagAt = t => 32 * DEG * Math.tanh((rAt(t) - 1) / 1.2);                     // drawn bulge offset (exaggerated)
+const heatAt = t => clamp(Math.abs(rAt(t) - 1) / (R0.fast - 1), 0, 1) ** 1.1;      // illustrative
+
+/* ── Earth–Moon: angular momentum of the Earth–Moon pair held fixed (solar tides ignored) ── */
+const GMT = 3.986004e14 + 4.9028e12, ME = 5.9722e24, MM = 7.342e22, MU = ME * MM / (ME + MM), CE = 8.034e37;
+const A0 = 3.844e8, PSID0 = 86164.1, YSID = 365.256363 * 86400, YTROP = 365.24219 * 86400;
+const LTOT = CE * TAU / PSID0 + MU * Math.sqrt(GMT * A0);
+const aOf = P => { const L = LTOT - CE * TAU / P; return L * L / (MU * MU * GMT); };
+const monthOf = a => TAU * Math.sqrt(a * a * a / GMT);
+const PDEV = 1 / (400 / YTROP + 1 / YSID);              // 400 solar days per year (Wells 1963)
+const PLOCK = (() => { let lo = 5 * 86400, hi = 120 * 86400; for (let i = 0; i < 80; i++) { const m = (lo + hi) / 2; if (monthOf(aOf(m)) > m) lo = m; else hi = m; } return (lo + hi) / 2; })();
+const ALOCK = aOf(PLOCK), ADEV = aOf(PDEV);
+const EARTH_SNAPS = [{ s: 0, t: 'Devonian', i: '~385 Mya' }, { s: 0.3, t: 'Today', i: '2026' }, { s: 1, t: 'Lock', i: 'far future' }];
+function eSpinP(s) { return s <= 0.3 ? lerp(PDEV, PSID0, s / 0.3) : Math.exp(lerp(Math.log(PSID0), Math.log(PLOCK), (s - 0.3) / 0.7)); }
+function earthVals(s) { const P = eSpinP(s), a = aOf(P), m = monthOf(a); return { P, a, m, dpy: YSID / P - 1, ratio: m / P }; }
+
+/* ═════════════════════════════ SCENE ═══════════════════════════════ */
+const STARS = (() => { const r = rnd(7), a = []; for (let i = 0; i < 340; i++) a.push([r() * 2 - 1, r() * 2 - 1, r() * 1.1 + 0.35, r() * 0.55 + 0.2]); return a; })();
+function drawStars(c, W, H, cx, cy, rot) {
+  const R = Math.hypot(W, H) * 0.62, cr = Math.cos(rot), sr = Math.sin(rot);
+  for (const [x, y, s, a] of STARS) { const X = cx + R * (x * cr - y * sr), Y = cy + R * (x * sr + y * cr);
+    if (X < -4 || X > W + 4 || Y < -4 || Y > H + 4) continue; c.fillStyle = `rgba(232,228,217,${a})`; c.fillRect(X - s / 2, Y - s / 2, s, s); }
+}
+function bg(c, W, H) { const g = c.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.45, Math.hypot(W, H) * 0.6);
+  g.addColorStop(0, '#171D1F'); g.addColorStop(1, '#0D1012'); c.fillStyle = g; c.fillRect(0, 0, W, H); }
+function drawPlanet(c, x, y, R) {
+  c.save();
+  const halo = c.createRadialGradient(x, y, R * 0.95, x, y, R * 1.22); halo.addColorStop(0, 'rgba(110,180,215,0.32)'); halo.addColorStop(1, 'rgba(110,180,215,0)');
+  c.fillStyle = halo; c.beginPath(); c.arc(x, y, R * 1.22, 0, TAU); c.fill();
+  const g = c.createRadialGradient(x - R * 0.25, y - R * 0.25, R * 0.1, x, y, R);
+  g.addColorStop(0, '#6FA6BF'); g.addColorStop(0.55, '#3C6F8C'); g.addColorStop(1, '#16304A');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, R, 0, TAU); c.fill();
+  c.clip();
+  const r = rnd(3); for (let i = 0; i < 9; i++) { const yy = y + (r() * 1.8 - 0.9) * R, hh = R * (0.04 + r() * 0.12);
+    const col = r() < 0.5 ? [220, 240, 248, 0.05 + r() * 0.06] : [10, 30, 50, 0.08 + r() * 0.08], lg = c.createLinearGradient(0, yy - hh, 0, yy + hh);
+    lg.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0)`); lg.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},${col[3]})`); lg.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+    c.fillStyle = lg; c.fillRect(x - R, yy - hh, 2 * R, 2 * hh); }
+  const sh = c.createRadialGradient(x - R * 0.25, y - R * 0.25, R * 0.3, x, y, R); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,10,20,0.45)');
+  c.fillStyle = sh; c.fillRect(x - R, y - R, 2 * R, 2 * R);
+  c.restore();
+}
+// marked-crater notch just outside the moon's limb, at screen angle a (y-up)
+function notch(c, x, y, R, a, col = C.gold) {
+  const ca = Math.cos(a), sa = -Math.sin(a), r1 = R + 3, r2 = R + 13;
+  c.save(); c.fillStyle = col; c.beginPath();
+  c.moveTo(x + ca * r1, y + sa * r1);
+  c.lineTo(x + ca * r2 - sa * 6, y + sa * r2 + ca * 6); c.lineTo(x + ca * r2 + sa * 6, y + sa * r2 - ca * 6); c.closePath(); c.fill(); c.restore();
+}
+function moonPole(c, slot, x, y, R, ph, pr, tint) { const img = sphere(slot, 'pole', 2 * R * pr, ph, tint); c.drawImage(img, x - R, y - R, 2 * R, 2 * R); }
+function moonSide(c, slot, x, y, R, lam, pr) { const img = sphere(slot, 'side', 2 * R * pr, lam); c.drawImage(img, x - R, y - R, 2 * R, 2 * R); }
+function legendMark(c, x, y) { c.save(); c.fillStyle = C.gold; c.beginPath(); c.arc(x, y, 6, 0, TAU); c.fill(); c.restore();
+  label(c, 'Marked crater', x + 13, y, { font: `600 13px ${FB}`, align: 'left', color: 'rgba(232,228,217,0.8)' }); }
+
+/* inset: the moon as seen from the planet */
+function insetFromPlanet(c, x, y, R, lam, pr) {
+  const bw = Math.max(2 * R + 28, 150);
+  c.save(); c.fillStyle = 'rgba(14,17,15,0.72)'; rrect(c, x - bw / 2, y - R - 30, bw, 2 * R + 44, 8); c.fill();
+  c.strokeStyle = 'rgba(232,228,217,0.16)'; c.lineWidth = 1; c.stroke(); c.restore();
+  tag(c, 'FROM THE PLANET', x, y - R - 15, 'center');
+  moonSide(c, 'inset', x, y, R, lam, pr);
+}
+/* inset: orbit seen from above (for the From-the-planet view) */
+function insetOrbit(c, x, y, s, th, ph) {
+  c.save(); c.fillStyle = 'rgba(14,17,15,0.72)'; rrect(c, x - s / 2, y - s / 2 - 16, s, s + 16, 8); c.fill();
+  c.strokeStyle = 'rgba(232,228,217,0.16)'; c.lineWidth = 1; c.stroke(); c.restore();
+  tag(c, 'FROM ABOVE', x, y - s / 2 - 3, 'center');
+  const a = s * 0.33, cy = y + 6;
+  c.save(); c.strokeStyle = 'rgba(232,228,217,0.22)'; c.setLineDash([3, 4]); c.beginPath(); c.arc(x, cy, a, 0, TAU); c.stroke(); c.restore();
+  drawPlanet(c, x, cy, a * 0.3);
+  const mx = x + a * Math.cos(th), my = cy - a * Math.sin(th);
+  c.fillStyle = '#A9A69C'; c.beginPath(); c.arc(mx, my, 6, 0, TAU); c.fill();
+  c.save(); c.strokeStyle = C.gold; c.lineWidth = 2.5; c.beginPath(); c.moveTo(mx, my); c.lineTo(mx + 13 * Math.cos(ph), my - 13 * Math.sin(ph)); c.stroke(); c.restore();
+}
+
+/* ── shared orbit scene (Same Face, Spin-Down above/riding) ── */
+function orbitLayout(W, H) {
+  const cx = W * 0.47, cy = H * 0.52, a = Math.min(W * 0.31, H * 0.36);
+  return { cx, cy, a, Rp: a * 0.25, Rm: clamp(a * 0.14, 16, 34) };
+}
+function drawOrbitScene(c, W, H, o, th, ph, riding) {
+  const L = orbitLayout(W, H), rot = riding ? th : 0;
+  drawStars(c, W, H, L.cx, L.cy, riding ? th : 0);
+  c.save(); c.strokeStyle = 'rgba(232,228,217,0.22)'; c.setLineDash([4, 6]); c.lineWidth = 1.2; c.beginPath(); c.arc(L.cx, L.cy, L.a, 0, TAU); c.stroke(); c.restore();
+  // orbit direction
+  const oa = riding ? 0.55 : th + 0.55;
+  arcArrow(c, L.cx, L.cy, L.a, oa - 0.3, oa + 0.05, 'rgba(232,228,217,0.55)', 2, 10);
+  drawPlanet(c, L.cx, L.cy, L.Rp);
+  label(c, 'PLANET', L.cx, L.cy + L.Rp + 18, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.75)' });
+  const mt = th - rot, mx = L.cx + L.a * Math.cos(mt), my = L.cy - L.a * Math.sin(mt);
+  const f = Math.abs(wrap(ph - (th + Math.PI))) < FACE_TOL;
+  if (o.facingLine) { c.save(); c.strokeStyle = f ? 'rgba(92,196,138,0.75)' : 'rgba(232,228,217,0.25)'; c.lineWidth = f ? 2.5 : 1.5; c.setLineDash([6, 6]);
+    c.beginPath(); c.moveTo(mx - Math.cos(mt) * (L.Rm + 4), my + Math.sin(mt) * (L.Rm + 4)); c.lineTo(L.cx + Math.cos(mt) * (L.Rp + 6), L.cy - Math.sin(mt) * (L.Rp + 6)); c.stroke(); c.restore(); }
+  moonPole(c, 'orbit', mx, my, L.Rm, ph - rot, o.pr);
+  notch(c, mx, my, L.Rm, ph - rot);
+  if (o.hit) o.hit.moon = { x: mx, y: my, R: L.Rm };
+  label(c, 'MOON', mx, my + L.Rm + 24, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.75)' });
+  return L;
+}
+
+/* ═══════════════════ TAB 1 · SAME FACE ═══════════════════ */
+function drawFace(c, W, H, o) {
+  bg(c, W, H);
+  drawOrbitScene(c, W, H, { ...o, facingLine: true }, S.th, S.ph, false);
+  const ir = clamp(Math.min(W, H) * 0.085, 34, 58);
+  insetFromPlanet(c, W - Math.max(2 * ir + 28, 150) / 2 - 14, ir + 42, ir, S.th + Math.PI - S.ph, o.pr);
+  legendMark(c, 18, H - 22);
+  tag(c, 'BACKGROUND STARS STAY FIXED', W - 14, H - 22, 'right');
+  if (!S.playing && !S.done && S.orbit === 0) {
+    label(c, 'Drag the moon to turn it', W * 0.47, 26, { font: `600 15px ${FB}`, color: 'rgba(232,228,217,0.85)' });
+  }
+}
+function cardFace() {
+  const pct = S.orbit > 0 ? Math.round(100 * S.faceT / (S.orbit / TAU * FACE_P)) : null;
+  return { eb: 'Same Face · one orbit', rows: [
+    { l: 'Spin setting', v: S.hand ? 'By hand' : fmtSpin(S.spin), u: S.hand ? '' : (S.spin === 1 ? 'turn per orbit' : 'turns per orbit') },
+    { l: 'Orbit completed', v: Math.round(100 * S.orbit / TAU) + '%' },
+    { l: 'Turns vs the stars', v: S.orbit > 0 ? S.turns.toFixed(2) : '—' },
+    { l: 'Crater facing planet', v: pct === null ? '—' : clamp(pct, 0, 100) + '%', hi: pct !== null && pct >= 95 && S.orbit >= TAU - 1e-6 }],
+    note: 'Keep the gold crater pointed at the planet for one whole orbit. Drag the moon to turn it by hand, or pick a spin setting, then press Play. Count its turns against the background stars.',
+    src: '' };
+}
+function fmtSpin(v) { return v === 0.5 ? '½' : (Math.abs(v - Math.round(v)) < 1e-9 ? String(Math.round(v)) : v.toFixed(2)); }
+
+/* ═══════════════════ TAB 2 · SPIN-DOWN ═══════════════════ */
+function chartLayout(W, H) { const h = clamp(Math.round(H * 0.22), 96, 140); return { y: H - h, h }; }
+function drawSpinChart(c, x, y, w, h) {
+  c.fillStyle = 'rgba(14,17,15,0.55)'; c.fillRect(x, y, w, h);
+  c.fillStyle = 'rgba(232,228,217,0.14)'; c.fillRect(x, y, w, 1);
+  const pl = x + 56, pr = x + w - 20, pt = y + 22, pb = y + h - 24, ymax = 6.4;
+  const X = t => lerp(pl, pr, t), Y = v => lerp(pb, pt, v / ymax);
+  c.font = `500 13px ${FM}`; c.fillStyle = 'rgba(232,228,217,0.62)'; c.textAlign = 'right'; c.textBaseline = 'middle';
+  for (const v of [0, 1, 2, 4, 6]) { c.fillText(String(v), pl - 8, Y(v)); c.fillStyle = 'rgba(232,228,217,0.08)'; c.fillRect(pl, Y(v), pr - pl, 1); c.fillStyle = 'rgba(232,228,217,0.62)'; }
+  c.save(); c.strokeStyle = 'rgba(242,193,78,0.75)'; c.setLineDash([5, 5]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(pl, Y(1)); c.lineTo(pr, Y(1)); c.stroke(); c.restore();
+  for (const st of ['slow', 'fast']) {
+    const on = st === S.start; c.save(); c.strokeStyle = on ? C.accent : 'rgba(232,228,217,0.22)'; c.lineWidth = on ? 3 : 1.5; c.beginPath();
+    for (let i = 0; i <= 120; i++) { const t = i / 120, xx = X(t), yy = Y(rAt(t, st)); i ? c.lineTo(xx, yy) : c.moveTo(xx, yy); } c.stroke(); c.restore();
+  }
+  const cxp = X(S.t), cyp = Y(rAt(S.t));
+  c.fillStyle = 'rgba(232,228,217,0.3)'; c.fillRect(cxp - 0.5, pt - 6, 1, pb - pt + 6);
+  c.fillStyle = C.cream; c.beginPath(); c.arc(cxp, cyp, 6, 0, TAU); c.fill(); c.strokeStyle = C.accent; c.lineWidth = 2.5; c.stroke();
+  c.textAlign = 'left'; c.font = `700 13px ${FM}`; c.fillStyle = 'rgba(232,228,217,0.7)'; c.fillText('TURNS PER ORBIT', x + 12, y + 11);
+  label(c, 'one turn per orbit', pr - 4, Y(1) - 11, { font: `600 13px ${FB}`, align: 'right', color: 'rgba(242,193,78,0.9)' });
+  c.textAlign = 'left'; c.font = `700 13px ${FM}`; c.fillStyle = 'rgba(232,228,217,0.62)'; c.fillText('TIME →', pl, pb + 14);
+  c.textAlign = 'right'; c.fillText('TIME COMPRESSED', pr, pb + 14);
+  return { pl, pr, pt, pb };
+}
+function drawSpin(c, W, H, o) {
+  bg(c, W, H);
+  const ch = chartLayout(W, H), sh = ch.y, th = thAt(S.t), ph = phAt(S.t);
+  c.save(); c.beginPath(); c.rect(0, 0, W, sh); c.clip();
+  if (S.view === 'planet') {
+    const R = Math.min(W * 0.26, sh * 0.34), x = W * 0.45, y = sh * 0.55;
+    drawStars(c, W, sh, x, y, 0.3);
+    const halo = c.createRadialGradient(x, y, R, x, y, R * 1.25); halo.addColorStop(0, 'rgba(232,228,217,0.08)'); halo.addColorStop(1, 'rgba(232,228,217,0)');
+    c.fillStyle = halo; c.beginPath(); c.arc(x, y, R * 1.25, 0, TAU); c.fill();
+    moonSide(c, 'big', x, y, R, th + Math.PI - ph, o.pr);
+    tag(c, 'SEEN FROM THE PLANET', x, y - R - 22, 'center');
+    const s = clamp(Math.min(W, sh) * 0.3, 110, 160);
+    insetOrbit(c, W - s / 2 - 16, s / 2 + 64, s, th, ph);
+  } else {
+    drawOrbitScene(c, W, sh, { ...o, hit: null }, th, ph, S.view === 'riding');
+    const ir = clamp(Math.min(W, sh) * 0.085, 30, 52);
+    insetFromPlanet(c, W - Math.max(2 * ir + 28, 150) / 2 - 14, ir + 82, ir, th + Math.PI - ph, o.pr);
+    if (S.view === 'riding') tag(c, 'RIDING ALONG WITH THE ORBIT', W - 14, sh - 18, 'right');
+  }
+  legendMark(c, 18, sh - 18);
+  c.restore();
+  const cl = drawSpinChart(c, 0, ch.y, W, ch.h);
+  if (o.hit) o.hit.chart = cl;
+}
+function spinNoteKey(t) { return t < 0.12 ? 0 : t < TL - 0.02 ? 1 : 2; }
+const SPIN_NOTES = {
+  fast: ['A newly formed moon can spin much faster than it orbits. From the planet, the gold crater keeps sweeping into view and back out.',
+         'Tides from the planet act as a brake on the spinning moon, so each turn takes a little longer. The spin creeps toward one turn per orbit.',
+         'The moon now turns exactly once per orbit, so one face always points at the planet. In the Riding along view, the moon stops turning.'],
+  slow: ['This moon starts out spinning slower than it orbits, so from the planet its surface drifts the other way.',
+         'Tides can speed a spin up, too. The spin climbs toward one turn per orbit.',
+         'The moon now turns exactly once per orbit, so one face always points at the planet. In the Riding along view, the moon stops turning.'] };
+function spinRows() {
+  const r = rAt(S.t);
+  return [{ l: 'Spin', v: r.toFixed(2), u: Math.abs(r - 1) < 0.005 ? 'turn per orbit' : 'turns per orbit', hi: Math.abs(r - 1) < 0.005 },
+          { l: "Moon's day (one turn)", v: (1 / r).toFixed(2), u: 'orbits' }];
+}
+function cardSpin() {
+  return { eb: 'Spin-Down · ' + (S.start === 'fast' ? 'fast start' : 'slow start'), rows: spinRows(),
+    note: SPIN_NOTES[S.start][spinNoteKey(S.t)], src: 'Idealized spin-down. Time compressed: a real moon takes millions of orbits.' };
+}
+
+/* ═══════════════════ TAB 3 · THE BRAKE ═══════════════════ */
+function drawBrake(c, W, H, o) {
+  bg(c, W, H); drawStars(c, W, H, W / 2, H / 2, 0.9);
+  const Rp = H * 0.62, px = -Rp * 0.42, py = H * 0.52;
+  drawPlanet(c, px, py, Rp);
+  label(c, 'PLANET', Math.max(40, px + Rp * 0.62), py + 4, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.8)' });
+  const R = clamp(Math.min(W * 0.17, H * 0.27), 70, 170), mx = W * 0.6, my = py;
+  // line to the planet
+  c.save(); c.strokeStyle = 'rgba(232,228,217,0.3)'; c.setLineDash([6, 6]); c.lineWidth = 1.5; c.beginPath(); c.moveTo(px + Rp + 6, py); c.lineTo(mx + R * 1.6, my); c.stroke(); c.restore();
+  const t = S.t, r = rAt(t), dl = lagAt(t), ax = Math.PI + dl, e = 0.17, rel = phAt(t) - thAt(t);
+  const heat = S.heat ? heatAt(t) : 0;
+  // heating glow around the moon
+  if (heat > 0.01) { const g = c.createRadialGradient(mx, my, R * 0.9, mx, my, R * 1.65);
+    g.addColorStop(0, `rgba(240,138,60,${0.45 * heat})`); g.addColorStop(1, 'rgba(240,138,60,0)'); c.fillStyle = g; c.beginPath(); c.arc(mx, my, R * 1.65, 0, TAU); c.fill(); }
+  // stretched moon (rock turns through the bulge)
+  c.save(); c.translate(mx, my); c.rotate(-ax); c.scale(1 + e, 1 / Math.sqrt(1 + e)); c.rotate(ax);
+  const img = sphere('brake', 'pole', 2 * R * o.pr, rel, heat * 0.3); c.drawImage(img, -R, -R, 2 * R, 2 * R);
+  c.restore();
+  // bulge axis
+  const bx = Math.cos(ax), by = -Math.sin(ax), Lb = R * (1 + e) + 16;
+  c.save(); c.strokeStyle = 'rgba(232,228,217,0.55)'; c.lineWidth = 1.5; c.setLineDash([2, 5]); c.beginPath(); c.moveTo(mx - bx * Lb, my - by * Lb); c.lineTo(mx + bx * Lb, my + by * Lb); c.stroke(); c.restore();
+  // spin arrow (counter-clockwise)
+  const sp = Math.min(1, Math.abs(r) / 6);
+  const sr = R * 1.3 + 8, sw = 0.2 + 0.75 * sp;
+  arcArrow(c, mx, my, sr, Math.PI / 2 - sw, Math.PI / 2 + sw, 'rgba(232,228,217,0.85)', 3, 12);
+  label(c, r > 1.004 ? 'Spinning faster than it orbits' : r < 0.996 ? 'Spinning slower than it orbits' : 'One turn per orbit', mx, my - sr - 22, { font: `600 14px ${FB}` });
+  // orbit direction
+  arrow(c, mx + R * 1.75, my + R * 0.35, mx + R * 1.75, my - R * 0.55, 'rgba(232,228,217,0.6)', 2.5, 11);
+  label(c, 'Orbit', mx + R * 1.75, my + R * 0.35 + 16, { font: `600 13px ${FB}`, color: 'rgba(232,228,217,0.75)' });
+  if (S.forces) {
+    const near = [mx + Math.cos(ax) * R * (1 + e), my - Math.sin(ax) * R * (1 + e)], far = [mx - Math.cos(ax) * R * (1 + e), my + Math.sin(ax) * R * (1 + e)];
+    const pull = (pt, L) => { const dx = px - pt[0], dy = py - pt[1], d = Math.hypot(dx, dy); arrow(c, pt[0], pt[1], pt[0] + dx / d * L, pt[1] + dy / d * L, C.cream, 3.5, 13); };
+    pull(near, R * 0.75); pull(far, R * 0.38);
+    label(c, 'stronger pull', near[0] - R * 0.42, near[1] + (dl >= 0 ? 22 : -22), { font: `600 13px ${FB}`, color: 'rgba(232,228,217,0.85)' });
+    label(c, 'weaker pull', far[0] + 6, far[1] + (dl >= 0 ? -20 : 20), { font: `600 13px ${FB}`, color: 'rgba(232,228,217,0.85)', align: 'left' });
+    if (Math.abs(dl) > 0.5 * DEG) { const tw = Math.min(1, Math.abs(dl) / (20 * DEG));
+      const half = 0.25 + 0.45 * tw, tr = R * 1.3 + 8;
+      arcArrow(c, mx, my, tr, -Math.PI / 2 + (dl > 0 ? half : -half), -Math.PI / 2 + (dl > 0 ? -half : half), C.brake, 4, 13);
+      label(c, 'Twist', mx, my + tr + 22, { font: `700 14px ${FB}`, color: C.brake }); }
+  }
+  tag(c, 'MOON ENLARGED · BULGE EXAGGERATED' + (S.heat ? ' · GLOW ILLUSTRATIVE' : ''), 14, H - 20);
+  tag(c, 'VIEW RIDES ALONG WITH THE ORBIT', W - 14, H - 46, 'right');
+  legendMark(c, W - 140, H - 20);
+}
+const BRAKE_NOTES = {
+  fast: ['The planet’s gravity stretches the moon into a slight football shape, with one bulge facing the planet and one facing away. The fast spin carries the bulges ahead of the line to the planet.',
+         'The planet pulls harder on the near bulge than the far one. With the bulge ahead of the line, that pull twists the moon backward and slows its spin. Rock flexing through the bulges turns spin energy into heat.',
+         'The bulges now point straight at the planet. Both pulls line up through the moon’s center, so the twist is gone and the rock stops flexing.'],
+  slow: ['Spinning slower than it orbits, the moon carries its bulges behind the line to the planet.',
+         'Now the stronger pull on the near bulge twists the moon forward, speeding its spin up.',
+         'The bulges now point straight at the planet. Both pulls line up through the moon’s center, so the twist is gone and the rock stops flexing.'] };
+function cardBrake() {
+  const t = S.t, dl = lagAt(t), h = heatAt(t);
+  const bulge = Math.abs(dl) < 0.3 * DEG ? 'On the line' : dl > 0 ? 'Ahead of the line' : 'Behind the line';
+  const twist = Math.abs(dl) < 0.3 * DEG ? 'None' : dl > 0 ? 'Against the spin' : 'With the spin';
+  const heat = h < 0.004 ? 'None' : h < 0.12 ? 'Low' : h < 0.45 ? 'Moderate' : 'High';
+  const rows = [spinRows()[0], { l: 'Bulge', v: bulge, dim: true }, { l: 'Twist from the planet', v: twist, dim: true }];
+  if (S.heat) rows.push({ l: 'Tidal heating', v: heat, dim: true });
+  return { eb: 'The Brake · ' + (S.start === 'fast' ? 'fast start' : 'slow start'), rows, note: BRAKE_NOTES[S.start][spinNoteKey(t)],
+    src: 'Idealized model: bulge offset and heating drawn to show direction, not size. Real bulges are far smaller.' };
+}
+
+/* ═══════════════════ TAB 4 · EARTH & MOON ═══════════════════ */
+let LAND = null;
+function drawEarthGlobe(c, x, y, R, spin) {
+  c.save();
+  const g = c.createRadialGradient(x - R * 0.2, y - R * 0.2, R * 0.1, x, y, R); g.addColorStop(0, '#3F7FA6'); g.addColorStop(1, '#173A57');
+  c.fillStyle = g; c.beginPath(); c.arc(x, y, R, 0, TAU); c.fill();
+  if (LAND && typeof d3 !== 'undefined' && d3.geoOrthographic) {
+    const proj = d3.geoOrthographic().scale(R).translate([x, y]).rotate([spin / DEG, -90, 0]).clipAngle(90);
+    const path = d3.geoPath(proj, c); c.beginPath(); path(LAND); c.fillStyle = '#7E9A6B'; c.fill();
+    c.strokeStyle = 'rgba(20,30,20,0.35)'; c.lineWidth = 0.6; c.stroke();
+  }
+  const sh = c.createRadialGradient(x, y, R * 0.55, x, y, R); sh.addColorStop(0, 'rgba(0,0,0,0)'); sh.addColorStop(1, 'rgba(0,0,0,0.38)');
+  c.fillStyle = sh; c.beginPath(); c.arc(x, y, R, 0, TAU); c.fill();
+  c.restore();
+}
+function earthLayout(W, H) { const Rmax = Math.min(W * 0.34, H * 0.44); return { cx: W * 0.4, cy: H * 0.5, Rmax, Re: clamp(Rmax * 0.15, 22, 44) }; }
+function drawEarth(c, W, H, o) {
+  bg(c, W, H);
+  const L = earthLayout(W, H), v = earthVals(S.s), sc = L.Rmax / ALOCK;
+  drawStars(c, W, H, L.cx, L.cy, 0.2);
+  // reference orbits
+  const ring = (a, txt, on) => { const r = a * sc; c.save(); c.strokeStyle = on ? 'rgba(60,163,174,0.75)' : 'rgba(232,228,217,0.22)'; c.lineWidth = on ? 2 : 1.2;
+    if (!on) c.setLineDash([4, 6]); c.beginPath(); c.arc(L.cx, L.cy, r, 0, TAU); c.stroke(); c.restore();
+    if (txt) label(c, txt, L.cx, L.cy - r - 10, { font: `600 13px ${FB}`, color: on ? 'rgba(60,163,174,0.95)' : 'rgba(232,228,217,0.62)' }); };
+  ring(ADEV, '', false); ring(A0, '', false); ring(ALOCK, '', false);
+  const near = (a, b) => Math.abs(a - b) < 0.004 * A0;
+  label(c, '~385 Mya', L.cx - ADEV * sc * 0.72, L.cy + ADEV * sc * 0.72 + 2, { font: `600 13px ${FB}`, color: near(v.a, ADEV) ? C.accent : 'rgba(232,228,217,0.62)', align: 'right' });
+  label(c, 'Today', L.cx - A0 * sc * 0.6, L.cy - A0 * sc * 0.8 - 4, { font: `600 13px ${FB}`, color: near(v.a, A0) ? C.accent : 'rgba(232,228,217,0.62)', align: 'right' });
+  label(c, 'Lock', L.cx - ALOCK * sc * 0.6, L.cy - ALOCK * sc * 0.8 - 6, { font: `600 13px ${FB}`, color: near(v.a, ALOCK) ? C.accent : 'rgba(232,228,217,0.62)', align: 'right' });
+  ring(v.a, '', true);
+  const th = S.eTh, mx = L.cx + v.a * sc * Math.cos(th), my = L.cy - v.a * sc * Math.sin(th);
+  // tidal bulge on Earth
+  const dl = 20 * DEG * Math.tanh((v.ratio - 1) / 2), ax = th + dl, Re = L.Re;
+  c.save(); c.translate(L.cx, L.cy); c.rotate(-ax); c.fillStyle = 'rgba(96,170,215,0.32)'; c.strokeStyle = 'rgba(140,200,235,0.6)'; c.lineWidth = 1.2;
+  c.beginPath(); c.ellipse(0, 0, Re * 1.42, Re * 1.06, 0, 0, TAU); c.fill(); c.stroke(); c.restore();
+  drawEarthGlobe(c, L.cx, L.cy, Re, S.eSp);
+  label(c, 'EARTH', L.cx, L.cy + Re * 1.45 + 18, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.8)' });
+  arcArrow(c, L.cx, L.cy, Re * 1.42 + 10, 2.0, 2.75, 'rgba(232,228,217,0.75)', 2.5, 10);
+  label(c, 'Spin', L.cx + (Re * 1.42 + 26) * Math.cos(2.4), L.cy - (Re * 1.42 + 26) * Math.sin(2.4), { font: `600 13px ${FB}`, align: 'right', color: 'rgba(232,228,217,0.8)' });
+  // the Moon (already locked: crater faces Earth)
+  const Rm = clamp(Re * 0.34, 8, 14);
+  c.save(); const mg = c.createRadialGradient(mx - Rm * 0.3, my - Rm * 0.3, 1, mx, my, Rm); mg.addColorStop(0, '#C9C6BC'); mg.addColorStop(1, '#6E6C66');
+  c.fillStyle = mg; c.beginPath(); c.arc(mx, my, Rm, 0, TAU); c.fill(); c.restore();
+  notch(c, mx, my, Rm, th + Math.PI);
+  { const ro = v.a * sc + Rm + 24; label(c, 'MOON', L.cx + ro * Math.cos(th), L.cy - ro * Math.sin(th), { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.8)' }); }
+  if (S.eForces && Math.abs(dl) > 0.3 * DEG) {
+    const bx = L.cx + Math.cos(ax) * Re * 1.42, by = L.cy - Math.sin(ax) * Re * 1.42, dx = mx - bx, dy = my - by, d = Math.hypot(dx, dy), Lf = Math.min(d - Rm - 8, Re * 1.9);
+    arrow(c, bx, by, bx + dx / d * Lf, by + dy / d * Lf, C.cream, 3, 12);
+    label(c, "Moon's pull on bulge", bx + dx / d * Lf * 0.55 + 4, by + dy / d * Lf * 0.55 + 18, { font: `600 13px ${FB}`, align: 'left' });
+    const tx = -Math.sin(th), ty = -Math.cos(th);
+    arrow(c, mx + tx * (Rm + 4), my + ty * (Rm + 4), mx + tx * (Rm + 34), my + ty * (Rm + 34), C.gold, 3, 11);
+    const ix = -Math.cos(th), iy = Math.sin(th);
+    label(c, "Bulge's pull on Moon", mx + tx * (Rm + 20) + ix * 26, my + ty * (Rm + 20) + iy * 26, { font: `600 13px ${FB}`, align: ix > 0 ? 'left' : 'right', color: C.gold });
+    const tr = Re * 1.42 + 10;
+    arcArrow(c, L.cx, L.cy, tr, -0.45, -1.25, C.brake, 3.5, 11);
+    label(c, 'Twist on Earth', L.cx + (tr + 14) * Math.cos(-0.85), L.cy - (tr + 14) * Math.sin(-0.85), { font: `700 13px ${FB}`, align: 'left', color: C.brake });
+  }
+  tag(c, 'EARTH & MOON ENLARGED · DISTANCES TO SCALE · BULGE EXAGGERATED', 14, H - 20);
+  const pk = clamp((S.s - 0.9) / 0.1, 0, 1);
+  if (pk > 0) drawPlutoCharon(c, W, H, pk);
+}
+function drawPlutoCharon(c, W, H, alpha) {
+  const w = clamp(W * 0.25, 200, 250), h = 210, x = W - w - 14, y = H - h - 40;
+  c.save(); c.globalAlpha = alpha;
+  c.fillStyle = 'rgba(14,17,15,0.85)'; rrect(c, x, y, w, h, 8); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.18)'; c.lineWidth = 1; c.stroke();
+  tag(c, 'PLUTO & CHARON', x + 12, y + 16);
+  const q = 0.122, rc = 56, sep = rc * (1 + q), bxc = x + w / 2, byc = y + 100, th = S.eTh * 2.3;
+  const pxp = bxc - sep * q / (1 + q) * Math.cos(th), pyp = byc + sep * q / (1 + q) * Math.sin(th);
+  const cxp = bxc + rc * Math.cos(th), cyp = byc - rc * Math.sin(th);
+  c.strokeStyle = 'rgba(232,228,217,0.22)'; c.setLineDash([3, 4]); c.beginPath(); c.arc(bxc, byc, rc, 0, TAU); c.stroke(); c.setLineDash([]);
+  const body = (bx, by, r, c0, c1) => { const g = c.createRadialGradient(bx - r * 0.3, by - r * 0.3, 1, bx, by, r); g.addColorStop(0, c0); g.addColorStop(1, c1); c.fillStyle = g; c.beginPath(); c.arc(bx, by, r, 0, TAU); c.fill(); };
+  body(pxp, pyp, 12, '#E5CDA8', '#8C6F55'); body(cxp, cyp, 6.5, '#BDB8B0', '#6A6660');
+  notch(c, pxp, pyp, 12, th); notch(c, cxp, cyp, 6.5, th + Math.PI);
+  label(c, 'Each turns once in 6.39 days,', x + w / 2, y + h - 30, { font: `600 13px ${FB}`, color: 'rgba(232,228,217,0.85)' });
+  label(c, 'the same as their orbit', x + w / 2, y + h - 13, { font: `600 13px ${FB}`, color: 'rgba(232,228,217,0.85)' });
+  tag(c, 'SIZES ENLARGED', x + 12, y + 34);
+  c.restore();
+}
+function fmtP(sec) { const h = sec / 3600; return h < 48 ? { v: h.toFixed(1), u: 'hours' } : { v: (h / 24).toFixed(1), u: 'days' }; }
+function earthNoteKey(s) { return s < 0.15 ? 0 : s < 0.65 ? 1 : 2; }
+const EARTH_NOTES = [
+  'Fossil corals from New York’s Devonian seas grew about 400 daily bands per year. Days were about 22 hours long, and the Moon was closer.',
+  'The Moon raises tidal bulges on Earth, and Earth’s spin carries them ahead of the Moon. The Moon’s pull on the bulge slows Earth’s spin; the bulge’s pull drags the Moon forward, so it slowly spirals outward.',
+  'Run to completion, Earth would turn once per orbit of the Moon, and each would keep one face toward the other. The Sun will change long before then, but Pluto and Charon have already reached this state.'];
+function cardEarth() {
+  const v = earthVals(S.s), p = fmtP(v.P), today = Math.abs(S.s - 0.3) < 0.004, dev = S.s < 0.004;
+  const km = today ? '384,400' : '≈ ' + (Math.round(v.a / 1e6) * 1000).toLocaleString('en-US');
+  const rows = [{ l: 'Earth turns once (vs stars)', v: p.v, u: p.u }, { l: 'Moon orbits once', v: (v.m / 86400).toFixed(1), u: 'days' },
+    { l: 'Days per year', v: dev ? '≈ 400' : v.dpy < 20 ? v.dpy.toFixed(1) : Math.round(v.dpy).toString() }, { l: 'Moon distance', v: km, u: 'km' }];
+  if (today) rows.push({ pair: [{ l: 'Moon moving away', v: '3.8', u: 'cm/yr' }, { l: 'Day lengthening', v: '1.8', u: 'ms/century' }] });
+  return { eb: 'Earth & Moon · ' + (dev ? 'Middle Devonian' : today ? 'today' : S.s > 0.995 ? 'mutual lock' : S.s < 0.3 ? 'past' : 'future'), rows, note: EARTH_NOTES[earthNoteKey(S.s)],
+    src: 'Corals: Wells (1963), central NY. Moon moving away: lunar laser ranging. Day lengthening: Stephenson et al. (2016). Other values: Earth–Moon angular momentum held fixed.' };
+}
+
+/* ═════════════════════════════ CARD (HTML) ═════════════════════════ */
+function cardModel() { return S.tab === 'face' ? cardFace() : S.tab === 'spin' ? cardSpin() : S.tab === 'brake' ? cardBrake() : cardEarth(); }
+let lastCard = '';
+function renderCard() {
+  const m = cardModel();
+  let h = `<div class="eb">${m.eb}</div>`;
+  for (const r of m.rows) h += r.pair ? `<div class="r pair">${r.pair.map(q => `<div><div class="l">${q.l}</div><div class="v">${q.v}<span class="u">${q.u}</span></div></div>`).join('')}</div>` : `<div class="r${r.dim ? ' dim' : ''}"><div class="l">${r.l}</div><div class="v${r.hi ? ' hi' : ''}">${r.v}${r.u ? `<span class="u">${r.u}</span>` : ''}</div></div>`;
+  if (m.note) h += `<div class="note">${m.note}</div>`;
+  if (m.src) h += `<div class="src">${m.src}</div>`;
+  if (h !== lastCard) { document.getElementById('card').innerHTML = h; lastCard = h; }
+}
+
+/* ═════════════════════════════ CONTROLS ════════════════════════════ */
+const ctl = document.getElementById('controls');
+const mk = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
+function snapsFor(tab) {
+  if (tab === 'face') return FACE_SNAPS.map(s => ({ key: s.v, html: `<b>${s.t}</b><i>${s.v === 1 ? 'turn' : 'turns'}/orbit</i>` }));
+  if (tab === 'earth') return EARTH_SNAPS.map(s => ({ key: s.s, html: `<b>${s.t}</b><i>${s.i}</i>` }));
+  const mid = S.start === 'fast' ? 'Slowing' : 'Speeding';
+  return [{ key: 0, html: `<b>Start</b><i>${S.start} spin</i>` }, { key: 0.3, html: `<b>${mid}</b><i>tides at work</i>` }, { key: 1, html: '<b>Locked</b><i>1 turn/orbit</i>' }];
+}
+function snapActive(tab, key) {
+  if (tab === 'face') return !S.hand && Math.abs(S.spin - key) < 1e-9;
+  if (tab === 'earth') return Math.abs(S.s - key) < 1e-6;
+  return Math.abs(S.t - key) < 1e-6;
+}
+function playLabel() {
+  if (S.playing) return '❚❚ Pause';
+  if (S.tab === 'face') return S.done ? '▶ Play again' : '▶ Play orbit';
+  const v = S.tab === 'earth' ? S.s : S.t; return v >= 1 - 1e-9 ? '↺ Replay' : '▶ Play';
+}
+function sliderSpec() {
+  if (S.tab === 'face') return { min: -1, max: 3, step: 0.05, val: S.spin, txt: S.hand ? 'by hand' : fmtSpin(S.spin) + ' /orbit', aria: 'Spin, turns per orbit' };
+  if (S.tab === 'earth') { const p = fmtP(eSpinP(S.s)); return { min: 0, max: 1, step: 0.001, val: S.s, txt: p.v + (p.u === 'hours' ? ' h' : ' d'), aria: 'Earth–Moon time' }; }
+  return { min: 0, max: 1, step: 0.001, val: S.t, txt: rAt(S.t).toFixed(2) + ' /orbit', aria: 'Time' };
+}
+function setSlider(v) {
+  if (S.tab === 'face') { S.spin = Math.round(v * 20) / 20; S.hand = false; }
+  else if (S.tab === 'earth') { S.s = v; }
+  else S.t = v;
+}
+function renderControls() {
+  ctl.innerHTML = '';
+  const pb = mk('button', 'cc-btn play', playLabel()); pb.id = 'bPlay'; pb.onclick = togglePlay; ctl.appendChild(pb);
+  const grp = mk('div', 'grp');
+  snapsFor(S.tab).forEach(sn => { const b = mk('button', 'cc-btn preset' + (snapActive(S.tab, sn.key) ? ' is-active' : ''), sn.html); b.dataset.k = sn.key;
+    b.onclick = () => { stopPlay(); if (S.tab === 'face') { S.spin = sn.key; S.hand = false; resetOrbit(); } else if (S.tab === 'earth') S.s = sn.key; else S.t = sn.key; refresh(true); };
+    grp.appendChild(b); });
+  ctl.appendChild(grp);
+  const sp = sliderSpec(), sl = mk('div', 'slider');
+  sl.innerHTML = `<input type="range" min="${sp.min}" max="${sp.max}" step="${sp.step}" value="${sp.val}" aria-label="${sp.aria}"><span class="sv">${sp.txt}</span>`;
+  const inp = sl.querySelector('input'); inp.oninput = () => { stopPlay(); setSlider(+inp.value); if (S.tab === 'face') resetOrbit(); syncControls(); renderCard(); draw(); };
+  ctl.appendChild(sl);
+}
+function syncControls() {
+  const pb = document.getElementById('bPlay'); if (pb) pb.textContent = playLabel();
+  ctl.querySelectorAll('.preset').forEach(b => b.classList.toggle('is-active', snapActive(S.tab, +b.dataset.k)));
+  const sp = sliderSpec(), inp = ctl.querySelector('.slider input'), sv = ctl.querySelector('.slider .sv');
+  if (inp && document.activeElement !== inp) inp.value = sp.val; if (sv) sv.textContent = sp.txt;
+}
+
+/* chips on the canvas */
+const chips = document.getElementById('chips');
+function renderChips() {
+  chips.innerHTML = '';
+  const seg = (opts, cur, fn) => { const s = mk('div', 'cc-segmented'); opts.forEach(([k, t]) => { const b = mk('button', 'cc-segmented-btn' + (cur === k ? ' is-active' : ''), t); b.onclick = () => fn(k); s.appendChild(b); }); chips.appendChild(s); };
+  const tg = (txt, on, fn) => { const b = mk('button', 'cc-btn tgl' + (on ? ' is-active' : ''), txt); b.onclick = fn; chips.appendChild(b); };
+  if (S.tab === 'spin' || S.tab === 'brake') seg([['fast', 'Fast start'], ['slow', 'Slow start']], S.start, k => { stopPlay(); S.start = k; refresh(true); });
+  if (S.tab === 'spin') seg([['above', 'Above'], ['riding', 'Riding along'], ['planet', 'From the planet']], S.view, k => { S.view = k; refresh(true); });
+  if (S.tab === 'brake') { tg('Forces', S.forces, () => { S.forces = !S.forces; refresh(true); }); tg('Heating', S.heat, () => { S.heat = !S.heat; refresh(true); }); }
+  if (S.tab === 'earth') tg('Forces', S.eForces, () => { S.eForces = !S.eForces; refresh(true); });
+  chips.style.display = chips.childElementCount ? 'flex' : 'none';
+}
+
+/* tabs */
+document.querySelectorAll('#tabs [data-tab]').forEach(b => b.onclick = () => { stopPlay(); S.tab = b.dataset.tab;
+  document.querySelectorAll('#tabs [data-tab]').forEach(x => x.classList.toggle('is-active', x === b)); refresh(true); });
+
+/* ═════════════════════════ PLAY (bounded) ══════════════════════════ */
+function resetOrbit() { S.turns = 0; S.faceT = 0; S.orbit = 0; S.done = false; }
+function stopPlay() { S.playing = false; play = null; }
+function togglePlay() {
+  if (S.playing) { stopPlay(); syncControls(); return; }
+  if (S.tab === 'face') { resetOrbit(); S.lastPh = S.ph; S.playing = true; play = { kind: 'face' }; }
+  else {
+    const key = S.tab === 'earth' ? 's' : 't', snaps = S.tab === 'earth' ? EARTH_SNAPS.map(s => s.s) : SPIN_SNAPS;
+    if (S[key] >= 1 - 1e-9) S[key] = 0;
+    const to = snaps.find(v => v > S[key] + 1e-6); if (to === undefined) return;
+    play = { kind: key, from: S[key], to }; S.playing = true;
+  }
+  syncControls();
+}
+const SPIN_RATE = 1 / (K * 2.4);            // model-time per second: one orbit every 2.4 s
+const MONTH_VIS = 24;                      // seconds of animation per 27.32-day month
+function step(dt) {
+  if (!S.playing || !play) return;
+  if (play.kind === 'face') {
+    const dth = Math.min(TAU - S.orbit, TAU * dt / FACE_P);
+    S.th += dth; S.orbit += dth;
+    if (dragging !== 'moon') { if (!S.hand) S.ph += S.spin * dth; }
+    S.turns += wrap(S.ph - S.lastPh) / TAU; S.lastPh = S.ph;   // counts hand turns made between frames too
+    if (facing()) S.faceT += dth / TAU * FACE_P;
+    if (S.orbit >= TAU - 1e-9) { S.orbit = TAU; S.done = true; stopPlay(); }
+  } else if (play.kind === 't') {
+    S.t = Math.min(play.to, S.t + dt * SPIN_RATE); if (S.t >= play.to - 1e-9) { S.t = play.to; stopPlay(); }
+  } else {
+    const span = play.to - play.from, dur = play.to <= 0.3 ? 5 : 10;
+    S.s = Math.min(play.to, S.s + dt * span / dur); if (S.s >= play.to - 1e-9) { S.s = play.to; stopPlay(); }
+    advanceEarth(dt);
+  }
+}
+function advanceEarth(dt) { const v = earthVals(S.s), k = MONTH_VIS / (27.32166 * 86400);
+  S.eTh += TAU * dt / (v.m * k); S.eSp += TAU * dt / (v.P * k); }
+
+/* ═══════════════════════════ CANVAS / LOOP ═════════════════════════ */
+const cv = document.getElementById('cv'), stage = document.getElementById('stage');
+const ctx = cv.getContext('2d');
+let CW = 0, CH = 0, DPR = 1, HIT = {};
+function resize() {
+  const r = stage.getBoundingClientRect(); DPR = Math.min(2, window.devicePixelRatio || 1);
+  CW = Math.max(200, Math.round(r.width)); CH = Math.max(200, Math.round(r.height));
+  cv.width = Math.round(CW * DPR); cv.height = Math.round(CH * DPR);
+  draw();
+}
+new ResizeObserver(resize).observe(stage);
+function renderScene(c, W, H, o) {
+  if (S.tab === 'face') drawFace(c, W, H, o); else if (S.tab === 'spin') drawSpin(c, W, H, o);
+  else if (S.tab === 'brake') drawBrake(c, W, H, o); else drawEarth(c, W, H, o);
+}
+function draw() {
+  if (capturing || !CW) return;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  HIT = {};
+  renderScene(ctx, CW, CH, { pr: Math.min(DPR, 1.5), hit: HIT });
+}
+let lastT = performance.now();
+function loop(t) {
+  const dt = Math.min(0.08, (t - lastT) / 1000); lastT = t;
+  if ((S.playing || dragging) && !document.hidden && !capturing) { step(dt); draw(); renderCard(); syncControls(); }
+  requestAnimationFrame(loop);
+}
+function refresh(full) { if (full) { renderControls(); renderChips(); } else syncControls(); renderCard(); draw(); }
+const TR_ROUTE = '/earthandspace/tidal-rhythm';
+function routeHref(route) { let hash = false; try { hash = (window.top.location.hash || '').startsWith('#/'); } catch (e) {} return (hash ? '/#' : '') + route; }
+document.getElementById('trLink').href = routeHref(TR_ROUTE);
+
+/* pointer: turn the moon by hand (Same Face); scrub the chart (Spin-Down) */
+let dragging = null;
+function ptr(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function hitTest(p) {
+  if (S.tab === 'face' && HIT.moon) { const m = HIT.moon; if (Math.hypot(p[0] - m.x, p[1] - m.y) < m.R + 22) return 'moon'; }
+  if (S.tab === 'spin' && HIT.chart) { const k = HIT.chart; if (p[0] > k.pl - 10 && p[0] < k.pr + 10 && p[1] > k.pt - 12 && p[1] < k.pb + 8) return 'chart'; }
+  return null;
+}
+function applyDrag(p) {
+  if (dragging === 'moon') { const m = HIT.moon; if (!m) return; S.hand = true; S.ph = Math.atan2(-(p[1] - m.y), p[0] - m.x); if (!S.playing) { draw(); renderCard(); syncControls(); } }
+  else if (dragging === 'chart') { const k = HIT.chart; if (!k) return; stopPlay(); S.t = clamp((p[0] - k.pl) / (k.pr - k.pl), 0, 1); for (const s of SPIN_SNAPS) if (Math.abs(S.t - s) < 0.012) S.t = s; draw(); renderCard(); syncControls(); }
+}
+cv.addEventListener('pointerdown', e => { const p = ptr(e); dragging = hitTest(p); if (dragging) { cv.setPointerCapture(e.pointerId); if (dragging === 'moon') { const m = HIT.moon; dragOff = 0; } applyDrag(p); e.preventDefault(); } });
+let dragOff = 0;
+cv.addEventListener('pointermove', e => { const p = ptr(e); if (dragging) applyDrag(p); else cv.style.cursor = hitTest(p) ? 'grab' : 'default'; });
+const endDrag = () => { if (dragging === 'moon') renderControls(); dragging = null; };
+cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+/* ═══════════════════════════════ EXPORT ════════════════════════════ */
+const EW = 1280, EH = 720;
+const TITLES = { face: 'Same Face', spin: 'Spin-Down', brake: 'The Brake', earth: 'Earth & Moon' };
+function stampText() {
+  if (S.tab === 'face') return `Same Face · spin ${S.hand ? 'by hand' : fmtSpin(S.spin) + ' turns per orbit'}`;
+  if (S.tab === 'earth') { const p = fmtP(eSpinP(S.s)); return `Earth & Moon · Earth turns once in ${p.v} ${p.u}`; }
+  const r = rAt(S.t);
+  return `${TITLES[S.tab]} · ${S.start} start · ${r.toFixed(2)} ${Math.abs(r - 1) < 0.005 ? 'turn' : 'turns'} per orbit` + (S.tab === 'spin' ? ` · view: ${S.view === 'riding' ? 'riding along' : S.view === 'planet' ? 'from the planet' : 'above'}` : '');
+}
+function wrapText(c, txt, maxW) { const words = txt.split(' '), lines = []; let cur = '';
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (c.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t; } if (cur) lines.push(cur); return lines; }
+function drawCardCanvas(c, x, y, w, h, m) {
+  c.fillStyle = '#262B27'; rrect(c, x, y, w, h, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.stroke();
+  let yy = y + 22; const px = x + 16, pw = w - 32;
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 13px ${FM}`; c.fillStyle = C.accent; c.fillText(m.eb.toUpperCase(), px, yy); yy += 16;
+  const line = () => { c.fillStyle = 'rgba(232,228,217,0.14)'; c.fillRect(px, yy, pw, 1); };
+  line();
+  for (const r of m.rows) {
+    if (r.pair) { yy += 16; r.pair.forEach((q, i) => { const qx = px + i * pw / 2; c.font = `500 11px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(q.l.toUpperCase(), qx, yy);
+        c.font = `700 18px ${FD}`; c.fillText(q.v, qx, yy + 21); const vw = c.measureText(q.v).width; c.font = `500 13px ${FB}`; c.fillText(q.u, qx + vw + 4, yy + 23); });
+      yy += 36; line(); continue; }
+    yy += 16; c.font = `500 12px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(r.l.toUpperCase(), px, yy);
+    yy += 21; c.font = `700 ${r.dim ? 19 : 23}px ${FD}`; c.fillStyle = r.hi ? C.accent : r.dim ? '#A6A499' : '#E8E4D9'; c.fillText(r.v, px, yy);
+    if (r.u) { const vw = c.measureText(r.v).width; c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; c.fillText(r.u, px + vw + 5, yy + 2); }
+    yy += 15; line();
+  }
+  if (m.note) { c.font = `400 14px ${FB}`; const ls = wrapText(c, m.note, pw - 22); const nh = ls.length * 19 + 16; yy += 10;
+    c.fillStyle = '#2C322D'; rrect(c, px, yy, pw, nh, 4); c.fill(); c.fillStyle = C.accent; c.fillRect(px, yy, 3, nh);
+    c.fillStyle = '#E8E4D9'; ls.forEach((l, i) => c.fillText(l, px + 13, yy + 17 + i * 19)); yy += nh; }
+  if (m.src) { c.font = `400 12px ${FB}`; c.fillStyle = '#948F82'; const ls = wrapText(c, m.src, pw); ls.forEach((l, i) => c.fillText(l, px, y + h - 14 - (ls.length - 1 - i) * 16)); }
+}
+function compose(c, scale) {
+  c.setTransform(scale, 0, 0, scale, 0, 0);
+  c.fillStyle = '#1E2320'; c.fillRect(0, 0, EW, EH);
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 26px ${FD}`; c.fillStyle = '#E8E4D9'; c.fillText('Tidal Locking', 18, 30);
+  c.font = `500 14px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(stampText(), 18, 56);
+  c.textAlign = 'right'; c.font = `700 14px ${FM}`; c.fillStyle = C.accent; c.fillText('contextclimate.io', EW - 18, 30);
+  const sx = 16, sy = 74, cw = 300, sw = EW - 32 - cw - 12, sh = EH - sy - 16;
+  c.save(); rrect(c, sx, sy, sw, sh, 6); c.clip(); c.translate(sx, sy);
+  renderScene(c, sw, sh, { pr: scale, capture: true });
+  c.restore();
+  c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; rrect(c, sx + 0.5, sy + 0.5, sw - 1, sh - 1, 6); c.stroke();
+  drawCardCanvas(c, sx + sw + 12, sy, cw, sh, cardModel());
+}
+function slug() { const base = 'tidal-locking-' + S.tab;
+  if (S.tab === 'face') return base + '-' + (S.hand ? 'hand' : String(S.spin).replace('.', 'p'));
+  if (S.tab === 'earth') return base + '-' + (S.s < 0.004 ? 'devonian' : Math.abs(S.s - 0.3) < 0.004 ? 'today' : S.s > 0.995 ? 'lock' : 's' + Math.round(S.s * 100));
+  return base + '-' + S.start + '-t' + Math.round(S.t * 100); }
+function saveBlob(b, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+const status = t => { document.getElementById('status').textContent = t; };
+const tick = () => new Promise(r => setTimeout(r, 0));
+function setBusy(b) { ['bPNG', 'bGIF', 'bMP4'].forEach(id => document.getElementById(id).disabled = b); }
+
+async function exportPNG() {
+  stopPlay(); setBusy(true); capturing = true; status('rendering…'); await tick();
+  try { const oc = document.createElement('canvas'); oc.width = EW * 2; oc.height = EH * 2;
+    compose(oc.getContext('2d'), 2);
+    const b = await new Promise(r => oc.toBlob(r, 'image/png')); saveBlob(b, slug() + '.png'); status('PNG ' + (b.size / 1e6).toFixed(1) + ' MB');
+  } finally { capturing = false; setBusy(false); refresh(true); }
+}
+
+/* animation sweep through every snap with holds. fps: frames per second of the output */
+function sweep(fps) {
+  const saved = JSON.parse(JSON.stringify(S)), fr = [], hold = (n, set) => { for (let i = 0; i < n; i++) fr.push({ set, hold: true }); };
+  const dt = 1 / fps;
+  if (S.tab === 'face') {
+    const spin = S.hand ? 1 : S.spin, n = Math.round(FACE_P * fps);
+    const at = k => () => { S.hand = false; S.spin = spin; S.th = TAU * k / n; S.ph = Math.PI + spin * S.th; S.orbit = S.th; S.turns = spin * S.th / TAU;
+      S.faceT = 0; for (let j = 0; j <= k; j++) { const th = TAU * j / n; if (Math.abs(wrap(spin * th - th)) < FACE_TOL) S.faceT += FACE_P / n; } S.done = k === n; };
+    hold(Math.round(fps * 0.8), at(0)); for (let k = 0; k <= n; k++) fr.push({ set: at(k) }); hold(Math.round(fps * 1.5), at(n));
+  } else if (S.tab === 'earth') {
+    let th = 0.6, sp = 0; const segs = [[0, 0.3, 5], [0.3, 1, 10]];
+    hold(Math.round(fps * 1), () => { S.s = 0; S.eTh = 0.6; S.eSp = 0; });
+    for (const [a, b, d] of segs) { const n = Math.round(d * fps);
+      for (let k = 1; k <= n; k++) { const s = lerp(a, b, k / n), v = earthVals(s), kk = MONTH_VIS / (27.32166 * 86400); th += TAU * dt / (v.m * kk); sp += TAU * dt / (v.P * kk);
+        const T = th, P = sp; fr.push({ set: () => { S.s = s; S.eTh = T; S.eSp = P; } }); }
+      const T = th, P = sp; hold(Math.round(fps * 1.4), () => { S.s = b; S.eTh = T; S.eSp = P; }); }
+  } else {
+    hold(Math.round(fps * 1), () => { S.t = 0; });
+    const total = 1 / SPIN_RATE, n = Math.round(total * fps);
+    for (let k = 1; k <= n; k++) { const t = k / n; fr.push({ set: () => { S.t = t; } }); if (Math.abs(t - 0.3) < 0.5 / n) hold(Math.round(fps * 1.2), () => { S.t = 0.3; }); }
+    hold(Math.round(fps * 1.5), () => { S.t = 1; });
+  }
+  return { fr, restore: () => { Object.assign(S, saved); } };
+}
+
+/* ── GIF encoder (shared with Angle of Insolation) ── */
+function buildPalette(frames) {
+  const hist = new Uint32Array(32768);
+  for (const f of frames) for (let i = 0; i < f.length; i += 4 * 3) hist[((f[i] >> 3) << 10) | ((f[i + 1] >> 3) << 5) | (f[i + 2] >> 3)]++;
+  const bins = []; for (let i = 0; i < 32768; i++) if (hist[i]) bins.push(i);
+  const ch = (b, c) => c === 0 ? b >> 10 : c === 1 ? (b >> 5) & 31 : b & 31;
+  const boxes = [{ lo: 0, hi: bins.length }];
+  const stats = bx => { let n = 0, mn = [31, 31, 31], mx = [0, 0, 0];
+    for (let i = bx.lo; i < bx.hi; i++) { const b = bins[i]; n += hist[b]; for (let c = 0; c < 3; c++) { const v = ch(b, c); if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; } }
+    const rg = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]]; const ax = rg[1] >= rg[0] && rg[1] >= rg[2] ? 1 : rg[0] >= rg[2] ? 0 : 2;
+    return { n, ax, range: rg[ax] }; };
+  while (boxes.length < 255) {
+    let best = -1, bs = -1, bst = null;
+    boxes.forEach((bx, i) => { if (bx.hi - bx.lo < 2) return; const st = stats(bx); const sc = st.range * Math.cbrt(st.n); if (st.range > 0 && sc > bs) { bs = sc; best = i; bst = st; } });
+    if (best < 0) break;
+    const bx = boxes[best], seg = bins.slice(bx.lo, bx.hi).sort((p, q) => ch(p, bst.ax) - ch(q, bst.ax));
+    for (let i = 0; i < seg.length; i++) bins[bx.lo + i] = seg[i];
+    let acc = 0, cut = bx.lo + 1; const half = bst.n / 2;
+    for (let i = bx.lo; i < bx.hi - 1; i++) { acc += hist[bins[i]]; if (acc >= half) { cut = i + 1; break; } cut = i + 1; }
+    boxes.splice(best, 1, { lo: bx.lo, hi: cut }, { lo: cut, hi: bx.hi });
+  }
+  const pal = new Uint8Array(256 * 3);
+  boxes.forEach((bx, k) => { let n = 0, r = 0, g = 0, b = 0; for (let i = bx.lo; i < bx.hi; i++) { const v = bins[i], w = hist[v]; n += w; r += ch(v, 0) * w; g += ch(v, 1) * w; b += ch(v, 2) * w; }
+    pal[k * 3] = Math.round(r / n * 8.226); pal[k * 3 + 1] = Math.round(g / n * 8.226); pal[k * 3 + 2] = Math.round(b / n * 8.226); });
+  const np = boxes.length, lut = new Uint8Array(32768);
+  for (let i = 0; i < 32768; i++) { const r = (i >> 10) * 8.226, g = ((i >> 5) & 31) * 8.226, b = (i & 31) * 8.226; let bd = 1e9, bi = 0;
+    for (let k = 0; k < np; k++) { const dr = r - pal[k * 3], dg = g - pal[k * 3 + 1], db = b - pal[k * 3 + 2], dd = 2 * dr * dr + 4 * dg * dg + 3 * db * db; if (dd < bd) { bd = dd; bi = k; } } lut[i] = bi; }
+  return { pal, lut };
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v / 16 - 0.47) * 9);
+function lzw(ix, minCode) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, next = eoi + 1, dict = new Map();
+  const out = []; let buf = 0, nb = 0;
+  const emit = (code, s) => { buf |= code << nb; nb += s; while (nb >= 8) { out.push(buf & 255); buf >>>= 8; nb -= 8; } };
+  emit(clear, size);
+  let cur = ix[0];
+  for (let i = 1; i < ix.length; i++) {
+    const k = ix[i], key = (cur << 8) | k, v = dict.get(key);
+    if (v !== undefined) { cur = v; continue; }
+    emit(cur, size);
+    if (next === 4096) { emit(clear, size); dict = new Map(); next = eoi + 1; size = minCode + 1; }
+    else { if (next >= (1 << size)) size++; dict.set(key, next); next++; }
+    cur = k;
+  }
+  emit(cur, size); emit(eoi, size); if (nb > 0) out.push(buf & 255);
+  return out;
+}
+function gifBytes(w, h, pal, frames) { // frames: [{x,y,w,h,ix,delay}]
+  const B = []; const w16 = v => { B.push(v & 255, (v >> 8) & 255); };
+  for (const ch of 'GIF89a') B.push(ch.charCodeAt(0));
+  w16(w); w16(h); B.push(0xF7, 0, 0); for (let i = 0; i < 768; i++) B.push(pal[i] || 0);
+  B.push(0x21, 0xFF, 11); for (const ch of 'NETSCAPE2.0') B.push(ch.charCodeAt(0)); B.push(3, 1, 0, 0, 0);
+  for (const f of frames) {
+    B.push(0x21, 0xF9, 4, (1 << 2) | 1); w16(f.delay); B.push(255, 0);
+    B.push(0x2C); w16(f.x); w16(f.y); w16(f.w); w16(f.h); B.push(0);
+    B.push(8); const data = lzw(f.ix, 8);
+    for (let i = 0; i < data.length; i += 255) { const n = Math.min(255, data.length - i); B.push(n); for (let j = 0; j < n; j++) B.push(data[i + j]); }
+    B.push(0);
+  }
+  B.push(0x3B);
+  return new Uint8Array(B);
+}
+
+async function exportGIF() {
+  stopPlay(); setBusy(true); capturing = true; status('rendering…'); await tick();
+  const sc = 0.75, W = Math.round(EW * sc), H = Math.round(EH * sc);
+  const oc = document.createElement('canvas'); oc.width = W; oc.height = H; const c = oc.getContext('2d', { willReadFrequently: true });
+  const sw = sweep(12), raw = [];
+  try {
+    for (let i = 0; i < sw.fr.length; i++) { sw.fr[i].set(); compose(c, sc); raw.push(c.getImageData(0, 0, W, H).data); if (i % 4 === 0) { status(`rendering ${i + 1}/${sw.fr.length}`); await tick(); } }
+    status('building palette…'); await tick();
+    const { pal, lut } = buildPalette(raw.filter((_, i) => i % 6 === 0 || i === raw.length - 1));
+    const out = []; let prev = null;
+    for (let i = 0; i < raw.length; i++) {
+      const d = raw[i], n = W * H, ix = new Uint8Array(n);
+      for (let y = 0, p = 0; y < H; y++) for (let x = 0; x < W; x++, p++) { const q = p * 4, o = BAYER[((y & 3) << 2) | (x & 3)];
+        const r = clamp(d[q] + o, 0, 255), g = clamp(d[q + 1] + o, 0, 255), b = clamp(d[q + 2] + o, 0, 255);
+        ix[p] = lut[((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)]; }
+      const delay = 8;
+      if (!prev) out.push({ x: 0, y: 0, w: W, h: H, ix, delay });
+      else {
+        let x0 = W, y0 = H, x1 = -1, y1 = -1;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const p = y * W + x; if (ix[p] !== prev[p]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+        if (x1 < 0) { out[out.length - 1].delay += delay; }
+        else { const fw = x1 - x0 + 1, fh = y1 - y0 + 1, sub = new Uint8Array(fw * fh);
+          for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) { const p = (y + y0) * W + x + x0; sub[y * fw + x] = ix[p] === prev[p] ? 255 : ix[p]; }
+          out.push({ x: x0, y: y0, w: fw, h: fh, ix: sub, delay }); }
+      }
+      prev = ix;
+      if (i % 4 === 0) { status(`encoding ${i + 1}/${raw.length}`); await tick(); }
+    }
+    const bytes = gifBytes(W, H, pal, out);
+    saveBlob(new Blob([bytes], { type: 'image/gif' }), slug().replace(/-[^-]*$/, '') + '-animation.gif');
+    status('GIF ' + (bytes.length / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('GIF failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(true); }
+}
+
+async function exportMP4() {
+  if (typeof VideoEncoder === 'undefined' || typeof Mp4Muxer === 'undefined') { status('MP4 needs a newer browser'); return; }
+  stopPlay(); setBusy(true); capturing = true; status('preparing…'); await tick();
+  const sc = 1.5, W = Math.round(EW * sc), H = Math.round(EH * sc), FPS = 30;
+  const oc = document.createElement('canvas'); oc.width = W; oc.height = H; const c = oc.getContext('2d');
+  const sw = sweep(FPS);
+  try {
+    let codec = null, mux = null;
+    for (const [cs, mc] of [['avc1.640028', 'avc'], ['avc1.4d0028', 'avc'], ['vp09.00.40.08', 'vp9']]) {
+      const cfg = { codec: cs, width: W, height: H, bitrate: 8e6, framerate: FPS };
+      try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) { codec = cfg; mux = mc; break; } } catch (e) {}
+    }
+    if (!codec) { status('MP4 not supported here'); return; }
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mux, width: W, height: H }, fastStart: 'in-memory' });
+    let err = null;
+    const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { err = e; } });
+    enc.configure(codec);
+    for (let i = 0; i < sw.fr.length; i++) {
+      sw.fr[i].set(); compose(c, sc);
+      const vf = new VideoFrame(oc, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+      enc.encode(vf, { keyFrame: i % 60 === 0 }); vf.close();
+      while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 5));
+      if (err) throw err;
+      if (i % 5 === 0) { status(`encoding ${i + 1}/${sw.fr.length}`); await tick(); }
+    }
+    await enc.flush(); muxer.finalize();
+    const buf = muxer.target.buffer;
+    saveBlob(new Blob([buf], { type: 'video/mp4' }), slug().replace(/-[^-]*$/, '') + '-animation.mp4');
+    status('MP4 ' + (buf.byteLength / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('MP4 failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(true); }
+}
+document.getElementById('bPNG').onclick = exportPNG;
+document.getElementById('bGIF').onclick = exportGIF;
+document.getElementById('bMP4').onclick = exportMP4;
+
+/* ═══════════════════════════════ INIT ══════════════════════════════ */
+{ const p = new URLSearchParams(location.search), t = p.get('tab');
+  if (['face', 'spin', 'brake', 'earth'].includes(t)) { S.tab = t; document.querySelectorAll('#tabs [data-tab]').forEach(x => x.classList.toggle('is-active', x.dataset.tab === t)); } }
+(async function init() {
+  renderControls(); renderChips(); renderCard();
+  try { await Promise.all([`700 16px ${FD}`, `600 14px ${FB}`, `700 14px ${FB}`, `400 14px ${FB}`, `700 14px ${FM}`, `500 14px ${FM}`].map(f => document.fonts.load(f))); } catch (e) {}
+  resize(); requestAnimationFrame(loop);
+  try {
+    const r = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json');
+    const topo = await r.json(); LAND = topojson.feature(topo, topo.objects.land); draw();
+  } catch (e) { console.warn('land outlines unavailable', e); }
+})();
+window.__TL = { S, refresh, draw, compose, cardModel, rAt, phAt, thAt, earthVals, PLOCK, ALOCK, ADEV, PDEV, step, sweep, togglePlay, buildPalette, gifBytes, exportPNG };
+</script>
+</body>
+</html>
