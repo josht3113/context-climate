@@ -92,6 +92,7 @@ import PlanetFormation             from './pages/PlanetFormation'
 import HrDiagram                   from './pages/HrDiagram'
 import StellarLifeCycles           from './pages/StellarLifeCycles'
 import TidalRhythm                 from './pages/TidalRhythm'
+import TidalLocking                from './pages/TidalLocking'
 import SunsPath                    from './pages/SunsPath'
 import TurningSky                  from './pages/TurningSky'
 import SeaIceExtentExplorer        from './pages/SeaIceExtentExplorer'
@@ -262,6 +263,7 @@ export default function App() {
           <Route path="/earthandspace/hr-diagram"                  element={<HrDiagram />}                />
           <Route path="/earthandspace/stellar-life-cycles"         element={<StellarLifeCycles />}        />
           <Route path="/earthandspace/tidal-rhythm"                element={<TidalRhythm />}               />
+          <Route path="/earthandspace/tidal-locking"               element={<TidalLocking />}              />
           <Route path="/earthandspace/moon-phase-simulator"        element={<MoonPhaseSimulator />}        />
           <Route path="/earthandspace/eclipse-explorer"            element={<EclipseExplorer />}           />
           <Route path="/earthandspace/tracking-the-moon"           element={<TrackingTheMoon />}           />
