@@ -23,8 +23,11 @@ const CC_SPECTRA = (function () {
   'use strict';
 
   // ── Line data ──────────────────────────────────────────────────────
-  // Rest wavelengths (nm) digitized from the NYSED Earth & Space Sciences
-  // Reference Tables (2026 Rev. Edition), p. 3.
+  // Rest wavelengths (nm) for the NYSED Earth & Space Sciences Reference
+  // Tables (2026 Rev. Edition), p. 3. H and He use laboratory values (the
+  // printed lines sit on them); He adds the printed 401.0 and 686.1 lines.
+  // C, N, O and Si are digitized from the printed chart (axis fit to its 21
+  // ticks, about ±0.2 nm), so every tool draws what the page shows.
   //   strong : mirrors the bold/thick line on the source chart.
   //   ref    : the single line a tool uses for its numeric readout — a
   //            functional UI choice, independent of "strong".
@@ -35,58 +38,66 @@ const CC_SPECTRA = (function () {
       name: 'Hydrogen', symbol: 'H', color: '#E4756B',
       note: 'the Balmer series \u2014 the same four lines used to identify hydrogen in any star.',
       lines: [
-        { wl: 410.2, strong: false },
-        { wl: 434.0, strong: false },
-        { wl: 486.1, strong: false },
-        { wl: 656.3, strong: true, ref: true }
+        { wl: 410.2, strong: false }, { wl: 434.0, strong: false }, { wl: 486.1, strong: false },
+        { wl: 656.3, strong: false, ref: true }
       ]
     },
     helium: {
       name: 'Helium', symbol: 'He', color: '#E8C468',
       note: 'a dense cluster near 400\u2013450 nm plus the bright 587.6 nm line, first seen in the solar spectrum in 1868, before helium was found on Earth.',
       lines: [
-        { wl: 402.6, strong: false }, { wl: 412.1, strong: false }, { wl: 414.4, strong: false },
-        { wl: 438.8, strong: false }, { wl: 443.8, strong: false }, { wl: 447.1, strong: false },
-        { wl: 471.3, strong: false }, { wl: 492.2, strong: false }, { wl: 501.6, strong: false },
-        { wl: 504.8, strong: false }, { wl: 587.6, strong: true, ref: true }, { wl: 667.8, strong: false }
+        { wl: 401.0, strong: false }, { wl: 402.6, strong: false }, { wl: 412.1, strong: false },
+        { wl: 414.4, strong: false }, { wl: 438.8, strong: false }, { wl: 443.8, strong: false },
+        { wl: 447.1, strong: false }, { wl: 471.3, strong: false }, { wl: 492.2, strong: false },
+        { wl: 501.6, strong: false }, { wl: 504.8, strong: false }, { wl: 587.6, strong: false, ref: true },
+        { wl: 667.8, strong: false }, { wl: 686.1, strong: false }
       ]
     },
     carbon: {
       name: 'Carbon', symbol: 'C', color: '#8FA6C4',
-      note: 'a scattered set of lines through the green and yellow, with a sharp marker near 590 nm.',
+      note: 'only six lines, with one bold line at 600.3 nm.',
       lines: [
-        { wl: 506, strong: false }, { wl: 514, strong: false }, { wl: 530, strong: false },
-        { wl: 590, strong: true, ref: true }, { wl: 642, strong: false }, { wl: 648, strong: false },
-        { wl: 658, strong: false }
+        { wl: 477.0, strong: false }, { wl: 493.1, strong: false }, { wl: 504.9, strong: false },
+        { wl: 537.9, strong: false }, { wl: 600.3, strong: true, ref: true }, { wl: 658.1, strong: false }
       ]
     },
     nitrogen: {
       name: 'Nitrogen', symbol: 'N', color: '#7FBF9E',
-      note: 'a tight bundle in the green near 500 nm and a dense red cluster around 630\u2013650 nm.',
+      note: 'many lines, with a dense red cluster around 640\u2013650 nm and a bold line at 641.8 nm.',
       lines: [
-        { wl: 495, strong: false }, { wl: 500, strong: false }, { wl: 505, strong: false },
-        { wl: 632, strong: false }, { wl: 638, strong: false }, { wl: 645, strong: false },
-        { wl: 648, strong: false, ref: true }, { wl: 652, strong: false }
+        { wl: 409.8, strong: false }, { wl: 410.9, strong: false }, { wl: 484.6, strong: false },
+        { wl: 491.3, strong: false }, { wl: 493.2, strong: false }, { wl: 494.9, strong: false },
+        { wl: 496.3, strong: false }, { wl: 527.8, strong: false }, { wl: 529.0, strong: false },
+        { wl: 574.8, strong: false }, { wl: 576.0, strong: false }, { wl: 582.5, strong: false },
+        { wl: 584.9, strong: false }, { wl: 599.4, strong: false }, { wl: 600.5, strong: false },
+        { wl: 640.6, strong: false }, { wl: 641.8, strong: true, ref: true }, { wl: 643.3, strong: false },
+        { wl: 645.1, strong: false }, { wl: 646.2, strong: false }, { wl: 647.6, strong: false },
+        { wl: 648.4, strong: false }, { wl: 649.3, strong: false }, { wl: 650.1, strong: false },
+        { wl: 661.7, strong: false }, { wl: 663.1, strong: false }, { wl: 663.9, strong: false },
+        { wl: 664.8, strong: false }, { wl: 671.7, strong: false }
       ]
     },
     oxygen: {
       name: 'Oxygen', symbol: 'O', color: '#6FA8D8',
-      note: 'a pair of lines in the violet and a dense orange-red group around 600\u2013627 nm.',
+      note: 'a pair of lines in the violet and a crowded orange-red group with bold lines at 615.2 and 625.2 nm.',
       lines: [
-        { wl: 415, strong: false }, { wl: 425, strong: false },
-        { wl: 600, strong: false }, { wl: 608, strong: false }, { wl: 615, strong: true, ref: true },
-        { wl: 619, strong: false }, { wl: 623, strong: false }, { wl: 627, strong: false }
+        { wl: 423.3, strong: false }, { wl: 436.7, strong: false }, { wl: 532.7, strong: false },
+        { wl: 543.1, strong: false }, { wl: 557.3, strong: false }, { wl: 595.3, strong: false },
+        { wl: 599.0, strong: false }, { wl: 604.2, strong: false }, { wl: 610.0, strong: false },
+        { wl: 615.2, strong: true, ref: true }, { wl: 625.2, strong: true }, { wl: 635.8, strong: false },
+        { wl: 636.9, strong: false }, { wl: 644.7, strong: false }, { wl: 659.8, strong: false },
+        { wl: 664.8, strong: false }
       ]
     },
     silicon: {
       name: 'Silicon', symbol: 'Si', color: '#C48FC2',
-      note: 'lines spread fairly evenly across the whole visible range, without one standout line.',
+      note: 'lines spread across the whole visible range, without one bold line.',
       lines: [
-        { wl: 412, strong: false }, { wl: 460, strong: false }, { wl: 490, strong: false },
-        { wl: 498, strong: false }, { wl: 528, strong: false }, { wl: 535, strong: false, ref: true },
-        { wl: 558, strong: false }, { wl: 580, strong: false }, { wl: 610, strong: false },
-        { wl: 618, strong: false }, { wl: 625, strong: false }, { wl: 650, strong: false },
-        { wl: 662, strong: false }, { wl: 670, strong: false }
+        { wl: 415.0, strong: false }, { wl: 463.0, strong: false, ref: true }, { wl: 503.9, strong: false },
+        { wl: 506.9, strong: false }, { wl: 521.0, strong: false }, { wl: 529.0, strong: false },
+        { wl: 550.0, strong: false }, { wl: 566.9, strong: false }, { wl: 571.0, strong: false },
+        { wl: 595.9, strong: false }, { wl: 599.8, strong: false }, { wl: 635.6, strong: false },
+        { wl: 637.8, strong: false }
       ]
     }
   };
