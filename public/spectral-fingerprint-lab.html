@@ -1,500 +1,823 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spectral Analysis</title>
 <link rel="stylesheet" href="core-sample-tools.css">
-<title>Spectral Fingerprint Lab — ContextClimate</title>
+<script src="spectra-core.js"></script>
 <style>
-  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css,
-     shared line data + spectrum drawing in spectra-core.js */
-  :root { --tool-accent: var(--accent-earth); } /* Earth & Space section */
+:root { --tool-accent: var(--accent-earth); }
+html, body { height: 100%; }
+body { padding: 0; overflow: hidden; min-height: 0; }
+.app { height: 100vh; display: flex; flex-direction: column; padding: 10px 12px 12px; gap: 10px; }
 
-  body { display: block; }
+.top { display: flex; align-items: center; gap: 18px; min-height: 42px; }
+.top h1 { margin: 0; font-size: 24px; white-space: nowrap; }
+.tabs .cc-segmented-btn { font-size: 13px; padding: 11px 22px; white-space: nowrap; }
+.top .spacer { flex: 1; }
+.links { display: flex; gap: 6px; }
+.x-link { padding: 6px 12px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; color: var(--tool-accent); border-color: var(--tool-accent); }
+.exp { display: flex; align-items: center; gap: 6px; }
+.exp .cc-btn { padding: 6px 12px; font-size: 13px; }
+.exp .cc-btn:disabled { opacity: .4; cursor: default; }
+#status { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); min-width: 0; white-space: nowrap; }
 
-  .tool-wrap { max-width: 1324px; margin: 0 auto; }
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
+.scene { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.stage { flex: 1; position: relative; min-height: 0; background: #0F1311; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
-  header { max-width: 780px; width: 100%; margin: 0 auto; text-align: center; }
-  .cc-eyebrow { margin-bottom: 10px; }
-  .cc-title { margin-bottom: 10px; }
-  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+.controls { display: grid; column-gap: 10px; padding: 8px 10px; border-top: 1px solid var(--color-border); background: var(--color-surface); align-items: stretch; }
+.c1 { grid-template-columns: 96px minmax(0, 3fr) minmax(0, 4fr); }
+.c2 { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr) 84px; }
+.play { font-size: 16px; font-weight: 700; background: var(--tool-accent); border-color: var(--tool-accent); color: var(--color-bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.1; }
+.play:hover { filter: brightness(1.12); color: var(--color-bg); border-color: var(--tool-accent); }
+.play .ic { font-size: 22px; }
+.snaps { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 5px; min-width: 0; }
+.snap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 54px;
+  padding: 5px 2px; min-width: 0; white-space: normal; }
+.snap .n { font-family: var(--font-body); font-weight: 600; font-size: 13px; line-height: 1.12; color: var(--color-text-primary); text-align: center; }
+.snap .v { font-family: var(--font-mono); font-weight: 700; font-size: 13px; line-height: 1; color: var(--color-text-secondary); white-space: nowrap; }
+.snap.el .n { font-family: var(--font-display); font-weight: 700; font-size: 18px; }
+.snap .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+.snap.is-active { background: var(--tool-accent); border-color: var(--tool-accent); }
+.snap.is-active .n, .snap.is-active .v { color: var(--color-bg); }
+.clear { font-size: 13px; font-weight: 600; }
+.clear:disabled { opacity: .4; cursor: default; }
 
-  .layout {
-    display: grid;
-    grid-template-columns: 252px minmax(0, 780px) 212px;
-    column-gap: 28px;
-    justify-content: center;
-    align-items: start;
-    margin-top: 26px;
-  }
-
-  /* ── Mode selector (left rail) ─────────────────────────────────── */
-  .mode-col { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .mode-btn {
-    width: 100%;
-    text-align: left;
-    padding: 9px 12px;
-    line-height: 1.3;
-    white-space: normal;
-  }
-  .mode-btn .mb-name { display: block; font-size: 14px; font-weight: 600; }
-  .mode-btn .mb-law {
-    display: block;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-    margin-top: 2px;
-  }
-  .mode-btn.is-active .mb-law { color: var(--tool-accent); }
-
-  /* ── Element selector (left rail) ──────────────────────────────── */
-  .element-col { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .element-btn { width: 100%; text-align: left; padding: 8px 12px; }
-  .element-btn .swatch {
-    display: inline-block;
-    width: 9px; height: 9px;
-    border-radius: 50%;
-    margin-right: 8px;
-    vertical-align: middle;
-  }
-
-  /* ── Canvases (center) ─────────────────────────────────────────── */
-  .canvas-block + .canvas-block { margin-top: 20px; }
-
-  /* ── Line list (right rail) ────────────────────────────────────── */
-  .line-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 10px;
-    transition: opacity 0.25s ease;
-  }
-  .line-list.is-dim { opacity: 0.38; }
-  .line-row {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 5px 10px;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface-2);
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--color-text-secondary);
-  }
-  .line-row.is-strong { color: var(--color-text-primary); font-weight: 700; }
-  .line-swatch {
-    width: 4px;
-    height: 15px;
-    border-radius: 1px;
-    flex-shrink: 0;
-  }
-  .line-row .lr-unit { margin-left: auto; color: var(--color-text-muted); font-size: 11px; }
-
-  .action-row {
-    margin-top: 22px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: center;
-    flex-wrap: wrap;
-  }
-
-  @media (max-width: 1240px) {
-    .layout { grid-template-columns: minmax(0, 780px); row-gap: 22px; }
-    .mode-col, .element-col { flex-direction: row; flex-wrap: wrap; }
-    .mode-btn, .element-btn { width: auto; }
-    .line-list { flex-direction: row; flex-wrap: wrap; }
-    .line-row { flex: 1 1 120px; }
-  }
+.card { padding: 12px 16px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+.card .eb { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; color: var(--tool-accent); font-weight: 700;
+  padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.card .r { padding: 7px 0 6px; border-bottom: 1px solid var(--color-border); }
+.card .l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; color: var(--color-text-secondary); }
+.card .v { font-family: var(--font-display); font-weight: 700; font-size: 25px; line-height: 1.15; color: var(--color-text-primary); }
+.card .v.sm { font-size: 19px; line-height: 1.25; }
+.card .v .u { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--color-text-secondary); margin-left: 5px; }
+.card .sub { font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--color-text-secondary); margin-top: 1px; }
+.card .src { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); margin-top: auto; padding-top: 10px; line-height: 1.4; }
+@media (max-height: 700px) { .card .r { padding: 5px 0 4px; } .card .v { font-size: 23px; } }
+@media (max-width: 1440px) { .tabs .cc-segmented-btn { padding: 11px 16px; } }
+@media (max-width: 1280px) {
+  .main { grid-template-columns: minmax(0, 1fr) 262px; }
+  .x-link .nm { display: none; }
+  .tabs .cc-segmented-btn { padding: 11px 12px; }
+  .card { padding: 10px 13px; }
+  .card .v { font-size: 22px; } .card .v .u { font-size: 14px; }
+}
+@media (max-width: 1180px) {
+  .main { grid-template-columns: minmax(0, 1fr) 248px; }
+  .top { gap: 12px; }
+  .c1 { grid-template-columns: 84px minmax(0, 3fr) minmax(0, 4fr); column-gap: 8px; }
+  .snaps { gap: 4px; }
+  .exp .cc-btn { padding: 6px 9px; }
+  .tabs .cc-segmented-btn { padding: 11px 10px; }
+  .c2 { grid-template-columns: minmax(0, 5fr) minmax(0, 5fr) 64px; column-gap: 8px; }
+  .c2 .wd, .c2 .snap.el .v { display: none; }
+}
 </style>
 </head>
 <body>
-
-<div class="tool-wrap">
-
-  <header>
-    <p class="cc-eyebrow">A Star's Fingerprint</p>
-    <h1 class="cc-title">Spectral Fingerprint Lab</h1>
-    <p class="cc-subtitle">Every element leaves its own pattern of lines on a spectrum — a fingerprint that doesn't depend on how bright or dim the light is. What you see depends on what the light passed through on its way to you.</p>
-  </header>
-
-  <div class="layout">
-
-    <!-- ── Left rail: configuration + element ─────────────────────── -->
-    <div>
-      <p class="cc-panel-label">Controls</p>
-      <div class="cc-rail-panel">
-        <p class="cc-btn-row-label">Configuration</p>
-        <div class="mode-col" id="modeCol"></div>
-
-        <div class="cc-rail-divider"></div>
-
-        <p class="cc-btn-row-label">Element</p>
-        <div class="element-col" id="elementCol"></div>
-      </div>
+<div class="app">
+  <div class="top">
+    <h1 class="cc-title">Spectral Analysis</h1>
+    <div class="cc-segmented tabs" id="tabs">
+      <button class="cc-segmented-btn is-active" data-tab="1">How Lines Form</button>
+      <button class="cc-segmented-btn" data-tab="2">Identify the Star</button>
     </div>
-
-    <!-- ── Center: schematic, spectrum, comparison ────────────────── -->
-    <div>
-      <div class="canvas-block">
-        <p class="cc-panel-label">The setup</p>
-        <canvas id="setup-canvas" class="cc-canvas-frame cc-canvas-fluid" width="780" height="260"></canvas>
-      </div>
-
-      <div class="canvas-block">
-        <p class="cc-panel-label">What the observer sees <span class="cc-dim">· wavelength, nm</span></p>
-        <canvas id="spectrum-canvas" class="cc-canvas-frame cc-canvas-fluid" width="780" height="172"></canvas>
-      </div>
-
-      <div class="canvas-block">
-        <p class="cc-panel-label">All three configurations <span class="cc-dim">· same element, same wavelengths, nm</span></p>
-        <canvas id="compare-canvas" class="cc-canvas-frame cc-canvas-fluid" width="780" height="176"></canvas>
-      </div>
-
-      <div class="action-row">
-        <button class="cc-btn cc-btn-sm" id="pngbtn">↓ PNG</button>
-      </div>
+    <div class="spacer"></div>
+    <span id="status"></span>
+    <div class="links">
+      <a class="cc-btn x-link" id="prevLink" target="_top" href="#">&larr; <span class="nm" id="prevName"></span></a>
+      <a class="cc-btn x-link" id="nextLink" target="_top" href="#"><span class="nm" id="nextName"></span> &rarr;</a>
     </div>
-
-    <!-- ── Right rail: the lines themselves ───────────────────────── -->
-    <div>
-      <p class="cc-panel-label">Lines</p>
-      <div class="cc-readout-chip">
-        <div class="cc-readout-chip-label">Visible now</div>
-        <div class="cc-readout-chip-value" id="countReadout">—</div>
-      </div>
-      <div class="line-list" id="lineList"></div>
+    <div class="exp">
+      <button class="cc-btn" id="bPNG">↓ PNG</button>
+      <button class="cc-btn" id="bGIF">↓ GIF</button>
+      <button class="cc-btn" id="bMP4">↓ MP4</button>
     </div>
-
   </div>
-
-  <p class="cc-source-note">Line positions digitized from the NYSED Earth &amp; Space Sciences Reference Tables (2026 Rev. Edition), p. 3 — "Emission Spectra of Some Elements from Stars." Hydrogen and helium lines are cross-checked against the Balmer series and standard He I catalog values; carbon, nitrogen, oxygen, and silicon positions are estimated to the nearest ~1–2 nm from the printed chart.</p>
-
-  <div id="seriesNav"></div>
-
+  <div class="main">
+    <div class="scene">
+      <div class="stage" id="stage"><canvas id="cv"></canvas></div>
+      <div class="controls" id="controls"></div>
+    </div>
+    <div class="cc-panel card" id="card"></div>
+  </div>
 </div>
+<script>/* mp4-muxer 5.2.2 (MIT) — Vanilagy */
+"use strict";var Mp4Muxer=(()=>{var e=Object.defineProperty,t=Object.getOwnPropertyDescriptor,i=Object.getOwnPropertyNames,s=Object.prototype.hasOwnProperty,a=(e,t,i)=>{if(!t.has(e))throw TypeError("Cannot "+i)},r=(e,t,i)=>(a(e,t,"read from private field"),i?i.call(e):t.get(e)),n=(e,t,i)=>{if(t.has(e))throw TypeError("Cannot add the same private member more than once");t instanceof WeakSet?t.add(e):t.set(e,i)},o=(e,t,i,s)=>(a(e,t,"write to private field"),s?s.call(e,i):t.set(e,i),i),h=(e,t,i)=>(a(e,t,"access private method"),i),l={};((t,i)=>{for(var s in i)e(t,s,{get:i[s],enumerable:!0})})(l,{ArrayBufferTarget:()=>Me,FileSystemWritableFileStreamTarget:()=>Oe,Muxer:()=>Rt,StreamTarget:()=>We});var d,f,u,m,p,c,w,g,b=new Uint8Array(8),y=new DataView(b.buffer),k=e=>[(e%256+256)%256],T=e=>(y.setUint16(0,e,!1),[b[0],b[1]]),C=e=>(y.setUint32(0,e,!1),[b[1],b[2],b[3]]),v=e=>(y.setUint32(0,e,!1),[b[0],b[1],b[2],b[3]]),S=e=>(y.setUint32(0,Math.floor(e/2**32),!1),y.setUint32(4,e,!1),[b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]]),x=e=>(y.setInt16(0,256*e,!1),[b[0],b[1]]),z=e=>(y.setInt32(0,65536*e,!1),[b[0],b[1],b[2],b[3]]),E=e=>(y.setInt32(0,2**30*e,!1),[b[0],b[1],b[2],b[3]]),A=(e,t=!1)=>{let i=Array(e.length).fill(null).map((t,i)=>e.charCodeAt(i));return t&&i.push(0),i},M=e=>e&&e[e.length-1],W=e=>{let t;for(let i of e)(!t||i.presentationTimestamp>t.presentationTimestamp)&&(t=i);return t},O=(e,t,i=!0)=>{let s=e*t;return i?Math.round(s):s},B=e=>{let t=e*(Math.PI/180),i=Math.cos(t),s=Math.sin(t);return[i,s,0,-s,i,0,0,0,1]},U=B(0),D=e=>[z(e[0]),z(e[1]),E(e[2]),z(e[3]),z(e[4]),E(e[5]),z(e[6]),z(e[7]),E(e[8])],j=e=>e?"object"!=typeof e?e:Array.isArray(e)?e.map(j):Object.fromEntries(Object.entries(e).map(([e,t])=>[e,j(t)])):e,R=e=>e>=0&&e<2**32,I=(e,t,i)=>({type:e,contents:t&&new Uint8Array(t.flat(10)),children:i}),N=(e,t,i,s,a)=>I(e,[k(t),C(i),s??[]],a),V=e=>({type:"mdat",largeSize:e}),F=(e,t,i=!1)=>I("moov",null,[L(t,e),...e.map(e=>$(e,t)),i?me(e):null]),L=(e,t)=>{let i=O(Math.max(0,...t.filter(e=>e.samples.length>0).map(e=>{const t=W(e.samples);return t.presentationTimestamp+t.duration})),Bt),s=Math.max(...t.map(e=>e.id))+1,a=!R(e)||!R(i),r=a?S:v;return N("mvhd",+a,0,[r(e),r(e),v(Bt),r(i),z(1),x(1),Array(10).fill(0),D(U),Array(24).fill(0),v(s)])},$=(e,t)=>I("trak",null,[P(e,t),H(e,t)]),P=(e,t)=>{let i,s=W(e.samples),a=O(s?s.presentationTimestamp+s.duration:0,Bt),r=!R(t)||!R(a),n=r?S:v;return i="video"===e.info.type?"number"==typeof e.info.rotation?B(e.info.rotation):e.info.rotation:U,N("tkhd",+r,3,[n(t),n(t),v(e.id),v(0),n(a),Array(8).fill(0),T(0),T(0),x("audio"===e.info.type?1:0),T(0),D(i),z("video"===e.info.type?e.info.width:0),z("video"===e.info.type?e.info.height:0)])},H=(e,t)=>I("mdia",null,[_(e,t),q("video"===e.info.type?"vide":"soun"),G(e)]),_=(e,t)=>{let i=W(e.samples),s=O(i?i.presentationTimestamp+i.duration:0,e.timescale),a=!R(t)||!R(s),r=a?S:v;return N("mdhd",+a,0,[r(t),r(t),v(e.timescale),r(s),T(21956),T(0)])},q=e=>N("hdlr",0,0,[A("mhlr"),A(e),v(0),v(0),v(0),A("mp4-muxer-hdlr",!0)]),G=e=>I("minf",null,["video"===e.info.type?J():K(),Q(),Z(e)]),J=()=>N("vmhd",0,1,[T(0),T(0),T(0),T(0)]),K=()=>N("smhd",0,0,[T(0),T(0)]),Q=()=>I("dinf",null,[X()]),X=()=>N("dref",0,0,[v(1)],[Y()]),Y=()=>N("url ",0,1),Z=e=>{const t=e.compositionTimeOffsetTable.length>1||e.compositionTimeOffsetTable.some(e=>0!==e.sampleCompositionTimeOffset);return I("stbl",null,[ee(e),oe(e),he(e),le(e),de(e),fe(e),t?ue(e):null])},ee=e=>N("stsd",0,0,[v(1)],["video"===e.info.type?te(Se[e.info.codec],e):ne(ze[e.info.codec],e)]),te=(e,t)=>{return I(e,[Array(6).fill(0),T(1),T(0),T(0),Array(12).fill(0),T(t.info.width),T(t.info.height),v(4718592),v(4718592),v(0),T(1),Array(32).fill(0),T(24),(i=65535,y.setInt16(0,i,!1),[b[0],b[1]])],[xe[t.info.codec](t),t.info.decoderConfig.colorSpace?re(t):null]);var i},ie={bt709:1,bt470bg:5,smpte170m:6},se={bt709:1,smpte170m:6,"iec61966-2-1":13},ae={rgb:0,bt709:1,bt470bg:5,smpte170m:6},re=e=>I("colr",[A("nclx"),T(ie[e.info.decoderConfig.colorSpace.primaries]),T(se[e.info.decoderConfig.colorSpace.transfer]),T(ae[e.info.decoderConfig.colorSpace.matrix]),k((e.info.decoderConfig.colorSpace.fullRange?1:0)<<7)]),ne=(e,t)=>I(e,[Array(6).fill(0),T(1),T(0),T(0),v(0),T(t.info.numberOfChannels),T(16),T(0),T(0),z(t.info.sampleRate)],[Ee[t.info.codec](t)]),oe=e=>N("stts",0,0,[v(e.timeToSampleTable.length),e.timeToSampleTable.map(e=>[v(e.sampleCount),v(e.sampleDelta)])]),he=e=>{if(e.samples.every(e=>"key"===e.type))return null;let t=[...e.samples.entries()].filter(([,e])=>"key"===e.type);return N("stss",0,0,[v(t.length),t.map(([e])=>v(e+1))])},le=e=>N("stsc",0,0,[v(e.compactlyCodedChunkTable.length),e.compactlyCodedChunkTable.map(e=>[v(e.firstChunk),v(e.samplesPerChunk),v(1)])]),de=e=>N("stsz",0,0,[v(0),v(e.samples.length),e.samples.map(e=>v(e.size))]),fe=e=>e.finalizedChunks.length>0&&M(e.finalizedChunks).offset>=2**32?N("co64",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>S(e.offset))]):N("stco",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>v(e.offset))]),ue=e=>N("ctts",0,0,[v(e.compositionTimeOffsetTable.length),e.compositionTimeOffsetTable.map(e=>[v(e.sampleCount),v(e.sampleCompositionTimeOffset)])]),me=e=>I("mvex",null,e.map(pe)),pe=e=>N("trex",0,0,[v(e.id),v(1),v(0),v(0),v(0)]),ce=(e,t)=>I("moof",null,[we(e),...t.map(be)]),we=e=>N("mfhd",0,0,[v(e)]),ge=e=>{let t=0,i=0,s="delta"===e.type;return i|=+s,t|=s?1:2,t<<24|i<<16},be=e=>I("traf",null,[ye(e),ke(e),Te(e)]),ye=e=>{let t=0;t|=8,t|=16,t|=32,t|=131072;let i=e.currentChunk.samples[1]??e.currentChunk.samples[0],s={duration:i.timescaleUnitsToNextSample,size:i.size,flags:ge(i)};return N("tfhd",0,131128,[v(e.id),v(s.duration),v(s.size),v(s.flags)])},ke=e=>N("tfdt",1,0,[S(O(e.currentChunk.startTimestamp,e.timescale))]),Te=e=>{let t=e.currentChunk.samples.map(e=>e.timescaleUnitsToNextSample),i=e.currentChunk.samples.map(e=>e.size),s=e.currentChunk.samples.map(ge),a=e.currentChunk.samples.map(t=>O(t.presentationTimestamp-t.decodeTimestamp,e.timescale)),r=new Set(t),n=new Set(i),o=new Set(s),h=new Set(a),l=2===o.size&&s[0]!==s[1],d=r.size>1,f=n.size>1,u=!l&&o.size>1,m=h.size>1||[...h].some(e=>0!==e),p=0;return p|=1,p|=4*+l,p|=256*+d,p|=512*+f,p|=1024*+u,p|=2048*+m,N("trun",1,p,[v(e.currentChunk.samples.length),v(e.currentChunk.offset-e.currentChunk.moofOffset||0),l?v(s[0]):[],e.currentChunk.samples.map((e,r)=>{return[d?v(t[r]):[],f?v(i[r]):[],u?v(s[r]):[],m?(n=a[r],y.setInt32(0,n,!1),[b[0],b[1],b[2],b[3]]):[]];var n})])},Ce=(e,t)=>N("tfra",1,0,[v(e.id),v(63),v(e.finalizedChunks.length),e.finalizedChunks.map(i=>[S(O(i.startTimestamp,e.timescale)),S(i.moofOffset),v(t+1),v(1),v(1)])]),ve=()=>N("mfro",0,0,[v(0)]),Se={avc:"avc1",hevc:"hvc1",vp9:"vp09",av1:"av01"},xe={avc:e=>e.info.decoderConfig&&I("avcC",[...new Uint8Array(e.info.decoderConfig.description)]),hevc:e=>e.info.decoderConfig&&I("hvcC",[...new Uint8Array(e.info.decoderConfig.description)]),vp9:e=>{if(!e.info.decoderConfig)return null;let t=e.info.decoderConfig;if(!t.colorSpace)throw new Error("'colorSpace' is required in the decoder config for VP9.");let i=t.codec.split("."),s=Number(i[1]),a=Number(i[2]),r=0+(Number(i[3])<<4)+Number(t.colorSpace.fullRange);return N("vpcC",1,0,[k(s),k(a),k(r),k(2),k(2),k(2),T(0)])},av1:()=>I("av1C",[129,0,0,0])},ze={aac:"mp4a",opus:"Opus"},Ee={aac:e=>{let t=new Uint8Array(e.info.decoderConfig.description);return N("esds",0,0,[v(58753152),k(32+t.byteLength),T(1),k(0),v(75530368),k(18+t.byteLength),k(64),k(21),C(0),v(130071),v(130071),v(92307584),k(t.byteLength),...t,v(109084800),k(1),k(2)])},opus:e=>{let t=3840,i=0;const s=e.info.decoderConfig?.description;if(s){if(s.byteLength<18)throw new TypeError("Invalid decoder description provided for Opus; must be at least 18 bytes long.");const e=ArrayBuffer.isView(s)?new DataView(s.buffer,s.byteOffset,s.byteLength):new DataView(s);t=e.getUint16(10,!0),i=e.getInt16(14,!0)}return I("dOps",[k(0),k(e.info.numberOfChannels),T(t),v(e.info.sampleRate),x(i),k(0)])}},Ae=(Symbol("isTarget"),class{}),Me=class extends Ae{constructor(){super(...arguments),this.buffer=null}},We=class extends Ae{constructor(e){if(super(),this.options=e,"object"!=typeof e)throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");if(e.onData){if("function"!=typeof e.onData)throw new TypeError("options.onData, when provided, must be a function.");if(e.onData.length<2)throw new TypeError("options.onData, when provided, must be a function that takes in at least two arguments (data and position). Ignoring the position argument, which specifies the byte offset at which the data is to be written, can lead to broken outputs.")}if(void 0!==e.chunked&&"boolean"!=typeof e.chunked)throw new TypeError("options.chunked, when provided, must be a boolean.");if(void 0!==e.chunkSize&&(!Number.isInteger(e.chunkSize)||e.chunkSize<1024))throw new TypeError("options.chunkSize, when provided, must be an integer and not smaller than 1024.")}},Oe=class extends Ae{constructor(e,t){if(super(),this.stream=e,this.options=t,!(e instanceof FileSystemWritableFileStream))throw new TypeError("FileSystemWritableFileStreamTarget requires a FileSystemWritableFileStream instance.");if(void 0!==t&&"object"!=typeof t)throw new TypeError("FileSystemWritableFileStreamTarget's options, when provided, must be an object.");if(t&&void 0!==t.chunkSize&&(!Number.isInteger(t.chunkSize)||t.chunkSize<=0))throw new TypeError("options.chunkSize, when provided, must be a positive integer")}},Be=class{constructor(){this.pos=0,n(this,d,new Uint8Array(8)),n(this,f,new DataView(r(this,d).buffer)),this.offsets=new WeakMap}seek(e){this.pos=e}writeU32(e){r(this,f).setUint32(0,e,!1),this.write(r(this,d).subarray(0,4))}writeU64(e){r(this,f).setUint32(0,Math.floor(e/2**32),!1),r(this,f).setUint32(4,e,!1),this.write(r(this,d).subarray(0,8))}writeAscii(e){for(let t=0;t<e.length;t++)r(this,f).setUint8(t%8,e.charCodeAt(t)),t%8==7&&this.write(r(this,d));e.length%8!=0&&this.write(r(this,d).subarray(0,e.length%8))}writeBox(e){if(this.offsets.set(e,this.pos),e.contents&&!e.children)this.writeBoxHeader(e,e.size??e.contents.byteLength+8),this.write(e.contents);else{let t=this.pos;if(this.writeBoxHeader(e,0),e.contents&&this.write(e.contents),e.children)for(let t of e.children)t&&this.writeBox(t);let i=this.pos,s=e.size??i-t;this.seek(t),this.writeBoxHeader(e,s),this.seek(i)}}writeBoxHeader(e,t){this.writeU32(e.largeSize?1:t),this.writeAscii(e.type),e.largeSize&&this.writeU64(t)}measureBoxHeader(e){return 8+(e.largeSize?8:0)}patchBox(e){let t=this.pos;this.seek(this.offsets.get(e)),this.writeBox(e),this.seek(t)}measureBox(e){if(e.contents&&!e.children){return this.measureBoxHeader(e)+e.contents.byteLength}{let t=this.measureBoxHeader(e);if(e.contents&&(t+=e.contents.byteLength),e.children)for(let i of e.children)i&&(t+=this.measureBox(i));return t}}};d=new WeakMap,f=new WeakMap;var Ue=class extends Be{constructor(e){super(),n(this,w),n(this,u,void 0),n(this,m,new ArrayBuffer(65536)),n(this,p,new Uint8Array(r(this,m))),n(this,c,0),o(this,u,e)}write(e){h(this,w,g).call(this,this.pos+e.byteLength),r(this,p).set(e,this.pos),this.pos+=e.byteLength,o(this,c,Math.max(r(this,c),this.pos))}finalize(){h(this,w,g).call(this,this.pos),r(this,u).buffer=r(this,m).slice(0,Math.max(r(this,c),this.pos))}};u=new WeakMap,m=new WeakMap,p=new WeakMap,c=new WeakMap,w=new WeakSet,g=function(e){let t=r(this,m).byteLength;for(;t<e;)t*=2;if(t===r(this,m).byteLength)return;let i=new ArrayBuffer(t),s=new Uint8Array(i);s.set(r(this,p),0),o(this,m,i),o(this,p,s)};var De,je,Re,Ie,Ne,Ve,Fe,Le,$e,Pe,He,_e,qe,Ge=class extends Be{constructor(e){super(),n(this,Ve),n(this,Le),n(this,Pe),n(this,_e),n(this,De,void 0),n(this,je,[]),n(this,Re,void 0),n(this,Ie,void 0),n(this,Ne,[]),o(this,De,e),o(this,Re,e.options?.chunked??!1),o(this,Ie,e.options?.chunkSize??16777216)}write(e){r(this,je).push({data:e.slice(),start:this.pos}),this.pos+=e.byteLength}flush(){if(0===r(this,je).length)return;let e=[],t=[...r(this,je)].sort((e,t)=>e.start-t.start);e.push({start:t[0].start,size:t[0].data.byteLength});for(let i=1;i<t.length;i++){let s=e[e.length-1],a=t[i];a.start<=s.start+s.size?s.size=Math.max(s.size,a.start+a.data.byteLength-s.start):e.push({start:a.start,size:a.data.byteLength})}for(let t of e){t.data=new Uint8Array(t.size);for(let e of r(this,je))t.start<=e.start&&e.start<t.start+t.size&&t.data.set(e.data,e.start-t.start);r(this,Re)?(h(this,Ve,Fe).call(this,t.data,t.start),h(this,_e,qe).call(this)):r(this,De).options.onData?.(t.data,t.start)}r(this,je).length=0}finalize(){r(this,Re)&&h(this,_e,qe).call(this,!0)}};De=new WeakMap,je=new WeakMap,Re=new WeakMap,Ie=new WeakMap,Ne=new WeakMap,Ve=new WeakSet,Fe=function(e,t){let i=r(this,Ne).findIndex(e=>e.start<=t&&t<e.start+r(this,Ie));-1===i&&(i=h(this,Pe,He).call(this,t));let s=r(this,Ne)[i],a=t-s.start,n=e.subarray(0,Math.min(r(this,Ie)-a,e.byteLength));s.data.set(n,a);let o={start:a,end:a+n.byteLength};if(h(this,Le,$e).call(this,s,o),0===s.written[0].start&&s.written[0].end===r(this,Ie)&&(s.shouldFlush=!0),r(this,Ne).length>2){for(let e=0;e<r(this,Ne).length-1;e++)r(this,Ne)[e].shouldFlush=!0;h(this,_e,qe).call(this)}n.byteLength<e.byteLength&&h(this,Ve,Fe).call(this,e.subarray(n.byteLength),t+n.byteLength)},Le=new WeakSet,$e=function(e,t){let i=0,s=e.written.length-1,a=-1;for(;i<=s;){let r=Math.floor(i+(s-i+1)/2);e.written[r].start<=t.start?(i=r+1,a=r):s=r-1}for(e.written.splice(a+1,0,t),(-1===a||e.written[a].end<t.start)&&a++;a<e.written.length-1&&e.written[a].end>=e.written[a+1].start;)e.written[a].end=Math.max(e.written[a].end,e.written[a+1].end),e.written.splice(a+1,1)},Pe=new WeakSet,He=function(e){let t={start:Math.floor(e/r(this,Ie))*r(this,Ie),data:new Uint8Array(r(this,Ie)),written:[],shouldFlush:!1};return r(this,Ne).push(t),r(this,Ne).sort((e,t)=>e.start-t.start),r(this,Ne).indexOf(t)},_e=new WeakSet,qe=function(e=!1){for(let t=0;t<r(this,Ne).length;t++){let i=r(this,Ne)[t];if(i.shouldFlush||e){for(let e of i.written)r(this,De).options.onData?.(i.data.subarray(e.start,e.end),i.start+e.start);r(this,Ne).splice(t--,1)}}};var Je,Ke,Qe,Xe,Ye,Ze,et,tt,it,st,at,rt,nt,ot,ht,lt,dt,ft,ut,mt,pt,ct,wt,gt,bt,yt,kt,Tt,Ct,vt,St,xt,zt,Et,At,Mt,Wt,Ot=class extends Ge{constructor(e){super(new We({onData:(t,i)=>e.stream.write({type:"write",data:t,position:i}),chunked:!0,chunkSize:e.options?.chunkSize}))}},Bt=1e3,Ut=["avc","hevc","vp9","av1"],Dt=["aac","opus"],jt=["strict","offset","cross-track-offset"],Rt=class{constructor(e){if(n(this,nt),n(this,ht),n(this,dt),n(this,ut),n(this,pt),n(this,wt),n(this,bt),n(this,kt),n(this,Ct),n(this,St),n(this,zt),n(this,At),n(this,Je,void 0),n(this,Ke,void 0),n(this,Qe,void 0),n(this,Xe,void 0),n(this,Ye,null),n(this,Ze,null),n(this,et,Math.floor(Date.now()/1e3)+2082844800),n(this,tt,[]),n(this,it,1),n(this,st,[]),n(this,at,[]),n(this,rt,!1),h(this,nt,ot).call(this,e),e.video=j(e.video),e.audio=j(e.audio),e.fastStart=j(e.fastStart),this.target=e.target,o(this,Je,{firstTimestampBehavior:"strict",...e}),e.target instanceof Me)o(this,Ke,new Ue(e.target));else if(e.target instanceof We)o(this,Ke,new Ge(e.target));else{if(!(e.target instanceof Oe))throw new Error(`Invalid target: ${e.target}`);o(this,Ke,new Ot(e.target))}h(this,ut,mt).call(this),h(this,ht,lt).call(this)}addVideoChunk(e,t,i,s){if(!(e instanceof EncodedVideoChunk))throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");if(t&&"object"!=typeof t)throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number.");if(void 0!==s&&!Number.isFinite(s))throw new TypeError("addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number.");let a=new Uint8Array(e.byteLength);e.copyTo(a),this.addVideoChunkRaw(a,e.type,i??e.timestamp,e.duration,t,s)}addVideoChunkRaw(e,t,i,s,a,n){if(!(e instanceof Uint8Array))throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");if(void 0!==n&&!Number.isFinite(n))throw new TypeError("addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number.");if(h(this,At,Mt).call(this),!r(this,Je).video)throw new Error("No video track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ye).samples.length===r(this,Je).fastStart.expectedVideoChunks)throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedVideoChunks}).`);let o=h(this,wt,gt).call(this,r(this,Ye),e,t,i,s,a,n);if("fragmented"===r(this,Je).fastStart&&r(this,Ze)){for(;r(this,at).length>0&&r(this,at)[0].decodeTimestamp<=o.decodeTimestamp;){let e=r(this,at).shift();h(this,bt,yt).call(this,r(this,Ze),e)}o.decodeTimestamp<=r(this,Ze).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ye),o):r(this,st).push(o)}else h(this,bt,yt).call(this,r(this,Ye),o)}addAudioChunk(e,t,i){if(!(e instanceof EncodedAudioChunk))throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");if(t&&"object"!=typeof t)throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number.");let s=new Uint8Array(e.byteLength);e.copyTo(s),this.addAudioChunkRaw(s,e.type,i??e.timestamp,e.duration,t)}addAudioChunkRaw(e,t,i,s,a){if(!(e instanceof Uint8Array))throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");if(h(this,At,Mt).call(this),!r(this,Je).audio)throw new Error("No audio track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ze).samples.length===r(this,Je).fastStart.expectedAudioChunks)throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedAudioChunks}).`);let n=h(this,wt,gt).call(this,r(this,Ze),e,t,i,s,a);if("fragmented"===r(this,Je).fastStart&&r(this,Ye)){for(;r(this,st).length>0&&r(this,st)[0].decodeTimestamp<=n.decodeTimestamp;){let e=r(this,st).shift();h(this,bt,yt).call(this,r(this,Ye),e)}n.decodeTimestamp<=r(this,Ye).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ze),n):r(this,at).push(n)}else h(this,bt,yt).call(this,r(this,Ze),n)}finalize(){if(r(this,rt))throw new Error("Cannot finalize a muxer more than once.");if("fragmented"===r(this,Je).fastStart){for(let e of r(this,st))h(this,bt,yt).call(this,r(this,Ye),e);for(let e of r(this,at))h(this,bt,yt).call(this,r(this,Ze),e);h(this,St,xt).call(this,!1)}else r(this,Ye)&&h(this,Ct,vt).call(this,r(this,Ye)),r(this,Ze)&&h(this,Ct,vt).call(this,r(this,Ze));let e=[r(this,Ye),r(this,Ze)].filter(Boolean);if("in-memory"===r(this,Je).fastStart){let t;for(let i=0;i<2;i++){let i=F(e,r(this,et)),s=r(this,Ke).measureBox(i);t=r(this,Ke).measureBox(r(this,Xe));let a=r(this,Ke).pos+s+t;for(let e of r(this,tt)){e.offset=a;for(let{data:i}of e.samples)a+=i.byteLength,t+=i.byteLength}if(a<2**32)break;t>=2**32&&(r(this,Xe).largeSize=!0)}let i=F(e,r(this,et));r(this,Ke).writeBox(i),r(this,Xe).size=t,r(this,Ke).writeBox(r(this,Xe));for(let e of r(this,tt))for(let t of e.samples)r(this,Ke).write(t.data),t.data=null}else if("fragmented"===r(this,Je).fastStart){let t=r(this,Ke).pos,i=(e=>I("mfra",null,[...e.map(Ce),ve()]))(e);r(this,Ke).writeBox(i);let s=r(this,Ke).pos-t;r(this,Ke).seek(r(this,Ke).pos-4),r(this,Ke).writeU32(s)}else{let t=r(this,Ke).offsets.get(r(this,Xe)),i=r(this,Ke).pos-t;r(this,Xe).size=i,r(this,Xe).largeSize=i>=2**32,r(this,Ke).patchBox(r(this,Xe));let s=F(e,r(this,et));if("object"==typeof r(this,Je).fastStart){r(this,Ke).seek(r(this,Qe)),r(this,Ke).writeBox(s);let e=t-r(this,Ke).pos;r(this,Ke).writeBox({type:"free",size:e})}else r(this,Ke).writeBox(s)}h(this,zt,Et).call(this),r(this,Ke).finalize(),o(this,rt,!0)}};return Je=new WeakMap,Ke=new WeakMap,Qe=new WeakMap,Xe=new WeakMap,Ye=new WeakMap,Ze=new WeakMap,et=new WeakMap,tt=new WeakMap,it=new WeakMap,st=new WeakMap,at=new WeakMap,rt=new WeakMap,nt=new WeakSet,ot=function(e){if("object"!=typeof e)throw new TypeError("The muxer requires an options object to be passed to its constructor.");if(!(e.target instanceof Ae))throw new TypeError("The target must be provided and an instance of Target.");if(e.video){if(!Ut.includes(e.video.codec))throw new TypeError(`Unsupported video codec: ${e.video.codec}`);if(!Number.isInteger(e.video.width)||e.video.width<=0)throw new TypeError(`Invalid video width: ${e.video.width}. Must be a positive integer.`);if(!Number.isInteger(e.video.height)||e.video.height<=0)throw new TypeError(`Invalid video height: ${e.video.height}. Must be a positive integer.`);const t=e.video.rotation;if("number"==typeof t&&![0,90,180,270].includes(t))throw new TypeError(`Invalid video rotation: ${t}. Has to be 0, 90, 180 or 270.`);if(Array.isArray(t)&&(9!==t.length||t.some(e=>"number"!=typeof e)))throw new TypeError(`Invalid video transformation matrix: ${t.join()}`);if(void 0!==e.video.frameRate&&(!Number.isInteger(e.video.frameRate)||e.video.frameRate<=0))throw new TypeError(`Invalid video frame rate: ${e.video.frameRate}. Must be a positive integer.`)}if(e.audio){if(!Dt.includes(e.audio.codec))throw new TypeError(`Unsupported audio codec: ${e.audio.codec}`);if(!Number.isInteger(e.audio.numberOfChannels)||e.audio.numberOfChannels<=0)throw new TypeError(`Invalid number of audio channels: ${e.audio.numberOfChannels}. Must be a positive integer.`);if(!Number.isInteger(e.audio.sampleRate)||e.audio.sampleRate<=0)throw new TypeError(`Invalid audio sample rate: ${e.audio.sampleRate}. Must be a positive integer.`)}if(e.firstTimestampBehavior&&!jt.includes(e.firstTimestampBehavior))throw new TypeError(`Invalid first timestamp behavior: ${e.firstTimestampBehavior}`);if("object"==typeof e.fastStart){if(e.video){if(void 0===e.fastStart.expectedVideoChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedVideoChunks'.");if(!Number.isInteger(e.fastStart.expectedVideoChunks)||e.fastStart.expectedVideoChunks<0)throw new TypeError("'expectedVideoChunks' must be a non-negative integer.")}if(e.audio){if(void 0===e.fastStart.expectedAudioChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedAudioChunks'.");if(!Number.isInteger(e.fastStart.expectedAudioChunks)||e.fastStart.expectedAudioChunks<0)throw new TypeError("'expectedAudioChunks' must be a non-negative integer.")}}else if(![!1,"in-memory","fragmented"].includes(e.fastStart))throw new TypeError("'fastStart' option must be false, 'in-memory', 'fragmented' or an object.");if(void 0!==e.minFragmentDuration&&(!Number.isFinite(e.minFragmentDuration)||e.minFragmentDuration<0))throw new TypeError("'minFragmentDuration' must be a non-negative number.")},ht=new WeakSet,lt=function(){var e;if(r(this,Ke).writeBox((e={holdsAvc:"avc"===r(this,Je).video?.codec,fragmented:"fragmented"===r(this,Je).fastStart}).fragmented?I("ftyp",[A("iso5"),v(512),A("iso5"),A("iso6"),A("mp41")]):I("ftyp",[A("isom"),v(512),A("isom"),e.holdsAvc?A("avc1"):[],A("mp41")])),o(this,Qe,r(this,Ke).pos),"in-memory"===r(this,Je).fastStart)o(this,Xe,V(!1));else if("fragmented"===r(this,Je).fastStart);else{if("object"==typeof r(this,Je).fastStart){let e=h(this,dt,ft).call(this);r(this,Ke).seek(r(this,Ke).pos+e)}o(this,Xe,V(!0)),r(this,Ke).writeBox(r(this,Xe))}h(this,zt,Et).call(this)},dt=new WeakSet,ft=function(){if("object"!=typeof r(this,Je).fastStart)return;let e=0,t=[r(this,Je).fastStart.expectedVideoChunks,r(this,Je).fastStart.expectedAudioChunks];for(let i of t)i&&(e+=8*Math.ceil(2/3*i),e+=4*i,e+=12*Math.ceil(2/3*i),e+=4*i,e+=8*i);return e+=4096,e},ut=new WeakSet,mt=function(){if(r(this,Je).video&&o(this,Ye,{id:1,info:{type:"video",codec:r(this,Je).video.codec,width:r(this,Je).video.width,height:r(this,Je).video.height,rotation:r(this,Je).video.rotation??0,decoderConfig:null},timescale:r(this,Je).video.frameRate??57600,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),r(this,Je).audio&&(o(this,Ze,{id:r(this,Je).video?2:1,info:{type:"audio",codec:r(this,Je).audio.codec,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate,decoderConfig:null},timescale:r(this,Je).audio.sampleRate,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),"aac"===r(this,Je).audio.codec)){let e=h(this,pt,ct).call(this,2,r(this,Je).audio.sampleRate,r(this,Je).audio.numberOfChannels);r(this,Ze).info.decoderConfig={codec:r(this,Je).audio.codec,description:e,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate}}},pt=new WeakSet,ct=function(e,t,i){let s=[96e3,88200,64e3,48e3,44100,32e3,24e3,22050,16e3,12e3,11025,8e3,7350].indexOf(t),a=i,r="";r+=e.toString(2).padStart(5,"0"),r+=s.toString(2).padStart(4,"0"),15===s&&(r+=t.toString(2).padStart(24,"0")),r+=a.toString(2).padStart(4,"0");let n=8*Math.ceil(r.length/8);r=r.padEnd(n,"0");let o=new Uint8Array(r.length/8);for(let e=0;e<r.length;e+=8)o[e/8]=parseInt(r.slice(e,e+8),2);return o},wt=new WeakSet,gt=function(e,t,i,s,a,r,n){let o=s/1e6,l=(s-(n??0))/1e6,d=a/1e6,f=h(this,kt,Tt).call(this,o,l,e);return o=f.presentationTimestamp,l=f.decodeTimestamp,r?.decoderConfig&&(null===e.info.decoderConfig?e.info.decoderConfig=r.decoderConfig:Object.assign(e.info.decoderConfig,r.decoderConfig)),{presentationTimestamp:o,decodeTimestamp:l,duration:d,data:t,size:t.byteLength,type:i,timescaleUnitsToNextSample:O(d,e.timescale)}},bt=new WeakSet,yt=function(e,t){"fragmented"!==r(this,Je).fastStart&&e.samples.push(t);const i=O(t.presentationTimestamp-t.decodeTimestamp,e.timescale);if(null!==e.lastTimescaleUnits){let s=O(t.decodeTimestamp,e.timescale,!1),a=Math.round(s-e.lastTimescaleUnits);if(e.lastTimescaleUnits+=a,e.lastSample.timescaleUnitsToNextSample=a,"fragmented"!==r(this,Je).fastStart){let t=M(e.timeToSampleTable);1===t.sampleCount?(t.sampleDelta=a,t.sampleCount++):t.sampleDelta===a?t.sampleCount++:(t.sampleCount--,e.timeToSampleTable.push({sampleCount:2,sampleDelta:a}));const s=M(e.compositionTimeOffsetTable);s.sampleCompositionTimeOffset===i?s.sampleCount++:e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i})}}else e.lastTimescaleUnits=0,"fragmented"!==r(this,Je).fastStart&&(e.timeToSampleTable.push({sampleCount:1,sampleDelta:O(t.duration,e.timescale)}),e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i}));e.lastSample=t;let s=!1;if(e.currentChunk){let i=t.presentationTimestamp-e.currentChunk.startTimestamp;if("fragmented"===r(this,Je).fastStart){let a=r(this,Ye)??r(this,Ze);const n=r(this,Je).minFragmentDuration??1;e===a&&"key"===t.type&&i>=n&&(s=!0,h(this,St,xt).call(this))}else s=i>=.5}else s=!0;s&&(e.currentChunk&&h(this,Ct,vt).call(this,e),e.currentChunk={startTimestamp:t.presentationTimestamp,samples:[]}),e.currentChunk.samples.push(t)},kt=new WeakSet,Tt=function(e,t,i){const s="strict"===r(this,Je).firstTimestampBehavior,a=-1===i.lastDecodeTimestamp;if(s&&a&&0!==t)throw new Error(`The first chunk for your media track must have a timestamp of 0 (received DTS=${t}).Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of thedocument, which is probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.\n`);if("offset"===r(this,Je).firstTimestampBehavior||"cross-track-offset"===r(this,Je).firstTimestampBehavior){let s;void 0===i.firstDecodeTimestamp&&(i.firstDecodeTimestamp=t),s="offset"===r(this,Je).firstTimestampBehavior?i.firstDecodeTimestamp:Math.min(r(this,Ye)?.firstDecodeTimestamp??1/0,r(this,Ze)?.firstDecodeTimestamp??1/0),t-=s,e-=s}if(t<i.lastDecodeTimestamp)throw new Error(`Timestamps must be monotonically increasing (DTS went from ${1e6*i.lastDecodeTimestamp} to ${1e6*t}).`);return i.lastDecodeTimestamp=t,{presentationTimestamp:e,decodeTimestamp:t}},Ct=new WeakSet,vt=function(e){if("fragmented"===r(this,Je).fastStart)throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");if(e.currentChunk)if(e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),0!==e.compactlyCodedChunkTable.length&&M(e.compactlyCodedChunkTable).samplesPerChunk===e.currentChunk.samples.length||e.compactlyCodedChunkTable.push({firstChunk:e.finalizedChunks.length,samplesPerChunk:e.currentChunk.samples.length}),"in-memory"!==r(this,Je).fastStart){e.currentChunk.offset=r(this,Ke).pos;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null;h(this,zt,Et).call(this)}else e.currentChunk.offset=0},St=new WeakSet,xt=function(e=!0){if("fragmented"!==r(this,Je).fastStart)throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");let t=[r(this,Ye),r(this,Ze)].filter(e=>e&&e.currentChunk);if(0===t.length)return;let i=(s=this,a=it,{set _(e){o(s,a,e,n)},get _(){return r(s,a,l)}})._++;var s,a,n,l;if(1===i){let e=F(t,r(this,et),!0);r(this,Ke).writeBox(e)}let d=r(this,Ke).pos,f=ce(i,t);r(this,Ke).writeBox(f);{let e=V(!1),i=0;for(let e of t)for(let t of e.currentChunk.samples)i+=t.size;let s=r(this,Ke).measureBox(e)+i;s>=2**32&&(e.largeSize=!0,s=r(this,Ke).measureBox(e)+i),e.size=s,r(this,Ke).writeBox(e)}for(let e of t){e.currentChunk.offset=r(this,Ke).pos,e.currentChunk.moofOffset=d;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null}let u=r(this,Ke).pos;r(this,Ke).seek(r(this,Ke).offsets.get(f));let m=ce(i,t);r(this,Ke).writeBox(m),r(this,Ke).seek(u);for(let e of t)e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),e.currentChunk=null;e&&h(this,zt,Et).call(this)},zt=new WeakSet,Et=function(){r(this,Ke)instanceof Ge&&r(this,Ke).flush()},At=new WeakSet,Mt=function(){if(r(this,rt))throw new Error("Cannot add new video or audio chunks after the file has been finalized.")},Wt=l,((a,r,n,o)=>{if(r&&"object"==typeof r||"function"==typeof r)for(let h of i(r))s.call(a,h)||h===n||e(a,h,{get:()=>r[h],enumerable:!(o=t(r,h))||o.enumerable});return a})(e({},"__esModule",{value:!0}),Wt)})();"object"==typeof module&&"object"==typeof module.exports&&Object.assign(module.exports,Mp4Muxer);</script>
+<script>
+'use strict';
+const S = CC_SPECTRA, EL = S.ELEMENTS, ORDER = S.ELEMENT_ORDER;
+const ACC = '#3CA3AE', INK = '#E8E4D9', LABEL = 'rgba(232,228,217,0.66)', FAINT = 'rgba(232,228,217,0.32)';
+const SKY = '#0F1311', DARK = '#0A0C0A';
+const FD = '"Zilla Slab", Georgia, serif', FB = '"Public Sans", system-ui, sans-serif', FM = '"Courier Prime", ui-monospace, monospace';
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const WL0 = 400, WL1 = 700, BIN = 0.5, NB = (WL1 - WL0) / BIN;
+const TICKS = [400, 450, 500, 550, 600, 650, 700];
 
-  <script src="spectra-core.js"></script>
-  <script>
-    const S = CC_SPECTRA;
-    const { ELEMENTS, ELEMENT_ORDER } = S;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+function rrect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
+function tag(c, text, x, y, color, font, w) {
+  c.font = font || `700 14px ${FM}`;
+  const tw = c.measureText(text).width, bx = clamp(x, tw / 2 + 8, (w || 1e9) - tw / 2 - 8);
+  c.fillStyle = 'rgba(15,19,17,0.9)'; rrect(c, bx - tw / 2 - 7, y - 15, tw + 14, 21, 4); c.fill();
+  c.fillStyle = color || INK; c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.fillText(text, bx, y);
+}
+const rgbOf = wl => S.wavelengthToRGB(wl).match(/\d+/g).map(Number);
+/* the color a glowing gas actually shows: the blend of its own lines */
+function gasRGB(el) {
+  let r = 0, g = 0, b = 0, n = 0;
+  el.lines.forEach(l => { const c = rgbOf(l.wl), w = l.strong ? 2 : 1; r += c[0] * w; g += c[1] * w; b += c[2] * w; n += w; });
+  const m = Math.max(r, g, b, 1);
+  return [r, g, b].map(v => Math.round(v / m * 255 * 0.85 + 255 * 0.15));
+}
+function mulberry(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
-    const TICKS = [400, 430, 460, 490, 520, 550, 580, 610, 640, 670, 700];
+/* ══ DATA ═══════════════════════════════════════════════════════════════════ */
+const OBS = [
+  { key: 'A', n: 'Observer A', v: 'direct',      type: 'Continuous', law: 'Kirchhoff’s 1st law' },
+  { key: 'B', n: 'Observer B', v: 'through gas', type: 'Absorption', law: 'Kirchhoff’s 3rd law' },
+  { key: 'C', n: 'Observer C', v: 'side view',   type: 'Emission',   law: 'Kirchhoff’s 2nd law' }
+];
+const STARS = [['hydrogen', 'helium'], ['hydrogen', 'silicon'], ['helium', 'carbon'], ['hydrogen', 'nitrogen'], ['carbon', 'oxygen', 'silicon']];
+const starLines = i => STARS[i].flatMap(k => EL[k].lines.map(l => ({ wl: l.wl, strong: l.strong, el: k })));
+function darkLineCount(i) { const u = []; starLines(i).map(l => l.wl).sort((a, b) => a - b).forEach(w => { if (!u.length || w - u[u.length - 1] > 0.3) u.push(w); }); return u.length; }
+const SRC = {
+  1: 'Line positions: NYSED ESRT (2026), p. 3 — H and He laboratory values; C, N, O, Si digitized to ±0.2 nm. Photon paths and line widths idealized.',
+  2: 'Line positions: NYSED ESRT (2026), p. 3. Each star is an idealized mix of p. 3 elements; real stellar spectra hold many more lines.'
+};
 
-    // Kirchhoff's three laws, in the order a lesson walks through them —
-    // which is not the order the laws are numbered.
-    const MODES = [
-      { key: 'continuous', name: 'Continuous',  law: "Kirchhoff's 1st law", gutter: 'continuous' },
-      { key: 'absorption', name: 'Absorption',  law: "Kirchhoff's 3rd law", gutter: 'absorption' },
-      { key: 'emission',   name: 'Emission',    law: "Kirchhoff's 2nd law", gutter: 'emission'   }
-    ];
+/* ══ STATE ══════════════════════════════════════════════════════════════════ */
+const ST = { tab: 1, el: 'hydrogen', obs: 1, hoverWl: null, pinWl: null, star: 0, cmp: new Set(), sim: null, running: false };
+let capturing = false;
+const HIT = {};
 
-    let currentElement = 'hydrogen';
-    let currentMode = 'continuous';
-
-    // ── Canvas geometry ─────────────────────────────────────────────────────────
-    // The main spectrum and the comparison stack share a gutter and a plot
-    // rectangle, so every band on the page lines up on one wavelength axis.
-    const CW = 780, GUT = 92, PR = 10, PW = CW - GUT - PR;
-
-    const setupCanvas = document.getElementById('setup-canvas');
-    const setupCtx = setupCanvas.getContext('2d');
-    const specCanvas = document.getElementById('spectrum-canvas');
-    const specCtx = specCanvas.getContext('2d');
-    const cmpCanvas = document.getElementById('compare-canvas');
-    const cmpCtx = cmpCanvas.getContext('2d');
-
-    const SCH = 260;                      // setup canvas height
-    const SPH = 172;                      // spectrum canvas height
-    const CMH = 176;                      // comparison canvas height
-
-    const PLOT = { x: GUT, y: 22, w: PW, h: 118, wlMin: 400, wlMax: 700 };
-    const SPEC_TICK_Y = 162;
-
-    const ROW_TOP = 12, ROW_H = 30, ROW_GAP = 16;
-    const CMP_TICK_Y = 168;
-    function rowPlot(i) {
-      return { x: GUT, y: ROW_TOP + i * (ROW_H + ROW_GAP), w: PW, h: ROW_H, wlMin: 400, wlMax: 700 };
+/* ══ PHOTON BURST ═══════════════════════════════════════════════════════════
+   The hot source sends light toward A (direct) and through the gas toward B.
+   Light at the gas's line wavelengths is absorbed and re-emitted in random
+   directions — some toward C. Each arriving photon also deposits VS samples
+   from its path's spectrum so the observed spectra build smoothly. */
+const EMIT_T = 4.5, RATE_A = 46, RATE_B = 96, LINEFRAC = 0.35, TO_C = 0.55, SPEED = 0.34, VS = 40, WIN = 0.6, FADE = 0.6;
+const NORM = { A: RATE_A * EMIT_T * VS / NB / 2.3, B: RATE_B * (1 - LINEFRAC) * EMIT_T * VS / NB / 2.3 };
+function sceneGeom(w, sh) {
+  const S0 = { x: w * 0.09, y: sh * 0.30 }, G = { x: w * 0.47, y: sh * 0.53 };
+  const rgx = clamp(sh * 0.24, 44, 120), rgy = rgx * 0.72, rs = clamp(sh * 0.085, 15, 34);
+  const k = (w * 0.9 - S0.x) / (G.x - S0.x), B = { x: S0.x + (G.x - S0.x) * k, y: S0.y + (G.y - S0.y) * k };
+  const A = { x: w * 0.9, y: sh * 0.11 };
+  const dl = Math.hypot(G.x - S0.x, G.y - S0.y), nx = -(G.y - S0.y) / dl, ny = (G.x - S0.x) / dl;
+  const dC = (sh - 28 - G.y) / ny, C = { x: G.x + nx * dC, y: G.y + ny * dC };
+  return { w, sh, S0, G, A, B, C, rgx, rgy, rs };
+}
+const REF = sceneGeom(1000, 300);
+const inCloud = (g, x, y) => Math.pow((x - g.G.x) / g.rgx, 2) + Math.pow((y - g.G.y) / g.rgy, 2) <= 1;
+const CHORD = (() => { let tin = null, tout = null;
+  for (let i = 0; i <= 2000; i++) { const t = i / 2000, x = lerp(REF.S0.x, REF.B.x, t), y = lerp(REF.S0.y, REF.B.y, t);
+    if (inCloud(REF, x, y)) { if (tin === null) tin = t; tout = t; } }
+  return { tin, tout }; })();
+const segLen = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+function pickLine(el, rnd) {
+  const tot = el.lines.reduce((s, l) => s + (l.strong ? 2 : 1), 0); let r = rnd() * tot;
+  for (const l of el.lines) { r -= l.strong ? 2 : 1; if (r <= 0) return l.wl; } return el.lines[el.lines.length - 1].wl;
+}
+const nearLine = (el, wl) => el.lines.some(l => Math.abs(l.wl - wl) < WIN);
+function newSim(seed) {
+  return { t: 0, rnd: mulberry(seed || 20261106), ph: [], fl: [], accA: 0, accB: 0, hist: { A: new Float32Array(NB), B: new Float32Array(NB), C: new Float32Array(NB) },
+    got: { A: 0, B: 0, C: 0 }, done: false, fade: 0 };
+}
+function sample(sim, kind, el) {
+  const r = sim.rnd;
+  if (kind === 'C') return pickLine(el, r) + (r() - 0.5) * 0.3;
+  for (let k = 0; k < 6; k++) { const wl = WL0 + r() * (WL1 - WL0); if (kind === 'A' || !nearLine(el, wl)) return wl; }
+  return null;
+}
+function deposit(sim, kind, wl, el) {
+  const h = sim.hist[kind]; sim.got[kind]++;
+  const add = w => { if (w === null) return; const b = Math.floor((w - WL0) / BIN); if (b >= 0 && b < NB) h[b]++; };
+  add(wl); for (let i = 1; i < VS; i++) add(sample(sim, kind, el));
+}
+function spawn(sim, kind, el) {
+  const r = sim.rnd, j = r() * 2 - 1;
+  if (kind === 'A') { sim.ph.push({ k: 'A', wl: WL0 + r() * 300, t: 0, j, len: segLen(REF.S0, REF.A) }); return; }
+  const lineP = r() < LINEFRAC, wl = lineP ? pickLine(el, r) + (r() - 0.5) * 0.3 : WL0 + r() * 300;
+  const abs = lineP || nearLine(el, wl);
+  sim.ph.push({ k: 'B', wl, t: 0, j: j * 0.5, len: segLen(REF.S0, REF.B), abs, tAbs: abs ? lerp(CHORD.tin, CHORD.tout, r()) : 2 });
+}
+function simStep(sim, dt, el) {
+  sim.t += dt;
+  if (sim.t <= EMIT_T) {
+    sim.accA += RATE_A * dt; sim.accB += RATE_B * dt;
+    while (sim.accA >= 1) { sim.accA--; spawn(sim, 'A', el); }
+    while (sim.accB >= 1) { sim.accB--; spawn(sim, 'B', el); }
+  }
+  const out = [];
+  for (const p of sim.ph) {
+    if (p.wait > 0) { p.wait -= dt; out.push(p); continue; }
+    p.t += dt * SPEED * 1000 / p.len;
+    if (p.k === 'B' && p.t >= p.tAbs) {
+      sim.fl.push({ t0: p.tAbs, j: p.j, age: 0, wl: p.wl });
+      const toC = sim.rnd() < TO_C, th = sim.rnd() * Math.PI * 2;
+      const from = { x: lerp(REF.S0.x, REF.B.x, p.tAbs), y: lerp(REF.S0.y, REF.B.y, p.tAbs) };
+      const to = toC ? { x: REF.C.x, y: REF.C.y } : { x: from.x + Math.cos(th) * 900, y: from.y + Math.sin(th) * 900 };
+      out.push({ k: 'R', wl: p.wl, t: 0, tAbs: p.tAbs, jB: p.j, toC, th, jc: sim.rnd() * 2 - 1, len: segLen(from, to), wait: 0.12 });
+      continue;
     }
-
-    let dpr = Math.max(1, window.devicePixelRatio || 1);
-    const BASE_DPR = dpr;
-
-    function setupCanvases() {
-      S.sizeCanvas(setupCanvas, setupCtx, CW, SCH, dpr);
-      S.sizeCanvas(specCanvas, specCtx, CW, SPH, dpr);
-      S.sizeCanvas(cmpCanvas, cmpCtx, CW, CMH, dpr);
+    if (p.t >= 1) {
+      if (p.k === 'A') deposit(sim, 'A', p.wl, el);
+      else if (p.k === 'B') deposit(sim, 'B', p.wl, el);
+      else if (p.toC) deposit(sim, 'C', p.wl, el);
+      continue;
     }
+    out.push(p);
+  }
+  sim.ph = out;
+  sim.fl = sim.fl.filter(f => (f.age += dt) < 0.35);
+  if (!sim.done && sim.t > EMIT_T && sim.ph.length === 0) sim.done = true;
+  if (sim.done) sim.fade = Math.min(1, sim.fade + dt / FADE);
+}
+function advance(sim, dt, el) { let left = dt; while (left > 1e-9) { const s = Math.min(1 / 60, left); simStep(sim, s, el); left -= s; } }
 
-    // ── Controls ────────────────────────────────────────────────────────────────
-    const modeCol = document.getElementById('modeCol');
-    MODES.forEach(m => {
-      const btn = document.createElement('button');
-      btn.className = 'cc-btn mode-btn';
-      btn.dataset.mode = m.key;
-      btn.innerHTML = `<span class="mb-name">${m.name}</span><span class="mb-law">${m.law}</span>`;
-      btn.addEventListener('click', () => setMode(m.key));
-      modeCol.appendChild(btn);
+/* ══ TAB 1 — how lines form ═════════════════════════════════════════════════ */
+function geom1(w, h) {
+  const sh = Math.round(h * 0.56), sc = sceneGeom(w, sh);
+  const gut = 132, top = sh + 16, axisH = 30, gap = 12;
+  const rh = Math.max(24, (h - top - axisH - 2 * gap - 4) / 3);
+  const rows = [0, 1, 2].map(i => ({ x: gut, y: top + i * (rh + gap), w: w - gut - 20, h: rh, wlMin: WL0, wlMax: WL1 }));
+  return { sc, rows, gut, axisY: rows[2].y + rh + 20 };
+}
+function photonXY(g, p) {
+  const s = g.w / 1000, P = (a, b, t) => ({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
+  const perp = (a, b) => { const L = segLen(a, b); return { x: -(b.y - a.y) / L, y: (b.x - a.x) / L }; };
+  if (p.k === 'A') { const q = P(g.S0, g.A, p.t), n = perp(g.S0, g.A); return { x: q.x + n.x * p.j * 14 * s * p.t, y: q.y + n.y * p.j * 14 * s * p.t }; }
+  const n = perp(g.S0, g.B), sb = t => { const q = P(g.S0, g.B, t); return { x: q.x + n.x * p.j * g.rgy * 0.5 * Math.min(1, t * 3), y: q.y + n.y * p.j * g.rgy * 0.5 * Math.min(1, t * 3) }; };
+  if (p.k === 'B') return sb(p.t);
+  const from = (() => { const q = P(g.S0, g.B, p.tAbs); return { x: q.x + n.x * p.jB * g.rgy * 0.5, y: q.y + n.y * p.jB * g.rgy * 0.5 }; })();
+  if (p.toC) { const m = perp(from, g.C); const q = P(from, g.C, p.t); return { x: q.x + m.x * p.jc * 8 * s * p.t, y: q.y + m.y * p.jc * 8 * s * p.t }; }
+  return { x: from.x + Math.cos(p.th) * 900 * s * p.t, y: from.y + Math.sin(p.th) * 900 * s * p.t };
+}
+function eye(c, x, y, ang, sel, letter) {
+  c.save(); c.translate(x, y); c.rotate(ang);
+  c.beginPath(); c.ellipse(0, 0, 15, 9, 0, 0, 7); c.fillStyle = 'rgba(15,19,17,0.9)'; c.fill();
+  c.strokeStyle = sel ? ACC : 'rgba(232,228,217,0.75)'; c.lineWidth = 2; c.stroke();
+  c.beginPath(); c.arc(4, 0, 4, 0, 7); c.fillStyle = sel ? ACC : 'rgba(232,228,217,0.85)'; c.fill();
+  c.restore();
+  c.beginPath(); c.arc(x - 30, y, 11, 0, 7); c.fillStyle = sel ? ACC : 'rgba(232,228,217,0.14)'; c.fill();
+  c.font = `700 14px ${FB}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = sel ? SKY : INK; c.fillText(letter, x - 30, y + 0.5);
+  c.textBaseline = 'alphabetic';
+}
+function drawScene1(c, g, el, sim) {
+  c.fillStyle = SKY; c.fillRect(0, 0, g.w, g.sh);
+  const tgt = [g.S0, g.S0, g.G], obsP = [g.A, g.B, g.C];
+  // sight lines
+  obsP.forEach((o, i) => {
+    const sel = i === ST.obs; c.setLineDash([4, 5]);
+    c.strokeStyle = sel ? 'rgba(60,163,174,0.75)' : 'rgba(232,228,217,0.16)'; c.lineWidth = sel ? 1.6 : 1;
+    const t = tgt[i], ang = Math.atan2(t.y - o.y, t.x - o.x);
+    c.beginPath(); c.moveTo(o.x + Math.cos(ang) * 18, o.y + Math.sin(ang) * 18); c.lineTo(t.x, t.y); c.stroke(); c.setLineDash([]);
+  });
+  // gas cloud: soft puffs tinted by the blend of its own lines
+  const gc = gasRGB(el), live = sim && !sim.done ? 1 : 0;
+  for (let i = 0; i < 7; i++) {
+    const a = i / 7 * Math.PI * 2 + 0.4, ox = i ? Math.cos(a) * g.rgx * 0.42 : 0, oy = i ? Math.sin(a) * g.rgy * 0.4 : 0, r = i ? g.rgx * 0.62 : g.rgx;
+    const gr = c.createRadialGradient(g.G.x + ox, g.G.y + oy, 0, g.G.x + ox, g.G.y + oy, r);
+    gr.addColorStop(0, `rgba(${gc[0]},${gc[1]},${gc[2]},${(i ? 0.13 : 0.2) + 0.05 * live})`); gr.addColorStop(1, `rgba(${gc[0]},${gc[1]},${gc[2]},0)`);
+    c.save(); c.translate(g.G.x + ox, g.G.y + oy); c.scale(1, g.rgy / g.rgx); c.translate(-(g.G.x + ox), -(g.G.y + oy));
+    c.fillStyle = gr; c.beginPath(); c.arc(g.G.x + ox, g.G.y + oy, r, 0, 7); c.fill(); c.restore();
+  }
+  // source
+  const gr = c.createRadialGradient(g.S0.x, g.S0.y, 0, g.S0.x, g.S0.y, g.rs * 2.6);
+  gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.35, 'rgba(255,226,170,0.55)'); gr.addColorStop(1, 'rgba(255,220,150,0)');
+  c.fillStyle = gr; c.beginPath(); c.arc(g.S0.x, g.S0.y, g.rs * 2.6, 0, 7); c.fill();
+  c.fillStyle = '#FFF7E6'; c.beginPath(); c.arc(g.S0.x, g.S0.y, g.rs, 0, 7); c.fill();
+  // photons
+  if (sim) {
+    const s = g.w / 1000;
+    sim.fl.forEach(f => {
+      const q = { k: 'B', t: f.t0, j: f.j }, p = photonXY(g, q), a = 1 - f.age / 0.35;
+      c.beginPath(); c.arc(p.x, p.y, 3 + 9 * (1 - a), 0, 7); c.strokeStyle = S.wavelengthToRGB(f.wl).replace('rgb', 'rgba').replace(')', `,${(0.7 * a).toFixed(2)})`); c.lineWidth = 1.5; c.stroke();
     });
-
-    const elementCol = document.getElementById('elementCol');
-    ELEMENT_ORDER.forEach(key => {
-      const el = ELEMENTS[key];
-      const btn = document.createElement('button');
-      btn.className = 'cc-btn element-btn';
-      btn.dataset.element = key;
-      btn.innerHTML = `<span class="swatch" style="background:${el.color}"></span>${el.name}`;
-      btn.addEventListener('click', () => setElement(key));
-      elementCol.appendChild(btn);
+    c.save(); c.globalCompositeOperation = 'lighter';
+    sim.ph.forEach(p => {
+      if (p.wait > 0) return;
+      const q = photonXY(g, p);
+      if (q.x < -10 || q.x > g.w + 10 || q.y < -10 || q.y > g.sh + 10) return;
+      c.fillStyle = S.wavelengthToRGB(p.wl); c.beginPath(); c.arc(q.x, q.y, 2.3 * Math.max(0.8, s), 0, 7); c.fill();
     });
-
-    function setMode(key) {
-      currentMode = key;
-      document.querySelectorAll('.mode-btn').forEach(b => {
-        b.classList.toggle('is-active', b.dataset.mode === key);
-      });
-      render();
-    }
-
-    function setElement(key) {
-      currentElement = key;
-      document.querySelectorAll('.element-btn').forEach(b => {
-        b.classList.toggle('is-active', b.dataset.element === key);
-      });
-      render();
-    }
-
-    // ── Setup schematic ─────────────────────────────────────────────────────────
-    function drawSetup() {
-      setupCtx.clearRect(0, 0, CW, SCH);
-      setupCtx.fillStyle = S.SURFACE;
-      setupCtx.fillRect(0, 0, CW, SCH);
-
-      const midY = SCH / 2;
-      const el = ELEMENTS[currentElement];
-      const sourceX = 140, cloudX = CW / 2, observerX = CW - 100;
-
-      // Hot dense source — absent in emission mode, where the gas is the source
-      if (currentMode !== 'emission') {
-        const srcGrad = setupCtx.createRadialGradient(sourceX, midY, 0, sourceX, midY, 56);
-        srcGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
-        srcGrad.addColorStop(0.4, 'rgba(255,220,150,0.5)');
-        srcGrad.addColorStop(1, 'rgba(255,220,150,0)');
-        setupCtx.beginPath();
-        setupCtx.arc(sourceX, midY, 56, 0, Math.PI * 2);
-        setupCtx.fillStyle = srcGrad;
-        setupCtx.fill();
-        setupCtx.beginPath();
-        setupCtx.arc(sourceX, midY, 24, 0, Math.PI * 2);
-        setupCtx.fillStyle = '#FFF7E6';
-        setupCtx.fill();
-      }
-
-      // Rays toward the observer
-      const rayStartX = currentMode === 'emission' ? cloudX : sourceX;
-      for (let i = -2; i <= 2; i++) {
-        const y = midY + i * 17;
-        setupCtx.beginPath();
-        setupCtx.moveTo(rayStartX + (currentMode === 'emission' ? 0 : 30), midY);
-        setupCtx.lineTo(observerX - 40, y);
-        setupCtx.strokeStyle = 'rgba(255,255,255,0.18)';
-        setupCtx.lineWidth = 2;
-        setupCtx.stroke();
-      }
-
-      // Gas cloud
-      if (currentMode !== 'continuous') {
-        const cloudGrad = setupCtx.createRadialGradient(cloudX, midY, 0, cloudX, midY, 62);
-        if (currentMode === 'emission') {
-          cloudGrad.addColorStop(0, el.color + 'CC');
-          cloudGrad.addColorStop(1, el.color + '00');
-        } else {
-          cloudGrad.addColorStop(0, 'rgba(160,170,180,0.5)');
-          cloudGrad.addColorStop(1, 'rgba(160,170,180,0)');
-        }
-        setupCtx.beginPath();
-        setupCtx.arc(cloudX, midY, 62, 0, Math.PI * 2);
-        setupCtx.fillStyle = cloudGrad;
-        setupCtx.fill();
-
-        setupCtx.font = '500 15px "Public Sans", sans-serif';
-        setupCtx.textAlign = 'center';
-        setupCtx.fillStyle = 'rgba(232,228,217,0.7)';
-        const temp = currentMode === 'emission' ? 'hot thin' : 'cool thin';
-        setupCtx.fillText(`${temp} ${el.name.toLowerCase()} gas`, cloudX, midY + 92);
-      }
-
-      // Observer
-      setupCtx.beginPath();
-      setupCtx.ellipse(observerX, midY, 24, 15, 0, 0, Math.PI * 2);
-      setupCtx.strokeStyle = 'rgba(232,228,217,0.7)';
-      setupCtx.lineWidth = 2;
-      setupCtx.stroke();
-      setupCtx.beginPath();
-      setupCtx.arc(observerX, midY, 6, 0, Math.PI * 2);
-      setupCtx.fillStyle = 'rgba(232,228,217,0.7)';
-      setupCtx.fill();
-
-      setupCtx.font = '500 15px "Public Sans", sans-serif';
-      setupCtx.textAlign = 'center';
-      setupCtx.fillStyle = 'rgba(232,228,217,0.55)';
-      if (currentMode !== 'emission') setupCtx.fillText('hot dense source', sourceX, midY + 82);
-      setupCtx.fillText('observer', observerX, midY + 62);
-
-      // Which law this configuration is
-      const mode = MODES.find(m => m.key === currentMode);
-      setupCtx.textAlign = 'left';
-      setupCtx.font = '600 13px "Courier Prime", monospace';
-      setupCtx.fillStyle = 'rgba(60,163,174,0.9)';
-      setupCtx.fillText(mode.law.toUpperCase(), 16, 26);
-      setupCtx.textAlign = 'right';
-      setupCtx.font = '600 15px "Public Sans", sans-serif';
-      setupCtx.fillStyle = el.color;
-      setupCtx.fillText(`${mode.name} spectrum`, CW - 16, 26);
-    }
-
-    // ── One band, drawn in any of the three configurations ──────────────────────
-    function drawBand(ctx, plot, mode, el) {
-      if (mode === 'emission') {
-        S.drawEmissionLines(ctx, plot, el, 0);
-      } else {
-        S.drawRainbow(ctx, plot);
-        if (mode === 'absorption') S.drawLines(ctx, plot, el, 0);
-      }
-      S.drawFrame(ctx, plot);
-      if (mode !== 'emission') S.drawGridlines(ctx, plot, TICKS);
-    }
-
-    // ── Main spectrum ───────────────────────────────────────────────────────────
-    function drawSpectrum() {
-      specCtx.clearRect(0, 0, CW, SPH);
-      specCtx.fillStyle = S.SURFACE;
-      specCtx.fillRect(0, 0, CW, SPH);
-
-      const el = ELEMENTS[currentElement];
-      const mode = MODES.find(m => m.key === currentMode);
-
-      drawBand(specCtx, PLOT, currentMode, el);
-
-      specCtx.textAlign = 'right';
-      specCtx.font = '600 13px "Public Sans", sans-serif';
-      specCtx.fillStyle = 'rgba(232,228,217,0.78)';
-      specCtx.fillText(mode.gutter, GUT - 12, PLOT.y + PLOT.h / 2 - 3);
-      specCtx.font = '400 11px "Courier Prime", monospace';
-      specCtx.fillStyle = 'rgba(148,143,130,0.9)';
-      specCtx.fillText(el.name.toLowerCase(), GUT - 12, PLOT.y + PLOT.h / 2 + 13);
-
-      S.drawTickLabels(specCtx, PLOT, TICKS, SPEC_TICK_Y);
-    }
-
-    // ── Comparison stack: all three, one axis ───────────────────────────────────
-    function drawCompare() {
-      cmpCtx.clearRect(0, 0, CW, CMH);
-      cmpCtx.fillStyle = S.SURFACE;
-      cmpCtx.fillRect(0, 0, CW, CMH);
-
-      const el = ELEMENTS[currentElement];
-
-      MODES.forEach((m, i) => {
-        const plot = rowPlot(i);
-        const isCurrent = m.key === currentMode;
-
-        cmpCtx.save();
-        cmpCtx.globalAlpha = isCurrent ? 1 : 0.62;
-        drawBand(cmpCtx, plot, m.key, el);
-        cmpCtx.restore();
-
-        cmpCtx.textAlign = 'right';
-        cmpCtx.font = (isCurrent ? '600 13px' : '500 13px') + ' "Public Sans", sans-serif';
-        cmpCtx.fillStyle = isCurrent ? '#E8E4D9' : 'rgba(232,228,217,0.6)';
-        cmpCtx.fillText(m.gutter, GUT - 12, plot.y + plot.h / 2 + 4);
-
-        if (isCurrent) {
-          cmpCtx.strokeStyle = 'rgba(60,163,174,0.9)';
-          cmpCtx.lineWidth = 2;
-          cmpCtx.strokeRect(plot.x - 2.5, plot.y - 2.5, plot.w + 5, plot.h + 5);
-        }
-      });
-
-      // Vertical guides at every line position, tying the three rows together
-      const top = rowPlot(0).y, bottom = rowPlot(2).y + ROW_H;
-      cmpCtx.save();
-      cmpCtx.setLineDash([2, 4]);
-      cmpCtx.strokeStyle = 'rgba(232,228,217,0.3)';
-      cmpCtx.lineWidth = 1;
-      el.lines.forEach(line => {
-        const x = S.wlToX(line.wl, rowPlot(0));
-        cmpCtx.beginPath();
-        cmpCtx.moveTo(x, top);
-        cmpCtx.lineTo(x, bottom);
-        cmpCtx.stroke();
-      });
-      cmpCtx.restore();
-
-      S.drawTickLabels(cmpCtx, rowPlot(0), TICKS, CMP_TICK_Y);
-    }
-
-    // ── Line list ───────────────────────────────────────────────────────────────
-    function updateLineList() {
-      const el = ELEMENTS[currentElement];
-      const list = document.getElementById('lineList');
-      const none = currentMode === 'continuous';
-
-      document.getElementById('countReadout').textContent = none ? '0' : el.lines.length;
-      list.classList.toggle('is-dim', none);
-
-      list.innerHTML = '';
-      el.lines.forEach(line => {
-        const row = document.createElement('div');
-        row.className = 'line-row' + (line.strong ? ' is-strong' : '');
-        row.innerHTML =
-          `<span class="line-swatch" style="background:${S.wavelengthToRGB(line.wl)}"></span>` +
-          `${line.wl.toFixed(1)}<span class="lr-unit">nm</span>`;
-        list.appendChild(row);
-      });
-    }
-
-    function render() {
-      drawSetup();
-      drawSpectrum();
-      drawCompare();
-      updateLineList();
-    }
-
-    // ── PNG export (shared card) ────────────────────────────────────────────────
-    function setScale(s) {
-      dpr = (s === null ? BASE_DPR : s);
-      setupCanvases();
-      render();
-    }
-
-    document.getElementById('pngbtn').addEventListener('click', () => {
-      const el = ELEMENTS[currentElement];
-      const mode = MODES.find(m => m.key === currentMode);
-      S.exportCard({
-        title: 'Spectral Fingerprint Lab',
-        subtitle: `${el.name} · ${mode.name.toLowerCase()} · ${mode.law}`,
-        accent: el.color,
-        footer: 'contextclimate.io · NYSED ESRT (2026), p.3',
-        filename: `spectral-fingerprint-${currentElement}-${currentMode}.png`,
-        canvases: [
-          { cv: setupCanvas, w: CW, h: SCH },
-          { cv: specCanvas, w: CW, h: SPH },
-          { cv: cmpCanvas, w: CW, h: CMH }
-        ],
-        setScale: setScale
-      });
+    c.restore();
+  }
+  // observers
+  obsP.forEach((o, i) => eye(c, o.x, o.y, Math.atan2(tgt[i].y - o.y, tgt[i].x - o.x), i === ST.obs, OBS[i].key));
+  c.font = `500 13px ${FB}`; c.fillStyle = LABEL; c.textAlign = 'center';
+  c.fillText('hot dense source', g.S0.x, g.S0.y + g.rs + 22);
+  c.fillText(`cool thin ${el.name.toLowerCase()} gas`, g.G.x, g.G.y - g.rgy - 10);
+}
+function drawBandIdeal(c, plot, kind, el) {
+  if (kind === 'C') S.drawEmissionLines(c, plot, el, 0, { background: DARK });
+  else { S.drawRainbow(c, plot); if (kind === 'B') S.drawLines(c, plot, el, 0); }
+}
+function drawBandHist(c, plot, kind, el, sim) {
+  c.fillStyle = DARK; c.fillRect(plot.x, plot.y, plot.w, plot.h);
+  const h = sim.hist[kind];
+  if (kind === 'C') {
+    c.save();
+    const totW = el.lines.reduce((t, l) => t + (l.strong ? 2 : 1), 0), lineSamples = RATE_B * LINEFRAC * EMIT_T * TO_C * VS;
+    el.lines.forEach(l => {
+      const b0 = Math.floor((l.wl - 1 - WL0) / BIN), b1 = Math.floor((l.wl + 1 - WL0) / BIN); let n = 0;
+      for (let b = Math.max(0, b0); b <= Math.min(NB - 1, b1); b++) n += h[b];
+      const expect = lineSamples * (l.strong ? 2 : 1) / totW, a = 1 - Math.exp(-n / (expect / 2.3)); if (a < 0.02) return;
+      const x = S.wlToX(l.wl, plot), w = l.strong ? 3.5 : 2, col = S.wavelengthToRGB(l.wl);
+      c.globalAlpha = a; c.fillStyle = col; c.shadowColor = col; c.shadowBlur = l.strong ? 10 : 5; c.fillRect(x - w / 2, plot.y, w, plot.h);
     });
+    c.restore(); return;
+  }
+  const nrm = NORM[kind];
+  for (let x = 0; x < plot.w; x++) {
+    const wl = WL0 + (x + 0.5) / plot.w * (WL1 - WL0), f = (wl - WL0) / BIN - 0.5, i = clamp(Math.floor(f), 0, NB - 1), fr = f - i;
+    const v = i => h[clamp(i, 0, NB - 1)], cnt = lerp(v(i), v(i + 1), fr) * 0.6 + (v(i - 1) + v(i + 2)) * 0.2;
+    const b = 1 - Math.exp(-cnt / nrm); if (b < 0.01) continue;
+    const rgb = rgbOf(wl);
+    c.fillStyle = `rgb(${Math.round(rgb[0] * b)},${Math.round(rgb[1] * b)},${Math.round(rgb[2] * b)})`;
+    c.fillRect(plot.x + x, plot.y, 1.2, plot.h);
+  }
+}
+function drawTicks(c, plot, y) {
+  c.font = `500 13px ${FM}`; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  for (let wl = WL0; wl <= WL1; wl += 10) {
+    const x = S.wlToX(wl, plot), major = wl % 50 === 0;
+    c.strokeStyle = major ? 'rgba(232,228,217,0.4)' : 'rgba(232,228,217,0.2)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x + 0.5, y - 18); c.lineTo(x + 0.5, y - (major ? 10 : 13)); c.stroke();
+    if (major) { c.fillStyle = LABEL; c.textAlign = wl === WL0 ? 'left' : wl === WL1 ? 'right' : 'center'; c.fillText(String(wl), x + (wl === WL0 ? -2 : wl === WL1 ? 2 : 0), y + 2); }
+  }
+  c.textAlign = 'right'; c.fillStyle = LABEL; c.fillText('nm', plot.x - 14, y + 2);
+}
+function cursorWl() { return ST.hoverWl !== null ? ST.hoverWl : ST.pinWl; }
+function drawCursor(c, x0, y0, y1, plot, w, tagY) {
+  const wl = cursorWl(); if (wl === null) return;
+  const pinned = ST.hoverWl === null || (ST.pinWl !== null && Math.abs(ST.pinWl - ST.hoverWl) < 1e-6);
+  const x = S.wlToX(wl, plot);
+  c.strokeStyle = pinned ? ACC : 'rgba(232,228,217,0.7)'; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(x + 0.5, y0); c.lineTo(x + 0.5, y1); c.stroke();
+  tag(c, wl.toFixed(1) + ' nm', x, tagY, pinned ? ACC : INK, null, w);
+}
+function drawStep1(c, w, h, live) {
+  const G = geom1(w, h), el = EL[ST.el], sim = ST.sim;
+  c.fillStyle = '#141916'; c.fillRect(0, 0, w, h);
+  c.save(); c.beginPath(); c.rect(0, 0, w, G.sc.sh); c.clip(); drawScene1(c, G.sc, el, sim); c.restore();
+  c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.beginPath(); c.moveTo(0, G.sc.sh + 0.5); c.lineTo(w, G.sc.sh + 0.5); c.stroke();
+  // B ↔ C guides through the gap: same positions
+  const rb = G.rows[1], rc = G.rows[2];
+  c.save(); c.setLineDash([2, 3]); c.strokeStyle = 'rgba(232,228,217,0.35)'; c.lineWidth = 1;
+  el.lines.forEach(l => { const x = S.wlToX(l.wl, rb) + 0.5; c.beginPath(); c.moveTo(x, rb.y + rb.h + 1); c.lineTo(x, rc.y - 1); c.stroke(); });
+  c.restore();
+  G.rows.forEach((p, i) => {
+    const kind = OBS[i].key, sel = i === ST.obs;
+    if (!sim || sim.fade >= 1) drawBandIdeal(c, p, kind, el);
+    else { drawBandHist(c, p, kind, el, sim); if (sim.fade > 0) { c.save(); c.globalAlpha = sim.fade; drawBandIdeal(c, p, kind, el); c.restore(); } }
+    S.drawFrame(c, p);
+    if (sel) { c.strokeStyle = ACC; c.lineWidth = 2; c.strokeRect(p.x - 2.5, p.y - 2.5, p.w + 5, p.h + 5); }
+    const cy = p.y + p.h / 2;
+    c.beginPath(); c.arc(22, cy, 11, 0, 7); c.fillStyle = sel ? ACC : 'rgba(232,228,217,0.14)'; c.fill();
+    c.font = `700 14px ${FB}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = sel ? SKY : INK; c.fillText(kind, 22, cy + 0.5);
+    c.textAlign = 'left'; c.font = `${sel ? 700 : 500} 13px ${FB}`; c.fillStyle = sel ? INK : 'rgba(232,228,217,0.75)';
+    c.fillText(OBS[i].type.toLowerCase(), 40, cy + 0.5); c.textBaseline = 'alphabetic';
+  });
+  drawTicks(c, G.rows[2], G.axisY);
+  drawCursor(c, 0, G.rows[0].y - 3, G.rows[2].y + G.rows[2].h + 3, G.rows[0], w, G.rows[0].y - 7);
+  if (live) HIT.g1 = G;
+}
 
-    // Init
-    setupCanvases();
-    setElement('hydrogen');
-    setMode('continuous');
-    S.renderSeriesNav('seriesNav', 'fingerprint');
-  </script>
+/* ══ TAB 2 — identify the star ══════════════════════════════════════════════ */
+function geom2(w, h) {
+  const gut = 132, x = gut, pw = w - gut - 20, starY = 30, starH = clamp(h * 0.2, 56, 120);
+  const mk = 12 + 9 * Math.max(1, ST.cmp.size), rowsTop = starY + starH + mk + 6, axisH = 30, gap = 6;
+  const rh = Math.max(18, (h - rowsTop - axisH - 5 * gap - 4) / 6);
+  const star = { x, y: starY, w: pw, h: starH, wlMin: WL0, wlMax: WL1 };
+  const rows = ORDER.map((k, i) => ({ x, y: rowsTop + i * (rh + gap), w: pw, h: rh, wlMin: WL0, wlMax: WL1, k }));
+  return { star, rows, axisY: rows[5].y + rh + 20, mkTop: starY + starH + 6 };
+}
+function drawStep2(c, w, h, live) {
+  const G = geom2(w, h), st = G.star;
+  c.fillStyle = '#141916'; c.fillRect(0, 0, w, h);
+  S.drawRainbow(c, st); STARS[ST.star].forEach(k => S.drawLines(c, st, EL[k], 0)); S.drawFrame(c, st);
+  c.font = `700 18px ${FD}`; c.fillStyle = INK; c.textAlign = 'left'; c.textBaseline = 'middle';
+  c.fillText(`Star ${ST.star + 1}`, 16, st.y + st.h / 2 + 1); c.textBaseline = 'alphabetic';
+  // comparison guides: each chosen element's lines carried up to the star
+  [...ST.cmp].forEach((k, ci) => {
+    const el = EL[k], row = G.rows[ORDER.indexOf(k)], my = G.mkTop + 4 + ci * 9;
+    c.save(); c.setLineDash([3, 3]); c.strokeStyle = el.color; c.globalAlpha = 0.6; c.lineWidth = 1;
+    el.lines.forEach(l => { const x = S.wlToX(l.wl, st) + 0.5; c.beginPath(); c.moveTo(x, st.y); c.lineTo(x, row.y); c.stroke(); });
+    c.restore();
+    c.fillStyle = el.color;
+    el.lines.forEach(l => { const x = S.wlToX(l.wl, st); c.beginPath(); c.moveTo(x, my + 6); c.lineTo(x - 4, my); c.lineTo(x + 4, my); c.closePath(); c.fill(); });
+  });
+  G.rows.forEach(p => {
+    const el = EL[p.k], on = ST.cmp.has(p.k);
+    S.drawEmissionLines(c, p, el, 0, { background: DARK }); S.drawFrame(c, p);
+    if (on) { c.strokeStyle = el.color; c.lineWidth = 2; c.strokeRect(p.x - 2.5, p.y - 2.5, p.w + 5, p.h + 5); }
+    const cy = p.y + p.h / 2; c.textBaseline = 'middle'; c.textAlign = 'left';
+    if (on) { c.beginPath(); c.arc(20, cy, 5, 0, 7); c.fillStyle = el.color; c.fill(); }
+    c.font = `700 17px ${FD}`; c.fillStyle = on ? INK : 'rgba(232,228,217,0.85)'; c.fillText(el.symbol, 32, cy + 1);
+    c.font = `${on ? 700 : 500} 13px ${FB}`; c.fillStyle = on ? INK : LABEL; c.fillText(el.name, 60, cy + 1);
+    c.textBaseline = 'alphabetic';
+  });
+  drawTicks(c, G.rows[5], G.axisY);
+  drawCursor(c, 0, st.y - 3, G.rows[5].y + G.rows[5].h + 3, st, w, st.y - 7);
+  if (live) HIT.g2 = G;
+}
 
+/* ══ SCENE / CANVAS ═════════════════════════════════════════════════════════ */
+function drawScene(c, w, h, live) { c.save(); if (ST.tab === 1) drawStep1(c, w, h, live); else drawStep2(c, w, h, live); c.restore(); }
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W = 800, H = 500, DPR = 1;
+function resize() {
+  const r = document.getElementById('stage').getBoundingClientRect();
+  W = Math.max(200, r.width); H = Math.max(160, r.height); DPR = Math.max(1, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+}
+function draw() { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); drawScene(ctx, W, H, true); }
+
+/* ══ CARD ═══════════════════════════════════════════════════════════════════ */
+function wlRow(lines, name) {
+  const wl = cursorWl();
+  if (wl === null) return { l: 'Wavelength', v: '—', sub: 'hover the spectrum' };
+  const hit = lines.find(l => Math.abs(l.wl - wl) < 0.05);
+  return { l: 'Wavelength', v: wl.toFixed(1), u: 'nm', sub: hit ? name(hit) : ' ' };
+}
+function cardModel() {
+  if (ST.tab === 1) {
+    const el = EL[ST.el], o = OBS[ST.obs], n = o.key === 'A' ? 0 : el.lines.length, sim = ST.sim;
+    const rows = [
+      { l: o.n, v: o.type, u: 'spectrum', sub: o.law },
+      { l: 'Lines', v: String(n), u: o.key === 'A' ? '' : o.key === 'B' ? 'dark lines' : 'bright lines' },
+      wlRow(el.lines, () => `${el.name.toLowerCase()} line position`)];
+    if (sim && !sim.done) rows.push({ l: 'Light reaching ' + o.key, v: sim.got[o.key].toLocaleString('en-US'), u: 'photons' });
+    return { eb: el.name + ' gas', rows };
+  }
+  const lines = starLines(ST.star);
+  const cmp = ORDER.filter(k => ST.cmp.has(k)).map(k => EL[k].name);
+  return { eb: `Star ${ST.star + 1}`, rows: [
+    { l: 'Dark lines', v: String(darkLineCount(ST.star)) },
+    { l: 'Comparing', v: cmp.length ? cmp.join(', ') : '—', sm: cmp.length > 1 },
+    wlRow(lines.map(l => ({ wl: l.wl })), () => 'dark line')] };
+}
+const upLatin = s => String(s).replace(/[a-z]/g, ch => ch.toUpperCase());
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+let lastCard = '';
+function renderCard() {
+  const m = cardModel(), key = JSON.stringify(m) + ST.tab; if (key === lastCard) return; lastCard = key;
+  document.getElementById('card').innerHTML = `<div class="eb">${esc(upLatin(m.eb))}</div>` + m.rows.map(r =>
+    `<div class="r"><div class="l">${esc(upLatin(r.l))}</div><div class="v${r.sm ? ' sm' : ''}">${esc(r.v)}${r.u ? `<span class="u">${esc(r.u)}</span>` : ''}</div>` +
+    (r.sub ? `<div class="sub">${esc(r.sub)}</div>` : '') + '</div>').join('') + `<div class="src">${esc(SRC[ST.tab])}</div>`;
+}
+
+/* ══ CONTROLS ═══════════════════════════════════════════════════════════════ */
+const controls = document.getElementById('controls');
+const snapBtn = (s, i, cls) => `<button class="cc-btn snap ${cls || ''}" data-i="${i}"><span class="n">${s.sw ? `<i class="sw" style="background:${s.sw}"></i>` : ''}${s.n}</span><span class="v">${s.v}</span></button>`;
+function buildControls() {
+  if (ST.tab === 1) {
+    controls.className = 'controls c1';
+    controls.innerHTML = `<button class="cc-btn play" id="bPlay"></button>
+      <div class="snaps" id="obs" style="--n:3">${OBS.map((o, i) => snapBtn(o, i)).join('')}</div>
+      <div class="snaps" id="els" style="--n:6">${ORDER.map((k, i) => snapBtn({ n: EL[k].symbol, v: EL[k].name }, i, 'el')).join('')}</div>`;
+    document.getElementById('bPlay').onclick = togglePlay;
+    controls.querySelectorAll('#obs .snap').forEach(b => b.onclick = () => { ST.obs = +b.dataset.i; refresh(); });
+    controls.querySelectorAll('#els .snap').forEach(b => b.onclick = () => { setElement(ORDER[+b.dataset.i]); });
+  } else {
+    controls.className = 'controls c2';
+    controls.innerHTML = `<div class="snaps" id="stars" style="--n:${STARS.length}">${STARS.map((s, i) => snapBtn({ n: `Star ${i + 1}`, v: darkLineCount(i) + '<span class="wd"> lines</span>' }, i)).join('')}</div>
+      <div class="snaps" id="cmp" style="--n:6">${ORDER.map((k, i) => snapBtn({ n: EL[k].symbol, v: EL[k].name }, i, 'el')).join('')}</div>
+      <button class="cc-btn clear" id="bClear">Clear</button>`;
+    controls.querySelectorAll('#stars .snap').forEach(b => b.onclick = () => { ST.star = +b.dataset.i; ST.pinWl = null; refresh(); });
+    controls.querySelectorAll('#cmp .snap').forEach(b => b.onclick = () => toggleCmp(ORDER[+b.dataset.i]));
+    document.getElementById('bClear').onclick = () => { ST.cmp.clear(); refresh(); };
+  }
+  lastCtl = '';
+}
+let lastCtl = '';
+const playLabel = st => st === 'p' ? '<span class="ic">❚❚</span><span>Pause</span>' : st === 'r' ? '<span class="ic">↺</span><span>Replay</span>' : '<span class="ic">▶</span><span>Play</span>';
+function syncControls() {
+  if (ST.tab === 1) {
+    const st = ST.running ? 'p' : ST.sim && ST.sim.done ? 'r' : 's', key = st + ST.obs + ST.el; if (key === lastCtl) return; lastCtl = key;
+    document.getElementById('bPlay').innerHTML = playLabel(st);
+    controls.querySelectorAll('#obs .snap').forEach((b, i) => b.classList.toggle('is-active', i === ST.obs));
+    controls.querySelectorAll('#els .snap').forEach((b, i) => b.classList.toggle('is-active', ORDER[i] === ST.el));
+  } else {
+    const key = ST.star + '|' + [...ST.cmp].join(); if (key === lastCtl) return; lastCtl = key;
+    controls.querySelectorAll('#stars .snap').forEach((b, i) => b.classList.toggle('is-active', i === ST.star));
+    controls.querySelectorAll('#cmp .snap').forEach((b, i) => {
+      const k = ORDER[i], on = ST.cmp.has(k); b.classList.toggle('is-active', on);
+      b.style.background = on ? EL[k].color : ''; b.style.borderColor = on ? EL[k].color : '';
+    });
+    document.getElementById('bClear').disabled = !ST.cmp.size;
+  }
+}
+function setElement(k) { ST.el = k; ST.sim = null; ST.running = false; ST.pinWl = null; refresh(); }
+function toggleCmp(k) { if (ST.cmp.has(k)) ST.cmp.delete(k); else ST.cmp.add(k); refresh(); }
+function togglePlay() {
+  if (ST.running) { ST.running = false; }
+  else { if (!ST.sim || ST.sim.done) ST.sim = newSim(); ST.running = true; if (REDUCED) { advance(ST.sim, 30, EL[ST.el]); ST.running = false; } }
+  refresh();
+}
+function setTab(n) {
+  ST.tab = n; ST.running = false; ST.hoverWl = null; ST.pinWl = null;
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('is-active', +b.dataset.tab === n));
+  document.getElementById('bGIF').disabled = document.getElementById('bMP4').disabled = n !== 1;
+  buildControls(); lastCard = '';
+  requestAnimationFrame(() => { resize(); refresh(); });
+}
+document.querySelectorAll('#tabs [data-tab]').forEach(b => b.onclick = () => setTab(+b.dataset.tab));
+function refresh() { draw(); renderCard(); syncControls(); }
+
+let lastT = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
+  if (!document.hidden && !capturing && ST.tab === 1 && ST.sim && ST.running) {
+    advance(ST.sim, dt, EL[ST.el]);
+    if (ST.sim.done && ST.sim.fade >= 1) ST.running = false;
+    refresh();
+  }
+  requestAnimationFrame(loop);
+}
+
+/* ══ POINTER ════════════════════════════════════════════════════════════════ */
+function pt(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+const inRect = (p, r, pad) => p.x >= r.x - (pad || 0) && p.x <= r.x + r.w + (pad || 0) && p.y >= r.y - (pad || 0) && p.y <= r.y + r.h + (pad || 0);
+function snapWl(x, plot, lines) {
+  let wl = clamp(S.xToWl(x, plot), WL0, WL1), best = null, bd = 5;
+  lines.forEach(l => { const d = Math.abs(S.wlToX(l.wl, plot) - x); if (d < bd) { bd = d; best = l.wl; } });
+  return best !== null ? best : Math.round(wl * 10) / 10;
+}
+function probe(p) {
+  if (ST.tab === 1) {
+    const G = HIT.g1; if (!G) return null;
+    const i = G.rows.findIndex(r => inRect(p, { x: r.x, y: r.y, w: r.w, h: r.h }, 3));
+    if (i < 0) return null;
+    return { row: i, wl: snapWl(p.x, G.rows[i], EL[ST.el].lines) };
+  }
+  const G = HIT.g2; if (!G) return null;
+  if (inRect(p, G.star, 3)) return { star: true, wl: snapWl(p.x, G.star, starLines(ST.star)) };
+  const i = G.rows.findIndex(r => p.y >= r.y - 3 && p.y <= r.y + r.h + 3 && p.x >= 0 && p.x <= r.x + r.w + 3);
+  if (i < 0) return null;
+  const r = G.rows[i]; return { row: i, gutter: p.x < r.x, wl: p.x >= r.x ? snapWl(p.x, r, EL[r.k].lines) : null };
+}
+function obsAt(p) {
+  const G = HIT.g1; if (!G || p.y > G.sc.sh) return -1;
+  return [G.sc.A, G.sc.B, G.sc.C].findIndex(o => Math.hypot(o.x - p.x, o.y - p.y) < 24 || Math.hypot(o.x - 30 - p.x, o.y - p.y) < 14);
+}
+cv.addEventListener('pointermove', e => {
+  const p = pt(e), q = probe(p), wl = q && q.wl !== undefined ? q.wl : null;
+  if (wl !== ST.hoverWl) { ST.hoverWl = wl; refresh(); }
+  cv.style.cursor = q && (q.wl !== null || q.gutter) ? 'pointer' : ST.tab === 1 && obsAt(p) >= 0 ? 'pointer' : 'default';
+});
+cv.addEventListener('pointerleave', () => { if (ST.hoverWl !== null) { ST.hoverWl = null; refresh(); } });
+cv.addEventListener('pointerdown', e => {
+  const p = pt(e), q = probe(p);
+  if (ST.tab === 1) {
+    const o = obsAt(p); if (o >= 0) { ST.obs = o; refresh(); return; }
+    if (q) { ST.obs = q.row; ST.pinWl = q.wl; } else ST.pinWl = null;
+  } else if (q) {
+    if (q.star) ST.pinWl = q.wl;
+    else { toggleCmp(ORDER[q.row]); return; }
+  } else ST.pinWl = null;
+  refresh();
+});
+window.addEventListener('keydown', e => {
+  if (e.key === ' ' && ST.tab === 1) { togglePlay(); e.preventDefault(); }
+  else if (e.key === 'Escape') { ST.pinWl = null; refresh(); }
+});
+new ResizeObserver(() => { resize(); refresh(); }).observe(document.getElementById('stage'));
+
+/* ══ EXPORT ═════════════════════════════════════════════════════════════════ */
+const EW = 1280, EH = 720;
+function wrapWords(c, text, maxW) {
+  const words = String(text).split(' '), lines = []; let ln = '';
+  words.forEach(wd => { const t = ln ? ln + ' ' + wd : wd; if (c.measureText(t).width > maxW && ln) { lines.push(ln); ln = wd; } else ln = t; });
+  if (ln) lines.push(ln); return lines;
+}
+function drawCardCanvas(c, x, y, w, h, m) {
+  c.fillStyle = '#262B27'; rrect(c, x, y, w, h, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.stroke();
+  let yy = y + 22; const px = x + 16, pw = w - 32;
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 13px ${FM}`; c.fillStyle = ACC; wrapWords(c, upLatin(m.eb), pw).forEach((ln, i) => { if (i) yy += 16; c.fillText(ln, px, yy); }); yy += 15;
+  const line = () => { c.fillStyle = 'rgba(232,228,217,0.14)'; c.fillRect(px, yy, pw, 1); };
+  line();
+  for (const r of m.rows) {
+    yy += 16; c.font = `500 12px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(upLatin(r.l), px, yy);
+    c.font = `700 ${r.sm ? 18 : 24}px ${FD}`;
+    const vl = wrapWords(c, r.v, pw - (r.u ? 60 : 0));
+    vl.forEach((ln, i) => { yy += i ? (r.sm ? 22 : 28) : 22; c.fillStyle = '#E8E4D9'; c.fillText(ln, px, yy); });
+    if (r.u) { const vw = c.measureText(vl[vl.length - 1]).width; c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; c.fillText(r.u, px + vw + 6, yy + 1); }
+    if (r.sub && r.sub.trim()) { yy += 20; c.font = `700 14px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(r.sub, px, yy); }
+    yy += 16; line();
+  }
+  c.textBaseline = 'alphabetic';
+}
+function stampText() {
+  if (ST.tab === 1) return `How Lines Form · ${EL[ST.el].name} gas · ${OBS[ST.obs].n}`;
+  const cmp = ORDER.filter(k => ST.cmp.has(k)).map(k => EL[k].symbol);
+  return `Identify the Star · Star ${ST.star + 1}` + (cmp.length ? ' · comparing ' + cmp.join(', ') : '');
+}
+function compose(c, scale) {
+  c.setTransform(scale, 0, 0, scale, 0, 0);
+  c.fillStyle = '#1E2320'; c.fillRect(0, 0, EW, EH);
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 26px ${FD}`; c.fillStyle = '#E8E4D9'; c.fillText('Spectral Analysis', 18, 30);
+  c.font = `500 14px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(stampText(), 18, 56);
+  c.textAlign = 'right'; c.font = `700 14px ${FM}`; c.fillStyle = ACC; c.fillText('contextclimate.io', EW - 18, 30);
+  c.font = `500 12px ${FM}`; const src = wrapWords(c, SRC[ST.tab], EW - 36), foot = src.length > 1 ? 46 : 34;
+  const sx = 16, sy = 74, cw = 290, sw = EW - 32 - cw - 12, sh = EH - sy - foot;
+  c.save(); rrect(c, sx, sy, sw, sh, 6); c.clip(); c.translate(sx, sy); drawScene(c, sw, sh, false); c.restore();
+  c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; rrect(c, sx + 0.5, sy + 0.5, sw - 1, sh - 1, 6); c.stroke();
+  drawCardCanvas(c, sx + sw + 12, sy, cw, sh, cardModel());
+  c.textAlign = 'left'; c.textBaseline = 'middle'; c.font = `500 12px ${FM}`; c.fillStyle = '#948F82';
+  src.slice(0, 2).forEach((ln, i) => c.fillText(ln, 18, EH - 16 - (src.length > 1 ? (1 - i) * 15 : 0)));
+}
+const slug = () => 'spectral-analysis-' + (ST.tab === 1 ? 'lines-' + ST.el : 'star-' + (ST.star + 1));
+function saveBlob(b, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+const status = t => { document.getElementById('status').textContent = t; };
+const tick = () => new Promise(r => setTimeout(r, 0));
+function setBusy(b) { ['bPNG', 'bGIF', 'bMP4'].forEach(id => { document.getElementById(id).disabled = b || (id !== 'bPNG' && ST.tab !== 1); }); }
+async function exportPNG() {
+  setBusy(true); capturing = true; status('rendering…'); await tick();
+  try {
+    const oc = document.createElement('canvas'); oc.width = EW * 2; oc.height = EH * 2; compose(oc.getContext('2d'), 2);
+    const b = await new Promise(r => oc.toBlob(r, 'image/png')); saveBlob(b, slug() + '.png'); status('PNG ' + (b.size / 1e6).toFixed(1) + ' MB');
+  } finally { capturing = false; setBusy(false); refresh(); }
+}
+/* one full burst from a fresh start, then a hold on the finished spectra */
+function sweep(kind) {
+  const fps = kind === 'gif' ? 12 : 30, fr = [], saved = { sim: ST.sim, running: ST.running };
+  let sim = null;
+  fr.push({ set: () => { sim = newSim(); ST.sim = sim; }, delay: kind === 'gif' ? 60 : 3 });
+  for (let i = 1; i < 30 * fps; i++) {
+    fr.push({ set: () => { advance(sim, 1 / fps, EL[ST.el]); }, delay: Math.round(100 / fps), end: () => sim.done && sim.fade >= 1 });
+  }
+  return { fr, fps, restore: () => { ST.sim = saved.sim; ST.running = saved.running; }, simRef: () => sim };
+}
+function buildPalette(frames) {
+  const hist = new Uint32Array(32768);
+  for (const f of frames) for (let i = 0; i < f.length; i += 4 * 3) hist[((f[i] >> 3) << 10) | ((f[i + 1] >> 3) << 5) | (f[i + 2] >> 3)]++;
+  const bins = []; for (let i = 0; i < 32768; i++) if (hist[i]) bins.push(i);
+  const ch = (b, c) => c === 0 ? b >> 10 : c === 1 ? (b >> 5) & 31 : b & 31;
+  const boxes = [{ lo: 0, hi: bins.length }];
+  const stats = bx => { let n = 0; const mn = [31, 31, 31], mx = [0, 0, 0];
+    for (let i = bx.lo; i < bx.hi; i++) { const b = bins[i]; n += hist[b]; for (let c = 0; c < 3; c++) { const v = ch(b, c); if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; } }
+    const rg = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]]; const ax = rg[1] >= rg[0] && rg[1] >= rg[2] ? 1 : rg[0] >= rg[2] ? 0 : 2;
+    return { n, ax, range: rg[ax] }; };
+  while (boxes.length < 255) {
+    let best = -1, bs = -1, bst = null;
+    boxes.forEach((bx, i) => { if (bx.hi - bx.lo < 2) return; const st = stats(bx); const sc = st.range * Math.cbrt(st.n); if (st.range > 0 && sc > bs) { bs = sc; best = i; bst = st; } });
+    if (best < 0) break;
+    const bx = boxes[best], seg = bins.slice(bx.lo, bx.hi).sort((p, q) => ch(p, bst.ax) - ch(q, bst.ax));
+    for (let i = 0; i < seg.length; i++) bins[bx.lo + i] = seg[i];
+    let acc = 0, cut = bx.lo + 1; const half = bst.n / 2;
+    for (let i = bx.lo; i < bx.hi - 1; i++) { acc += hist[bins[i]]; if (acc >= half) { cut = i + 1; break; } cut = i + 1; }
+    boxes.splice(best, 1, { lo: bx.lo, hi: cut }, { lo: cut, hi: bx.hi });
+  }
+  const pal = new Uint8Array(256 * 3);
+  boxes.forEach((bx, k) => { let n = 0, r = 0, g = 0, b = 0; for (let i = bx.lo; i < bx.hi; i++) { const v = bins[i], w = hist[v]; n += w; r += ch(v, 0) * w; g += ch(v, 1) * w; b += ch(v, 2) * w; }
+    pal[k * 3] = Math.round(r / n * 8.226); pal[k * 3 + 1] = Math.round(g / n * 8.226); pal[k * 3 + 2] = Math.round(b / n * 8.226); });
+  const np = boxes.length, lut = new Uint8Array(32768);
+  for (let i = 0; i < 32768; i++) { const r = (i >> 10) * 8.226, g = ((i >> 5) & 31) * 8.226, b = (i & 31) * 8.226; let bd = 1e9, bi = 0;
+    for (let k = 0; k < np; k++) { const dr = r - pal[k * 3], dg = g - pal[k * 3 + 1], db = b - pal[k * 3 + 2], dd = 2 * dr * dr + 4 * dg * dg + 3 * db * db; if (dd < bd) { bd = dd; bi = k; } } lut[i] = bi; }
+  return { pal, lut };
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v / 16 - 0.47) * 9);
+function lzw(ix, minCode) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, next = eoi + 1, dict = new Map();
+  const out = []; let buf = 0, nb = 0;
+  const emit = (code, s) => { buf |= code << nb; nb += s; while (nb >= 8) { out.push(buf & 255); buf >>>= 8; nb -= 8; } };
+  emit(clear, size);
+  let cur = ix[0];
+  for (let i = 1; i < ix.length; i++) {
+    const k = ix[i], key = (cur << 8) | k, v = dict.get(key);
+    if (v !== undefined) { cur = v; continue; }
+    emit(cur, size);
+    if (next === 4096) { emit(clear, size); dict = new Map(); next = eoi + 1; size = minCode + 1; }
+    else { if (next >= (1 << size)) size++; dict.set(key, next); next++; }
+    cur = k;
+  }
+  emit(cur, size); emit(eoi, size); if (nb > 0) out.push(buf & 255);
+  return out;
+}
+function gifBytes(w, h, pal, frames) {
+  const B = []; const w16 = v => { B.push(v & 255, (v >> 8) & 255); };
+  for (const ch of 'GIF89a') B.push(ch.charCodeAt(0));
+  w16(w); w16(h); B.push(0xF7, 0, 0); for (let i = 0; i < 768; i++) B.push(pal[i] || 0);
+  B.push(0x21, 0xFF, 11); for (const ch of 'NETSCAPE2.0') B.push(ch.charCodeAt(0)); B.push(3, 1, 0, 0, 0);
+  for (const f of frames) {
+    B.push(0x21, 0xF9, 4, (1 << 2) | 1); w16(f.delay); B.push(255, 0);
+    B.push(0x2C); w16(f.x); w16(f.y); w16(f.w); w16(f.h); B.push(0);
+    B.push(8); const data = lzw(f.ix, 8);
+    for (let i = 0; i < data.length; i += 255) { const n = Math.min(255, data.length - i); B.push(n); for (let j = 0; j < n; j++) B.push(data[i + j]); }
+    B.push(0);
+  }
+  B.push(0x3B);
+  return new Uint8Array(B);
+}
+
+async function exportGIF() {
+  if (ST.tab !== 1) return;
+  setBusy(true); capturing = true; status('rendering…'); await tick();
+  const sc = 0.75, Wg = Math.round(EW * sc), Hg = Math.round(EH * sc);
+  const oc = document.createElement('canvas'); oc.width = Wg; oc.height = Hg; const c = oc.getContext('2d', { willReadFrequently: true });
+  const sw = sweep('gif'), raw = [], delays = [];
+  try {
+    for (let i = 0; i < sw.fr.length; i++) {
+      sw.fr[i].set(); compose(c, sc); raw.push(c.getImageData(0, 0, Wg, Hg).data); delays.push(sw.fr[i].delay);
+      if (sw.fr[i].end && sw.fr[i].end()) { delays[delays.length - 1] = 250; break; }
+      if (i % 4 === 0) { status(`rendering ${i + 1}`); await tick(); }
+    }
+    status('building palette…'); await tick();
+    const { pal, lut } = buildPalette(raw.filter((_, i) => i % 3 === 0 || i === raw.length - 1));
+    const out = []; let prev = null;
+    for (let i = 0; i < raw.length; i++) {
+      const d = raw[i], n = Wg * Hg, ix = new Uint8Array(n);
+      for (let y = 0, p = 0; y < Hg; y++) for (let x = 0; x < Wg; x++, p++) { const q = p * 4, o = BAYER[((y & 3) << 2) | (x & 3)];
+        const r = clamp(d[q] + o, 0, 255), g = clamp(d[q + 1] + o, 0, 255), b = clamp(d[q + 2] + o, 0, 255);
+        ix[p] = lut[((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)]; }
+      if (!prev) out.push({ x: 0, y: 0, w: Wg, h: Hg, ix, delay: delays[i] });
+      else {
+        let x0 = Wg, y0 = Hg, x1 = -1, y1 = -1;
+        for (let y = 0; y < Hg; y++) for (let x = 0; x < Wg; x++) { const p = y * Wg + x; if (ix[p] !== prev[p]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+        if (x1 < 0) out[out.length - 1].delay += delays[i];
+        else { const fw = x1 - x0 + 1, fh = y1 - y0 + 1, sub = new Uint8Array(fw * fh);
+          for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) { const p = (y + y0) * Wg + x + x0; sub[y * fw + x] = ix[p] === prev[p] ? 255 : ix[p]; }
+          out.push({ x: x0, y: y0, w: fw, h: fh, ix: sub, delay: delays[i] }); }
+      }
+      prev = ix;
+      if (i % 4 === 0) { status(`encoding ${i + 1}/${raw.length}`); await tick(); }
+    }
+    const bytes = gifBytes(Wg, Hg, pal, out);
+    saveBlob(new Blob([bytes], { type: 'image/gif' }), slug() + '.gif'); status('GIF ' + (bytes.length / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('GIF failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(); }
+}
+async function exportMP4() {
+  if (ST.tab !== 1) return;
+  if (typeof VideoEncoder === 'undefined' || typeof Mp4Muxer === 'undefined') { status('MP4 needs a newer browser'); return; }
+  setBusy(true); capturing = true; status('preparing…'); await tick();
+  const sc = 1.5, Wm = Math.round(EW * sc), Hm = Math.round(EH * sc), FPS = 30;
+  const oc = document.createElement('canvas'); oc.width = Wm; oc.height = Hm; const c = oc.getContext('2d');
+  const sw = sweep('mp4');
+  try {
+    let codec = null, mux = null;
+    for (const [cs, mc] of [['avc1.640028', 'avc'], ['avc1.4d0028', 'avc'], ['vp09.00.40.08', 'vp9']]) {
+      const cfg = { codec: cs, width: Wm, height: Hm, bitrate: 8e6, framerate: FPS };
+      try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) { codec = cfg; mux = mc; break; } } catch (e) {}
+    }
+    if (!codec) { status('MP4 not supported here'); return; }
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mux, width: Wm, height: Hm }, fastStart: 'in-memory' });
+    let err = null;
+    const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { err = e; } });
+    enc.configure(codec);
+    let i = 0, hold = -1;
+    const emit = async () => {
+      compose(c, sc);
+      const vf = new VideoFrame(oc, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+      enc.encode(vf, { keyFrame: i % 60 === 0 }); vf.close(); i++;
+      while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 5));
+      if (err) throw err;
+      if (i % 5 === 0) { status(`encoding ${i}`); await tick(); }
+    };
+    for (let f = 0; f < sw.fr.length; f++) {
+      sw.fr[f].set(); await emit();
+      if (sw.fr[f].end && sw.fr[f].end()) { for (let k = 0; k < 2 * FPS; k++) await emit(); break; }
+    }
+    await enc.flush(); muxer.finalize();
+    const buf = muxer.target.buffer; saveBlob(new Blob([buf], { type: 'video/mp4' }), slug() + '.mp4'); status('MP4 ' + (buf.byteLength / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('MP4 failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(); }
+}
+document.getElementById('bPNG').onclick = exportPNG;
+document.getElementById('bGIF').onclick = exportGIF;
+document.getElementById('bMP4').onclick = exportMP4;
+
+/* ══ INIT ═══════════════════════════════════════════════════════════════════ */
+{ const i = S.SERIES.findIndex(x => x.key === 'fingerprint');
+  [['prev', S.SERIES[i - 1]], ['next', S.SERIES[i + 1]]].forEach(([k, s]) => { const a = document.getElementById(k + 'Link');
+    if (s) { a.href = S.seriesHref(s.route); a.title = s.label; document.getElementById(k + 'Name').textContent = s.label; } else a.style.display = 'none'; }); }
+function urlState() {
+  const p = new URLSearchParams(location.search);
+  try { const h = window.top.location.hash || '', i = h.indexOf('?'); if (i >= 0) new URLSearchParams(h.slice(i + 1)).forEach((v, k) => { if (!p.has(k)) p.set(k, v); }); } catch (e) {}
+  if (EL[p.get('el')]) ST.el = p.get('el');
+  const s = parseInt(p.get('star'), 10); if (s >= 1 && s <= STARS.length) ST.star = s - 1;
+  return p.get('tab') === '2' ? 2 : 1;
+}
+(async function init() {
+  setTab(urlState());
+  try { await Promise.all([`700 16px ${FD}`, `600 13px ${FB}`, `500 13px ${FB}`, `700 13px ${FM}`, `500 13px ${FM}`].map(f => document.fonts.load(f))); } catch (e) {}
+  resize(); refresh(); requestAnimationFrame(loop);
+})();
+window.__SA = { darkLineCount, ST, OBS, STARS, EL, ORDER, REF, CHORD, newSim, advance, refresh, setTab, setElement, toggleCmp, togglePlay, cardModel, compose, sweep, exportPNG, exportGIF, exportMP4, inCloud, sceneGeom, starLines };
+</script>
 </body>
 </html>
