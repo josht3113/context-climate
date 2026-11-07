@@ -1,717 +1,562 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doppler Shift Challenge</title>
 <link rel="stylesheet" href="core-sample-tools.css">
-<title>Doppler Shift Challenge — ContextClimate</title>
+<script src="spectra-core.js"></script>
 <style>
-  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css,
-     shared line data + spectrum drawing in spectra-core.js */
-  :root { --tool-accent: var(--accent-earth); } /* Earth & Space section */
+:root { --tool-accent: var(--accent-earth); }
+html, body { height: 100%; }
+body { padding: 0; overflow: hidden; min-height: 0; }
+.app { height: 100vh; display: flex; flex-direction: column; padding: 10px 12px 12px; gap: 10px; }
 
-  body { display: block; }
+.top { display: flex; align-items: center; gap: 18px; min-height: 42px; }
+.top h1 { margin: 0; font-size: 24px; white-space: nowrap; }
+.setsel { display: flex; align-items: center; gap: 8px; }
+.setsel .lbl { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: .08em; color: var(--color-text-secondary); }
+.setsel .cc-segmented-btn { font-size: 14px; padding: 9px 15px; }
+.top .spacer { flex: 1; }
+.links { display: flex; gap: 6px; }
+.x-link { padding: 6px 12px; font-size: 14px; font-weight: 700; text-decoration: none; white-space: nowrap; color: var(--tool-accent); border-color: var(--tool-accent); }
+.exp { display: flex; align-items: center; gap: 6px; }
+.exp .cc-btn { padding: 6px 12px; font-size: 13px; }
+.exp .cc-btn:disabled { opacity: .4; cursor: default; }
+#status { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); min-width: 0; white-space: nowrap; }
 
-  .tool-wrap { max-width: 1200px; margin: 0 auto; }
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
+.scene { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg);
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.stage { flex: 1; position: relative; min-height: 0; background: #0F1311; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; outline: none; }
 
-  header { max-width: 780px; width: 100%; margin: 0 auto; text-align: center; }
-  .cc-eyebrow { margin-bottom: 10px; }
-  .cc-title { margin-bottom: 10px; }
-  .cc-subtitle { max-width: 640px; margin: 0 auto; }
+.controls { display: grid; grid-template-columns: minmax(0, 1fr) auto 176px; column-gap: 10px; padding: 8px 10px;
+  border-top: 1px solid var(--color-border); background: var(--color-surface); align-items: stretch; }
+.snaps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; min-width: 0; }
+.snap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; padding: 5px 2px; min-width: 0; }
+.snap .n { font-family: var(--font-body); font-weight: 600; font-size: 13px; line-height: 1.12; color: var(--color-text-primary); text-align: center; }
+.snap .v { font-family: var(--font-mono); font-weight: 700; font-size: 13px; line-height: 1; color: var(--color-text-secondary); white-space: nowrap; }
+.snap.is-active { background: var(--tool-accent); border-color: var(--tool-accent); }
+.snap.is-active .n, .snap.is-active .v { color: var(--color-bg); }
+.reset { font-size: 13px; font-weight: 600; padding: 6px 14px; }
+.reset:disabled { opacity: .4; cursor: default; }
+.go { font-size: 17px; font-weight: 700; background: var(--tool-accent); border-color: var(--tool-accent); color: var(--color-bg); }
+.go:hover:not(:disabled) { filter: brightness(1.12); color: var(--color-bg); border-color: var(--tool-accent); }
+.go:disabled { opacity: .4; cursor: default; }
 
-  .layout {
-    display: grid;
-    grid-template-columns: 250px minmax(0, 900px);
-    column-gap: 28px;
-    justify-content: center;
-    align-items: start;
-    margin-top: 26px;
-  }
-
-
-
-  #setBar { display: flex; width: 100%; }
-  #setBar .cc-segmented-btn { flex: 1; padding: 8px 0; letter-spacing: 0.06em; }
-
-  .name-input {
-    width: 100%;
-    background: var(--color-surface-2);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    color: var(--color-text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    padding: 8px 10px;
-  }
-  .name-input:focus-visible { outline: 2px solid var(--tool-accent); outline-offset: 2px; }
-
-  /* ── Progress list ─────────────────────────────────────────────── */
-  .prog-list { display: flex; flex-direction: column; gap: 4px; }
-  .prog-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 10px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    background: var(--color-surface-2);
-    cursor: pointer;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    transition: border-color 0.15s ease, color 0.15s ease;
-  }
-  .prog-row:hover { border-color: var(--color-border-hover); color: var(--color-text-primary); }
-  .prog-row.is-active { border-color: var(--tool-accent); color: var(--color-text-primary); }
-  .prog-row .pr-n { min-width: 14px; }
-  .prog-row .pr-marks { margin-left: auto; display: flex; gap: 6px; }
-  .pr-dot {
-    width: 9px; height: 9px; border-radius: 50%;
-    border: 1px solid var(--color-border-hover);
-    background: transparent;
-  }
-  .pr-dot.ok   { background: #2AA87E; border-color: #2AA87E; }
-  .pr-dot.bad  { background: #C75B4F; border-color: #C75B4F; }
-
-  .score-line {
-    display: flex;
-    justify-content: space-between;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--color-text-secondary);
-    padding: 3px 0;
-  }
-  .score-line b { font-family: var(--font-display); font-size: 17px; color: var(--color-text-primary); }
-
-  /* ── Canvases ──────────────────────────────────────────────────── */
-  #obs-canvas, #ref-canvas { width: 100%; height: auto; display: block; }
-  #obs-canvas { touch-action: none; }
-  #obs-canvas.draggable { cursor: ew-resize; }
-  #ref-canvas { cursor: pointer; }
-  .canvas-block + .canvas-block { margin-top: 18px; }
-
-  .action-row {
-    margin-top: 18px;
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-  }
-  .action-row .hint {
-    margin-right: auto;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--color-text-muted);
-  }
-
-
-  @media (max-width: 1220px) {
-    .layout { grid-template-columns: minmax(0, 900px); row-gap: 22px; }
-  }
+.card { padding: 12px 16px; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; }
+.card .eb { font-family: var(--font-mono); font-size: 13px; letter-spacing: .1em; color: var(--tool-accent); font-weight: 700;
+  padding-bottom: 6px; border-bottom: 1px solid var(--color-border); }
+.card .r { padding: 7px 0 6px; border-bottom: 1px solid var(--color-border); }
+.card .l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; color: var(--color-text-secondary); }
+.card .v { font-family: var(--font-display); font-weight: 700; font-size: 25px; line-height: 1.15; color: var(--color-text-primary); }
+.card .v .u { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--color-text-secondary); margin-left: 5px; }
+.card .sub { font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--color-text-secondary); margin-top: 1px; }
+.card .tx { font-family: var(--font-body); font-size: 14px; line-height: 1.45; color: var(--color-text-secondary); margin: 8px 0 2px; }
+.card .src { font-family: var(--font-body); font-size: 13px; color: var(--color-text-muted); margin-top: auto; padding-top: 10px; line-height: 1.4; }
+@media (max-height: 700px) { .card .r { padding: 5px 0 4px; } .card .v { font-size: 23px; } }
+@media (max-width: 1280px) {
+  .main { grid-template-columns: minmax(0, 1fr) 262px; }
+  .x-link .nm { display: none; }
+  .card { padding: 10px 13px; }
+  .card .v { font-size: 22px; } .card .v .u { font-size: 14px; }
+}
+@media (max-width: 1180px) {
+  .main { grid-template-columns: minmax(0, 1fr) 248px; }
+  .top { gap: 12px; }
+  .controls { grid-template-columns: minmax(0, 1fr) auto 140px; column-gap: 8px; }
+  .snaps { gap: 4px; }
+  .exp .cc-btn { padding: 6px 9px; }
+  .setsel .lbl { display: none; }
+}
 </style>
 </head>
 <body>
-
-<div class="tool-wrap">
-
-  <header>
-    <p class="cc-eyebrow">Identify the Source</p>
+<div class="app">
+  <div class="top">
     <h1 class="cc-title">Doppler Shift Challenge</h1>
-    <p class="cc-subtitle">Five spectra from five moving light sources. Match each one to its element, then drag your reference pattern until it lines up — which way you had to drag tells you which way the source is moving.</p>
-  </header>
-
-  <div class="layout">
-
-    <!-- ── Left rail ──────────────────────────────────────────────── -->
-    <div>
-      <p class="cc-panel-label">Progress</p>
-      <div class="cc-rail-panel">
-        <p class="cc-btn-row-label">Set</p>
-        <div class="cc-segmented" id="setBar"></div>
-
-        <div class="cc-rail-divider"></div>
-
-        <p class="cc-btn-row-label">Name</p>
-        <input type="text" class="name-input" id="nameInput" placeholder="for the results card" autocomplete="off">
-
-        <div class="cc-rail-divider"></div>
-
-        <div class="prog-list" id="progList"></div>
-
-        <div class="cc-rail-divider"></div>
-
-        <div class="score-line"><span>Element</span><b id="scoreElement">—</b></div>
-        <div class="score-line"><span>Motion</span><b id="scoreMotion">—</b></div>
-
-        <div id="resultsActions" style="display:none; margin-top:14px;">
-          <button class="cc-btn cc-btn-sm" id="resultsBtn" style="width:100%">↓ Results PNG</button>
-        </div>
-      </div>
+    <div class="setsel"><span class="lbl">SET</span><div class="cc-segmented" id="sets"></div></div>
+    <div class="spacer"></div>
+    <span id="status"></span>
+    <div class="links">
+      <a class="cc-btn x-link" id="prevLink" target="_top" href="#">&larr; <span class="nm" id="prevName"></span></a>
+      <a class="cc-btn x-link" id="nextLink" target="_top" href="#"><span class="nm" id="nextName"></span> &rarr;</a>
     </div>
-
-    <!-- ── Main column ────────────────────────────────────────────── -->
-    <div>
-      <div class="canvas-block">
-        <p class="cc-panel-label" id="obsLabel">Observation 1 of 5</p>
-        <canvas id="obs-canvas" class="cc-canvas-frame" width="900" height="248"></canvas>
-      </div>
-
-      <div class="canvas-block">
-        <p class="cc-panel-label">Reference — rest wavelengths <span class="cc-dim">· NYSED ESRT p.3 · click to select</span></p>
-        <canvas id="ref-canvas" class="cc-canvas-frame" width="900" height="248"></canvas>
-      </div>
-
-      <div class="action-row">
-        <span class="hint" id="hintText"></span>
-        <button class="cc-btn cc-btn-sm" id="resetBtn">Reset alignment</button>
-        <button class="cc-btn primary cc-btn-sm" id="checkBtn">Check</button>
-      </div>
-
-      <p class="cc-source-note">Rest wavelengths digitized from the NYSED Earth &amp; Space Sciences Reference Tables (2026 Rev. Edition), p. 3. Observed spectra use the classical Doppler relation λ = λ₀(1 + v/c), so each pattern is scaled rather than slid — spacing stretches with redshift and compresses with blueshift.</p>
+    <div class="exp">
+      <button class="cc-btn" id="bPNG">↓ PNG</button>
+      <button class="cc-btn" id="bGIF">↓ GIF</button>
+      <button class="cc-btn" id="bMP4">↓ MP4</button>
     </div>
-
   </div>
-
-  <div id="seriesNav"></div>
-
+  <div class="main">
+    <div class="scene">
+      <div class="stage" id="stage"><canvas id="cv" tabindex="0" aria-label="Observed spectrum, your reference pattern, and the six element patterns"></canvas></div>
+      <div class="controls">
+        <div class="snaps" id="snaps"></div>
+        <button class="cc-btn reset" id="bReset">Reset</button>
+        <button class="cc-btn go" id="bGo">Check</button>
+      </div>
+    </div>
+    <div class="cc-panel card" id="card"></div>
+  </div>
 </div>
+<script>/* mp4-muxer 5.2.2 (MIT) — Vanilagy */
+"use strict";var Mp4Muxer=(()=>{var e=Object.defineProperty,t=Object.getOwnPropertyDescriptor,i=Object.getOwnPropertyNames,s=Object.prototype.hasOwnProperty,a=(e,t,i)=>{if(!t.has(e))throw TypeError("Cannot "+i)},r=(e,t,i)=>(a(e,t,"read from private field"),i?i.call(e):t.get(e)),n=(e,t,i)=>{if(t.has(e))throw TypeError("Cannot add the same private member more than once");t instanceof WeakSet?t.add(e):t.set(e,i)},o=(e,t,i,s)=>(a(e,t,"write to private field"),s?s.call(e,i):t.set(e,i),i),h=(e,t,i)=>(a(e,t,"access private method"),i),l={};((t,i)=>{for(var s in i)e(t,s,{get:i[s],enumerable:!0})})(l,{ArrayBufferTarget:()=>Me,FileSystemWritableFileStreamTarget:()=>Oe,Muxer:()=>Rt,StreamTarget:()=>We});var d,f,u,m,p,c,w,g,b=new Uint8Array(8),y=new DataView(b.buffer),k=e=>[(e%256+256)%256],T=e=>(y.setUint16(0,e,!1),[b[0],b[1]]),C=e=>(y.setUint32(0,e,!1),[b[1],b[2],b[3]]),v=e=>(y.setUint32(0,e,!1),[b[0],b[1],b[2],b[3]]),S=e=>(y.setUint32(0,Math.floor(e/2**32),!1),y.setUint32(4,e,!1),[b[0],b[1],b[2],b[3],b[4],b[5],b[6],b[7]]),x=e=>(y.setInt16(0,256*e,!1),[b[0],b[1]]),z=e=>(y.setInt32(0,65536*e,!1),[b[0],b[1],b[2],b[3]]),E=e=>(y.setInt32(0,2**30*e,!1),[b[0],b[1],b[2],b[3]]),A=(e,t=!1)=>{let i=Array(e.length).fill(null).map((t,i)=>e.charCodeAt(i));return t&&i.push(0),i},M=e=>e&&e[e.length-1],W=e=>{let t;for(let i of e)(!t||i.presentationTimestamp>t.presentationTimestamp)&&(t=i);return t},O=(e,t,i=!0)=>{let s=e*t;return i?Math.round(s):s},B=e=>{let t=e*(Math.PI/180),i=Math.cos(t),s=Math.sin(t);return[i,s,0,-s,i,0,0,0,1]},U=B(0),D=e=>[z(e[0]),z(e[1]),E(e[2]),z(e[3]),z(e[4]),E(e[5]),z(e[6]),z(e[7]),E(e[8])],j=e=>e?"object"!=typeof e?e:Array.isArray(e)?e.map(j):Object.fromEntries(Object.entries(e).map(([e,t])=>[e,j(t)])):e,R=e=>e>=0&&e<2**32,I=(e,t,i)=>({type:e,contents:t&&new Uint8Array(t.flat(10)),children:i}),N=(e,t,i,s,a)=>I(e,[k(t),C(i),s??[]],a),V=e=>({type:"mdat",largeSize:e}),F=(e,t,i=!1)=>I("moov",null,[L(t,e),...e.map(e=>$(e,t)),i?me(e):null]),L=(e,t)=>{let i=O(Math.max(0,...t.filter(e=>e.samples.length>0).map(e=>{const t=W(e.samples);return t.presentationTimestamp+t.duration})),Bt),s=Math.max(...t.map(e=>e.id))+1,a=!R(e)||!R(i),r=a?S:v;return N("mvhd",+a,0,[r(e),r(e),v(Bt),r(i),z(1),x(1),Array(10).fill(0),D(U),Array(24).fill(0),v(s)])},$=(e,t)=>I("trak",null,[P(e,t),H(e,t)]),P=(e,t)=>{let i,s=W(e.samples),a=O(s?s.presentationTimestamp+s.duration:0,Bt),r=!R(t)||!R(a),n=r?S:v;return i="video"===e.info.type?"number"==typeof e.info.rotation?B(e.info.rotation):e.info.rotation:U,N("tkhd",+r,3,[n(t),n(t),v(e.id),v(0),n(a),Array(8).fill(0),T(0),T(0),x("audio"===e.info.type?1:0),T(0),D(i),z("video"===e.info.type?e.info.width:0),z("video"===e.info.type?e.info.height:0)])},H=(e,t)=>I("mdia",null,[_(e,t),q("video"===e.info.type?"vide":"soun"),G(e)]),_=(e,t)=>{let i=W(e.samples),s=O(i?i.presentationTimestamp+i.duration:0,e.timescale),a=!R(t)||!R(s),r=a?S:v;return N("mdhd",+a,0,[r(t),r(t),v(e.timescale),r(s),T(21956),T(0)])},q=e=>N("hdlr",0,0,[A("mhlr"),A(e),v(0),v(0),v(0),A("mp4-muxer-hdlr",!0)]),G=e=>I("minf",null,["video"===e.info.type?J():K(),Q(),Z(e)]),J=()=>N("vmhd",0,1,[T(0),T(0),T(0),T(0)]),K=()=>N("smhd",0,0,[T(0),T(0)]),Q=()=>I("dinf",null,[X()]),X=()=>N("dref",0,0,[v(1)],[Y()]),Y=()=>N("url ",0,1),Z=e=>{const t=e.compositionTimeOffsetTable.length>1||e.compositionTimeOffsetTable.some(e=>0!==e.sampleCompositionTimeOffset);return I("stbl",null,[ee(e),oe(e),he(e),le(e),de(e),fe(e),t?ue(e):null])},ee=e=>N("stsd",0,0,[v(1)],["video"===e.info.type?te(Se[e.info.codec],e):ne(ze[e.info.codec],e)]),te=(e,t)=>{return I(e,[Array(6).fill(0),T(1),T(0),T(0),Array(12).fill(0),T(t.info.width),T(t.info.height),v(4718592),v(4718592),v(0),T(1),Array(32).fill(0),T(24),(i=65535,y.setInt16(0,i,!1),[b[0],b[1]])],[xe[t.info.codec](t),t.info.decoderConfig.colorSpace?re(t):null]);var i},ie={bt709:1,bt470bg:5,smpte170m:6},se={bt709:1,smpte170m:6,"iec61966-2-1":13},ae={rgb:0,bt709:1,bt470bg:5,smpte170m:6},re=e=>I("colr",[A("nclx"),T(ie[e.info.decoderConfig.colorSpace.primaries]),T(se[e.info.decoderConfig.colorSpace.transfer]),T(ae[e.info.decoderConfig.colorSpace.matrix]),k((e.info.decoderConfig.colorSpace.fullRange?1:0)<<7)]),ne=(e,t)=>I(e,[Array(6).fill(0),T(1),T(0),T(0),v(0),T(t.info.numberOfChannels),T(16),T(0),T(0),z(t.info.sampleRate)],[Ee[t.info.codec](t)]),oe=e=>N("stts",0,0,[v(e.timeToSampleTable.length),e.timeToSampleTable.map(e=>[v(e.sampleCount),v(e.sampleDelta)])]),he=e=>{if(e.samples.every(e=>"key"===e.type))return null;let t=[...e.samples.entries()].filter(([,e])=>"key"===e.type);return N("stss",0,0,[v(t.length),t.map(([e])=>v(e+1))])},le=e=>N("stsc",0,0,[v(e.compactlyCodedChunkTable.length),e.compactlyCodedChunkTable.map(e=>[v(e.firstChunk),v(e.samplesPerChunk),v(1)])]),de=e=>N("stsz",0,0,[v(0),v(e.samples.length),e.samples.map(e=>v(e.size))]),fe=e=>e.finalizedChunks.length>0&&M(e.finalizedChunks).offset>=2**32?N("co64",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>S(e.offset))]):N("stco",0,0,[v(e.finalizedChunks.length),e.finalizedChunks.map(e=>v(e.offset))]),ue=e=>N("ctts",0,0,[v(e.compositionTimeOffsetTable.length),e.compositionTimeOffsetTable.map(e=>[v(e.sampleCount),v(e.sampleCompositionTimeOffset)])]),me=e=>I("mvex",null,e.map(pe)),pe=e=>N("trex",0,0,[v(e.id),v(1),v(0),v(0),v(0)]),ce=(e,t)=>I("moof",null,[we(e),...t.map(be)]),we=e=>N("mfhd",0,0,[v(e)]),ge=e=>{let t=0,i=0,s="delta"===e.type;return i|=+s,t|=s?1:2,t<<24|i<<16},be=e=>I("traf",null,[ye(e),ke(e),Te(e)]),ye=e=>{let t=0;t|=8,t|=16,t|=32,t|=131072;let i=e.currentChunk.samples[1]??e.currentChunk.samples[0],s={duration:i.timescaleUnitsToNextSample,size:i.size,flags:ge(i)};return N("tfhd",0,131128,[v(e.id),v(s.duration),v(s.size),v(s.flags)])},ke=e=>N("tfdt",1,0,[S(O(e.currentChunk.startTimestamp,e.timescale))]),Te=e=>{let t=e.currentChunk.samples.map(e=>e.timescaleUnitsToNextSample),i=e.currentChunk.samples.map(e=>e.size),s=e.currentChunk.samples.map(ge),a=e.currentChunk.samples.map(t=>O(t.presentationTimestamp-t.decodeTimestamp,e.timescale)),r=new Set(t),n=new Set(i),o=new Set(s),h=new Set(a),l=2===o.size&&s[0]!==s[1],d=r.size>1,f=n.size>1,u=!l&&o.size>1,m=h.size>1||[...h].some(e=>0!==e),p=0;return p|=1,p|=4*+l,p|=256*+d,p|=512*+f,p|=1024*+u,p|=2048*+m,N("trun",1,p,[v(e.currentChunk.samples.length),v(e.currentChunk.offset-e.currentChunk.moofOffset||0),l?v(s[0]):[],e.currentChunk.samples.map((e,r)=>{return[d?v(t[r]):[],f?v(i[r]):[],u?v(s[r]):[],m?(n=a[r],y.setInt32(0,n,!1),[b[0],b[1],b[2],b[3]]):[]];var n})])},Ce=(e,t)=>N("tfra",1,0,[v(e.id),v(63),v(e.finalizedChunks.length),e.finalizedChunks.map(i=>[S(O(i.startTimestamp,e.timescale)),S(i.moofOffset),v(t+1),v(1),v(1)])]),ve=()=>N("mfro",0,0,[v(0)]),Se={avc:"avc1",hevc:"hvc1",vp9:"vp09",av1:"av01"},xe={avc:e=>e.info.decoderConfig&&I("avcC",[...new Uint8Array(e.info.decoderConfig.description)]),hevc:e=>e.info.decoderConfig&&I("hvcC",[...new Uint8Array(e.info.decoderConfig.description)]),vp9:e=>{if(!e.info.decoderConfig)return null;let t=e.info.decoderConfig;if(!t.colorSpace)throw new Error("'colorSpace' is required in the decoder config for VP9.");let i=t.codec.split("."),s=Number(i[1]),a=Number(i[2]),r=0+(Number(i[3])<<4)+Number(t.colorSpace.fullRange);return N("vpcC",1,0,[k(s),k(a),k(r),k(2),k(2),k(2),T(0)])},av1:()=>I("av1C",[129,0,0,0])},ze={aac:"mp4a",opus:"Opus"},Ee={aac:e=>{let t=new Uint8Array(e.info.decoderConfig.description);return N("esds",0,0,[v(58753152),k(32+t.byteLength),T(1),k(0),v(75530368),k(18+t.byteLength),k(64),k(21),C(0),v(130071),v(130071),v(92307584),k(t.byteLength),...t,v(109084800),k(1),k(2)])},opus:e=>{let t=3840,i=0;const s=e.info.decoderConfig?.description;if(s){if(s.byteLength<18)throw new TypeError("Invalid decoder description provided for Opus; must be at least 18 bytes long.");const e=ArrayBuffer.isView(s)?new DataView(s.buffer,s.byteOffset,s.byteLength):new DataView(s);t=e.getUint16(10,!0),i=e.getInt16(14,!0)}return I("dOps",[k(0),k(e.info.numberOfChannels),T(t),v(e.info.sampleRate),x(i),k(0)])}},Ae=(Symbol("isTarget"),class{}),Me=class extends Ae{constructor(){super(...arguments),this.buffer=null}},We=class extends Ae{constructor(e){if(super(),this.options=e,"object"!=typeof e)throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");if(e.onData){if("function"!=typeof e.onData)throw new TypeError("options.onData, when provided, must be a function.");if(e.onData.length<2)throw new TypeError("options.onData, when provided, must be a function that takes in at least two arguments (data and position). Ignoring the position argument, which specifies the byte offset at which the data is to be written, can lead to broken outputs.")}if(void 0!==e.chunked&&"boolean"!=typeof e.chunked)throw new TypeError("options.chunked, when provided, must be a boolean.");if(void 0!==e.chunkSize&&(!Number.isInteger(e.chunkSize)||e.chunkSize<1024))throw new TypeError("options.chunkSize, when provided, must be an integer and not smaller than 1024.")}},Oe=class extends Ae{constructor(e,t){if(super(),this.stream=e,this.options=t,!(e instanceof FileSystemWritableFileStream))throw new TypeError("FileSystemWritableFileStreamTarget requires a FileSystemWritableFileStream instance.");if(void 0!==t&&"object"!=typeof t)throw new TypeError("FileSystemWritableFileStreamTarget's options, when provided, must be an object.");if(t&&void 0!==t.chunkSize&&(!Number.isInteger(t.chunkSize)||t.chunkSize<=0))throw new TypeError("options.chunkSize, when provided, must be a positive integer")}},Be=class{constructor(){this.pos=0,n(this,d,new Uint8Array(8)),n(this,f,new DataView(r(this,d).buffer)),this.offsets=new WeakMap}seek(e){this.pos=e}writeU32(e){r(this,f).setUint32(0,e,!1),this.write(r(this,d).subarray(0,4))}writeU64(e){r(this,f).setUint32(0,Math.floor(e/2**32),!1),r(this,f).setUint32(4,e,!1),this.write(r(this,d).subarray(0,8))}writeAscii(e){for(let t=0;t<e.length;t++)r(this,f).setUint8(t%8,e.charCodeAt(t)),t%8==7&&this.write(r(this,d));e.length%8!=0&&this.write(r(this,d).subarray(0,e.length%8))}writeBox(e){if(this.offsets.set(e,this.pos),e.contents&&!e.children)this.writeBoxHeader(e,e.size??e.contents.byteLength+8),this.write(e.contents);else{let t=this.pos;if(this.writeBoxHeader(e,0),e.contents&&this.write(e.contents),e.children)for(let t of e.children)t&&this.writeBox(t);let i=this.pos,s=e.size??i-t;this.seek(t),this.writeBoxHeader(e,s),this.seek(i)}}writeBoxHeader(e,t){this.writeU32(e.largeSize?1:t),this.writeAscii(e.type),e.largeSize&&this.writeU64(t)}measureBoxHeader(e){return 8+(e.largeSize?8:0)}patchBox(e){let t=this.pos;this.seek(this.offsets.get(e)),this.writeBox(e),this.seek(t)}measureBox(e){if(e.contents&&!e.children){return this.measureBoxHeader(e)+e.contents.byteLength}{let t=this.measureBoxHeader(e);if(e.contents&&(t+=e.contents.byteLength),e.children)for(let i of e.children)i&&(t+=this.measureBox(i));return t}}};d=new WeakMap,f=new WeakMap;var Ue=class extends Be{constructor(e){super(),n(this,w),n(this,u,void 0),n(this,m,new ArrayBuffer(65536)),n(this,p,new Uint8Array(r(this,m))),n(this,c,0),o(this,u,e)}write(e){h(this,w,g).call(this,this.pos+e.byteLength),r(this,p).set(e,this.pos),this.pos+=e.byteLength,o(this,c,Math.max(r(this,c),this.pos))}finalize(){h(this,w,g).call(this,this.pos),r(this,u).buffer=r(this,m).slice(0,Math.max(r(this,c),this.pos))}};u=new WeakMap,m=new WeakMap,p=new WeakMap,c=new WeakMap,w=new WeakSet,g=function(e){let t=r(this,m).byteLength;for(;t<e;)t*=2;if(t===r(this,m).byteLength)return;let i=new ArrayBuffer(t),s=new Uint8Array(i);s.set(r(this,p),0),o(this,m,i),o(this,p,s)};var De,je,Re,Ie,Ne,Ve,Fe,Le,$e,Pe,He,_e,qe,Ge=class extends Be{constructor(e){super(),n(this,Ve),n(this,Le),n(this,Pe),n(this,_e),n(this,De,void 0),n(this,je,[]),n(this,Re,void 0),n(this,Ie,void 0),n(this,Ne,[]),o(this,De,e),o(this,Re,e.options?.chunked??!1),o(this,Ie,e.options?.chunkSize??16777216)}write(e){r(this,je).push({data:e.slice(),start:this.pos}),this.pos+=e.byteLength}flush(){if(0===r(this,je).length)return;let e=[],t=[...r(this,je)].sort((e,t)=>e.start-t.start);e.push({start:t[0].start,size:t[0].data.byteLength});for(let i=1;i<t.length;i++){let s=e[e.length-1],a=t[i];a.start<=s.start+s.size?s.size=Math.max(s.size,a.start+a.data.byteLength-s.start):e.push({start:a.start,size:a.data.byteLength})}for(let t of e){t.data=new Uint8Array(t.size);for(let e of r(this,je))t.start<=e.start&&e.start<t.start+t.size&&t.data.set(e.data,e.start-t.start);r(this,Re)?(h(this,Ve,Fe).call(this,t.data,t.start),h(this,_e,qe).call(this)):r(this,De).options.onData?.(t.data,t.start)}r(this,je).length=0}finalize(){r(this,Re)&&h(this,_e,qe).call(this,!0)}};De=new WeakMap,je=new WeakMap,Re=new WeakMap,Ie=new WeakMap,Ne=new WeakMap,Ve=new WeakSet,Fe=function(e,t){let i=r(this,Ne).findIndex(e=>e.start<=t&&t<e.start+r(this,Ie));-1===i&&(i=h(this,Pe,He).call(this,t));let s=r(this,Ne)[i],a=t-s.start,n=e.subarray(0,Math.min(r(this,Ie)-a,e.byteLength));s.data.set(n,a);let o={start:a,end:a+n.byteLength};if(h(this,Le,$e).call(this,s,o),0===s.written[0].start&&s.written[0].end===r(this,Ie)&&(s.shouldFlush=!0),r(this,Ne).length>2){for(let e=0;e<r(this,Ne).length-1;e++)r(this,Ne)[e].shouldFlush=!0;h(this,_e,qe).call(this)}n.byteLength<e.byteLength&&h(this,Ve,Fe).call(this,e.subarray(n.byteLength),t+n.byteLength)},Le=new WeakSet,$e=function(e,t){let i=0,s=e.written.length-1,a=-1;for(;i<=s;){let r=Math.floor(i+(s-i+1)/2);e.written[r].start<=t.start?(i=r+1,a=r):s=r-1}for(e.written.splice(a+1,0,t),(-1===a||e.written[a].end<t.start)&&a++;a<e.written.length-1&&e.written[a].end>=e.written[a+1].start;)e.written[a].end=Math.max(e.written[a].end,e.written[a+1].end),e.written.splice(a+1,1)},Pe=new WeakSet,He=function(e){let t={start:Math.floor(e/r(this,Ie))*r(this,Ie),data:new Uint8Array(r(this,Ie)),written:[],shouldFlush:!1};return r(this,Ne).push(t),r(this,Ne).sort((e,t)=>e.start-t.start),r(this,Ne).indexOf(t)},_e=new WeakSet,qe=function(e=!1){for(let t=0;t<r(this,Ne).length;t++){let i=r(this,Ne)[t];if(i.shouldFlush||e){for(let e of i.written)r(this,De).options.onData?.(i.data.subarray(e.start,e.end),i.start+e.start);r(this,Ne).splice(t--,1)}}};var Je,Ke,Qe,Xe,Ye,Ze,et,tt,it,st,at,rt,nt,ot,ht,lt,dt,ft,ut,mt,pt,ct,wt,gt,bt,yt,kt,Tt,Ct,vt,St,xt,zt,Et,At,Mt,Wt,Ot=class extends Ge{constructor(e){super(new We({onData:(t,i)=>e.stream.write({type:"write",data:t,position:i}),chunked:!0,chunkSize:e.options?.chunkSize}))}},Bt=1e3,Ut=["avc","hevc","vp9","av1"],Dt=["aac","opus"],jt=["strict","offset","cross-track-offset"],Rt=class{constructor(e){if(n(this,nt),n(this,ht),n(this,dt),n(this,ut),n(this,pt),n(this,wt),n(this,bt),n(this,kt),n(this,Ct),n(this,St),n(this,zt),n(this,At),n(this,Je,void 0),n(this,Ke,void 0),n(this,Qe,void 0),n(this,Xe,void 0),n(this,Ye,null),n(this,Ze,null),n(this,et,Math.floor(Date.now()/1e3)+2082844800),n(this,tt,[]),n(this,it,1),n(this,st,[]),n(this,at,[]),n(this,rt,!1),h(this,nt,ot).call(this,e),e.video=j(e.video),e.audio=j(e.audio),e.fastStart=j(e.fastStart),this.target=e.target,o(this,Je,{firstTimestampBehavior:"strict",...e}),e.target instanceof Me)o(this,Ke,new Ue(e.target));else if(e.target instanceof We)o(this,Ke,new Ge(e.target));else{if(!(e.target instanceof Oe))throw new Error(`Invalid target: ${e.target}`);o(this,Ke,new Ot(e.target))}h(this,ut,mt).call(this),h(this,ht,lt).call(this)}addVideoChunk(e,t,i,s){if(!(e instanceof EncodedVideoChunk))throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");if(t&&"object"!=typeof t)throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number.");if(void 0!==s&&!Number.isFinite(s))throw new TypeError("addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number.");let a=new Uint8Array(e.byteLength);e.copyTo(a),this.addVideoChunkRaw(a,e.type,i??e.timestamp,e.duration,t,s)}addVideoChunkRaw(e,t,i,s,a,n){if(!(e instanceof Uint8Array))throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");if(void 0!==n&&!Number.isFinite(n))throw new TypeError("addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number.");if(h(this,At,Mt).call(this),!r(this,Je).video)throw new Error("No video track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ye).samples.length===r(this,Je).fastStart.expectedVideoChunks)throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedVideoChunks}).`);let o=h(this,wt,gt).call(this,r(this,Ye),e,t,i,s,a,n);if("fragmented"===r(this,Je).fastStart&&r(this,Ze)){for(;r(this,at).length>0&&r(this,at)[0].decodeTimestamp<=o.decodeTimestamp;){let e=r(this,at).shift();h(this,bt,yt).call(this,r(this,Ze),e)}o.decodeTimestamp<=r(this,Ze).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ye),o):r(this,st).push(o)}else h(this,bt,yt).call(this,r(this,Ye),o)}addAudioChunk(e,t,i){if(!(e instanceof EncodedAudioChunk))throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");if(t&&"object"!=typeof t)throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number.");let s=new Uint8Array(e.byteLength);e.copyTo(s),this.addAudioChunkRaw(s,e.type,i??e.timestamp,e.duration,t)}addAudioChunkRaw(e,t,i,s,a){if(!(e instanceof Uint8Array))throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");if(h(this,At,Mt).call(this),!r(this,Je).audio)throw new Error("No audio track declared.");if("object"==typeof r(this,Je).fastStart&&r(this,Ze).samples.length===r(this,Je).fastStart.expectedAudioChunks)throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${r(this,Je).fastStart.expectedAudioChunks}).`);let n=h(this,wt,gt).call(this,r(this,Ze),e,t,i,s,a);if("fragmented"===r(this,Je).fastStart&&r(this,Ye)){for(;r(this,st).length>0&&r(this,st)[0].decodeTimestamp<=n.decodeTimestamp;){let e=r(this,st).shift();h(this,bt,yt).call(this,r(this,Ye),e)}n.decodeTimestamp<=r(this,Ye).lastDecodeTimestamp?h(this,bt,yt).call(this,r(this,Ze),n):r(this,at).push(n)}else h(this,bt,yt).call(this,r(this,Ze),n)}finalize(){if(r(this,rt))throw new Error("Cannot finalize a muxer more than once.");if("fragmented"===r(this,Je).fastStart){for(let e of r(this,st))h(this,bt,yt).call(this,r(this,Ye),e);for(let e of r(this,at))h(this,bt,yt).call(this,r(this,Ze),e);h(this,St,xt).call(this,!1)}else r(this,Ye)&&h(this,Ct,vt).call(this,r(this,Ye)),r(this,Ze)&&h(this,Ct,vt).call(this,r(this,Ze));let e=[r(this,Ye),r(this,Ze)].filter(Boolean);if("in-memory"===r(this,Je).fastStart){let t;for(let i=0;i<2;i++){let i=F(e,r(this,et)),s=r(this,Ke).measureBox(i);t=r(this,Ke).measureBox(r(this,Xe));let a=r(this,Ke).pos+s+t;for(let e of r(this,tt)){e.offset=a;for(let{data:i}of e.samples)a+=i.byteLength,t+=i.byteLength}if(a<2**32)break;t>=2**32&&(r(this,Xe).largeSize=!0)}let i=F(e,r(this,et));r(this,Ke).writeBox(i),r(this,Xe).size=t,r(this,Ke).writeBox(r(this,Xe));for(let e of r(this,tt))for(let t of e.samples)r(this,Ke).write(t.data),t.data=null}else if("fragmented"===r(this,Je).fastStart){let t=r(this,Ke).pos,i=(e=>I("mfra",null,[...e.map(Ce),ve()]))(e);r(this,Ke).writeBox(i);let s=r(this,Ke).pos-t;r(this,Ke).seek(r(this,Ke).pos-4),r(this,Ke).writeU32(s)}else{let t=r(this,Ke).offsets.get(r(this,Xe)),i=r(this,Ke).pos-t;r(this,Xe).size=i,r(this,Xe).largeSize=i>=2**32,r(this,Ke).patchBox(r(this,Xe));let s=F(e,r(this,et));if("object"==typeof r(this,Je).fastStart){r(this,Ke).seek(r(this,Qe)),r(this,Ke).writeBox(s);let e=t-r(this,Ke).pos;r(this,Ke).writeBox({type:"free",size:e})}else r(this,Ke).writeBox(s)}h(this,zt,Et).call(this),r(this,Ke).finalize(),o(this,rt,!0)}};return Je=new WeakMap,Ke=new WeakMap,Qe=new WeakMap,Xe=new WeakMap,Ye=new WeakMap,Ze=new WeakMap,et=new WeakMap,tt=new WeakMap,it=new WeakMap,st=new WeakMap,at=new WeakMap,rt=new WeakMap,nt=new WeakSet,ot=function(e){if("object"!=typeof e)throw new TypeError("The muxer requires an options object to be passed to its constructor.");if(!(e.target instanceof Ae))throw new TypeError("The target must be provided and an instance of Target.");if(e.video){if(!Ut.includes(e.video.codec))throw new TypeError(`Unsupported video codec: ${e.video.codec}`);if(!Number.isInteger(e.video.width)||e.video.width<=0)throw new TypeError(`Invalid video width: ${e.video.width}. Must be a positive integer.`);if(!Number.isInteger(e.video.height)||e.video.height<=0)throw new TypeError(`Invalid video height: ${e.video.height}. Must be a positive integer.`);const t=e.video.rotation;if("number"==typeof t&&![0,90,180,270].includes(t))throw new TypeError(`Invalid video rotation: ${t}. Has to be 0, 90, 180 or 270.`);if(Array.isArray(t)&&(9!==t.length||t.some(e=>"number"!=typeof e)))throw new TypeError(`Invalid video transformation matrix: ${t.join()}`);if(void 0!==e.video.frameRate&&(!Number.isInteger(e.video.frameRate)||e.video.frameRate<=0))throw new TypeError(`Invalid video frame rate: ${e.video.frameRate}. Must be a positive integer.`)}if(e.audio){if(!Dt.includes(e.audio.codec))throw new TypeError(`Unsupported audio codec: ${e.audio.codec}`);if(!Number.isInteger(e.audio.numberOfChannels)||e.audio.numberOfChannels<=0)throw new TypeError(`Invalid number of audio channels: ${e.audio.numberOfChannels}. Must be a positive integer.`);if(!Number.isInteger(e.audio.sampleRate)||e.audio.sampleRate<=0)throw new TypeError(`Invalid audio sample rate: ${e.audio.sampleRate}. Must be a positive integer.`)}if(e.firstTimestampBehavior&&!jt.includes(e.firstTimestampBehavior))throw new TypeError(`Invalid first timestamp behavior: ${e.firstTimestampBehavior}`);if("object"==typeof e.fastStart){if(e.video){if(void 0===e.fastStart.expectedVideoChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedVideoChunks'.");if(!Number.isInteger(e.fastStart.expectedVideoChunks)||e.fastStart.expectedVideoChunks<0)throw new TypeError("'expectedVideoChunks' must be a non-negative integer.")}if(e.audio){if(void 0===e.fastStart.expectedAudioChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedAudioChunks'.");if(!Number.isInteger(e.fastStart.expectedAudioChunks)||e.fastStart.expectedAudioChunks<0)throw new TypeError("'expectedAudioChunks' must be a non-negative integer.")}}else if(![!1,"in-memory","fragmented"].includes(e.fastStart))throw new TypeError("'fastStart' option must be false, 'in-memory', 'fragmented' or an object.");if(void 0!==e.minFragmentDuration&&(!Number.isFinite(e.minFragmentDuration)||e.minFragmentDuration<0))throw new TypeError("'minFragmentDuration' must be a non-negative number.")},ht=new WeakSet,lt=function(){var e;if(r(this,Ke).writeBox((e={holdsAvc:"avc"===r(this,Je).video?.codec,fragmented:"fragmented"===r(this,Je).fastStart}).fragmented?I("ftyp",[A("iso5"),v(512),A("iso5"),A("iso6"),A("mp41")]):I("ftyp",[A("isom"),v(512),A("isom"),e.holdsAvc?A("avc1"):[],A("mp41")])),o(this,Qe,r(this,Ke).pos),"in-memory"===r(this,Je).fastStart)o(this,Xe,V(!1));else if("fragmented"===r(this,Je).fastStart);else{if("object"==typeof r(this,Je).fastStart){let e=h(this,dt,ft).call(this);r(this,Ke).seek(r(this,Ke).pos+e)}o(this,Xe,V(!0)),r(this,Ke).writeBox(r(this,Xe))}h(this,zt,Et).call(this)},dt=new WeakSet,ft=function(){if("object"!=typeof r(this,Je).fastStart)return;let e=0,t=[r(this,Je).fastStart.expectedVideoChunks,r(this,Je).fastStart.expectedAudioChunks];for(let i of t)i&&(e+=8*Math.ceil(2/3*i),e+=4*i,e+=12*Math.ceil(2/3*i),e+=4*i,e+=8*i);return e+=4096,e},ut=new WeakSet,mt=function(){if(r(this,Je).video&&o(this,Ye,{id:1,info:{type:"video",codec:r(this,Je).video.codec,width:r(this,Je).video.width,height:r(this,Je).video.height,rotation:r(this,Je).video.rotation??0,decoderConfig:null},timescale:r(this,Je).video.frameRate??57600,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),r(this,Je).audio&&(o(this,Ze,{id:r(this,Je).video?2:1,info:{type:"audio",codec:r(this,Je).audio.codec,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate,decoderConfig:null},timescale:r(this,Je).audio.sampleRate,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),"aac"===r(this,Je).audio.codec)){let e=h(this,pt,ct).call(this,2,r(this,Je).audio.sampleRate,r(this,Je).audio.numberOfChannels);r(this,Ze).info.decoderConfig={codec:r(this,Je).audio.codec,description:e,numberOfChannels:r(this,Je).audio.numberOfChannels,sampleRate:r(this,Je).audio.sampleRate}}},pt=new WeakSet,ct=function(e,t,i){let s=[96e3,88200,64e3,48e3,44100,32e3,24e3,22050,16e3,12e3,11025,8e3,7350].indexOf(t),a=i,r="";r+=e.toString(2).padStart(5,"0"),r+=s.toString(2).padStart(4,"0"),15===s&&(r+=t.toString(2).padStart(24,"0")),r+=a.toString(2).padStart(4,"0");let n=8*Math.ceil(r.length/8);r=r.padEnd(n,"0");let o=new Uint8Array(r.length/8);for(let e=0;e<r.length;e+=8)o[e/8]=parseInt(r.slice(e,e+8),2);return o},wt=new WeakSet,gt=function(e,t,i,s,a,r,n){let o=s/1e6,l=(s-(n??0))/1e6,d=a/1e6,f=h(this,kt,Tt).call(this,o,l,e);return o=f.presentationTimestamp,l=f.decodeTimestamp,r?.decoderConfig&&(null===e.info.decoderConfig?e.info.decoderConfig=r.decoderConfig:Object.assign(e.info.decoderConfig,r.decoderConfig)),{presentationTimestamp:o,decodeTimestamp:l,duration:d,data:t,size:t.byteLength,type:i,timescaleUnitsToNextSample:O(d,e.timescale)}},bt=new WeakSet,yt=function(e,t){"fragmented"!==r(this,Je).fastStart&&e.samples.push(t);const i=O(t.presentationTimestamp-t.decodeTimestamp,e.timescale);if(null!==e.lastTimescaleUnits){let s=O(t.decodeTimestamp,e.timescale,!1),a=Math.round(s-e.lastTimescaleUnits);if(e.lastTimescaleUnits+=a,e.lastSample.timescaleUnitsToNextSample=a,"fragmented"!==r(this,Je).fastStart){let t=M(e.timeToSampleTable);1===t.sampleCount?(t.sampleDelta=a,t.sampleCount++):t.sampleDelta===a?t.sampleCount++:(t.sampleCount--,e.timeToSampleTable.push({sampleCount:2,sampleDelta:a}));const s=M(e.compositionTimeOffsetTable);s.sampleCompositionTimeOffset===i?s.sampleCount++:e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i})}}else e.lastTimescaleUnits=0,"fragmented"!==r(this,Je).fastStart&&(e.timeToSampleTable.push({sampleCount:1,sampleDelta:O(t.duration,e.timescale)}),e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i}));e.lastSample=t;let s=!1;if(e.currentChunk){let i=t.presentationTimestamp-e.currentChunk.startTimestamp;if("fragmented"===r(this,Je).fastStart){let a=r(this,Ye)??r(this,Ze);const n=r(this,Je).minFragmentDuration??1;e===a&&"key"===t.type&&i>=n&&(s=!0,h(this,St,xt).call(this))}else s=i>=.5}else s=!0;s&&(e.currentChunk&&h(this,Ct,vt).call(this,e),e.currentChunk={startTimestamp:t.presentationTimestamp,samples:[]}),e.currentChunk.samples.push(t)},kt=new WeakSet,Tt=function(e,t,i){const s="strict"===r(this,Je).firstTimestampBehavior,a=-1===i.lastDecodeTimestamp;if(s&&a&&0!==t)throw new Error(`The first chunk for your media track must have a timestamp of 0 (received DTS=${t}).Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of thedocument, which is probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.\n`);if("offset"===r(this,Je).firstTimestampBehavior||"cross-track-offset"===r(this,Je).firstTimestampBehavior){let s;void 0===i.firstDecodeTimestamp&&(i.firstDecodeTimestamp=t),s="offset"===r(this,Je).firstTimestampBehavior?i.firstDecodeTimestamp:Math.min(r(this,Ye)?.firstDecodeTimestamp??1/0,r(this,Ze)?.firstDecodeTimestamp??1/0),t-=s,e-=s}if(t<i.lastDecodeTimestamp)throw new Error(`Timestamps must be monotonically increasing (DTS went from ${1e6*i.lastDecodeTimestamp} to ${1e6*t}).`);return i.lastDecodeTimestamp=t,{presentationTimestamp:e,decodeTimestamp:t}},Ct=new WeakSet,vt=function(e){if("fragmented"===r(this,Je).fastStart)throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");if(e.currentChunk)if(e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),0!==e.compactlyCodedChunkTable.length&&M(e.compactlyCodedChunkTable).samplesPerChunk===e.currentChunk.samples.length||e.compactlyCodedChunkTable.push({firstChunk:e.finalizedChunks.length,samplesPerChunk:e.currentChunk.samples.length}),"in-memory"!==r(this,Je).fastStart){e.currentChunk.offset=r(this,Ke).pos;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null;h(this,zt,Et).call(this)}else e.currentChunk.offset=0},St=new WeakSet,xt=function(e=!0){if("fragmented"!==r(this,Je).fastStart)throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");let t=[r(this,Ye),r(this,Ze)].filter(e=>e&&e.currentChunk);if(0===t.length)return;let i=(s=this,a=it,{set _(e){o(s,a,e,n)},get _(){return r(s,a,l)}})._++;var s,a,n,l;if(1===i){let e=F(t,r(this,et),!0);r(this,Ke).writeBox(e)}let d=r(this,Ke).pos,f=ce(i,t);r(this,Ke).writeBox(f);{let e=V(!1),i=0;for(let e of t)for(let t of e.currentChunk.samples)i+=t.size;let s=r(this,Ke).measureBox(e)+i;s>=2**32&&(e.largeSize=!0,s=r(this,Ke).measureBox(e)+i),e.size=s,r(this,Ke).writeBox(e)}for(let e of t){e.currentChunk.offset=r(this,Ke).pos,e.currentChunk.moofOffset=d;for(let t of e.currentChunk.samples)r(this,Ke).write(t.data),t.data=null}let u=r(this,Ke).pos;r(this,Ke).seek(r(this,Ke).offsets.get(f));let m=ce(i,t);r(this,Ke).writeBox(m),r(this,Ke).seek(u);for(let e of t)e.finalizedChunks.push(e.currentChunk),r(this,tt).push(e.currentChunk),e.currentChunk=null;e&&h(this,zt,Et).call(this)},zt=new WeakSet,Et=function(){r(this,Ke)instanceof Ge&&r(this,Ke).flush()},At=new WeakSet,Mt=function(){if(r(this,rt))throw new Error("Cannot add new video or audio chunks after the file has been finalized.")},Wt=l,((a,r,n,o)=>{if(r&&"object"==typeof r||"function"==typeof r)for(let h of i(r))s.call(a,h)||h===n||e(a,h,{get:()=>r[h],enumerable:!(o=t(r,h))||o.enumerable});return a})(e({},"__esModule",{value:!0}),Wt)})();"object"==typeof module&&"object"==typeof module.exports&&Object.assign(module.exports,Mp4Muxer);</script>
+<script>
+'use strict';
+const S = CC_SPECTRA, EL = S.ELEMENTS, ORDER = S.ELEMENT_ORDER;
+const RED = S.RED_C, BLUE = S.BLUE_C, ACC = '#3CA3AE', OK = '#2AA87E', BAD = '#D2665A', INK = '#E8E4D9', LABEL = 'rgba(232,228,217,0.66)';
+const FD = '"Zilla Slab", Georgia, serif', FB = '"Public Sans", system-ui, sans-serif', FM = '"Courier Prime", ui-monospace, monospace';
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  <script src="spectra-core.js"></script>
-  <script>
-    const S = CC_SPECTRA;
-    const { ELEMENTS, ELEMENT_ORDER } = S;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeIO = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const fmtV = v => (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(Math.round(v)).toLocaleString('en-US');
+function rrect(c, x, y, w, h, r) {
+  c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+}
 
-    const OK_C = '#2AA87E', BAD_C = '#C75B4F';
+/* ══ DATA ═══════════════════════════════════════════════════════════════════
+   Each set ramps: a wide shift, a dense pattern, one source AT REST, a small
+   shift, then a large shift on a busy element. Every pattern stays inside the
+   380–760 nm window. */
+const SETS = {
+  A: [{ el: 'hydrogen', v: 9500 }, { el: 'helium', v: -7200 }, { el: 'oxygen', v: 0 }, { el: 'carbon', v: 3800 }, { el: 'silicon', v: -14000 }],
+  B: [{ el: 'helium', v: -10500 }, { el: 'hydrogen', v: 5600 }, { el: 'nitrogen', v: 0 }, { el: 'oxygen', v: -4200 }, { el: 'carbon', v: 16000 }],
+  C: [{ el: 'hydrogen', v: -12000 }, { el: 'silicon', v: 6800 }, { el: 'carbon', v: 0 }, { el: 'nitrogen', v: 4600 }, { el: 'helium', v: 15500 }],
+  D: [{ el: 'oxygen', v: 8900 }, { el: 'nitrogen', v: -6300 }, { el: 'silicon', v: 0 }, { el: 'hydrogen', v: -3500 }, { el: 'carbon', v: -13200 }]
+};
+const SET_KEYS = Object.keys(SETS);
+const WL0 = 380, WL1 = 760, TOL = 500, DETENT = 300, V_CAP = 26000;
+const TEXT = 'Pick the element whose pattern matches the observed spectrum. Then drag its pattern until every line lines up.';
+const SRC = 'Rest wavelengths: NYSED ESRT (2026), p. 3. Classical shift λ = λ₀(1 + v/c). Source velocities chosen for visibility.';
 
-    // ── Seeded item sets ────────────────────────────────────────────────────────
-    // Each set ramps: an easy wide shift, a dense pattern, an AT-REST item that
-    // catches students who assume every spectrum is shifted, a small shift
-    // between two similar patterns, then a large shift on the busiest element.
-    // Every velocity is chosen so the element's full pattern stays inside the
-    // 380–760 nm display window — a truncated pattern is not a fair puzzle.
-    const SETS = {
-      A: [
-        { element: 'hydrogen', velocity:   9500 },
-        { element: 'helium',   velocity:  -7200 },
-        { element: 'oxygen',   velocity:      0 },
-        { element: 'carbon',   velocity:   3800 },
-        { element: 'silicon',  velocity: -14000 }
-      ],
-      B: [
-        { element: 'helium',   velocity: -10500 },
-        { element: 'hydrogen', velocity:   5600 },
-        { element: 'nitrogen', velocity:      0 },
-        { element: 'oxygen',   velocity:  -4200 },
-        { element: 'carbon',   velocity:  16000 }
-      ],
-      C: [
-        { element: 'hydrogen', velocity: -12000 },
-        { element: 'silicon',  velocity:   6800 },
-        { element: 'carbon',   velocity:      0 },
-        { element: 'nitrogen', velocity:   4600 },
-        { element: 'helium',   velocity:  15500 }
-      ],
-      D: [
-        { element: 'oxygen',   velocity:   8900 },
-        { element: 'nitrogen', velocity:  -6300 },
-        { element: 'silicon',  velocity:      0 },
-        { element: 'hydrogen', velocity:  -3500 },
-        { element: 'carbon',   velocity: -13200 }
-      ]
-    };
-    const SET_KEYS = ['A', 'B', 'C', 'D'];
+/* ══ STATE ══════════════════════════════════════════════════════════════════ */
+const ST = { set: 'A', idx: 0, pick: null, alignV: 0, answers: [null, null, null, null, null], show: null, tw: null };
+let capturing = false;
+const HIT = {};
+const item = () => SETS[ST.set][ST.idx];
+const checked = () => !!ST.answers[ST.idx];
 
-    // Wider than the explorer's 400–700 nm so a shifted pattern stays on screen.
-    const WL_MIN = 380, WL_MAX = 760;
-    const TICKS = [400, 450, 500, 550, 600, 650, 700, 750];
-    const REST_BAND = 750; // km/s — inside this, an alignment counts as "at rest"
+/* what the reference band displays: the student's pattern, or (once checked) the answer sliding in */
+function display() {
+  if (ST.show) return ST.show;
+  return { el: ST.pick, v: ST.alignV };
+}
 
-    // ── Canvas geometry ─────────────────────────────────────────────────────────
-    const CW = 900, GUT = 82, PR = 12, PW = CW - GUT - PR;
+/* ══ DRAWING ════════════════════════════════════════════════════════════════ */
+function geom(w, h) {
+  const gut = 132, x = gut, pw = w - gut - 20, top = 16;
+  const obsH = clamp(h * 0.15, 50, 110), gap = clamp(h * 0.065, 26, 44), refH = clamp(h * 0.12, 42, 92);
+  const obs = { x, y: top, w: pw, h: obsH, wlMin: WL0, wlMax: WL1 };
+  const ref = { x, y: top + obsH + gap, w: pw, h: refH, wlMin: WL0, wlMax: WL1 };
+  const axisY = ref.y + refH + 20, pickTop = axisY + 18, pg = 6;
+  const rh = clamp((h - pickTop - 10 - 5 * pg) / 6, 20, 58);
+  const rows = ORDER.map((k, i) => ({ x, y: pickTop + i * (rh + pg), w: pw, h: rh, wlMin: WL0, wlMax: WL1, k }));
+  return { obs, ref, gap, axisY, rows };
+}
+function band(c, p) {
+  const v0 = Math.max(p.wlMin, 400), v1 = Math.min(p.wlMax, 700), x0 = S.wlToX(v0, p), x1 = S.wlToX(v1, p);
+  const g = c.createLinearGradient(x0, 0, x1, 0);
+  for (let i = 0; i <= 48; i++) g.addColorStop(i / 48, S.wavelengthToRGB(lerp(v0, v1, i / 48)));
+  c.fillStyle = g; c.fillRect(x0, p.y, x1 - x0, p.h);
+  const ir = c.createLinearGradient(x1, 0, p.x + p.w, 0); ir.addColorStop(0, '#2A1412'); ir.addColorStop(1, '#160D0C');
+  c.fillStyle = ir; c.fillRect(x1, p.y, p.x + p.w - x1, p.h);
+  c.fillStyle = '#140F1C'; c.fillRect(p.x, p.y, x0 - p.x, p.h);
+}
+/* dark lines on the rainbow; light marks where a line lands outside the visible band */
+function lines(c, p, el, v, ws) {
+  el.lines.forEach(l => {
+    const wl = S.shiftedWl(l.wl, v); if (wl < p.wlMin || wl > p.wlMax) return;
+    const x = S.wlToX(wl, p), w = (l.strong ? 4 : 2.2) * (ws || 1);
+    c.fillStyle = wl < 400 || wl > 700 ? 'rgba(232,228,217,0.62)' : 'rgba(8,8,8,0.9)'; c.fillRect(x - w / 2, p.y, w, p.h);
+  });
+}
+function frame(c, p, col, lw) { c.strokeStyle = col || 'rgba(232,228,217,0.2)'; c.lineWidth = lw || 1; c.strokeRect(p.x - 0.5, p.y - 0.5, p.w + 1, p.h + 1); }
+function gutter(c, p, a, b, bcol) {
+  c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  c.font = `700 15px ${FB}`; c.fillStyle = INK; c.fillText(a, 14, p.y + p.h / 2 - 2);
+  if (b) { c.font = `600 13px ${FB}`; c.fillStyle = bcol || LABEL; c.fillText(b, 14, p.y + p.h / 2 + 16); }
+}
+function drawScene(c, w, h, live) {
+  const G = geom(w, h), it = item(), D = display(), chk = checked(), a = ST.answers[ST.idx];
+  c.save();
+  c.fillStyle = '#141916'; c.fillRect(0, 0, w, h);
+  // observed
+  band(c, G.obs); lines(c, G.obs, EL[it.el], it.v, 1.15); frame(c, G.obs);
+  gutter(c, G.obs, 'Observed', `Source ${ST.idx + 1}`);
+  // the gap: observed lines reach down (solid), reference lines reach up (dashed) — aligned lines meet
+  const mid = G.obs.y + G.obs.h + G.gap / 2;
+  c.save(); c.beginPath(); c.rect(G.obs.x, G.obs.y, G.obs.w, G.ref.y + G.ref.h - G.obs.y); c.clip();
+  EL[it.el].lines.forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, it.v), G.obs);
+    c.strokeStyle = 'rgba(232,228,217,0.62)'; c.lineWidth = l.strong ? 2 : 1.3; c.beginPath(); c.moveTo(x, G.obs.y + G.obs.h + 1); c.lineTo(x, mid); c.stroke(); });
+  if (D.el) EL[D.el].lines.forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, D.v), G.ref);
+    c.setLineDash([3, 3]); c.strokeStyle = chk ? 'rgba(42,168,126,0.95)' : 'rgba(60,163,174,0.95)'; c.lineWidth = l.strong ? 2 : 1.3;
+    c.beginPath(); c.moveTo(x, G.ref.y - 1); c.lineTo(x, mid); c.stroke(); c.setLineDash([]); });
+  c.restore();
+  // your reference
+  if (D.el) { band(c, G.ref); lines(c, G.ref, EL[D.el], D.v, 1.15); }
+  else {
+    c.fillStyle = '#0B0E0C'; c.fillRect(G.ref.x, G.ref.y, G.ref.w, G.ref.h);
+    c.font = `500 14px ${FB}`; c.fillStyle = LABEL; c.textAlign = 'center'; c.fillText('Pick an element below', G.ref.x + G.ref.w / 2, G.ref.y + G.ref.h / 2 + 5);
+  }
+  frame(c, G.ref, chk ? OK : D.el ? ACC : null, D.el ? 2 : 1);
+  if (chk) gutter(c, G.ref, 'Answer', EL[it.el].name, OK);
+  else gutter(c, G.ref, 'Your reference', D.el ? 'drag ⇆' : 'pick below', D.el ? ACC : LABEL);
+  // axis
+  c.font = `500 13px ${FM}`; c.textBaseline = 'alphabetic';
+  for (let wl = 380; wl <= 760; wl += 10) {
+    const x = S.wlToX(wl, G.ref), major = wl % 50 === 0;
+    c.strokeStyle = major ? 'rgba(232,228,217,0.42)' : 'rgba(232,228,217,0.2)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x + 0.5, G.ref.y + G.ref.h + 2); c.lineTo(x + 0.5, G.ref.y + G.ref.h + (major ? 8 : 5)); c.stroke();
+    if (major) { c.fillStyle = LABEL; c.textAlign = 'center'; c.fillText(String(wl), x, G.axisY + 2); }
+  }
+  c.textAlign = 'left'; c.fillStyle = LABEL; c.fillText('nm', 14, G.axisY + 2);
+  // element patterns at rest
+  G.rows.forEach(p => {
+    const el = EL[p.k], sel = ST.pick === p.k, isTrue = chk && p.k === it.el, wrong = chk && sel && p.k !== it.el;
+    c.globalAlpha = !chk && ST.pick && !sel ? 0.82 : 1;
+    band(c, p); lines(c, p, el, 0); c.globalAlpha = 1;
+    frame(c, p, isTrue ? OK : wrong ? BAD : sel ? ACC : null, isTrue || wrong || sel ? 2.5 : 1);
+    if (live && HIT.hoverRow === p.k && !chk && !sel) frame(c, p, 'rgba(232,228,217,0.55)', 1.5);
+    c.textBaseline = 'middle'; c.textAlign = 'left';
+    c.font = `700 ${clamp(p.h * 0.5, 14, 18)}px ${FD}`; c.fillStyle = sel || isTrue ? INK : 'rgba(232,228,217,0.85)'; c.fillText(el.symbol, 14, p.y + p.h / 2 + 1);
+    c.font = `${sel || isTrue ? 700 : 500} 13px ${FB}`; c.fillStyle = sel || isTrue ? INK : LABEL; c.fillText(el.name, 44, p.y + p.h / 2 + 1);
+    c.textBaseline = 'alphabetic';
+  });
+  c.restore();
+  if (live) HIT.G = G;
+  return G;
+}
 
-    const obsCanvas = document.getElementById('obs-canvas');
-    const obsCtx = obsCanvas.getContext('2d');
-    const refCanvas = document.getElementById('ref-canvas');
-    const refCtx = refCanvas.getContext('2d');
+/* ══ CANVAS ═════════════════════════════════════════════════════════════════ */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W = 800, H = 500, DPR = 1;
+function resize() {
+  const r = document.getElementById('stage').getBoundingClientRect();
+  W = Math.max(200, r.width); H = Math.max(160, r.height); DPR = Math.max(1, window.devicePixelRatio || 1);
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+}
+function draw() { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); drawScene(ctx, W, H, true); }
 
-    const OBS_H = 248, REF_H = 248;
-    const OBS_PLOT = { x: GUT, y: 30, w: PW, h: 140, wlMin: WL_MIN, wlMax: WL_MAX };
-    const OBS_TICK_Y = 190;
-    const OBS_READ_Y = 216;
-    const OBS_VERDICT_Y = 238;
+/* ══ CARD ═══════════════════════════════════════════════════════════════════ */
+const state = v => v > 0 ? 'receding · redshift' : v < 0 ? 'approaching · blueshift' : 'at rest · no shift';
+function cardModel() {
+  const it = item(), a = ST.answers[ST.idx], v = a ? a.alignV : ST.alignV, pick = a ? a.pick : ST.pick;
+  const rows = [
+    { l: 'Your element', v: pick ? EL[pick].name : '—' },
+    { l: 'Your measurement', v: pick ? fmtV(v) : '—', u: pick ? 'km/s' : '', color: pick ? S.shiftColor(v, 0) : null, sub: pick ? state(v) : '', subColor: pick ? S.shiftColor(v, 0) : null }];
+  if (a) {
+    rows.push({ l: 'Answer', v: EL[it.el].name, sub: a.elementOK ? '✓ your pick' : `✗ you chose ${EL[a.pick].name}`, subColor: a.elementOK ? OK : BAD });
+    rows.push({ l: 'Actual velocity', v: fmtV(it.v), u: 'km/s', color: S.shiftColor(it.v, 0),
+      sub: !a.elementOK ? '✗ different pattern' : a.aligned ? '✓ lines up' : `✗ off by ${Math.abs(Math.round(a.alignV - it.v)).toLocaleString('en-US')} km/s`,
+      subColor: a.elementOK && a.aligned ? OK : BAD });
+  }
+  return { eb: `Set ${ST.set} · Source ${ST.idx + 1} of 5`, intro: TEXT, rows };
+}
+const upLatin = s => String(s).replace(/[a-z]/g, ch => ch.toUpperCase());
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+let lastCard = '';
+function renderCard() {
+  const m = cardModel(), key = JSON.stringify(m); if (key === lastCard) return; lastCard = key;
+  document.getElementById('card').innerHTML = `<div class="eb">${esc(upLatin(m.eb))}</div><p class="tx">${esc(m.intro)}</p>` + m.rows.map(r =>
+    `<div class="r"><div class="l">${esc(upLatin(r.l))}</div><div class="v"${r.color ? ` style="color:${r.color}"` : ''}>${esc(r.v)}${r.u ? `<span class="u">${esc(r.u)}</span>` : ''}</div>` +
+    (r.sub ? `<div class="sub"${r.subColor ? ` style="color:${r.subColor}"` : ''}>${esc(r.sub)}</div>` : '') + '</div>').join('') + `<div class="src">${esc(SRC)}</div>`;
+}
 
-    const ROW_TOP = 8, ROW_H = 26, ROW_GAP = 11;
-    const REF_TICK_Y = 240;
-    function rowPlot(i) {
-      return { x: GUT, y: ROW_TOP + i * (ROW_H + ROW_GAP), w: PW, h: ROW_H, wlMin: WL_MIN, wlMax: WL_MAX };
-    }
+/* ══ CONTROLS ═══════════════════════════════════════════════════════════════ */
+const setsEl = document.getElementById('sets'), snapsEl = document.getElementById('snaps');
+setsEl.innerHTML = SET_KEYS.map(k => `<button class="cc-segmented-btn" data-s="${k}">${k}</button>`).join('');
+setsEl.querySelectorAll('[data-s]').forEach(b => b.onclick = () => loadSet(b.dataset.s));
+snapsEl.innerHTML = [0, 1, 2, 3, 4].map(i => `<button class="cc-btn snap" data-i="${i}"><span class="n">Source ${i + 1}</span><span class="v"></span></button>`).join('');
+snapsEl.querySelectorAll('.snap').forEach(b => b.onclick = () => loadItem(+b.dataset.i));
+document.getElementById('bReset').onclick = () => { if (!checked()) { ST.alignV = 0; refresh(); } };
+document.getElementById('bGo').onclick = go;
+let lastCtl = '';
+function syncControls() {
+  const chk = checked(), open = ST.answers.findIndex(a => !a);
+  const key = [ST.set, ST.idx, chk, !!ST.pick, ST.answers.map(a => a ? 1 : 0).join('')].join('|'); if (key === lastCtl) return; lastCtl = key;
+  setsEl.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('is-active', b.dataset.s === ST.set));
+  snapsEl.querySelectorAll('.snap').forEach((b, i) => { b.classList.toggle('is-active', i === ST.idx); b.querySelector('.v').textContent = ST.answers[i] ? 'checked' : '—'; });
+  const g = document.getElementById('bGo');
+  if (!chk) { g.textContent = 'Check'; g.disabled = !ST.pick; }
+  else { g.disabled = false; g.textContent = open >= 0 ? 'Next source →' : `Set ${SET_KEYS[(SET_KEYS.indexOf(ST.set) + 1) % SET_KEYS.length]} →`; }
+  document.getElementById('bReset').disabled = chk || !ST.pick;
+  document.getElementById('bGIF').disabled = document.getElementById('bMP4').disabled = !chk;
+}
+function loadSet(k) { ST.set = k; ST.answers = [null, null, null, null, null]; loadItem(0); }
+function loadItem(i) {
+  ST.idx = i; ST.tw = null; const a = ST.answers[i];
+  if (a) { ST.pick = a.pick; ST.alignV = a.alignV; ST.show = { el: item().el, v: item().v }; }
+  else { ST.pick = null; ST.alignV = 0; ST.show = null; }
+  refresh();
+}
+function go() {
+  if (!checked()) {
+    if (!ST.pick) return;
+    const it = item(), elementOK = ST.pick === it.el, aligned = elementOK && Math.abs(ST.alignV - it.v) <= TOL;
+    ST.answers[ST.idx] = { pick: ST.pick, alignV: ST.alignV, elementOK, aligned };
+    // the answer slides into place: true pattern, from where the student left it
+    ST.show = { el: it.el, v: ST.alignV };
+    if (REDUCED) ST.show.v = it.v; else ST.tw = { v0: ST.alignV, v1: it.v, start: performance.now(), dur: clamp(Math.abs(it.v - ST.alignV) / 9000, 0.5, 1.6) * 1000 };
+    refresh();
+  } else {
+    const open = ST.answers.findIndex(a => !a);
+    if (open >= 0) loadItem(open); else loadSet(SET_KEYS[(SET_KEYS.indexOf(ST.set) + 1) % SET_KEYS.length]);
+  }
+}
+function setPick(k) { if (checked()) return; ST.pick = k; refresh(); }
+function setAlign(v) { if (checked() || !ST.pick) return; v = clamp(v, -V_CAP, V_CAP); ST.alignV = Math.abs(v) < DETENT ? 0 : Math.round(v); refresh(); }
+function refresh() { draw(); renderCard(); syncControls(); }
 
-    let dpr = Math.max(1, window.devicePixelRatio || 1);
-    function setupCanvases() {
-      S.sizeCanvas(obsCanvas, obsCtx, CW, OBS_H, dpr);
-      S.sizeCanvas(refCanvas, refCtx, CW, REF_H, dpr);
-    }
+let lastT = performance.now();
+function loop(now) {
+  lastT = now;
+  if (!document.hidden && !capturing && ST.tw) {
+    const t = ST.tw, k = clamp((now - t.start) / t.dur, 0, 1);
+    ST.show.v = lerp(t.v0, t.v1, easeIO(k)); if (k >= 1) ST.tw = null;
+    refresh();
+  }
+  requestAnimationFrame(loop);
+}
 
-    // km/s per logical pixel of drag, derived from the plot scale so the
-    // alignment feels the same regardless of canvas size.
-    const KM_PER_PX = S.C_KM_S / (((WL_MIN + WL_MAX) / 2) * (PW / (WL_MAX - WL_MIN)));
-    const V_CAP = 26000;
+/* ══ POINTER ════════════════════════════════════════════════════════════════ */
+function pt(e) { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+function rowAt(p) { const G = HIT.G; if (!G) return null; const r = G.rows.find(q => p.y >= q.y - 3 && p.y <= q.y + q.h + 3 && p.x <= q.x + q.w + 3); return r ? r.k : null; }
+function inDrag(p) { const G = HIT.G; return G && p.y >= G.obs.y && p.y <= G.ref.y + G.ref.h + 4 && p.x >= G.obs.x - 20; }
+let drag = null;
+const kmPerPx = () => { const G = HIT.G; return S.C_KM_S / ((WL0 + WL1) / 2) * ((WL1 - WL0) / G.ref.w); };
+cv.addEventListener('pointerdown', e => {
+  const p = pt(e), k = rowAt(p);
+  if (k) { setPick(k); return; }
+  if (inDrag(p) && ST.pick && !checked()) { drag = { x: e.clientX, v: ST.alignV }; cv.setPointerCapture(e.pointerId); e.preventDefault(); }
+});
+cv.addEventListener('pointermove', e => {
+  const p = pt(e);
+  if (drag) { setAlign(drag.v + (e.clientX - drag.x) * kmPerPx() * (e.shiftKey ? 0.25 : 1)); cv.style.cursor = 'grabbing'; return; }
+  const k = rowAt(p); if (k !== HIT.hoverRow) { HIT.hoverRow = k; draw(); }
+  cv.style.cursor = k && !checked() ? 'pointer' : inDrag(p) && ST.pick && !checked() ? 'ew-resize' : 'default';
+});
+const end = () => { drag = null; };
+cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+cv.addEventListener('pointerleave', () => { if (HIT.hoverRow) { HIT.hoverRow = null; draw(); } });
+window.addEventListener('keydown', e => {
+  if (e.target.closest && e.target.closest('input, textarea')) return;
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 6) { setPick(ORDER[n - 1]); return; }
+  if (e.key === 'Enter') { go(); e.preventDefault(); }
+  else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { setAlign(ST.alignV + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 1000 : 250)); e.preventDefault(); }
+});
+new ResizeObserver(() => { resize(); refresh(); }).observe(document.getElementById('stage'));
 
-    // ── State ───────────────────────────────────────────────────────────────────
-    let setKey = 'A';
-    let idx = 0;
-    let answers = [];          // per item: {pick, alignV, elementOK, motionOK} once checked
-    let pick = null;           // element key currently selected
-    let alignV = 0;            // km/s dialed in by dragging
-    let checked = false;
+/* ══ EXPORT ═════════════════════════════════════════════════════════════════ */
+const EW = 1280, EH = 720;
+function wrapWords(c, text, maxW) {
+  const words = String(text).split(' '), out = []; let ln = '';
+  words.forEach(wd => { const t = ln ? ln + ' ' + wd : wd; if (c.measureText(t).width > maxW && ln) { out.push(ln); ln = wd; } else ln = t; });
+  if (ln) out.push(ln); return out;
+}
+function drawCardCanvas(c, x, y, w, h, m) {
+  c.fillStyle = '#262B27'; rrect(c, x, y, w, h, 6); c.fill(); c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; c.stroke();
+  let yy = y + 22; const px = x + 16, pw = w - 32;
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 13px ${FM}`; c.fillStyle = ACC; wrapWords(c, upLatin(m.eb), pw).forEach((ln, i) => { if (i) yy += 16; c.fillText(ln, px, yy); }); yy += 15;
+  const line = () => { c.fillStyle = 'rgba(232,228,217,0.14)'; c.fillRect(px, yy, pw, 1); };
+  line();
+  c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; yy += 6; wrapWords(c, m.intro, pw).forEach(ln => { yy += 20; c.fillText(ln, px, yy); }); yy += 10; line();
+  for (const r of m.rows) {
+    yy += 15; c.font = `500 12px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(upLatin(r.l), px, yy);
+    yy += 21; c.font = `700 23px ${FD}`; c.fillStyle = r.color || '#E8E4D9'; c.fillText(r.v, px, yy);
+    if (r.u) { const vw = c.measureText(r.v).width; c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; c.fillText(r.u, px + vw + 6, yy + 1); }
+    if (r.sub) { yy += 19; c.font = `700 14px ${FM}`; c.fillStyle = r.subColor || '#A6A499'; c.fillText(r.sub, px, yy); }
+    yy += 15; line();
+  }
+  c.textBaseline = 'alphabetic';
+}
+function compose(c, scale) {
+  c.setTransform(scale, 0, 0, scale, 0, 0);
+  c.fillStyle = '#1E2320'; c.fillRect(0, 0, EW, EH);
+  c.textBaseline = 'middle'; c.textAlign = 'left';
+  c.font = `700 26px ${FD}`; c.fillStyle = '#E8E4D9'; c.fillText('Doppler Shift Challenge', 18, 30);
+  c.font = `500 14px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(`Set ${ST.set} · Source ${ST.idx + 1}`, 18, 56);
+  c.textAlign = 'right'; c.font = `700 14px ${FM}`; c.fillStyle = ACC; c.fillText('contextclimate.io', EW - 18, 30);
+  c.font = `500 12px ${FM}`; const src = wrapWords(c, SRC, EW - 36), foot = src.length > 1 ? 46 : 34;
+  const sx = 16, sy = 74, cw = 290, sw = EW - 32 - cw - 12, sh = EH - sy - foot;
+  c.save(); rrect(c, sx, sy, sw, sh, 6); c.clip(); c.translate(sx, sy); drawScene(c, sw, sh, false); c.restore();
+  c.strokeStyle = 'rgba(232,228,217,0.14)'; c.lineWidth = 1; rrect(c, sx + 0.5, sy + 0.5, sw - 1, sh - 1, 6); c.stroke();
+  drawCardCanvas(c, sx + sw + 12, sy, cw, sh, cardModel());
+  c.textAlign = 'left'; c.textBaseline = 'middle'; c.font = `500 12px ${FM}`; c.fillStyle = '#948F82';
+  src.slice(0, 2).forEach((ln, i) => c.fillText(ln, 18, EH - 16 - (src.length > 1 ? (1 - i) * 15 : 0)));
+}
+const slug = () => `doppler-challenge-set${ST.set.toLowerCase()}-source${ST.idx + 1}`;
+function saveBlob(b, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+const status = t => { document.getElementById('status').textContent = t; };
+const tick = () => new Promise(r => setTimeout(r, 0));
+function setBusy(b) { document.getElementById('bPNG').disabled = b; document.getElementById('bGIF').disabled = document.getElementById('bMP4').disabled = b || !checked(); }
+async function exportPNG() {
+  setBusy(true); capturing = true; if (ST.tw) { ST.show.v = ST.tw.v1; ST.tw = null; } status('rendering…'); await tick();
+  try {
+    const oc = document.createElement('canvas'); oc.width = EW * 2; oc.height = EH * 2; compose(oc.getContext('2d'), 2);
+    const b = await new Promise(r => oc.toBlob(r, 'image/png')); saveBlob(b, slug() + '.png'); status('PNG ' + (b.size / 1e6).toFixed(1) + ' MB');
+  } finally { capturing = false; setBusy(false); refresh(); }
+}
+/* after Check only: the answer pattern sliding from rest into alignment */
+function sweep(kind) {
+  const gif = kind === 'gif', it = item(), fr = [], saved = ST.show ? { ...ST.show } : null;
+  const hold0 = gif ? 10 : 24, mv = gif ? 28 : 75, hold1 = gif ? 18 : 54;
+  for (let i = 0; i < hold0; i++) fr.push({ set: () => { ST.show = { el: it.el, v: 0 }; }, delay: 8 });
+  for (let i = 1; i <= mv; i++) { const v = lerp(0, it.v, easeIO(i / mv)); fr.push({ set: () => { ST.show = { el: it.el, v }; }, delay: 8 }); }
+  for (let i = 0; i < hold1; i++) fr.push({ set: () => { ST.show = { el: it.el, v: it.v }; }, delay: 8 });
+  return { fr, restore: () => { ST.show = saved; } };
+}
+function buildPalette(frames) {
+  const hist = new Uint32Array(32768);
+  for (const f of frames) for (let i = 0; i < f.length; i += 4 * 3) hist[((f[i] >> 3) << 10) | ((f[i + 1] >> 3) << 5) | (f[i + 2] >> 3)]++;
+  const bins = []; for (let i = 0; i < 32768; i++) if (hist[i]) bins.push(i);
+  const ch = (b, c) => c === 0 ? b >> 10 : c === 1 ? (b >> 5) & 31 : b & 31;
+  const boxes = [{ lo: 0, hi: bins.length }];
+  const stats = bx => { let n = 0; const mn = [31, 31, 31], mx = [0, 0, 0];
+    for (let i = bx.lo; i < bx.hi; i++) { const b = bins[i]; n += hist[b]; for (let c = 0; c < 3; c++) { const v = ch(b, c); if (v < mn[c]) mn[c] = v; if (v > mx[c]) mx[c] = v; } }
+    const rg = [mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]]; const ax = rg[1] >= rg[0] && rg[1] >= rg[2] ? 1 : rg[0] >= rg[2] ? 0 : 2;
+    return { n, ax, range: rg[ax] }; };
+  while (boxes.length < 255) {
+    let best = -1, bs = -1, bst = null;
+    boxes.forEach((bx, i) => { if (bx.hi - bx.lo < 2) return; const st = stats(bx); const sc = st.range * Math.cbrt(st.n); if (st.range > 0 && sc > bs) { bs = sc; best = i; bst = st; } });
+    if (best < 0) break;
+    const bx = boxes[best], seg = bins.slice(bx.lo, bx.hi).sort((p, q) => ch(p, bst.ax) - ch(q, bst.ax));
+    for (let i = 0; i < seg.length; i++) bins[bx.lo + i] = seg[i];
+    let acc = 0, cut = bx.lo + 1; const half = bst.n / 2;
+    for (let i = bx.lo; i < bx.hi - 1; i++) { acc += hist[bins[i]]; if (acc >= half) { cut = i + 1; break; } cut = i + 1; }
+    boxes.splice(best, 1, { lo: bx.lo, hi: cut }, { lo: cut, hi: bx.hi });
+  }
+  const pal = new Uint8Array(256 * 3);
+  boxes.forEach((bx, k) => { let n = 0, r = 0, g = 0, b = 0; for (let i = bx.lo; i < bx.hi; i++) { const v = bins[i], w = hist[v]; n += w; r += ch(v, 0) * w; g += ch(v, 1) * w; b += ch(v, 2) * w; }
+    pal[k * 3] = Math.round(r / n * 8.226); pal[k * 3 + 1] = Math.round(g / n * 8.226); pal[k * 3 + 2] = Math.round(b / n * 8.226); });
+  const np = boxes.length, lut = new Uint8Array(32768);
+  for (let i = 0; i < 32768; i++) { const r = (i >> 10) * 8.226, g = ((i >> 5) & 31) * 8.226, b = (i & 31) * 8.226; let bd = 1e9, bi = 0;
+    for (let k = 0; k < np; k++) { const dr = r - pal[k * 3], dg = g - pal[k * 3 + 1], db = b - pal[k * 3 + 2], dd = 2 * dr * dr + 4 * dg * dg + 3 * db * db; if (dd < bd) { bd = dd; bi = k; } } lut[i] = bi; }
+  return { pal, lut };
+}
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(v => (v / 16 - 0.47) * 9);
+function lzw(ix, minCode) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, next = eoi + 1, dict = new Map();
+  const out = []; let buf = 0, nb = 0;
+  const emit = (code, s) => { buf |= code << nb; nb += s; while (nb >= 8) { out.push(buf & 255); buf >>>= 8; nb -= 8; } };
+  emit(clear, size);
+  let cur = ix[0];
+  for (let i = 1; i < ix.length; i++) {
+    const k = ix[i], key = (cur << 8) | k, v = dict.get(key);
+    if (v !== undefined) { cur = v; continue; }
+    emit(cur, size);
+    if (next === 4096) { emit(clear, size); dict = new Map(); next = eoi + 1; size = minCode + 1; }
+    else { if (next >= (1 << size)) size++; dict.set(key, next); next++; }
+    cur = k;
+  }
+  emit(cur, size); emit(eoi, size); if (nb > 0) out.push(buf & 255);
+  return out;
+}
+function gifBytes(w, h, pal, frames) {
+  const B = []; const w16 = v => { B.push(v & 255, (v >> 8) & 255); };
+  for (const ch of 'GIF89a') B.push(ch.charCodeAt(0));
+  w16(w); w16(h); B.push(0xF7, 0, 0); for (let i = 0; i < 768; i++) B.push(pal[i] || 0);
+  B.push(0x21, 0xFF, 11); for (const ch of 'NETSCAPE2.0') B.push(ch.charCodeAt(0)); B.push(3, 1, 0, 0, 0);
+  for (const f of frames) {
+    B.push(0x21, 0xF9, 4, (1 << 2) | 1); w16(f.delay); B.push(255, 0);
+    B.push(0x2C); w16(f.x); w16(f.y); w16(f.w); w16(f.h); B.push(0);
+    B.push(8); const data = lzw(f.ix, 8);
+    for (let i = 0; i < data.length; i += 255) { const n = Math.min(255, data.length - i); B.push(n); for (let j = 0; j < n; j++) B.push(data[i + j]); }
+    B.push(0);
+  }
+  B.push(0x3B);
+  return new Uint8Array(B);
+}
 
-    function items() { return SETS[setKey]; }
-    function item() { return items()[idx]; }
-    function allChecked() { return answers.length === 5 && answers.every(a => a); }
-
-    function loadSet(key) {
-      setKey = key;
-      answers = [null, null, null, null, null];
-      idx = 0;
-      loadItem(0);
-      buildSetBar();
-      renderAll();
-    }
-
-    function loadItem(i) {
-      idx = i;
-      const a = answers[i];
-      if (a) { pick = a.pick; alignV = a.alignV; checked = true; }
-      else { pick = null; alignV = 0; checked = false; }
-    }
-
-    // ── Left rail ───────────────────────────────────────────────────────────────
-    const setBar = document.getElementById('setBar');
-    function buildSetBar() {
-      setBar.innerHTML = '';
-      SET_KEYS.forEach(k => {
-        const b = document.createElement('button');
-        b.className = 'cc-segmented-btn' + (k === setKey ? ' is-active' : '');
-        b.textContent = k;
-        b.addEventListener('click', () => { if (k !== setKey) loadSet(k); });
-        setBar.appendChild(b);
-      });
-    }
-
-    const progList = document.getElementById('progList');
-    function buildProgList() {
-      progList.innerHTML = '';
-      items().forEach((it, i) => {
-        const a = answers[i];
-        const row = document.createElement('div');
-        row.className = 'prog-row' + (i === idx ? ' is-active' : '');
-        row.innerHTML =
-          `<span class="pr-n">${i + 1}</span>` +
-          `<span>${a ? ELEMENTS[it.element].name : '—'}</span>` +
-          `<span class="pr-marks">` +
-            `<span class="pr-dot ${a ? (a.elementOK ? 'ok' : 'bad') : ''}"></span>` +
-            `<span class="pr-dot ${a ? (a.motionOK ? 'ok' : 'bad') : ''}"></span>` +
-          `</span>`;
-        row.addEventListener('click', () => { loadItem(i); renderAll(); });
-        progList.appendChild(row);
-      });
-    }
-
-    function updateScores() {
-      const done = answers.filter(Boolean);
-      const e = done.filter(a => a.elementOK).length;
-      const m = done.filter(a => a.motionOK).length;
-      document.getElementById('scoreElement').textContent = done.length ? `${e}/${done.length}` : '—';
-      document.getElementById('scoreMotion').textContent = done.length ? `${m}/${done.length}` : '—';
-      document.getElementById('resultsActions').style.display = allChecked() ? 'block' : 'none';
-    }
-
-    // ── Observation canvas ──────────────────────────────────────────────────────
-    function drawObs() {
-      const it = item();
-      const trueEl = ELEMENTS[it.element];
-
-      obsCtx.clearRect(0, 0, CW, OBS_H);
-      obsCtx.fillStyle = S.SURFACE;
-      obsCtx.fillRect(0, 0, CW, OBS_H);
-
-      // Legend
-      obsCtx.font = '500 12px "Public Sans", sans-serif';
-      obsCtx.textAlign = 'left';
-      obsCtx.fillStyle = 'rgba(232,228,217,0.5)';
-      obsCtx.fillText('■ observed', GUT, 20);
-      if (pick) {
-        obsCtx.textAlign = 'right';
-        obsCtx.fillText('- - - your reference, aligned', GUT + PW, 20);
+async function exportGIF() {
+  if (!checked()) return;
+  setBusy(true); capturing = true; ST.tw = null; status('rendering…'); await tick();
+  const sc = 0.75, Wg = Math.round(EW * sc), Hg = Math.round(EH * sc);
+  const oc = document.createElement('canvas'); oc.width = Wg; oc.height = Hg; const c = oc.getContext('2d', { willReadFrequently: true });
+  const sw = sweep('gif'), raw = [];
+  try {
+    for (let i = 0; i < sw.fr.length; i++) { sw.fr[i].set(); compose(c, sc); raw.push(c.getImageData(0, 0, Wg, Hg).data); if (i % 4 === 0) { status(`rendering ${i + 1}/${sw.fr.length}`); await tick(); } }
+    status('building palette…'); await tick();
+    const { pal, lut } = buildPalette(raw.filter((_, i) => i % 4 === 0 || i === raw.length - 1));
+    const out = []; let prev = null;
+    for (let i = 0; i < raw.length; i++) {
+      const d = raw[i], n = Wg * Hg, ix = new Uint8Array(n);
+      for (let y = 0, p = 0; y < Hg; y++) for (let x = 0; x < Wg; x++, p++) { const q = p * 4, o = BAYER[((y & 3) << 2) | (x & 3)];
+        const r = clamp(d[q] + o, 0, 255), g = clamp(d[q + 1] + o, 0, 255), b = clamp(d[q + 2] + o, 0, 255);
+        ix[p] = lut[((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)]; }
+      if (!prev) out.push({ x: 0, y: 0, w: Wg, h: Hg, ix, delay: sw.fr[i].delay });
+      else {
+        let x0 = Wg, y0 = Hg, x1 = -1, y1 = -1;
+        for (let y = 0; y < Hg; y++) for (let x = 0; x < Wg; x++) { const p = y * Wg + x; if (ix[p] !== prev[p]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+        if (x1 < 0) out[out.length - 1].delay += sw.fr[i].delay;
+        else { const fw = x1 - x0 + 1, fh = y1 - y0 + 1, sub = new Uint8Array(fw * fh);
+          for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) { const p = (y + y0) * Wg + x + x0; sub[y * fw + x] = ix[p] === prev[p] ? 255 : ix[p]; }
+          out.push({ x: x0, y: y0, w: fw, h: fh, ix: sub, delay: sw.fr[i].delay }); }
       }
-
-      // Gutter label
-      obsCtx.textAlign = 'right';
-      obsCtx.font = '600 13px "Public Sans", sans-serif';
-      obsCtx.fillStyle = 'rgba(232,228,217,0.78)';
-      obsCtx.fillText('observed', GUT - 12, OBS_PLOT.y + OBS_PLOT.h / 2 - 4);
-      obsCtx.font = '400 11px "Courier Prime", monospace';
-      obsCtx.fillStyle = 'rgba(148,143,130,0.9)';
-      obsCtx.fillText('source ' + (idx + 1), GUT - 12, OBS_PLOT.y + OBS_PLOT.h / 2 + 12);
-
-      S.drawRainbow(obsCtx, OBS_PLOT);
-      S.drawGridlines(obsCtx, OBS_PLOT, TICKS);
-
-      // The observation itself — neutral dark lines, no element color.
-      S.drawLines(obsCtx, OBS_PLOT, trueEl, it.velocity);
-
-      // The student's reference overlay, scaled by the velocity they dialed in.
-      if (pick) {
-        S.drawRefTicks(obsCtx, OBS_PLOT, ELEMENTS[pick], alignV,
-          { color: checked ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.92)' });
-      }
-      // After checking, the true answer overlays in the element's own color.
-      if (checked) {
-        S.drawRefTicks(obsCtx, OBS_PLOT, trueEl, it.velocity,
-          { color: trueEl.color, lineWidth: 2.4 });
-      }
-
-      S.drawFrame(obsCtx, OBS_PLOT);
-      S.drawTickLabels(obsCtx, OBS_PLOT, TICKS, OBS_TICK_Y);
-      obsCtx.textAlign = 'right';
-      obsCtx.font = '400 11px "Courier Prime", monospace';
-      obsCtx.fillStyle = 'rgba(148,143,130,0.9)';
-      obsCtx.fillText('nm', GUT + PW + 10, OBS_TICK_Y);
-
-      // Alignment readout
-      obsCtx.textAlign = 'left';
-      if (!pick) {
-        obsCtx.font = '500 13px "Public Sans", sans-serif';
-        obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
-        obsCtx.fillText('Select a reference pattern below.', GUT, OBS_READ_Y);
-      } else {
-        const tint = S.shiftColor(alignV, REST_BAND) || 'rgba(232,228,217,0.8)';
-        obsCtx.font = '400 12px "Courier Prime", monospace';
-        obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
-        obsCtx.fillText('alignment', GUT, OBS_READ_Y);
-        obsCtx.font = '700 15px "Courier Prime", monospace';
-        obsCtx.fillStyle = tint;
-        obsCtx.fillText(
-          `${S.fmtVel(alignV)}   ${S.signLabel(alignV, REST_BAND)}`,
-          GUT + 78, OBS_READ_Y
-        );
-        if (!checked) {
-          obsCtx.textAlign = 'right';
-          obsCtx.font = '400 12px "Courier Prime", monospace';
-          obsCtx.fillStyle = 'rgba(148,143,130,0.8)';
-          obsCtx.fillText('drag across the band to align  ·  ← → to nudge', GUT + PW, OBS_READ_Y);
-        }
-      }
-
-      // Verdict
-      if (checked) {
-        const a = answers[idx];
-        obsCtx.textAlign = 'left';
-        obsCtx.font = '700 14px "Public Sans", sans-serif';
-
-        obsCtx.fillStyle = a.elementOK ? OK_C : BAD_C;
-        const eMark = a.elementOK ? '✓' : '✗';
-        obsCtx.fillText(`${eMark} ${trueEl.name}`, GUT, OBS_VERDICT_Y);
-        const w1 = obsCtx.measureText(`${eMark} ${trueEl.name}`).width;
-
-        if (!a.elementOK) {
-          obsCtx.font = '400 13px "Public Sans", sans-serif';
-          obsCtx.fillStyle = 'rgba(148,143,130,0.95)';
-          obsCtx.fillText(`— you chose ${ELEMENTS[a.pick].name}`, GUT + w1 + 10, OBS_VERDICT_Y);
-        }
-
-        obsCtx.textAlign = 'right';
-        obsCtx.font = '700 14px "Public Sans", sans-serif';
-        obsCtx.fillStyle = a.motionOK ? OK_C : BAD_C;
-        const mMark = a.motionOK ? '✓' : '✗';
-        obsCtx.fillText(
-          `${mMark} ${S.signLabel(it.velocity, REST_BAND)}  ·  ${S.fmtVel(it.velocity)}`,
-          GUT + PW, OBS_VERDICT_Y
-        );
-      }
+      prev = ix;
+      if (i % 4 === 0) { status(`encoding ${i + 1}/${raw.length}`); await tick(); }
     }
-
-    // ── Reference canvas ────────────────────────────────────────────────────────
-    function drawRef() {
-      refCtx.clearRect(0, 0, CW, REF_H);
-      refCtx.fillStyle = S.SURFACE;
-      refCtx.fillRect(0, 0, CW, REF_H);
-
-      const it = item();
-
-      ELEMENT_ORDER.forEach((key, i) => {
-        const el = ELEMENTS[key];
-        const plot = rowPlot(i);
-        const selected = pick === key;
-        const isTrue = checked && key === it.element;
-        const isWrongPick = checked && selected && key !== it.element;
-
-        refCtx.save();
-        refCtx.globalAlpha = selected || isTrue || !pick ? 1 : 0.78;
-
-        S.drawRainbow(refCtx, plot);
-        S.drawLines(refCtx, plot, el, 0);
-        S.drawFrame(refCtx, plot);
-
-        // Label gutter
-        refCtx.textAlign = 'right';
-        refCtx.font = (selected ? '600 13px' : '500 13px') + ' "Public Sans", sans-serif';
-        refCtx.fillStyle = selected ? '#E8E4D9' : 'rgba(232,228,217,0.72)';
-        refCtx.fillText(el.name, GUT - 20, plot.y + plot.h / 2 + 4);
-
-        refCtx.beginPath();
-        refCtx.arc(GUT - 11, plot.y + plot.h / 2, 4.5, 0, Math.PI * 2);
-        refCtx.fillStyle = el.color;
-        refCtx.fill();
-        refCtx.restore();
-
-        // Selection / verdict outline
-        let ring = null, ringW = 2;
-        if (isTrue) { ring = OK_C; ringW = 2.5; }
-        else if (isWrongPick) { ring = BAD_C; ringW = 2.5; }
-        else if (selected) { ring = 'var'; }
-        if (ring) {
-          refCtx.strokeStyle = ring === 'var' ? getAccent() : ring;
-          refCtx.lineWidth = ringW;
-          refCtx.strokeRect(plot.x - 2.5, plot.y - 2.5, plot.w + 5, plot.h + 5);
-        }
-      });
-
-      S.drawTickLabels(refCtx, { x: GUT, y: 0, w: PW, h: 0, wlMin: WL_MIN, wlMax: WL_MAX }, TICKS, REF_TICK_Y);
-      refCtx.textAlign = 'right';
-      refCtx.font = '400 11px "Courier Prime", monospace';
-      refCtx.fillStyle = 'rgba(148,143,130,0.9)';
-      refCtx.fillText('nm', GUT + PW + 10, REF_TICK_Y);
+    const bytes = gifBytes(Wg, Hg, pal, out);
+    saveBlob(new Blob([bytes], { type: 'image/gif' }), slug() + '.gif'); status('GIF ' + (bytes.length / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('GIF failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(); }
+}
+async function exportMP4() {
+  if (!checked()) return;
+  if (typeof VideoEncoder === 'undefined' || typeof Mp4Muxer === 'undefined') { status('MP4 needs a newer browser'); return; }
+  setBusy(true); capturing = true; ST.tw = null; status('preparing…'); await tick();
+  const sc = 1.5, Wm = Math.round(EW * sc), Hm = Math.round(EH * sc), FPS = 30;
+  const oc = document.createElement('canvas'); oc.width = Wm; oc.height = Hm; const c = oc.getContext('2d');
+  const sw = sweep('mp4');
+  try {
+    let codec = null, mux = null;
+    for (const [cs, mc] of [['avc1.640028', 'avc'], ['avc1.4d0028', 'avc'], ['vp09.00.40.08', 'vp9']]) {
+      const cfg = { codec: cs, width: Wm, height: Hm, bitrate: 8e6, framerate: FPS };
+      try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) { codec = cfg; mux = mc; break; } } catch (e) {}
     }
-
-    let _accent = null;
-    function getAccent() {
-      if (!_accent) {
-        _accent = getComputedStyle(document.documentElement)
-          .getPropertyValue('--tool-accent').trim() || '#3CA3AE';
-      }
-      return _accent;
+    if (!codec) { status('MP4 not supported here'); return; }
+    const muxer = new Mp4Muxer.Muxer({ target: new Mp4Muxer.ArrayBufferTarget(), video: { codec: mux, width: Wm, height: Hm }, fastStart: 'in-memory' });
+    let err = null;
+    const enc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { err = e; } });
+    enc.configure(codec);
+    for (let i = 0; i < sw.fr.length; i++) {
+      sw.fr[i].set(); compose(c, sc);
+      const vf = new VideoFrame(oc, { timestamp: Math.round(i * 1e6 / FPS), duration: Math.round(1e6 / FPS) });
+      enc.encode(vf, { keyFrame: i % 60 === 0 }); vf.close();
+      while (enc.encodeQueueSize > 6) await new Promise(r => setTimeout(r, 5));
+      if (err) throw err;
+      if (i % 5 === 0) { status(`encoding ${i + 1}/${sw.fr.length}`); await tick(); }
     }
+    await enc.flush(); muxer.finalize();
+    const buf = muxer.target.buffer; saveBlob(new Blob([buf], { type: 'video/mp4' }), slug() + '.mp4'); status('MP4 ' + (buf.byteLength / 1e6).toFixed(1) + ' MB');
+  } catch (e) { console.error(e); status('MP4 failed'); }
+  finally { sw.restore(); capturing = false; setBusy(false); refresh(); }
+}
+document.getElementById('bPNG').onclick = exportPNG;
+document.getElementById('bGIF').onclick = exportGIF;
+document.getElementById('bMP4').onclick = exportMP4;
 
-    // ── Interaction ─────────────────────────────────────────────────────────────
-    function canvasScale(cv) { return CW / cv.getBoundingClientRect().width; }
-
-    refCanvas.addEventListener('click', e => {
-      if (checked) return;
-      const r = refCanvas.getBoundingClientRect();
-      const y = (e.clientY - r.top) * (REF_H / r.height);
-      for (let i = 0; i < ELEMENT_ORDER.length; i++) {
-        const p = rowPlot(i);
-        if (y >= p.y - 5 && y <= p.y + p.h + 5) { setPick(ELEMENT_ORDER[i]); return; }
-      }
-    });
-
-    function setPick(key) {
-      pick = key;
-      renderAll();
-    }
-
-    let dragging = false, dragStartX = 0, dragStartV = 0;
-    obsCanvas.addEventListener('pointerdown', e => {
-      if (!pick || checked) return;
-      dragging = true;
-      dragStartX = e.clientX;
-      dragStartV = alignV;
-      obsCanvas.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    });
-    obsCanvas.addEventListener('pointermove', e => {
-      if (!dragging) return;
-      const dx = (e.clientX - dragStartX) * canvasScale(obsCanvas);
-      const fine = e.shiftKey ? 0.25 : 1;
-      setAlign(dragStartV + dx * KM_PER_PX * fine);
-    });
-    ['pointerup', 'pointercancel'].forEach(ev =>
-      obsCanvas.addEventListener(ev, () => { dragging = false; }));
-
-    obsCanvas.tabIndex = 0;
-    obsCanvas.addEventListener('keydown', e => {
-      if (!pick || checked) return;
-      const step = e.shiftKey ? 1000 : 250;
-      if (e.key === 'ArrowRight') { setAlign(alignV + step); e.preventDefault(); }
-      else if (e.key === 'ArrowLeft') { setAlign(alignV - step); e.preventDefault(); }
-    });
-
-    function setAlign(v) {
-      alignV = Math.max(-V_CAP, Math.min(V_CAP, v));
-      if (Math.abs(alignV) < 300) alignV = 0; // detent at rest
-      drawObs();
-    }
-
-    document.addEventListener('keydown', e => {
-      if (e.target.tagName === 'INPUT') return;
-      const n = parseInt(e.key, 10);
-      if (n >= 1 && n <= 6 && !checked) { setPick(ELEMENT_ORDER[n - 1]); return; }
-      if (e.key === 'Enter') { checkBtn.click(); }
-    });
-
-    // ── Check / advance ─────────────────────────────────────────────────────────
-    const checkBtn = document.getElementById('checkBtn');
-    const resetBtn = document.getElementById('resetBtn');
-    const hintText = document.getElementById('hintText');
-
-    resetBtn.addEventListener('click', () => { if (!checked) setAlign(0); });
-
-    checkBtn.addEventListener('click', () => {
-      if (!checked) {
-        if (!pick) return;
-        const it = item();
-        answers[idx] = {
-          pick,
-          alignV,
-          elementOK: pick === it.element,
-          motionOK: S.signLabel(alignV, REST_BAND) === S.signLabel(it.velocity, REST_BAND)
-        };
-        checked = true;
-        renderAll();
-      } else {
-        const next = answers.findIndex(a => !a);
-        if (next !== -1) { loadItem(next); renderAll(); }
-      }
-    });
-
-    function updateControls() {
-      document.getElementById('obsLabel').textContent = `Observation ${idx + 1} of 5`;
-      resetBtn.style.display = checked ? 'none' : '';
-      obsCanvas.classList.toggle('draggable', !!pick && !checked);
-      if (!checked) {
-        checkBtn.style.display = '';
-        checkBtn.textContent = 'Check';
-        checkBtn.disabled = !pick;
-        checkBtn.style.opacity = pick ? '1' : '0.45';
-        checkBtn.style.cursor = pick ? 'pointer' : 'not-allowed';
-        hintText.textContent = pick ? '' : 'keys 1–6 select an element';
-      } else {
-        checkBtn.disabled = false;
-        checkBtn.style.opacity = '1';
-        checkBtn.style.cursor = 'pointer';
-        const remaining = answers.filter(a => !a).length;
-        checkBtn.textContent = remaining ? 'Next observation' : 'All five checked';
-        checkBtn.style.display = remaining ? '' : 'none';
-        hintText.textContent = remaining ? '' : 'download the results card from the left';
-      }
-    }
-
-    function renderAll() {
-      drawObs();
-      drawRef();
-      buildProgList();
-      updateScores();
-      updateControls();
-    }
-
-    // ── Results card PNG ────────────────────────────────────────────────────────
-    // Bespoke layout (a table, not a stack of canvases), so it builds its own
-    // card rather than using exportCard — but at the shared export scale.
-    const EXPORT_SCALE = S.EXPORT_SCALE;
-
-    function downloadResults() {
-      const name = document.getElementById('nameInput').value.trim();
-      const PAD = 26, W = 760;
-      const HDR = 96, ROWH = 38, FTR = 74;
-      const H = HDR + 5 * ROWH + FTR;
-
-      const off = document.createElement('canvas');
-      off.width = W * EXPORT_SCALE;
-      off.height = H * EXPORT_SCALE;
-      const oc = off.getContext('2d');
-      oc.scale(EXPORT_SCALE, EXPORT_SCALE);
-
-      oc.fillStyle = S.SURFACE;
-      oc.fillRect(0, 0, W, H);
-      oc.fillStyle = getAccent();
-      oc.fillRect(0, 0, W, 3);
-
-      oc.fillStyle = '#E8E4D9';
-      oc.font = 'bold 21px "Zilla Slab", serif';
-      oc.textAlign = 'left';
-      oc.fillText('Doppler Shift Challenge', PAD, 36);
-
-      oc.fillStyle = '#A6A499';
-      oc.font = '13px "Public Sans", sans-serif';
-      oc.fillText(`Set ${setKey}${name ? '  ·  ' + name : ''}  ·  ${new Date().toLocaleDateString()}`, PAD, 57);
-
-      const e = answers.filter(a => a && a.elementOK).length;
-      const m = answers.filter(a => a && a.motionOK).length;
-      oc.textAlign = 'right';
-      oc.font = 'bold 15px "Courier Prime", monospace';
-      oc.fillStyle = '#E8E4D9';
-      oc.fillText(`element ${e}/5    motion ${m}/5`, W - PAD, 50);
-
-      oc.textAlign = 'left';
-      oc.font = '11px "Courier Prime", monospace';
-      oc.fillStyle = '#948F82';
-      oc.fillText('OBSERVATION', PAD, HDR - 14);
-      oc.fillText('ELEMENT', PAD + 130, HDR - 14);
-      oc.fillText('MOTION', PAD + 400, HDR - 14);
-
-      oc.strokeStyle = 'rgba(232,228,217,0.14)';
-      oc.lineWidth = 1;
-      oc.beginPath(); oc.moveTo(PAD, HDR - 6); oc.lineTo(W - PAD, HDR - 6); oc.stroke();
-
-      items().forEach((it, i) => {
-        const a = answers[i];
-        const y = HDR + i * ROWH + 24;
-        const trueEl = ELEMENTS[it.element];
-
-        oc.font = '13px "Courier Prime", monospace';
-        oc.fillStyle = '#A6A499';
-        oc.fillText(String(i + 1), PAD, y);
-
-        oc.beginPath();
-        oc.arc(PAD + 24, y - 4, 4.5, 0, Math.PI * 2);
-        oc.fillStyle = trueEl.color;
-        oc.fill();
-
-        oc.font = 'bold 14px "Public Sans", sans-serif';
-        oc.fillStyle = a && a.elementOK ? OK_C : BAD_C;
-        oc.fillText(a && a.elementOK ? '✓' : '✗', PAD + 130, y);
-        oc.fillStyle = '#E8E4D9';
-        oc.font = '14px "Public Sans", sans-serif';
-        let txt = trueEl.name;
-        if (a && !a.elementOK) txt += `   (you: ${ELEMENTS[a.pick].name})`;
-        oc.fillText(txt, PAD + 150, y);
-
-        oc.font = 'bold 14px "Public Sans", sans-serif';
-        oc.fillStyle = a && a.motionOK ? OK_C : BAD_C;
-        oc.fillText(a && a.motionOK ? '✓' : '✗', PAD + 400, y);
-        oc.fillStyle = '#E8E4D9';
-        oc.font = '14px "Public Sans", sans-serif';
-        let mtxt = `${S.signLabel(it.velocity, REST_BAND)}  ${S.fmtVel(it.velocity)}`;
-        if (a && !a.motionOK) mtxt += `   (you: ${S.signLabel(a.alignV, REST_BAND)})`;
-        oc.fillText(mtxt, PAD + 420, y);
-
-        oc.strokeStyle = 'rgba(232,228,217,0.08)';
-        oc.beginPath();
-        oc.moveTo(PAD, HDR + i * ROWH + ROWH - 4);
-        oc.lineTo(W - PAD, HDR + i * ROWH + ROWH - 4);
-        oc.stroke();
-      });
-
-      oc.fillStyle = '#948F82';
-      oc.font = '11px "Courier Prime", monospace';
-      oc.fillText('contextclimate.io · NYSED ESRT (2026), p.3 · v = c(Δλ/λ₀)', PAD, H - 18);
-      oc.fillStyle = getAccent();
-      oc.fillRect(0, H - 2, W, 2);
-
-      const link = document.createElement('a');
-      link.download = `doppler-challenge-set${setKey}${name ? '-' + name.replace(/\s+/g, '-').toLowerCase() : ''}.png`;
-      link.href = off.toDataURL('image/png');
-      link.click();
-    }
-    document.getElementById('resultsBtn').addEventListener('click', downloadResults);
-
-    // Init
-    setupCanvases();
-    loadSet('A');
-    S.renderSeriesNav('seriesNav', 'challenge');
-  </script>
-
+/* ══ INIT ═══════════════════════════════════════════════════════════════════ */
+{ const i = S.SERIES.findIndex(x => x.key === 'challenge');
+  [['prev', S.SERIES[i - 1]], ['next', S.SERIES[i + 1]]].forEach(([k, s]) => { const a = document.getElementById(k + 'Link');
+    if (s) { a.href = S.seriesHref(s.route); a.title = s.label; document.getElementById(k + 'Name').textContent = s.label; } else a.style.display = 'none'; }); }
+(function urlState() {
+  const p = new URLSearchParams(location.search);
+  try { const h = window.top.location.hash || '', i = h.indexOf('?'); if (i >= 0) new URLSearchParams(h.slice(i + 1)).forEach((v, k) => { if (!p.has(k)) p.set(k, v); }); } catch (e) {}
+  const s = (p.get('set') || '').toUpperCase(); if (SETS[s]) ST.set = s;
+})();
+(async function init() {
+  resize(); loadItem(0);
+  try { await Promise.all([`700 16px ${FD}`, `600 13px ${FB}`, `500 13px ${FB}`, `700 13px ${FM}`, `500 13px ${FM}`].map(f => document.fonts.load(f))); } catch (e) {}
+  resize(); refresh(); requestAnimationFrame(loop);
+})();
+window.__DSC = { ST, SETS, ORDER, EL, item, checked, setPick, setAlign, go, loadItem, loadSet, refresh, cardModel, compose, sweep, kmPerPx, TOL };
+</script>
 </body>
 </html>
