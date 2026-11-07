@@ -272,6 +272,24 @@ function photonXY(g, p) {
   if (p.toC) { const m = perp(from, g.C); const q = P(from, g.C, p.t); return { x: q.x + m.x * p.jc * 8 * s * p.t, y: q.y + m.y * p.jc * 8 * s * p.t }; }
   return { x: from.x + Math.cos(p.th) * 900 * s * p.t, y: from.y + Math.sin(p.th) * 900 * s * p.t };
 }
+/* when the light front reaches each point (seconds), from the same reference paths the photon simulation uses */
+function beamTimes() {
+  const v = SPEED * 1000, LB = segLen(REF.S0, REF.B) / v;
+  return { A: segLen(REF.S0, REF.A) / v, B: LB, in: CHORD.tin * LB, out: CHORD.tout * LB,
+    c0: (CHORD.tin + CHORD.tout) / 2 * LB + 0.12, C: segLen(REF.G, REF.C) * 0.8 / v };
+}
+function chordOut(g) {
+  let out = 0.5;
+  for (let i = 0; i <= 200; i++) { const t = i / 200; if (inCloud(g, lerp(g.S0.x, g.B.x, t), lerp(g.S0.y, g.B.y, t))) out = t; }
+  return out;
+}
+function beam(c, p0, p1, f0, f1, rgb, k, head) {
+  if (f1 - f0 < 1e-4) return;
+  const x0 = lerp(p0.x, p1.x, f0), y0 = lerp(p0.y, p1.y, f0), x1 = lerp(p0.x, p1.x, f1), y1 = lerp(p0.y, p1.y, f1), col = a => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${(a * k).toFixed(3)})`;
+  c.lineCap = 'round';
+  [[18, 0.05], [8, 0.11], [2.4, 0.7]].forEach(([w, a]) => { c.strokeStyle = col(a); c.lineWidth = w; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); });
+  if (head) { const gr = c.createRadialGradient(x1, y1, 0, x1, y1, 14); gr.addColorStop(0, col(0.75)); gr.addColorStop(1, col(0)); c.fillStyle = gr; c.beginPath(); c.arc(x1, y1, 14, 0, 7); c.fill(); }
+}
 function eye(c, x, y, ang, sel, letter) {
   c.save(); c.translate(x, y); c.rotate(ang);
   c.beginPath(); c.ellipse(0, 0, 15, 9, 0, 0, 7); c.fillStyle = 'rgba(15,19,17,0.9)'; c.fill();
@@ -293,7 +311,7 @@ function drawScene1(c, g, el, sim) {
     c.beginPath(); c.moveTo(o.x + Math.cos(ang) * 18, o.y + Math.sin(ang) * 18); c.lineTo(t.x, t.y); c.stroke(); c.setLineDash([]);
   });
   // gas cloud: soft puffs tinted by the blend of its own lines
-  const gc = gasRGB(el), live = sim && !sim.done ? 1 : 0;
+  const gc = gasRGB(el), LT = beamTimes(), live = sim && !sim.done && sim.t > LT.in && sim.t < EMIT_T + LT.out ? 1 : 0;
   for (let i = 0; i < 7; i++) {
     const a = i / 7 * Math.PI * 2 + 0.4, ox = i ? Math.cos(a) * g.rgx * 0.42 : 0, oy = i ? Math.sin(a) * g.rgy * 0.4 : 0, r = i ? g.rgx * 0.62 : g.rgx;
     const gr = c.createRadialGradient(g.G.x + ox, g.G.y + oy, 0, g.G.x + ox, g.G.y + oy, r);
@@ -306,22 +324,28 @@ function drawScene1(c, g, el, sim) {
   gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.35, 'rgba(255,226,170,0.55)'); gr.addColorStop(1, 'rgba(255,220,150,0)');
   c.fillStyle = gr; c.beginPath(); c.arc(g.S0.x, g.S0.y, g.rs * 2.6, 0, 7); c.fill();
   c.fillStyle = '#FFF7E6'; c.beginPath(); c.arc(g.S0.x, g.S0.y, g.rs, 0, 7); c.fill();
-  // photons
-  if (sim) {
-    const s = g.w / 1000;
-    sim.fl.forEach(f => {
-      const q = { k: 'B', t: f.t0, j: f.j }, p = photonXY(g, q), a = 1 - f.age / 0.35;
-      c.beginPath(); c.arc(p.x, p.y, 3 + 9 * (1 - a), 0, 7); c.strokeStyle = S.wavelengthToRGB(f.wl).replace('rgb', 'rgba').replace(')', `,${(0.7 * a).toFixed(2)})`); c.lineWidth = 1.5; c.stroke();
-    });
-    c.save(); c.globalCompositeOperation = 'lighter';
-    sim.ph.forEach(p => {
-      if (p.wait > 0) return;
-      const q = photonXY(g, p);
-      if (q.x < -10 || q.x > g.w + 10 || q.y < -10 || q.y > g.sh + 10) return;
-      c.fillStyle = S.wavelengthToRGB(p.wl); c.beginPath(); c.arc(q.x, q.y, 2.3 * Math.max(0.8, s), 0, 7); c.fill();
-    });
-    c.restore();
+  // light: white beams from the source; the gas re-emits in its own color
+  const L = beamTimes(), bt = sim ? sim.t : 0, anim = !!(sim && !sim.done);
+  const k = anim ? 1 : 0.55 * (sim ? sim.fade : 1);
+  const span = (t0, dur, len) => anim ? [clamp((bt - t0 - EMIT_T) / dur, 0, 1), clamp((bt - t0) / dur, 0, 1)] : [0, 1];
+  const WHITE = [255, 248, 236];
+  c.save(); c.globalCompositeOperation = 'lighter';
+  if (k > 0.01) {
+    const [a0, a1] = span(0, L.A); beam(c, g.S0, g.A, a0, a1, WHITE, k, anim && a1 < 1);
+    const ex = chordOut(g), [b0, b1] = span(0, L.B);
+    beam(c, g.S0, g.B, b0, Math.min(b1, ex), WHITE, k, anim && b1 < ex);
+    beam(c, g.S0, g.B, Math.max(b0, ex), b1, WHITE, k * 0.62, anim && b1 < 1 && b1 > ex);
+    const u = { x: g.C.x - g.G.x, y: g.C.y - g.G.y }, ul = Math.hypot(u.x, u.y); u.x /= ul; u.y /= ul;
+    const edge = 0.85 / Math.hypot(u.x / g.rgx, u.y / g.rgy), E = { x: g.G.x + u.x * edge, y: g.G.y + u.y * edge };
+    const [c0, c1] = span(L.c0, L.C); beam(c, E, g.C, c0, c1, gc, Math.min(1, k * 1.25), anim && c1 < 1); beam(c, E, g.C, c0, c1, gc, k * 0.35, false);
+    if (anim) for (let bth = L.c0 - 0.1; bth < EMIT_T + L.out && bth <= bt; bth += 0.5) {
+      const age = bt - bth; if (age > 1.4) continue;
+      const r = g.rgx * (0.7 + age * 1.1), al = 0.22 * (1 - age / 1.4);
+      c.save(); c.translate(g.G.x, g.G.y); c.scale(1, g.rgy / g.rgx);
+      c.beginPath(); c.arc(0, 0, r, 0, 7); c.strokeStyle = `rgba(${gc[0]},${gc[1]},${gc[2]},${al.toFixed(3)})`; c.lineWidth = 2.5; c.stroke(); c.restore();
+    }
   }
+  c.restore();
   // observers
   obsP.forEach((o, i) => eye(c, o.x, o.y, Math.atan2(tgt[i].y - o.y, tgt[i].x - o.x), i === ST.obs, OBS[i].key));
   c.font = `500 13px ${FB}`; c.fillStyle = LABEL; c.textAlign = 'center';
