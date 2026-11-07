@@ -51,6 +51,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .card .r { padding: 7px 0 6px; border-bottom: 1px solid var(--color-border); }
 .card .l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; color: var(--color-text-secondary); }
 .card .v { font-family: var(--font-display); font-weight: 700; font-size: 25px; line-height: 1.15; color: var(--color-text-primary); }
+.card .v.sm { font-size: 19px; line-height: 1.25; }
 .card .v .u { font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--color-text-secondary); margin-left: 5px; }
 .card .sub { font-family: var(--font-mono); font-weight: 700; font-size: 14px; color: var(--color-text-secondary); margin-top: 1px; }
 .card .tx { font-family: var(--font-body); font-size: 14px; line-height: 1.45; color: var(--color-text-secondary); margin: 8px 0 2px; }
@@ -120,22 +121,22 @@ function rrect(c, x, y, w, h, r) {
 }
 
 /* ══ DATA ═══════════════════════════════════════════════════════════════════
-   Each set ramps: a wide shift, a dense pattern, one source AT REST, a small
-   shift, then a large shift on a busy element. Every pattern stays inside the
-   380–760 nm window. */
+   Each set ramps: one element with a wide shift, then two elements, two AT REST,
+   two with a small shift, three with a large shift. Nitrogen and oxygen are never
+   paired. Every line stays inside the 380–760 nm window. */
 const SETS = {
-  A: [{ el: 'hydrogen', v: 9500 }, { el: 'helium', v: -7200 }, { el: 'oxygen', v: 0 }, { el: 'carbon', v: 3800 }, { el: 'silicon', v: -14000 }],
-  B: [{ el: 'helium', v: -10500 }, { el: 'hydrogen', v: 5600 }, { el: 'nitrogen', v: 0 }, { el: 'oxygen', v: -4200 }, { el: 'carbon', v: 16000 }],
-  C: [{ el: 'hydrogen', v: -12000 }, { el: 'silicon', v: 6800 }, { el: 'carbon', v: 0 }, { el: 'nitrogen', v: 4600 }, { el: 'helium', v: 15500 }],
-  D: [{ el: 'oxygen', v: 8900 }, { el: 'nitrogen', v: -6300 }, { el: 'silicon', v: 0 }, { el: 'hydrogen', v: -3500 }, { el: 'carbon', v: -13200 }]
+  A: [{ els: ['hydrogen'], v: 9500 }, { els: ['helium', 'carbon'], v: -7200 }, { els: ['hydrogen', 'oxygen'], v: 0 }, { els: ['carbon', 'silicon'], v: 3800 }, { els: ['hydrogen', 'helium', 'silicon'], v: -14000 }],
+  B: [{ els: ['helium'], v: -10500 }, { els: ['hydrogen', 'nitrogen'], v: 5600 }, { els: ['carbon', 'nitrogen'], v: 0 }, { els: ['helium', 'oxygen'], v: -4200 }, { els: ['hydrogen', 'carbon', 'silicon'], v: 16000 }],
+  C: [{ els: ['hydrogen'], v: -12000 }, { els: ['helium', 'silicon'], v: 6800 }, { els: ['hydrogen', 'carbon'], v: 0 }, { els: ['nitrogen', 'silicon'], v: 4600 }, { els: ['hydrogen', 'helium', 'carbon'], v: 15500 }],
+  D: [{ els: ['oxygen'], v: 8900 }, { els: ['hydrogen', 'nitrogen'], v: -6300 }, { els: ['oxygen', 'silicon'], v: 0 }, { els: ['hydrogen', 'carbon'], v: -3500 }, { els: ['helium', 'carbon', 'silicon'], v: -13200 }]
 };
 const SET_KEYS = Object.keys(SETS);
 const WL0 = 380, WL1 = 760, TOL = 500, DETENT = 300, V_CAP = 26000;
-const TEXT = 'Pick the element whose pattern matches the observed spectrum. Then drag its pattern until every line lines up.';
+const TEXT = 'Pick every element whose pattern appears in the observed spectrum. Then drag the patterns until every line lines up.';
 const SRC = 'Rest wavelengths: NYSED ESRT (2026), p. 3. Classical shift λ = λ₀(1 + v/c). Source velocities chosen for visibility.';
 
 /* ══ STATE ══════════════════════════════════════════════════════════════════ */
-const ST = { set: 'A', idx: 0, pick: null, alignV: 0, answers: [null, null, null, null, null], show: null, tw: null };
+const ST = { set: 'A', idx: 0, picks: [], alignV: 0, answers: [null, null, null, null, null], show: null, tw: null };
 let capturing = false;
 const HIT = {};
 const item = () => SETS[ST.set][ST.idx];
@@ -144,7 +145,7 @@ const checked = () => !!ST.answers[ST.idx];
 /* what the reference band displays: the student's pattern, or (once checked) the answer sliding in */
 function display() {
   if (ST.show) return ST.show;
-  return { el: ST.pick, v: ST.alignV };
+  return { els: ST.picks, v: ST.alignV };
 }
 
 /* ══ DRAWING ════════════════════════════════════════════════════════════════ */
@@ -186,26 +187,26 @@ function drawScene(c, w, h, live) {
   c.save();
   c.fillStyle = '#141916'; c.fillRect(0, 0, w, h);
   // observed
-  band(c, G.obs); lines(c, G.obs, EL[it.el], it.v, 1.15); frame(c, G.obs);
+  band(c, G.obs); it.els.forEach(k => lines(c, G.obs, EL[k], it.v, 1.15)); frame(c, G.obs);
   gutter(c, G.obs, 'Observed', `Source ${ST.idx + 1}`);
   // the gap: observed lines reach down (solid), reference lines reach up (dashed) — aligned lines meet
   const mid = G.obs.y + G.obs.h + G.gap / 2;
   c.save(); c.beginPath(); c.rect(G.obs.x, G.obs.y, G.obs.w, G.ref.y + G.ref.h - G.obs.y); c.clip();
-  EL[it.el].lines.forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, it.v), G.obs);
+  it.els.flatMap(k => EL[k].lines).forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, it.v), G.obs);
     c.strokeStyle = 'rgba(232,228,217,0.62)'; c.lineWidth = l.strong ? 2 : 1.3; c.beginPath(); c.moveTo(x, G.obs.y + G.obs.h + 1); c.lineTo(x, mid); c.stroke(); });
-  if (D.el) EL[D.el].lines.forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, D.v), G.ref);
+  D.els.flatMap(k => EL[k].lines).forEach(l => { const x = S.wlToX(S.shiftedWl(l.wl, D.v), G.ref);
     c.setLineDash([3, 3]); c.strokeStyle = chk ? 'rgba(42,168,126,0.95)' : 'rgba(60,163,174,0.95)'; c.lineWidth = l.strong ? 2 : 1.3;
     c.beginPath(); c.moveTo(x, G.ref.y - 1); c.lineTo(x, mid); c.stroke(); c.setLineDash([]); });
   c.restore();
   // your reference
-  if (D.el) { band(c, G.ref); lines(c, G.ref, EL[D.el], D.v, 1.15); }
+  if (D.els.length) { band(c, G.ref); D.els.forEach(k => lines(c, G.ref, EL[k], D.v, 1.15)); }
   else {
     c.fillStyle = '#0B0E0C'; c.fillRect(G.ref.x, G.ref.y, G.ref.w, G.ref.h);
     c.font = `500 14px ${FB}`; c.fillStyle = LABEL; c.textAlign = 'center'; c.fillText('Pick an element below', G.ref.x + G.ref.w / 2, G.ref.y + G.ref.h / 2 + 5);
   }
-  frame(c, G.ref, chk ? OK : D.el ? ACC : null, D.el ? 2 : 1);
-  if (chk) gutter(c, G.ref, 'Answer', EL[it.el].name, OK);
-  else gutter(c, G.ref, 'Your reference', D.el ? 'drag ⇆' : 'pick below', D.el ? ACC : LABEL);
+  frame(c, G.ref, chk ? OK : D.els.length ? ACC : null, D.els.length ? 2 : 1);
+  if (chk) gutter(c, G.ref, 'Answer', it.els.map(k => EL[k].symbol).join(' + '), OK);
+  else gutter(c, G.ref, 'Your reference', D.els.length ? 'drag ⇆' : 'pick below', D.els.length ? ACC : LABEL);
   // axis
   c.font = `500 13px ${FM}`; c.textBaseline = 'alphabetic';
   for (let wl = 380; wl <= 760; wl += 10) {
@@ -217,8 +218,8 @@ function drawScene(c, w, h, live) {
   c.textAlign = 'left'; c.fillStyle = LABEL; c.fillText('nm', 14, G.axisY + 2);
   // element patterns at rest
   G.rows.forEach(p => {
-    const el = EL[p.k], sel = ST.pick === p.k, isTrue = chk && p.k === it.el, wrong = chk && sel && p.k !== it.el;
-    c.globalAlpha = !chk && ST.pick && !sel ? 0.82 : 1;
+    const el = EL[p.k], sel = ST.picks.includes(p.k), isTrue = chk && it.els.includes(p.k), wrong = chk && sel && !isTrue;
+    c.globalAlpha = !chk && ST.picks.length && !sel ? 0.82 : 1;
     band(c, p); lines(c, p, el, 0); c.globalAlpha = 1;
     frame(c, p, isTrue ? OK : wrong ? BAD : sel ? ACC : null, isTrue || wrong || sel ? 2.5 : 1);
     if (live && HIT.hoverRow === p.k && !chk && !sel) frame(c, p, 'rgba(232,228,217,0.55)', 1.5);
@@ -245,15 +246,20 @@ function draw() { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); drawScene(ctx, W, H, t
 /* ══ CARD ═══════════════════════════════════════════════════════════════════ */
 const state = v => v > 0 ? 'receding · redshift' : v < 0 ? 'approaching · blueshift' : 'at rest · no shift';
 function cardModel() {
-  const it = item(), a = ST.answers[ST.idx], v = a ? a.alignV : ST.alignV, pick = a ? a.pick : ST.pick;
+  const it = item(), a = ST.answers[ST.idx], v = a ? a.alignV : ST.alignV, picks = a ? a.picks : ST.picks, has = picks.length > 0;
+  const names = ks => ks.map(k => EL[k].symbol).join(' + ');
   const rows = [
-    { l: 'Your element', v: pick ? EL[pick].name : '—' },
-    { l: 'Your measurement', v: pick ? fmtV(v) : '—', u: pick ? 'km/s' : '', color: pick ? S.shiftColor(v, 0) : null, sub: pick ? state(v) : '', subColor: pick ? S.shiftColor(v, 0) : null }];
+    ...(a ? [] : [{ l: picks.length > 1 ? 'Your elements' : 'Your element', v: has ? names(picks) : '\u2014' }]),
+    { l: 'Your measurement', v: has ? fmtV(v) : '\u2014', u: has ? 'km/s' : '', color: has ? S.shiftColor(v, 0) : null, sub: has ? state(v) : '', subColor: has ? S.shiftColor(v, 0) : null }];
   if (a) {
-    rows.push({ l: 'Answer', v: EL[it.el].name, sub: a.elementOK ? '✓ your pick' : `✗ you chose ${EL[a.pick].name}`, subColor: a.elementOK ? OK : BAD });
+    const subs = ORDER.filter(k => it.els.includes(k) || picks.includes(k)).map(k => {
+      const t = it.els.includes(k), pk = picks.includes(k);
+      return t && pk ? { t: `\u2713 ${EL[k].name}`, c: OK } : t ? { t: `\u2717 ${EL[k].name} \u00b7 missed`, c: BAD } : { t: `\u2717 ${EL[k].name} \u00b7 not present`, c: BAD };
+    });
+    rows.push({ l: 'Answer', v: names(it.els), subs });
     rows.push({ l: 'Actual velocity', v: fmtV(it.v), u: 'km/s', color: S.shiftColor(it.v, 0),
-      sub: !a.elementOK ? '✗ different pattern' : a.aligned ? '✓ lines up' : `✗ off by ${Math.abs(Math.round(a.alignV - it.v)).toLocaleString('en-US')} km/s`,
-      subColor: a.elementOK && a.aligned ? OK : BAD });
+      sub: !a.noWrong ? '\u2717 a wrong element is picked' : a.aligned ? '\u2713 lines up' : `\u2717 off by ${Math.abs(Math.round(a.alignV - it.v)).toLocaleString('en-US')} km/s`,
+      subColor: a.aligned ? OK : BAD });
   }
   return { eb: `Set ${ST.set} · Source ${ST.idx + 1} of 5`, intro: TEXT, rows };
 }
@@ -263,8 +269,9 @@ let lastCard = '';
 function renderCard() {
   const m = cardModel(), key = JSON.stringify(m); if (key === lastCard) return; lastCard = key;
   document.getElementById('card').innerHTML = `<div class="eb">${esc(upLatin(m.eb))}</div><p class="tx">${esc(m.intro)}</p>` + m.rows.map(r =>
-    `<div class="r"><div class="l">${esc(upLatin(r.l))}</div><div class="v"${r.color ? ` style="color:${r.color}"` : ''}>${esc(r.v)}${r.u ? `<span class="u">${esc(r.u)}</span>` : ''}</div>` +
-    (r.sub ? `<div class="sub"${r.subColor ? ` style="color:${r.subColor}"` : ''}>${esc(r.sub)}</div>` : '') + '</div>').join('') + `<div class="src">${esc(SRC)}</div>`;
+    `<div class="r"><div class="l">${esc(upLatin(r.l))}</div><div class="v${r.sm ? ' sm' : ''}"${r.color ? ` style="color:${r.color}"` : ''}>${esc(r.v)}${r.u ? `<span class="u">${esc(r.u)}</span>` : ''}</div>` +
+    (r.sub ? `<div class="sub"${r.subColor ? ` style="color:${r.subColor}"` : ''}>${esc(r.sub)}</div>` : '') +
+    (r.subs ? r.subs.map(q => `<div class="sub" style="color:${q.c}">${esc(q.t)}</div>`).join('') : '') + '</div>').join('') + `<div class="src">${esc(SRC)}</div>`;
 }
 
 /* ══ CONTROLS ═══════════════════════════════════════════════════════════════ */
@@ -278,29 +285,30 @@ document.getElementById('bGo').onclick = go;
 let lastCtl = '';
 function syncControls() {
   const chk = checked(), open = ST.answers.findIndex(a => !a);
-  const key = [ST.set, ST.idx, chk, !!ST.pick, ST.answers.map(a => a ? 1 : 0).join('')].join('|'); if (key === lastCtl) return; lastCtl = key;
+  const key = [ST.set, ST.idx, chk, ST.picks.length, ST.answers.map(a => a ? 1 : 0).join('')].join('|'); if (key === lastCtl) return; lastCtl = key;
   setsEl.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('is-active', b.dataset.s === ST.set));
   snapsEl.querySelectorAll('.snap').forEach((b, i) => { b.classList.toggle('is-active', i === ST.idx); b.querySelector('.v').textContent = ST.answers[i] ? 'checked' : '—'; });
   const g = document.getElementById('bGo');
-  if (!chk) { g.textContent = 'Check'; g.disabled = !ST.pick; }
+  if (!chk) { g.textContent = 'Check'; g.disabled = !ST.picks.length; }
   else { g.disabled = false; g.textContent = open >= 0 ? 'Next source →' : `Set ${SET_KEYS[(SET_KEYS.indexOf(ST.set) + 1) % SET_KEYS.length]} →`; }
-  document.getElementById('bReset').disabled = chk || !ST.pick;
+  document.getElementById('bReset').disabled = chk || !ST.picks.length;
   document.getElementById('bGIF').disabled = document.getElementById('bMP4').disabled = !chk;
 }
 function loadSet(k) { ST.set = k; ST.answers = [null, null, null, null, null]; loadItem(0); }
 function loadItem(i) {
   ST.idx = i; ST.tw = null; const a = ST.answers[i];
-  if (a) { ST.pick = a.pick; ST.alignV = a.alignV; ST.show = { el: item().el, v: item().v }; }
-  else { ST.pick = null; ST.alignV = 0; ST.show = null; }
+  if (a) { ST.picks = a.picks.slice(); ST.alignV = a.alignV; ST.show = { els: item().els, v: item().v }; }
+  else { ST.picks = []; ST.alignV = 0; ST.show = null; }
   refresh();
 }
 function go() {
   if (!checked()) {
-    if (!ST.pick) return;
-    const it = item(), elementOK = ST.pick === it.el, aligned = elementOK && Math.abs(ST.alignV - it.v) <= TOL;
-    ST.answers[ST.idx] = { pick: ST.pick, alignV: ST.alignV, elementOK, aligned };
+    if (!ST.picks.length) return;
+    const it = item(), noWrong = ST.picks.every(k => it.els.includes(k));
+    const elementsOK = noWrong && it.els.every(k => ST.picks.includes(k)), aligned = noWrong && Math.abs(ST.alignV - it.v) <= TOL;
+    ST.answers[ST.idx] = { picks: ST.picks.slice(), alignV: ST.alignV, elementsOK, noWrong, aligned };
     // the answer slides into place: true pattern, from where the student left it
-    ST.show = { el: it.el, v: ST.alignV };
+    ST.show = { els: it.els, v: ST.alignV };
     if (REDUCED) ST.show.v = it.v; else ST.tw = { v0: ST.alignV, v1: it.v, start: performance.now(), dur: clamp(Math.abs(it.v - ST.alignV) / 9000, 0.5, 1.6) * 1000 };
     refresh();
   } else {
@@ -308,8 +316,8 @@ function go() {
     if (open >= 0) loadItem(open); else loadSet(SET_KEYS[(SET_KEYS.indexOf(ST.set) + 1) % SET_KEYS.length]);
   }
 }
-function setPick(k) { if (checked()) return; ST.pick = k; refresh(); }
-function setAlign(v) { if (checked() || !ST.pick) return; v = clamp(v, -V_CAP, V_CAP); ST.alignV = Math.abs(v) < DETENT ? 0 : Math.round(v); refresh(); }
+function setPick(k) { if (checked()) return; ST.picks = ST.picks.includes(k) ? ST.picks.filter(q => q !== k) : ORDER.filter(q => q === k || ST.picks.includes(q)); refresh(); }
+function setAlign(v) { if (checked() || !ST.picks.length) return; v = clamp(v, -V_CAP, V_CAP); ST.alignV = Math.abs(v) < DETENT ? 0 : Math.round(v); refresh(); }
 function refresh() { draw(); renderCard(); syncControls(); }
 
 let lastT = performance.now();
@@ -332,13 +340,13 @@ const kmPerPx = () => { const G = HIT.G; return S.C_KM_S / ((WL0 + WL1) / 2) * (
 cv.addEventListener('pointerdown', e => {
   const p = pt(e), k = rowAt(p);
   if (k) { setPick(k); return; }
-  if (inDrag(p) && ST.pick && !checked()) { drag = { x: e.clientX, v: ST.alignV }; cv.setPointerCapture(e.pointerId); e.preventDefault(); }
+  if (inDrag(p) && ST.picks.length && !checked()) { drag = { x: e.clientX, v: ST.alignV }; cv.setPointerCapture(e.pointerId); e.preventDefault(); }
 });
 cv.addEventListener('pointermove', e => {
   const p = pt(e);
   if (drag) { setAlign(drag.v + (e.clientX - drag.x) * kmPerPx() * (e.shiftKey ? 0.25 : 1)); cv.style.cursor = 'grabbing'; return; }
   const k = rowAt(p); if (k !== HIT.hoverRow) { HIT.hoverRow = k; draw(); }
-  cv.style.cursor = k && !checked() ? 'pointer' : inDrag(p) && ST.pick && !checked() ? 'ew-resize' : 'default';
+  cv.style.cursor = k && !checked() ? 'pointer' : inDrag(p) && ST.picks.length && !checked() ? 'ew-resize' : 'default';
 });
 const end = () => { drag = null; };
 cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
@@ -369,9 +377,11 @@ function drawCardCanvas(c, x, y, w, h, m) {
   c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; yy += 6; wrapWords(c, m.intro, pw).forEach(ln => { yy += 20; c.fillText(ln, px, yy); }); yy += 10; line();
   for (const r of m.rows) {
     yy += 15; c.font = `500 12px ${FM}`; c.fillStyle = '#A6A499'; c.fillText(upLatin(r.l), px, yy);
-    yy += 21; c.font = `700 23px ${FD}`; c.fillStyle = r.color || '#E8E4D9'; c.fillText(r.v, px, yy);
-    if (r.u) { const vw = c.measureText(r.v).width; c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; c.fillText(r.u, px + vw + 6, yy + 1); }
+    c.font = `700 ${r.sm ? 18 : 23}px ${FD}`; c.fillStyle = r.color || '#E8E4D9';
+    const vl = wrapWords(c, r.v, pw); vl.forEach((ln, i) => { yy += i ? (r.sm ? 22 : 27) : 21; c.fillText(ln, px, yy); });
+    if (r.u) { const vw = c.measureText(vl[vl.length - 1]).width; c.font = `500 14px ${FB}`; c.fillStyle = '#A6A499'; c.fillText(r.u, px + vw + 6, yy + 1); }
     if (r.sub) { yy += 19; c.font = `700 14px ${FM}`; c.fillStyle = r.subColor || '#A6A499'; c.fillText(r.sub, px, yy); }
+    (r.subs || []).forEach(q => { yy += 18; c.font = `700 14px ${FM}`; c.fillStyle = q.c; c.fillText(q.t, px, yy); });
     yy += 15; line();
   }
   c.textBaseline = 'alphabetic';
@@ -407,9 +417,9 @@ async function exportPNG() {
 function sweep(kind) {
   const gif = kind === 'gif', it = item(), fr = [], saved = ST.show ? { ...ST.show } : null;
   const hold0 = gif ? 10 : 24, mv = gif ? 28 : 75, hold1 = gif ? 18 : 54;
-  for (let i = 0; i < hold0; i++) fr.push({ set: () => { ST.show = { el: it.el, v: 0 }; }, delay: 8 });
-  for (let i = 1; i <= mv; i++) { const v = lerp(0, it.v, easeIO(i / mv)); fr.push({ set: () => { ST.show = { el: it.el, v }; }, delay: 8 }); }
-  for (let i = 0; i < hold1; i++) fr.push({ set: () => { ST.show = { el: it.el, v: it.v }; }, delay: 8 });
+  for (let i = 0; i < hold0; i++) fr.push({ set: () => { ST.show = { els: it.els, v: 0 }; }, delay: 8 });
+  for (let i = 1; i <= mv; i++) { const v = lerp(0, it.v, easeIO(i / mv)); fr.push({ set: () => { ST.show = { els: it.els, v }; }, delay: 8 }); }
+  for (let i = 0; i < hold1; i++) fr.push({ set: () => { ST.show = { els: it.els, v: it.v }; }, delay: 8 });
   return { fr, restore: () => { ST.show = saved; } };
 }
 function buildPalette(frames) {
