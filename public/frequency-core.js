@@ -847,6 +847,9 @@ function applyModeUI() {
   $('diff-wrap').hidden = !dist || single;
   $('curve-btn').hidden = !dist;
   $('months-hint').hidden = dist;
+  // Showing/hiding the strip or the view changes the chart boxes; resize now
+  // rather than waiting on ResizeObserver (which background tabs defer).
+  if (dist) { if (chart) chart.resize(); if (diffChart && !single) diffChart.resize(); }
 }
 
 // ═══════════════════════════════════════════════
