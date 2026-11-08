@@ -218,6 +218,15 @@ const SECTIONS = [
             status:      'live',
 },
           {
+            tags:        ['Triangulation', 'Interactive'],
+            title:       "Kepler's Triangulation",
+            description: "Plot Mars the way Kepler did. Mark Earth from the Sun and sight Mars from Earth on two dates one Mars year apart, then find Mars where the lines cross. Plot twelve real positions to rebuild Mars's whole orbit.",
+            footerTags:  ['Heliocentric Longitude', 'Geocentric Longitude'],
+            to:          '/earthandspace/kepler-triangulation',
+            thumb:       '/KeplerTriangulation_thumbnail.png',
+            status:      'live',
+          },
+          {
             tags:        ["Kepler's Laws", 'Interactive', '1 of 3'],
             title:       "Kepler's First Law",
             description: "Explore how eccentricity changes as the shape of planetary orbits range from nearly circular to highly elliptical. Change eccentricity, reveal geometry overlays for various properties, and animate the planet with realistic speed variation.",
