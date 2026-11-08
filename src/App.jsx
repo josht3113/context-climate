@@ -82,6 +82,7 @@ import StackedSignal               from './pages/StackedSignal'
 import KeplerLaw1                  from './pages/KeplerLaw1'
 import KeplerLaw2                  from './pages/KeplerLaw2'
 import KeplerLaw3                  from './pages/KeplerLaw3'
+import KeplerTriangulation         from './pages/KeplerTriangulation'
 import InverseSquareLaw            from './pages/InverseSquareLaw'
 import HurricaneSteering           from './pages/HurricaneSteering'
 import SurfaceMap                     from './pages/SurfaceMap'
@@ -254,6 +255,7 @@ export default function App() {
           <Route path="/earthandspace/kepler-law1-ellipses"   element={<KeplerLaw1 />}              />
           <Route path="/earthandspace/kepler-law2-areas"      element={<KeplerLaw2 />}              />
           <Route path="/earthandspace/kepler-law3-periods"    element={<KeplerLaw3 />}              />
+          <Route path="/earthandspace/kepler-triangulation"   element={<KeplerTriangulation />}     />
           <Route path="/earthandspace/inverse-square-law"     element={<InverseSquareLaw />}        />
           <Route path="/earthandspace/hurricane-steering"     element={<HurricaneSteering />}       />
           <Route path="/earthandspace/planetary-retrograde"         element={<PlanetaryRetrograde />}       />
