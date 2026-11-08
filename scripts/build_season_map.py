@@ -59,6 +59,10 @@ def enc_mean(mean):
 def enc_share(x):
     return enc2(MISSING) if x is None else enc2(int(round(x * 4094)))
 
+def enc_shares(blocks):
+    """53 blocks x 4 seasons; a block with no data is four MISSING pairs."""
+    return ''.join(enc_share(None) * 4 if b is None else ''.join(enc_share(x) for x in b) for b in blocks)
+
 
 # ── JavaScript-identical helpers ───────────────────────────────────────
 def js_parse_int(v):
@@ -276,7 +280,7 @@ def build_full(roster, workers):
                 break
             thr[str(p)] = t
             blocks, nc = shares(days, t, sy)
-            shr[str(p)] = ''.join(enc_share(None) if b is None else ''.join(enc_share(x) for x in b) for b in blocks)
+            shr[str(p)] = enc_shares(blocks)
             ncomp = nc
         if len(thr) != len(PERIODS):
             continue
@@ -361,6 +365,8 @@ def selftest():
     assert classify(9, 15, (t['summer'] + t['winter']) / 2, t) == 'autumn'
     b, nc = shares(days, t, 2025)
     assert nc == 50 and len(b) == NBLK and abs(sum(b[30]) - 1) < 1e-9, (nc, b[30])
+    gap = list(b); gap[5] = None
+    assert len(enc_shares(b)) == len(enc_shares(gap)) == NBLK * 8
     s = means_for(days, 2023, dt.date(2024, 11, 30))
     assert len(s) == 2 * 366
     print('selftest OK')
