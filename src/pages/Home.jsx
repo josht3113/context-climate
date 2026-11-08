@@ -92,6 +92,14 @@ const SECTIONS = [
         thumb:      '/Seasons_thumbnail.png',
       },
       {
+        tags:       ['US Cities', 'Updates Daily'],
+        title:      'US Season Map',
+        description:'Every US station on one map, coloured by its season each day of this season year. Play the year, spot days that are rare for the date, and click a city for its full analysis.',
+        footerTags: ['Seasons', 'Map', 'Animation'],
+        to:         '/season-map',
+        thumb:      '/SeasonMap_thumbnail.png',
+      },
+      {
         tags:       ['Surface Obs', 'Updates Hourly'],
         title:      'Surface Map',
         description:'Live station observations. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',

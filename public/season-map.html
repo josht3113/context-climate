@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>US Season Map — ContextClimate</title>
+<link rel="stylesheet" href="core-sample-tools.css">
+<script src="station-roster.js"></script>
+<style>
+:root{
+  --tool-accent: var(--accent-seasons);
+  --cc-card-width: 330px;
+  /* Season colours are content-encoded (meteorological categories) — kept literal. */
+  --c-summer:#cc1100;--c-autumn:#d4920a;--c-winter:#4a8fd4;--c-spring:#3dab6e;
+}
+[hidden]{display:none !important;}
+
+/* ── Top bar ── */
+.exp{display:flex;gap:6px;}
+.exp .cc-btn{padding:8px 12px;font-size:14px;font-weight:700;white-space:nowrap;}
+.cc-btn:disabled{opacity:.4;cursor:not-allowed;}
+.cc-btn.is-ok{border-color:#3A9E50;color:#5CC070;}
+.cc-btn.is-error{border-color:#C05050;color:#E07070;}
+
+/* Station finder (same component as Seasons Analysis / Current Conditions) */
+.finder-group{position:relative;flex:0 0 auto;display:flex;align-items:stretch;border:1px solid var(--color-border-hover);border-radius:var(--radius-md);background:var(--color-surface);transition:border-color .15s;}
+.finder-group:focus-within{border-color:var(--tool-accent);}
+.finder-group .search-icon{display:flex;align-items:center;padding-left:12px;color:var(--color-text-muted);font-size:16px;pointer-events:none;}
+.finder-group .search-input{width:240px;background:transparent;border:none;border-radius:0;padding:9px 10px;color:var(--color-text-primary);font-family:var(--font-mono);font-size:15px;outline:none;}
+.finder-group .search-input::placeholder{color:var(--color-text-muted);}
+.finder-sep{width:1px;align-self:stretch;margin:7px 0;background:var(--color-border);}
+.finder-group .locate-btn{border:none;border-radius:0;background:transparent;white-space:nowrap;font-size:14px;padding:6px 12px;color:var(--color-text-primary);}
+.locate-btn.loading{opacity:.5;pointer-events:none;}
+.dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;min-width:340px;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:var(--radius-md);max-height:300px;overflow-y:auto;z-index:300;display:none;box-shadow:0 8px 24px rgba(0,0,0,.45);}
+.dropdown.open{display:block;}
+.d-item{padding:8px 12px;cursor:pointer;font-family:var(--font-mono);font-size:14px;display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--color-border);transition:background .1s;}
+.d-item:last-child{border-bottom:none;}
+.d-item:hover,.d-item.hi{background:rgba(216,90,48,.18);}
+.d-item .d-id{color:var(--tool-accent);font-weight:700;width:46px;flex-shrink:0;}
+.d-item .d-name{color:var(--color-text-primary);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.d-item .d-st{color:var(--color-text-muted);font-size:13px;width:22px;text-align:right;}
+.d-item .d-dist{color:var(--tool-accent);font-size:12px;width:46px;flex-shrink:0;text-align:right;}
+
+/* ── Scene head ── */
+.date-block{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0;}
+.date-name{font-family:var(--font-display);font-weight:700;font-size:22px;color:var(--color-text-primary);white-space:nowrap;}
+.date-meta{font-family:var(--font-mono);font-size:13px;color:var(--color-text-muted);white-space:nowrap;}
+.head-cap{font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.status-badge{margin-left:auto;font-family:var(--font-mono);font-size:12px;padding:4px 10px;border-radius:var(--radius-md);border:1px solid transparent;white-space:nowrap;}
+.status-badge.ok{background:rgba(42,168,126,.12);color:var(--accent-live);border-color:rgba(42,168,126,.3);}
+.status-badge.loading{background:rgba(166,150,48,.12);color:var(--accent-solar);border-color:rgba(166,150,48,.3);}
+.status-badge.error{background:rgba(232,80,80,.1);color:#E85050;border-color:rgba(232,80,80,.25);}
+
+/* ── Stage ── */
+.map-wrap{position:absolute;inset:0;}
+.map-wrap canvas{position:absolute;left:0;top:0;display:block;}
+#mapOver{cursor:default;touch-action:manipulation;}
+#mapOver.hot{cursor:pointer;}
+.tip{position:absolute;z-index:6;pointer-events:none;min-width:200px;max-width:280px;background:rgba(30,35,32,.96);border:1px solid var(--color-border-hover);border-radius:var(--radius-md);padding:9px 11px;font-family:var(--font-mono);font-size:13px;line-height:1.5;color:var(--color-text-primary);box-shadow:0 8px 22px rgba(0,0,0,.45);}
+.tip b{font-family:var(--font-display);font-size:16px;}
+.tip .dim{color:var(--color-text-muted);}
+.tip .sw,.readout .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+.tip .go{color:var(--tool-accent);margin-top:4px;font-size:12px;}
+.state-overlay{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#262B27;color:var(--color-text-muted);font-family:var(--font-mono);font-size:13px;letter-spacing:.05em;text-transform:uppercase;text-align:center;padding:20px;}
+.state-overlay .err{color:#E07070;text-transform:none;letter-spacing:0;}
+.spinner{width:28px;height:28px;border:3px solid var(--color-border);border-top-color:var(--tool-accent);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ── Scene bar: play · timeline · latest · fill ── */
+.cc-scene-bar{gap:12px;}
+.cc-scene-bar .cc-btn{font-size:14px;padding:7px 12px;white-space:nowrap;}
+.tl-wrap{position:relative;flex:1 1 auto;min-width:200px;height:46px;}
+#tl{position:absolute;left:0;top:0;width:100%;height:100%;display:block;cursor:ew-resize;touch-action:none;border-radius:2px;}
+#tl:focus-visible{outline:2px solid var(--tool-accent);outline-offset:3px;}
+.cc-btn.is-active{border-color:var(--tool-accent);color:var(--color-text-primary);background:rgba(214,126,96,.14);}
+
+/* ── Rail ── */
+.cc-card-eb .eb-sub{margin-left:auto;font-weight:400;letter-spacing:.04em;text-transform:none;color:var(--color-text-muted);font-size:12px;}
+.card-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.card-row .cc-segmented{width:100%;display:flex;}
+.card-row .cc-segmented-btn{flex:1;font-size:14px;}
+.thr-note{font-family:var(--font-mono);font-size:12px;color:var(--color-text-muted);margin-top:8px;line-height:1.45;}
+.pbar{display:flex;height:12px;border-radius:2px;overflow:hidden;margin:2px 0 8px;background:var(--color-border);}
+.pbar > span{height:100%;}
+.pbar.sm{height:8px;margin:4px 0 2px;}
+.srow{display:grid;grid-template-columns:4px 1fr auto 52px;gap:10px;align-items:center;padding:4px 2px;}
+.srow .bar{align-self:stretch;border-radius:2px;}
+.srow .nm{font-family:var(--font-mono);font-size:13px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;}
+.srow .ct{font-family:var(--font-display);font-weight:700;font-size:24px;line-height:1.1;color:var(--color-text-primary);text-align:right;}
+.srow .pc{font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);text-align:right;}
+.keyline{display:flex;gap:14px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;color:var(--color-text-muted);margin-top:8px;align-items:center;}
+.keyline i{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:7px;}
+.keyline span{padding-left:3px;}
+.keyline .k-miss{border:1.5px solid #948F82;}
+.keyline .k-rare{background:#4a8fd4;box-shadow:0 0 0 2px #1E2320,0 0 0 3.5px #E8E4D9;}
+.rare-hd{display:flex;align-items:baseline;justify-content:space-between;font-family:var(--font-mono);font-size:13px;color:var(--color-text-secondary);}
+.rare-hd b{font-family:var(--font-display);font-size:22px;color:var(--color-text-primary);}
+.rare-list{margin-top:6px;}
+.rare-item{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center;padding:5px 6px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-mono);font-size:13px;color:var(--color-text-primary);}
+.rare-item:hover,.rare-item.on{background:rgba(232,228,217,.06);}
+.rare-item .sw{width:10px;height:10px;border-radius:50%;}
+.rare-item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.rare-item .pc{color:var(--color-text-secondary);}
+.rare-none{font-family:var(--font-mono);font-size:13px;color:var(--color-text-muted);padding:4px 0;}
+.readout{font-family:var(--font-mono);font-size:14px;color:var(--color-text-primary);line-height:1.55;}
+.readout .dim{color:var(--color-text-muted);}
+.readout .big{font-family:var(--font-display);font-weight:700;font-size:20px;line-height:1.2;}
+.readout .open-btn{margin-top:10px;width:100%;font-size:14px;font-weight:700;}
+.cc-card-src a{color:var(--color-text-secondary);}
+
+@media (max-width:1240px){
+  .finder-group .search-input{width:150px;}
+  .locate-btn .nm{display:none;}
+}
+@media (max-width:760px){
+  .finder-group{flex:1 1 100%;order:3;}
+  .finder-group .search-input{width:100%;min-width:0;}
+  .exp{margin-left:auto;}
+  .cc-scene-stage{height:auto !important;min-height:0;}
+  .map-wrap{position:relative;inset:auto;}
+  .cc-scene-bar{flex-wrap:wrap;}
+  .tl-wrap{flex:1 1 100%;order:5;}
+  .head-cap{display:none;}
+}
+</style>
+</head>
+<body class="cc-app-body">
+<div class="cc-app">
+
+  <div class="cc-app-top">
+    <h1 class="cc-app-title">US Season Map</h1>
+    <div class="finder-group" id="sw">
+      <span class="search-icon">&#9906;</span>
+      <input type="text" class="search-input" id="si" placeholder="Find a station or city..." autocomplete="off" spellcheck="false">
+      <div class="dropdown" id="dd"></div>
+      <div class="finder-sep"></div>
+      <button class="cc-btn locate-btn" id="locate-btn" title="Use my location to find the nearest station">&#128205;<span class="nm"> Near Me</span></button>
+    </div>
+    <div class="cc-app-spacer"></div>
+    <div class="exp">
+      <button class="cc-btn" id="pngBtn" disabled>&#8595; PNG</button>
+      <button class="cc-btn" id="gifBtn" disabled>&#8595; GIF</button>
+      <button class="cc-btn" id="mp4Btn" disabled>&#8595; MP4</button>
+    </div>
+  </div>
+
+  <div class="cc-app-main">
+    <div class="cc-scene">
+      <div class="cc-scene-head">
+        <div class="date-block"><span class="date-name" id="dateName">&nbsp;</span><span class="date-meta" id="dateMeta"></span></div>
+        <span class="head-cap" id="headCap">Each dot is a station's season that day, judged by its own 30-year thresholds &middot; click a station to open its Seasons analysis</span>
+        <span class="status-badge loading" id="dataStatus">Loading&hellip;</span>
+      </div>
+      <div class="cc-scene-stage" id="stage">
+        <div class="map-wrap" id="mapWrap"><canvas id="mapBase"></canvas><canvas id="mapOver"></canvas></div>
+        <div class="tip" id="tip" hidden></div>
+        <div class="state-overlay" id="stateOverlay"><div class="spinner"></div><span>Loading season map</span></div>
+      </div>
+      <div class="cc-scene-bar">
+        <button class="cc-btn" id="playBtn" disabled>&#9654; Play</button>
+        <div class="tl-wrap"><canvas id="tl" tabindex="0" aria-label="Date — drag or use the arrow keys"></canvas></div>
+        <button class="cc-btn" id="latestBtn" disabled title="Jump to the latest day">Latest</button>
+        <button class="cc-btn" id="fillBtn" title="Shade the land by its nearest station">Fill</button>
+      </div>
+    </div>
+
+    <div class="cc-card">
+      <div class="cc-card-eb">Thresholds</div>
+      <div class="cc-card-grp">
+        <div class="card-row">
+          <div class="cc-segmented" id="thrSeg">
+            <button type="button" class="cc-segmented-btn is-active" data-p="1981">1981&ndash;2010</button>
+            <button type="button" class="cc-segmented-btn" data-p="1991">1991&ndash;2020</button>
+          </div>
+        </div>
+        <div class="thr-note">Each station is judged against its own normals, exactly as in Seasons Analysis: winter at or below the cold-quarter mean, summer at or above the warm-quarter mean, spring and autumn between.</div>
+      </div>
+
+      <div class="cc-card-eb">This date<span class="eb-sub" id="cntSub"></span></div>
+      <div class="cc-card-grp">
+        <div class="pbar" id="cntBar"></div>
+        <div id="cntRows"></div>
+        <div class="keyline"><span><i class="k-rare"></i>rare for the date</span><span><i class="k-miss"></i>no report</span></div>
+      </div>
+
+      <div class="cc-card-eb" id="stnEb">Station</div>
+      <div class="cc-card-grp"><div class="readout" id="readout"></div></div>
+
+      <div class="cc-card-eb">Rare for the date</div>
+      <div class="cc-card-grp">
+        <div class="rare-hd"><span>Season seen in under 10% of years</span><b id="rareCount">0</b></div>
+        <div class="rare-list" id="rareList"></div>
+      </div>
+
+      <div class="cc-card-src">Data: <a href="https://www.rcc-acis.org" target="_blank" rel="noopener">NOAA ACIS</a> daily max/min, refreshed daily &middot; rare = that season in under 10% of complete years for the same week (stations with 10+ years) &middot; Methodology: <a href="https://www.joshtimlin.com/seasons" target="_blank" rel="noopener">joshtimlin.com/seasons</a></div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+// ════════════════════════════════════════════════════════════════════
+//  US SEASON MAP
+//  season-map-data.json is built daily by scripts/build_season_map.py:
+//  per station, both threshold sets (computed exactly as Seasons Analysis
+//  computes them), the daily mean for each day of the current season year,
+//  and the share of past years in each season for every 7-day block.
+//  Days are classed here with the same rule as Seasons Analysis.
+// ════════════════════════════════════════════════════════════════════
+const $=id=>document.getElementById(id);
+
+const SC={summer:'#cc1100',autumn:'#d4920a',winter:'#4a8fd4',spring:'#3dab6e'};
+const CODE_KEY=[null,'winter','spring','summer','autumn'];
+const CODE_COLOR=[null,SC.winter,SC.spring,SC.summer,SC.autumn];
+const CODE_NAME=[null,'Winter','Spring','Summer','Autumn'];
+const CODE_RGB=CODE_COLOR.map(h=>h&&[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)]);
+const ROW_ORDER=[3,4,1,2];            // rail order: summer, autumn, winter, spring
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DIM=[31,28,31,30,31,30,31,31,30,31,30,31];
+const BC_ORDER=[11,0,1,2,3,4,5,6,7,8,9,10];
+const BC_MSTART={};{let s=0;for(const m of BC_ORDER){BC_MSTART[m]=s;s+=m===1?29:DIM[m];}}
+const MONO='"Courier Prime", monospace';
+const INK='#E8E4D9',INK2='#A6A499',MUTED='#948F82',SURF='#262B27',PAGE_BG='#1E2320';
+const LAND='#323a34',BORDER='rgba(232,228,217,0.17)',DOT_EDGE='rgba(22,26,23,0.9)';
+const RARE_CUT=0.10,RARE_MIN_YEARS=10;
+const accentSeasons=()=>(getComputedStyle(document.documentElement).getPropertyValue('--accent-seasons').trim()||'#D67E60');
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const SYL=sy=>`${sy}–${String(sy+1).slice(2)}`;
+const isNarrow=()=>window.innerWidth<=760;
+
+// ─── DATA DECODING ─────────────────────────────────────────
+const B64='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const DEC=new Int16Array(128).fill(-1);for(let i=0;i<64;i++)DEC[B64.charCodeAt(i)]=i;
+const MISSING=4095;
+const dec2=(s,i)=>DEC[s.charCodeAt(i)]*64+DEC[s.charCodeAt(i+1)];
+
+let D=null;              // raw file
+let ST=[];               // stations with decoded arrays
+let nDays=0,syLen=365,seasonYear=0,startMs=0;
+let period=1981,day=0,fillOn=false;
+let CODES=null,RARE=null,COUNTS=null,RARECT=null;   // for the current period
+let sel=null,hover=null,touchSel=null;
+
+function decodeData(d){
+  D=d;seasonYear=d.seasonYear;
+  startMs=Date.UTC(seasonYear,11,1);
+  nDays=Math.round((Date.parse(d.end+'T00:00:00Z')-startMs)/864e5)+1;
+  const ly=y=>(y%4===0&&y%100!==0)||y%400===0;
+  syLen=ly(seasonYear+1)?366:365;
+  const roster=new Map(STATION_ROSTER.map(r=>[r[0],r]));
+  ST=d.stations.map(s=>{
+    const mean=new Float32Array(nDays);
+    for(let i=0;i<nDays;i++){const v=2*i<s.mean.length?dec2(s.mean,2*i):MISSING;mean[i]=v===MISSING?NaN:(v-256)/2;}
+    const share={};
+    for(const p of ['1981','1991']){
+      const str=s.share[p],a=new Float32Array(53*4);
+      for(let j=0;j<53*4;j++){const v=dec2(str,2*j);a[j]=v===MISSING?NaN:v/4094;}
+      share[p]=a;
+    }
+    const r=roster.get(s.id);
+    return{id:s.id,name:s.name,st:s.st,lat:s.lat,lon:s.lon,tz:r?r[5]:null,
+      short:(s.id.length===4&&s.id[0]==='K')?s.id.slice(1):s.id,
+      region:s.st==='AK'?'ak':s.st==='HI'?'hi':s.st==='PR'?'pr':'conus',
+      rec0:s.rec0,nComplete:s.nComplete,thr:s.thr,share,mean};
+  });
+}
+
+// ─── CLASSIFICATION (same rule as Seasons Analysis) ────────
+const doy=(month,dd)=>{let d=dd;for(let m=0;m<month;m++)d+=DIM[m];return d;};
+function isSpringDoy(d,t){const c=t.coldDoy,w=t.warmDoy;return c<w?(d>=c&&d<w):(d>=c||d<w);}
+function classify(mean,month,dd,t){
+  if(Number.isNaN(mean)) return 0;
+  if(mean>=t.summer) return 3;
+  if(mean<=t.winter) return 1;
+  return isSpringDoy(doy(month,dd),t)?2:4;
+}
+const dateOf=i=>new Date(startMs+i*864e5);
+function blockOf(i){const dt=dateOf(i);return Math.floor((BC_MSTART[dt.getUTCMonth()]+dt.getUTCDate()-1)/7);}
+function classifyAll(){
+  const n=ST.length,P=String(period);
+  CODES=new Uint8Array(n*nDays);RARE=new Uint8Array(n*nDays);
+  COUNTS=new Uint16Array(nDays*5);RARECT=new Uint16Array(nDays);
+  const md=[],blk=[];
+  for(let i=0;i<nDays;i++){const dt=dateOf(i);md.push([dt.getUTCMonth(),dt.getUTCDate()]);blk.push(blockOf(i));}
+  ST.forEach((s,k)=>{
+    const t=s.thr[P],sh=s.share[P],okYears=s.nComplete>=RARE_MIN_YEARS;
+    for(let i=0;i<nDays;i++){
+      const c=classify(s.mean[i],md[i][0],md[i][1],t);
+      CODES[k*nDays+i]=c;
+      if(!c) continue;
+      COUNTS[i*5]++;COUNTS[i*5+c]++;
+      const f=sh[blk[i]*4+c-1];
+      if(okYears&&!Number.isNaN(f)&&f<RARE_CUT){RARE[k*nDays+i]=1;RARECT[i]++;}
+    }
+  });
+}
+const codeAt=(k,i)=>CODES[k*nDays+i];
+const rareAt=(k,i)=>RARE[k*nDays+i]===1;
+function shareAt(k,i){const a=ST[k].share[String(period)],b=blockOf(i);return[1,2,3,4].map(c=>a[b*4+c-1]);}
+
+// ─── MAP GEOMETRY ──────────────────────────────────────────
+// Albers equal-area conic per region; Alaska, Hawaii and Puerto Rico are
+// drawn as insets beside the lower 48. Everything is projected once into a
+// shared "virtual" plane; screen geometry is an affine of that.
+function albers(lon0,lat0,p1,p2){
+  const r=Math.PI/180,s1=Math.sin(p1*r),s2=Math.sin(p2*r),n=(s1+s2)/2;
+  const C=Math.cos(p1*r)**2+2*n*s1,rho0=Math.sqrt(C-2*n*Math.sin(lat0*r))/n;
+  return(lon,lat)=>{
+    let dl=lon-lon0;if(dl>180)dl-=360;if(dl<-180)dl+=360;
+    const rho=Math.sqrt(C-2*n*Math.sin(lat*r))/n,th=n*dl*r;
+    return[rho*Math.sin(th),-(rho0-rho*Math.cos(th))];
+  };
+}
+const PROJ={conus:albers(-96,37.5,29.5,45.5),ak:albers(-154,50,55,65),hi:albers(-157,3,8,18),pr:albers(-66.4,18,8,18)};
+// Inset boxes as fractions of the lower-48 bounding box (x0,y0,x1,y1).
+const INSET_BOX={ak:[0.0,0.70,0.215,1.07],hi:[0.225,0.87,0.355,1.04],pr:[0.86,0.955,0.95,1.035]};
+const INSET_LABEL={ak:'ALASKA',hi:'HAWAII',pr:'PUERTO RICO'};
+const DROP=new Set(['AS','GU','MP','VI']);
+let GEO=null;   // {rings:[{region,pts:Float64Array (virtual)}], T:{region:{s,tx,ty}}, VB, insets}
+
+function buildGeo(gj){
+  const raw=[];
+  const bb={};
+  const grow=(reg,x,y)=>{const b=bb[reg]||(bb[reg]=[1e9,1e9,-1e9,-1e9]);if(x<b[0])b[0]=x;if(y<b[1])b[1]=y;if(x>b[2])b[2]=x;if(y>b[3])b[3]=y;};
+  for(const f of gj.features){
+    const code=f.properties.STUSPS;if(DROP.has(code)) continue;
+    const reg=code==='AK'?'ak':code==='HI'?'hi':code==='PR'?'pr':'conus';
+    const g=f.geometry,polys=g.type==='Polygon'?[g.coordinates]:g.coordinates;
+    for(const poly of polys){
+      if(reg==='ak'&&poly[0].some(p=>p[0]>0)) continue;     // western Aleutians past the antimeridian
+      for(const ring of poly){
+        const pts=new Float64Array(ring.length*2),pj=PROJ[reg];
+        ring.forEach((p,i)=>{const[x,y]=pj(p[0],p[1]);pts[2*i]=x;pts[2*i+1]=y;grow(reg,x,y);});
+        raw.push({region:reg,pts});
+      }
+    }
+  }
+  const c=bb.conus,Wc=c[2]-c[0],Hc=c[3]-c[1];
+  const T={conus:{s:1,tx:-c[0],ty:-c[1]}},insets=[];
+  for(const reg of ['ak','hi','pr']){
+    const b=bb[reg];if(!b) continue;
+    const B=INSET_BOX[reg],bx0=B[0]*Wc,by0=B[1]*Hc,bw=(B[2]-B[0])*Wc,bh=(B[3]-B[1])*Hc;
+    const s=Math.min(bw/(b[2]-b[0]),bh/(b[3]-b[1]));
+    const w=(b[2]-b[0])*s,h=(b[3]-b[1])*s;
+    const ox=bx0+(bw-w)/2,oy=by0+(bh-h)/2;
+    T[reg]={s,tx:ox-b[0]*s,ty:oy-b[1]*s};
+    insets.push({region:reg,x0:bx0,y0:by0,x1:bx0+bw,y1:by0+bh});
+  }
+  const VB=[1e9,1e9,-1e9,-1e9];
+  for(const r of raw){
+    const t=T[r.region],p=r.pts;
+    for(let i=0;i<p.length;i+=2){
+      const x=p[i]*t.s+t.tx,y=p[i+1]*t.s+t.ty;p[i]=x;p[i+1]=y;
+      if(x<VB[0])VB[0]=x;if(y<VB[1])VB[1]=y;if(x>VB[2])VB[2]=x;if(y>VB[3])VB[3]=y;
+    }
+  }
+  insets.forEach(b=>{VB[0]=Math.min(VB[0],b.x0);VB[1]=Math.min(VB[1],b.y0);VB[2]=Math.max(VB[2],b.x1);VB[3]=Math.max(VB[3],b.y1);});
+  GEO={rings:raw,T,VB,insets,Wc};
+}
+function toVirtual(reg,lon,lat){const t=GEO.T[reg]||GEO.T.conus,[x,y]=PROJ[reg](lon,lat);return[x*t.s+t.tx,y*t.s+t.ty];}
+function placeStations(){ST.forEach(s=>{[s.vx,s.vy]=toVirtual(s.region,s.lon,s.lat);});}
+
+// Screen geometry for a W×H box. tol = path simplification in px.
+function makeGeom(W,H,pad,tol){
+  const VB=GEO.VB,vw=VB[2]-VB[0],vh=VB[3]-VB[1];
+  const k=Math.min((W-2*pad)/vw,(H-2*pad)/vh);
+  const ox=(W-vw*k)/2-VB[0]*k,oy=(H-vh*k)/2-VB[1]*k;
+  const land=new Path2D();
+  for(const r of GEO.rings){
+    const p=r.pts;let lx=p[0]*k+ox,ly=p[1]*k+oy;
+    land.moveTo(lx,ly);
+    for(let i=2;i<p.length;i+=2){
+      const x=p[i]*k+ox,y=p[i+1]*k+oy;
+      if(Math.abs(x-lx)+Math.abs(y-ly)<tol&&i<p.length-2) continue;
+      land.lineTo(x,y);lx=x;ly=y;
+    }
+    land.closePath();
+  }
+  const r=clamp(k*vw/210,3,7.5);
+  const pts=ST.map(s=>[s.vx*k+ox,s.vy*k+oy]);
+  const insets=GEO.insets.map(b=>({region:b.region,x:b.x0*k+ox,y:b.y0*k+oy,w:(b.x1-b.x0)*k,h:(b.y1-b.y0)*k}));
+  return{W,H,k,ox,oy,land,r,pts,insets,fx:VB[0]*k+ox,fy:VB[1]*k+oy,fw:vw*k,fh:vh*k};
+}
+
+// ─── FILL (nearest reporting station, faded with distance) ──
+const FILL={GW:0,GH:0,NI:null,ND:null,maxD:0,cv:null,day:-1,period:0};
+function buildFillGrid(){
+  const VB=GEO.VB,vw=VB[2]-VB[0],vh=VB[3]-VB[1];
+  const GW=380,GH=Math.ceil(GW*vh/vw),cs=vw/GW,K=4,maxD=0.06*GEO.Wc;
+  const NI=new Int16Array(GW*GH*K).fill(-1),ND=new Float32Array(GW*GH*K);
+  const sx=ST.map(s=>s.vx),sy=ST.map(s=>s.vy),n=ST.length,m2=maxD*maxD;
+  const bi=new Int16Array(K),bd=new Float32Array(K);
+  for(let gy=0;gy<GH;gy++){
+    const y=VB[1]+(gy+0.5)*cs;
+    for(let gx=0;gx<GW;gx++){
+      const x=VB[0]+(gx+0.5)*cs;
+      bi.fill(-1);bd.fill(Infinity);
+      for(let j=0;j<n;j++){
+        const dx=sx[j]-x,dy=sy[j]-y,d=dx*dx+dy*dy;
+        if(d>m2||d>=bd[K-1]) continue;
+        let q=K-1;while(q>0&&bd[q-1]>d){bd[q]=bd[q-1];bi[q]=bi[q-1];q--;}
+        bd[q]=d;bi[q]=j;
+      }
+      const o=(gy*GW+gx)*K;
+      for(let q=0;q<K;q++){NI[o+q]=bi[q];ND[o+q]=Math.sqrt(bd[q]);}
+    }
+  }
+  const cv=document.createElement('canvas');cv.width=GW;cv.height=GH;
+  Object.assign(FILL,{GW,GH,NI,ND,maxD,cv,day:-1,period:0});
+}
+function fillCanvas(i){
+  if(FILL.day===i&&FILL.period===period) return FILL.cv;
+  const{GW,GH,NI,ND,maxD,cv}=FILL,ctx=cv.getContext('2d'),img=ctx.createImageData(GW,GH),px=img.data;
+  for(let c=0,o=0;c<GW*GH;c++,o+=4){
+    for(let q=0;q<4;q++){
+      const j=NI[c*4+q];if(j<0) break;
+      const code=CODES[j*nDays+i];if(!code) continue;
+      const f=ND[c*4+q]/maxD,rgb=CODE_RGB[code];
+      px[o]=rgb[0];px[o+1]=rgb[1];px[o+2]=rgb[2];px[o+3]=Math.round(255*0.58*(1-f*f*f));
+      break;
+    }
+  }
+  ctx.putImageData(img,0,0);FILL.day=i;FILL.period=period;
+  return cv;
+}
+
+// ─── DRAWING ───────────────────────────────────────────────
+function drawMap(ctx,G,i,opt={}){
+  ctx.save();
+  ctx.fillStyle=opt.bg||SURF;ctx.fillRect(0,0,G.W,G.H);
+  // inset frames
+  ctx.strokeStyle='rgba(232,228,217,0.10)';ctx.lineWidth=1;ctx.setLineDash([3,4]);
+  ctx.font=`12px ${MONO}`;ctx.fillStyle=MUTED;ctx.textBaseline='top';ctx.textAlign='left';
+  for(const b of G.insets){
+    ctx.strokeRect(b.x+0.5,b.y+0.5,b.w,b.h);
+    let lb=INSET_LABEL[b.region];
+    if(ctx.measureText(lb).width>b.w-10) lb=b.region.toUpperCase();
+    ctx.fillText(lb,b.x+5,b.y+4);
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle=LAND;ctx.fill(G.land);
+  if(opt.fill){
+    const cv=fillCanvas(i);
+    ctx.save();ctx.clip(G.land);ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    ctx.drawImage(cv,G.fx,G.fy,G.fw,G.fh);ctx.restore();
+  }
+  ctx.strokeStyle=BORDER;ctx.lineWidth=0.7;ctx.lineJoin='round';ctx.stroke(G.land);
+  // dots: missing first, then seasons; rare rings on top
+  const r=G.r;
+  for(let k=0;k<ST.length;k++){
+    if(codeAt(k,i)) continue;
+    const[x,y]=G.pts[k];
+    ctx.beginPath();ctx.arc(x,y,r-1,0,Math.PI*2);ctx.fillStyle=PAGE_BG;ctx.fill();
+    ctx.lineWidth=1.3;ctx.strokeStyle=MUTED;ctx.stroke();
+  }
+  ctx.lineWidth=1;ctx.strokeStyle=DOT_EDGE;
+  for(let k=0;k<ST.length;k++){
+    const c=codeAt(k,i);if(!c) continue;
+    const[x,y]=G.pts[k];
+    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fillStyle=CODE_COLOR[c];ctx.fill();ctx.stroke();
+  }
+  for(let k=0;k<ST.length;k++){
+    if(!rareAt(k,i)) continue;
+    const[x,y]=G.pts[k];
+    ctx.beginPath();ctx.arc(x,y,r+2.4,0,Math.PI*2);
+    ctx.lineWidth=3.2;ctx.strokeStyle=DOT_EDGE;ctx.stroke();
+    ctx.lineWidth=1.6;ctx.strokeStyle=INK;ctx.stroke();
+  }
+  if(opt.sel!=null) drawMarker(ctx,G,opt.sel,accentSeasons(),true);
+  ctx.restore();
+}
+function drawMarker(ctx,G,k,color,label){
+  const[x,y]=G.pts[k],r=G.r+5;
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.lineWidth=4;ctx.strokeStyle=DOT_EDGE;ctx.stroke();
+  ctx.lineWidth=2;ctx.strokeStyle=color;ctx.stroke();
+  if(!label) return;
+  const s=ST[k],t=`${s.name}, ${s.st}`;
+  ctx.font=`700 13px ${MONO}`;
+  const w=ctx.measureText(t).width+12,h=22;
+  let lx=x+r+6,ly=y-h/2;
+  if(lx+w>G.W-4) lx=x-r-6-w;
+  ly=clamp(ly,4,G.H-h-4);
+  ctx.fillStyle='rgba(30,35,32,0.92)';ctx.strokeStyle=color;ctx.lineWidth=1;
+  ctx.beginPath();ctx.roundRect?ctx.roundRect(lx,ly,w,h,4):ctx.rect(lx,ly,w,h);ctx.fill();ctx.stroke();
+  ctx.fillStyle=INK;ctx.textBaseline='middle';ctx.textAlign='left';ctx.fillText(t,lx+6,ly+h/2+1);
+}
+
+// National timeline: stacked share of reporting stations in each season.
+const TL_STACK=[1,2,3,4];
+function drawRibbon(ctx,x0,y0,w,h,i,opt={}){
+  const per=w/syLen;
+  ctx.fillStyle='rgba(232,228,217,0.05)';ctx.fillRect(x0,y0,w,h);
+  for(let d=0;d<nDays;d++){
+    const tot=COUNTS[d*5];if(!tot) continue;
+    let y=y0+h;
+    const xa=Math.floor(x0+d*per),xb=Math.ceil(x0+(d+1)*per);
+    for(const c of TL_STACK){
+      const hh=h*COUNTS[d*5+c]/tot;
+      ctx.fillStyle=CODE_COLOR[c];ctx.fillRect(xa,y-hh,xb-xa,hh);y-=hh;
+    }
+  }
+  // dim days after the playhead during animation exports
+  if(opt.dimAfter&&i<nDays-1){ctx.fillStyle='rgba(30,35,32,0.62)';ctx.fillRect(x0+(i+1)*per,y0,(nDays-1-i)*per,h);}
+  // month ticks + labels
+  ctx.font=`12px ${MONO}`;ctx.textBaseline='top';ctx.textAlign='center';
+  let s=0;
+  for(const m of BC_ORDER){
+    const len=m===1?syLen-337:DIM[m];
+    const xm=x0+s*per;
+    ctx.fillStyle='rgba(30,35,32,0.55)';if(s>0) ctx.fillRect(Math.round(xm),y0,1,h);
+    if(opt.labels!==false&&len*per>24){ctx.fillStyle=MUTED;ctx.fillText(MN[m],xm+len*per/2,y0+h+3);}
+    s+=len;
+  }
+  // playhead
+  const px=x0+(i+0.5)*per;
+  ctx.fillStyle=DOT_EDGE;ctx.fillRect(px-2,y0-3,4,h+6);
+  ctx.fillStyle=INK;ctx.fillRect(px-1,y0-3,2,h+6);
+}
+
+// ─── SCREEN STATE ──────────────────────────────────────────
+let G=null,dpr=1;
+function layout(){
+  if(!GEO||!ST.length) return;
+  const stage=$('stage'),wrap=$('mapWrap');
+  let W=stage.clientWidth,H=stage.clientHeight;
+  if(isNarrow()){H=Math.round(W*0.66);wrap.style.height=H+'px';}else wrap.style.height='';
+  if(W<50||H<50) return;
+  dpr=window.devicePixelRatio||1;
+  ['mapBase','mapOver'].forEach(id=>{const c=$(id);c.width=Math.round(W*dpr);c.height=Math.round(H*dpr);c.style.width=W+'px';c.style.height=H+'px';});
+  G=makeGeom(W,H,isNarrow()?8:18,0.5);
+  renderAll();
+}
+function renderAll(){if(!G) return;renderBase();renderOverlay();renderTimeline();renderHead();renderRail();}
+function renderBase(){
+  const ctx=$('mapBase').getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);
+  drawMap(ctx,G,day,{fill:fillOn});
+}
+function renderOverlay(){
+  const c=$('mapOver'),ctx=c.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,G.W,G.H);
+  if(sel!=null) drawMarker(ctx,G,sel,accentSeasons(),true);
+  if(hover!=null&&hover!==sel) drawMarker(ctx,G,hover,INK,false);
+}
+function renderTimeline(){
+  const c=$('tl'),w=c.clientWidth,h=c.clientHeight;if(!w||!h) return;
+  const r=window.devicePixelRatio||1;
+  if(c.width!==Math.round(w*r)||c.height!==Math.round(h*r)){c.width=Math.round(w*r);c.height=Math.round(h*r);}
+  const ctx=c.getContext('2d');ctx.setTransform(r,0,0,r,0,0);ctx.clearRect(0,0,w,h);
+  drawRibbon(ctx,0,4,w,h-22,day);
+}
+const fmtDate=(i,opts)=>dateOf(i).toLocaleDateString('en-US',Object.assign({timeZone:'UTC'},opts));
+function renderHead(){
+  $('dateName').textContent=fmtDate(day,{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  $('dateMeta').textContent=`Season year ${SYL(seasonYear)} · day ${day+1} of ${syLen}`;
+}
+function renderRail(){
+  const tot=COUNTS[day*5]||0;
+  $('cntSub').textContent=`${tot} of ${ST.length} reporting`;
+  $('cntBar').innerHTML=ROW_ORDER.map(c=>`<span style="width:${tot?(COUNTS[day*5+c]/tot*100).toFixed(2):0}%;background:${CODE_COLOR[c]}"></span>`).join('');
+  $('cntRows').innerHTML=ROW_ORDER.map(c=>{
+    const n=COUNTS[day*5+c];
+    return `<div class="srow"><span class="bar" style="background:${CODE_COLOR[c]}"></span><span class="nm" style="color:${CODE_COLOR[c]}">${CODE_NAME[c]}</span><span class="ct">${n}</span><span class="pc">${tot?Math.round(n/tot*100):0}%</span></div>`;
+  }).join('');
+  // rare list, rarest first
+  const rares=[];
+  for(let k=0;k<ST.length;k++) if(rareAt(k,day)){const c=codeAt(k,day);rares.push({k,c,f:shareAt(k,day)[c-1]});}
+  rares.sort((a,b)=>a.f-b.f||ST[a.k].name.localeCompare(ST[b.k].name));
+  $('rareCount').textContent=rares.length;
+  $('rareList').innerHTML=rares.length?rares.slice(0,6).map(r=>{
+    const s=ST[r.k];
+    return `<div class="rare-item${r.k===sel?' on':''}" data-k="${r.k}" title="${s.id} · ${CODE_NAME[r.c].toLowerCase()}"><span class="sw" style="background:${CODE_COLOR[r.c]}"></span><span class="nm">${s.name}, ${s.st}</span><span class="pc">${pctStr(r.f)}</span></div>`;
+  }).join('')+(rares.length>6?`<div class="rare-none">+ ${rares.length-6} more</div>`:''):`<div class="rare-none">Every reporting station is in a usual season for the date.</div>`;
+  renderReadout();
+}
+const pctStr=f=>f<0.01?'<1%':f<0.1?`${(f*100).toFixed(1)}%`:`${Math.round(f*100)}%`;
+function stationHTML(k,withButton){
+  const s=ST[k],c=codeAt(k,day),t=s.thr[String(period)],m=s.mean[day];
+  let h=`<div class="big">${s.name}, ${s.st}</div><div class="dim">${s.id} · record from ${s.rec0||'—'}</div>`;
+  if(c){
+    h+=`<div style="margin-top:6px"><span class="sw" style="background:${CODE_COLOR[c]}"></span><b style="color:${CODE_COLOR[c]}">${CODE_NAME[c]}</b> · mean ${m.toFixed(1)}°F</div>`;
+  }else h+=`<div style="margin-top:6px" class="dim">No report for this day</div>`;
+  h+=`<div class="dim">Summer ≥ ${t.summer.toFixed(1)}°F · winter ≤ ${t.winter.toFixed(1)}°F${t.por?' · full-record normals':''}</div>`;
+  const sh=shareAt(k,day);
+  if(sh.every(v=>!Number.isNaN(v))&&s.nComplete){
+    h+=`<div style="margin-top:6px" class="dim">This week in ${s.nComplete} past years</div><div class="pbar sm">${ROW_ORDER.map(q=>`<span style="width:${(sh[q-1]*100).toFixed(2)}%;background:${CODE_COLOR[q]}"></span>`).join('')}</div>`;
+    if(c){
+      const f=sh[c-1];
+      h+=`<div>${CODE_NAME[c]} in ${pctStr(f)} of years${rareAt(k,day)?' · <b>rare</b>':''}</div>`;
+    }
+  }
+  if(withButton) h+=`<button class="cc-btn open-btn" id="openBtn">Open in Seasons Analysis &rarr;</button>`;
+  return h;
+}
+function renderReadout(){
+  const k=sel;
+  if(k==null){$('readout').innerHTML='<span class="dim">Find a station with the search box, or pick one from the rare list. Clicking a dot on the map opens its full Seasons analysis.</span>';return;}
+  $('readout').innerHTML=stationHTML(k,true);
+  const b=$('openBtn');if(b) b.onclick=()=>openSeasons(k,false);
+}
+
+// ─── INTERACTION ───────────────────────────────────────────
+function seasonsURL(k){return new URL(`./#/seasons?st=${encodeURIComponent(ST[k].id)}&thr=${period}`,location.href).href;}
+function openSeasons(k,newTab){
+  const url=seasonsURL(k);
+  if(newTab){window.open(url,'_blank','noopener');return;}
+  try{window.top.location.href=url;}catch(e){window.open(url,'_top');}
+}
+function hitStation(e){
+  if(!G) return null;
+  const rc=$('mapOver').getBoundingClientRect(),x=e.clientX-rc.left,y=e.clientY-rc.top;
+  let best=null,bd=(G.r+8)**2;
+  G.pts.forEach(([px,py],k)=>{const d=(px-x)**2+(py-y)**2;if(d<bd){bd=d;best=k;}});
+  return best;
+}
+function setHover(k,e){
+  if(k===hover&&k==null) return;
+  hover=k;$('mapOver').classList.toggle('hot',k!=null);
+  renderOverlay();
+  const tip=$('tip');
+  if(k==null){tip.hidden=true;return;}
+  const s=ST[k],c=codeAt(k,day),sh=shareAt(k,day);
+  let h=`<b>${s.name}, ${s.st}</b> <span class="dim">${s.id}</span><br>`;
+  h+=c?`<span class="sw" style="background:${CODE_COLOR[c]}"></span>${CODE_NAME[c]} · ${s.mean[day].toFixed(1)}°F`:'<span class="dim">No report</span>';
+  if(c&&!Number.isNaN(sh[c-1])&&s.nComplete) h+=`<br><span class="dim">${CODE_NAME[c].toLowerCase()} this week in ${pctStr(sh[c-1])} of ${s.nComplete} yrs</span>${rareAt(k,day)?' · rare':''}`;
+  h+=`<div class="go">${touchSel===k?'Tap again to open Seasons Analysis':'Click to open Seasons Analysis →'}</div>`;
+  tip.innerHTML=h;tip.hidden=false;
+  const[px,py]=G.pts[k],tw=tip.offsetWidth,th=tip.offsetHeight;
+  let tx=px+14,ty=py+14;
+  if(tx+tw>G.W-6) tx=px-14-tw;
+  if(ty+th>G.H-6) ty=py-14-th;
+  tip.style.left=clamp(tx,6,G.W-tw-6)+'px';tip.style.top=clamp(ty,6,G.H-th-6)+'px';
+}
+function selectStation(k,{center=false}={}){
+  sel=k;touchSel=null;
+  renderOverlay();renderRail();
+}
+function setDay(i){
+  i=clamp(Math.round(i),0,nDays-1);
+  if(i===day) return;
+  day=i;renderBase();renderTimeline();renderHead();renderRail();
+  if(hover!=null) setHover(hover);
+}
+function setPeriod(p){
+  if(p===period) return;
+  period=p;
+  document.querySelectorAll('#thrSeg .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active',+b.dataset.p===p));
+  classifyAll();renderAll();
+}
+function setFill(on){fillOn=on;$('fillBtn').classList.toggle('is-active',on);$('fillBtn').setAttribute('aria-pressed',on);renderBase();}
+
+// play
+const PLAY={on:false,last:0,acc:0,raf:0,DPS:12};
+function play(){
+  if(PLAY.on){stopPlay();return;}
+  if(day>=nDays-1) setDay(0);
+  PLAY.on=true;PLAY.last=performance.now();PLAY.acc=0;$('playBtn').innerHTML='&#10074;&#10074; Pause';
+  const step=t=>{
+    if(!PLAY.on) return;
+    PLAY.acc+=(t-PLAY.last)/1000*PLAY.DPS;PLAY.last=t;
+    if(PLAY.acc>=1){const n=Math.floor(PLAY.acc);PLAY.acc-=n;setDay(day+n);}
+    if(day>=nDays-1){stopPlay();return;}
+    PLAY.raf=requestAnimationFrame(step);
+  };
+  PLAY.raf=requestAnimationFrame(step);
+}
+function stopPlay(){PLAY.on=false;cancelAnimationFrame(PLAY.raf);$('playBtn').innerHTML='&#9654; Play';}
+
+function bindTimeline(){
+  const c=$('tl');let drag=false;
+  const at=e=>{const rc=c.getBoundingClientRect();return Math.floor((e.clientX-rc.left)/rc.width*syLen);};
+  c.addEventListener('pointerdown',e=>{drag=true;c.setPointerCapture(e.pointerId);stopPlay();setDay(at(e));c.focus({preventScroll:true});});
+  c.addEventListener('pointermove',e=>{if(drag) setDay(at(e));});
+  const end=()=>{drag=false;};
+  c.addEventListener('pointerup',end);c.addEventListener('pointercancel',end);
+  c.addEventListener('keydown',e=>{
+    const st={ArrowLeft:-1,ArrowRight:1}[e.key];
+    if(st){e.preventDefault();stopPlay();setDay(day+st*(e.shiftKey?7:1));}
+    else if(e.key==='Home'){e.preventDefault();stopPlay();setDay(0);}
+    else if(e.key==='End'){e.preventDefault();stopPlay();setDay(nDays-1);}
+    else if(e.key===' '){e.preventDefault();play();}
+  });
+}
+function bindMap(){
+  const o=$('mapOver');
+  o.addEventListener('pointermove',e=>{if(e.pointerType==='touch') return;setHover(hitStation(e),e);});
+  o.addEventListener('pointerleave',e=>{if(e.pointerType==='touch') return;setHover(null);});
+  o.addEventListener('click',e=>{
+    const k=hitStation(e);
+    if(e.pointerType==='touch'||(e.pointerType===undefined&&matchMedia('(hover:none)').matches)){
+      if(k==null){touchSel=null;setHover(null);return;}
+      if(touchSel===k){openSeasons(k,false);return;}
+      touchSel=k;sel=k;setHover(k);renderRail();return;
+    }
+    if(k==null) return;
+    openSeasons(k,e.metaKey||e.ctrlKey||e.shiftKey);
+  });
+  o.addEventListener('auxclick',e=>{if(e.button!==1) return;const k=hitStation(e);if(k!=null){e.preventDefault();openSeasons(k,true);}});
+  $('rareList').addEventListener('click',e=>{const r=e.target.closest('.rare-item');if(r) selectStation(+r.dataset.k);});
+}
+
+// ─── SEARCH / AUTOCOMPLETE (same finder as Seasons Analysis) ──
+let ddIdx=-1;
+function haversineMiles(lat1,lon1,lat2,lon2){
+  const R=3958.8,toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.asin(Math.sqrt(a));
+}
+function findNearestStation(){
+  const btn=$('locate-btn');
+  if(!navigator.geolocation){alert('Geolocation is not supported by this browser.');return;}
+  const orig=btn.innerHTML;btn.classList.add('loading');btn.innerHTML='⏳ Locating…';
+  navigator.geolocation.getCurrentPosition(pos=>{
+    btn.classList.remove('loading');btn.innerHTML=orig;
+    const{latitude:lat,longitude:lon}=pos.coords;
+    const ranked=ST.map((s,k)=>({k,dist:haversineMiles(lat,lon,s.lat,s.lon)})).sort((a,b)=>a.dist-b.dist).slice(0,8);
+    $('si').value='';
+    renderDD(ranked.map(r=>r.k),ranked.map(r=>r.dist));
+  },err=>{
+    btn.classList.remove('loading');btn.innerHTML=orig;
+    alert('Could not get your location: '+(err&&err.message?err.message:'permission denied or unavailable.'));
+  },{enableHighAccuracy:false,timeout:8000,maximumAge:600000});
+}
+function initSearch(){
+  const inp=$('si'),dd=$('dd');
+  inp.addEventListener('input',()=>{
+    ddIdx=-1;const q=inp.value.trim().toLowerCase();
+    if(!q||!ST.length){dd.classList.remove('open');return;}
+    const rank=s=>{
+      const id=s.id.toLowerCase(),nm=s.name.toLowerCase();
+      if(id===q||id.slice(1)===q) return 0;
+      if(id.startsWith(q)||id.slice(1).startsWith(q)) return 1;
+      if(nm.startsWith(q)) return 2;
+      if(nm.split(/[\s\-\/]+/).some(w=>w.startsWith(q))) return 3;
+      if(nm.includes(q)) return 4;
+      if(s.st&&s.st.toLowerCase()===q) return 5;
+      return 9;
+    };
+    renderDD(ST.map((s,k)=>[rank(s),k]).filter(r=>r[0]<9).sort((a,b)=>a[0]-b[0]).map(r=>r[1]).slice(0,18));
+  });
+  inp.addEventListener('keydown',e=>{
+    const items=dd.querySelectorAll('.d-item');
+    if(e.key==='ArrowDown'){e.preventDefault();ddIdx=Math.min(ddIdx+1,items.length-1);highlightDD(items);}
+    else if(e.key==='ArrowUp'){e.preventDefault();ddIdx=Math.max(ddIdx-1,0);highlightDD(items);}
+    else if(e.key==='Enter'){e.preventDefault();const i=ddIdx>=0?ddIdx:0;if(items[i])items[i].click();}
+    else if(e.key==='Escape'){dd.classList.remove('open');}
+  });
+  document.addEventListener('click',e=>{if(!$('sw').contains(e.target))dd.classList.remove('open');});
+  $('locate-btn').onclick=findNearestStation;
+}
+function highlightDD(items){items.forEach((el,i)=>{el.classList.toggle('hi',i===ddIdx);if(i===ddIdx)el.scrollIntoView({block:'nearest'});});}
+function renderDD(ks,dists){
+  const dd=$('dd');
+  if(!ks.length){dd.classList.remove('open');return;}
+  dd.innerHTML=ks.map((k,i)=>{const s=ST[k];return `<div class="d-item"><span class="d-id">${s.id}</span><span class="d-name">${s.name}</span>${dists?`<span class="d-dist">${dists[i].toFixed(0)}mi</span>`:''}<span class="d-st">${s.st||''}</span></div>`;}).join('');
+  dd.querySelectorAll('.d-item').forEach((el,i)=>el.addEventListener('click',()=>{$('si').value='';dd.classList.remove('open');selectStation(ks[i]);}));
+  dd.classList.add('open');
+}
+</script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+//  EXPORTS — PNG (fixed 3× scale); GIF (every 3rd day) and MP4 (every day)
+//  of the season year so far. Encoders are the shared block used by the
+//  Pacific SST and Seasons Analysis tools (see animated-export notes).
+// ═══════════════════════════════════════════════════════════
+const EXPORT_SCALE=3;
+function downloadBlob(blob,name){
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+const isoDay=i=>dateOf(i).toISOString().slice(0,10);
+function flashBtn(btn,txt,cls,orig){btn.textContent=txt;btn.classList.add(cls);setTimeout(()=>{btn.innerHTML=orig;btn.classList.remove(cls);},2000);}
+const SOURCE_LINE='Data: NOAA ACIS daily max/min  ·  Methodology: joshtimlin.com/seasons';
+
+function drawCountsRow(ctx,x,y,i,opt={}){
+  const tot=COUNTS[i*5]||1;
+  ctx.textBaseline='middle';ctx.textAlign='left';
+  for(const c of ROW_ORDER){
+    ctx.fillStyle=CODE_COLOR[c];ctx.beginPath();ctx.arc(x+5,y,5,0,Math.PI*2);ctx.fill();
+    ctx.font=`700 13px ${MONO}`;ctx.fillStyle=CODE_COLOR[c];
+    const nm=CODE_NAME[c].toUpperCase();ctx.fillText(nm,x+16,y+1);
+    let w=ctx.measureText(nm).width;
+    ctx.font=`13px ${MONO}`;ctx.fillStyle=INK;
+    const v=` ${COUNTS[i*5+c]}${opt.pct?` (${Math.round(COUNTS[i*5+c]/tot*100)}%)`:''}`;
+    ctx.fillText(v,x+16+w,y+1);w+=ctx.measureText(v).width;
+    x+=16+w+20;
+  }
+  // rare + missing key
+  ctx.beginPath();ctx.arc(x+5,y,4.2,0,Math.PI*2);ctx.fillStyle=SC.winter;ctx.fill();
+  ctx.beginPath();ctx.arc(x+5,y,6.8,0,Math.PI*2);ctx.lineWidth=1.5;ctx.strokeStyle=INK;ctx.stroke();
+  ctx.font=`13px ${MONO}`;ctx.fillStyle=INK2;
+  const t=`rare for the date ${RARECT[i]}`;ctx.fillText(t,x+18,y+1);x+=18+ctx.measureText(t).width+20;
+  ctx.beginPath();ctx.arc(x+5,y,4.2,0,Math.PI*2);ctx.lineWidth=1.3;ctx.strokeStyle=MUTED;ctx.stroke();
+  ctx.fillStyle=INK2;ctx.fillText('no report',x+16,y+1);
+}
+function drawFrame(ctx,FW,FH,i,G,opt){
+  const acc=accentSeasons();
+  ctx.fillStyle=PAGE_BG;ctx.fillRect(0,0,FW,FH);
+  ctx.fillStyle=acc;ctx.fillRect(0,0,FW,4);
+  ctx.textBaseline='alphabetic';ctx.textAlign='left';
+  ctx.fillStyle=MUTED;ctx.font=`600 12px ${MONO}`;ctx.fillText('CONTEXTCLIMATE · US SEASON MAP',opt.pad,32);
+  ctx.textAlign='right';ctx.fillText(`THRESHOLDS ${period}–${period+29}`,FW-opt.pad,32);
+  ctx.textAlign='left';ctx.fillStyle=INK;ctx.font=`bold ${opt.titleSize}px "Zilla Slab", serif`;
+  ctx.fillText(fmtDate(i,{weekday:'long',month:'long',day:'numeric',year:'numeric'}),opt.pad,opt.titleY);
+  ctx.fillStyle=INK2;ctx.font='15px "Public Sans", sans-serif';
+  let sub=`Season year ${SYL(seasonYear)} · each dot is a station's season that day, judged by its own 30-year thresholds`;
+  while(ctx.measureText(sub).width>FW-2*opt.pad&&sub.length>20) sub=sub.slice(0,-2);
+  ctx.fillText(sub,opt.pad,opt.titleY+26);
+  ctx.save();ctx.translate(opt.mapX,opt.mapY);drawMap(ctx,G,i,{fill:fillOn,labels:true,sel:opt.sel});ctx.restore();
+  drawCountsRow(ctx,opt.pad,opt.rowY,i,{pct:opt.pct});
+  drawRibbon(ctx,opt.pad,opt.ribY,FW-2*opt.pad,opt.ribH,i,{dimAfter:opt.dimAfter});
+  ctx.textBaseline='alphabetic';ctx.textAlign='left';ctx.fillStyle=MUTED;ctx.font=`12px ${MONO}`;
+  ctx.fillText(`${SOURCE_LINE}  ·  contextclimate.io`,opt.pad,FH-16);
+  ctx.fillStyle=acc;ctx.fillRect(0,FH-3,FW,3);
+}
+async function exportPNG(){
+  if(!G) return;
+  const btn=$('pngBtn'),orig=btn.innerHTML;
+  try{
+    await document.fonts.ready;
+    const FW=1400,PAD=28,mapW=FW-2*PAD,mapH=820,FH=112+mapH+20+28+52+40;
+    const MG=makeGeom(mapW,mapH,16,0.25);
+    const off=document.createElement('canvas');off.width=FW*EXPORT_SCALE;off.height=FH*EXPORT_SCALE;
+    const oc=off.getContext('2d');oc.scale(EXPORT_SCALE,EXPORT_SCALE);
+    drawFrame(oc,FW,FH,day,MG,{pad:PAD,titleSize:30,titleY:68,mapX:PAD,mapY:112,rowY:112+mapH+24,ribY:112+mapH+50,ribH:34,pct:true,sel});
+    off.toBlob(b=>{downloadBlob(b,`us-season-map_${isoDay(day)}_${period}.png`);flashBtn(btn,'✓ Saved','is-ok',orig);},'image/png');
+  }catch(e){console.error('PNG export:',e);flashBtn(btn,'⚠ Failed','is-error',orig);}
+}
+
+// ── Animated season year (GIF / MP4) ──
+const ANIM_W=960,ANIM_H=741;
+const EXP={busy:false};
+function mapAnim(step){
+  const frames=[];for(let i=0;i<nDays;i+=step) frames.push(i);
+  if(frames[frames.length-1]!==nDays-1) frames.push(nDays-1);
+  const PAD=24,mapW=ANIM_W-2*PAD,mapH=520;
+  const MG=makeGeom(mapW,mapH,10,0.4);
+  return{
+    W:ANIM_W,H:ANIM_H,frames:frames.length,
+    prepare:async k=>frames[k],
+    draw(ctx,i){drawFrame(ctx,ANIM_W,ANIM_H,i,MG,{pad:PAD,titleSize:28,titleY:66,mapX:PAD,mapY:106,rowY:106+mapH+22,ribY:106+mapH+42,ribH:28,dimAfter:true,sel:null});}
+  };
+}
+function setExpBusy(b){EXP.busy=b;['pngBtn','gifBtn','mp4Btn','playBtn'].forEach(id=>{$(id).disabled=b||(id==='mp4Btn'&&!!EXP.noVideo);});}
+async function exportAnim(fmt){
+  if(!ST.length||EXP.busy) return;
+  stopPlay();
+  const btn=fmt==='gif'?$('gifBtn'):$('mp4Btn'),orig=btn.innerHTML;
+  setExpBusy(true);
+  const job={cancelled:false},tag=fmt==='gif'?'GIF':'Video';
+  const pct=p=>{btn.textContent=`${tag} ${Math.round(clamp(p,0,1)*100)}%`;};
+  try{
+    await document.fonts.ready;
+    let res;
+    if(fmt==='gif') res={blob:await encodeGif(mapAnim(3),10,job,pct),ext:'gif'};
+    else{
+      const anim=mapAnim(1),[W,H]=videoDims(anim),cfg=await pickAvcConfig(W,H);
+      if(cfg) res={blob:await encodeMp4(anim,cfg,VIDEO_FPS,job,pct),ext:'mp4'};
+      else{const mime=recorderMime();if(!mime) throw new Error('Video export is not supported in this browser');res=await recordVideo(anim,mime,VIDEO_FPS,job,pct);}
+    }
+    downloadBlob(res.blob,`us-season-map_${seasonYear}-${String(seasonYear+1).slice(2)}_${period}.${res.ext}`);
+    setExpBusy(false);flashBtn(btn,'✓ Saved','is-ok',orig);
+  }catch(e){
+    console.error('Animated export:',e);
+    setExpBusy(false);flashBtn(btn,'⚠ Failed','is-error',orig);
+  }
+}
+// ── Encoders: GIF (median-cut palette, LZW) and H.264 MP4 via WebCodecs with a
+//    hand-built muxer; MediaRecorder fallback. Shared pattern from
+//    pacific-sst-anomaly-map.html (see animated-export notes).
+const VIDEO_SCALE = 4 / 3, VIDEO_FPS = 24, VIDEO_BITRATE = 3e6, HOLD_S = 2;
+const AVC_CODECS = ['avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.420028'];   // High/Main/Baseline, level 4.0
+const VIDEO_MIMES = ['video/mp4;codecs=avc1.42E01E', 'video/mp4;codecs=avc1', 'video/webm;codecs=vp9',
+                     'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+class ExportCancelled extends Error {}
+function medianCutPalette(hist, nColors) {          // hist over 18-bit (6-6-6) keys
+  const bins = [];
+  for (let key = 0; key < hist.length; key++) if (hist[key]) bins.push([(key >> 12) & 63, (key >> 6) & 63, key & 63, hist[key]]);
+  if (!bins.length) bins.push([0, 0, 0, 1]);
+  const boxes = [bins];
+  while (boxes.length < nColors) {
+    let bi = -1, best = -1, bestCh = 0;
+    boxes.forEach((b, i) => {
+      if (b.length < 2) return;
+      for (let ch = 0; ch < 3; ch++) {
+        let lo = 64, hi = -1;
+        for (const e of b) { if (e[ch] < lo) lo = e[ch]; if (e[ch] > hi) hi = e[ch]; }
+        const score = (hi - lo) * Math.log(1 + b.length);
+        if (score > best) { best = score; bi = i; bestCh = ch; }
+      }
+    });
+    if (bi < 0 || best <= 0) break;
+    const box = boxes[bi];
+    box.sort((a, b) => a[bestCh] - b[bestCh]);
+    let total = 0; for (const e of box) total += e[3];
+    let acc = 0, cut = 1;
+    for (let j = 0; j < box.length - 1; j++) { acc += box[j][3]; cut = j + 1; if (acc >= total / 2) break; }
+    boxes.splice(bi, 1, box.slice(0, cut), box.slice(cut));
+  }
+  return boxes.map(b => {
+    let r = 0, g = 0, bl = 0, n = 0;
+    for (const e of b) { r += e[0] * e[3]; g += e[1] * e[3]; bl += e[2] * e[3]; n += e[3]; }
+    return [Math.round(r / n * 255 / 63), Math.round(g / n * 255 / 63), Math.round(bl / n * 255 / 63)];
+  });
+}
+function makeMapper(palette) {
+  const cache = new Int16Array(1 << 18).fill(-1);
+  return (r, g, b) => {
+    const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2), v = cache[key];
+    if (v >= 0) return v;
+    let best = 0, bd = 1e9;
+    for (let i = 0; i < palette.length; i++) {
+      const dr = palette[i][0] - r, dg = palette[i][1] - g, db = palette[i][2] - b;
+      const d = dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11;
+      if (d < bd) { bd = d; best = i; }
+    }
+    cache[key] = best;
+    return best;
+  };
+}
+class ByteSink {
+  constructor() { this.chunks = []; this.buf = new Uint8Array(1 << 16); this.len = 0; }
+  byte(b) { if (this.len === this.buf.length) this.flush(); this.buf[this.len++] = b; }
+  u16(v) { this.byte(v & 255); this.byte((v >> 8) & 255); }
+  str(s) { for (let i = 0; i < s.length; i++) this.byte(s.charCodeAt(i)); }
+  flush() { if (this.len) { this.chunks.push(this.buf.slice(0, this.len)); this.len = 0; } }
+  blob(type) { this.flush(); return new Blob(this.chunks, { type }); }
+}
+function lzwEncode(sink, px, minCode) {
+  const clear = 1 << minCode, eoi = clear + 1, initBits = minCode + 1;
+  let nBits = initBits, maxcode = (1 << nBits) - 1, freeEnt = clear + 2, clearFlg = false;
+  const dict = new Map(), block = new Uint8Array(255);
+  let acc = 0, accBits = 0, blen = 0;
+  const putByte = b => {
+    block[blen++] = b;
+    if (blen === 255) { sink.byte(255); for (let i = 0; i < 255; i++) sink.byte(block[i]); blen = 0; }
+  };
+  const output = code => {
+    acc |= code << accBits; accBits += nBits;
+    while (accBits >= 8) { putByte(acc & 255); acc >>>= 8; accBits -= 8; }
+    if (freeEnt > maxcode || clearFlg) {
+      if (clearFlg) { nBits = initBits; maxcode = (1 << nBits) - 1; clearFlg = false; }
+      else { nBits++; maxcode = nBits === 12 ? 4096 : (1 << nBits) - 1; }
+    }
+  };
+  sink.byte(minCode);
+  output(clear);
+  let ent = px[0];
+  for (let i = 1; i < px.length; i++) {
+    const ch = px[i], key = ent * 256 + ch, v = dict.get(key);
+    if (v !== undefined) { ent = v; continue; }
+    output(ent); ent = ch;
+    if (freeEnt < 4096) dict.set(key, freeEnt++);
+    else { dict.clear(); freeEnt = clear + 2; clearFlg = true; output(clear); }
+  }
+  output(ent); output(eoi);
+  if (accBits > 0) putByte(acc & 255);
+  if (blen) { sink.byte(blen); for (let j = 0; j < blen; j++) sink.byte(block[j]); }
+  sink.byte(0);
+}
+const tick = () => new Promise(res => setTimeout(res, 0));
+
+async function encodeGif(anim, fps, job, onProgress) {
+  const W = anim.W, H = anim.H, N = anim.frames, TRANSP = 255;
+  const delay = Math.round(100 / fps);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const hist = new Uint32Array(1 << 18);
+  // pass 1: palette from ~14 sampled frames
+  const every = Math.max(1, Math.round(N / 14));
+  for (let k = 0; k < N; k++) {
+    if (k % every !== 0 && k !== N - 1) continue;
+    if (job.cancelled) throw new ExportCancelled();
+    anim.draw(ctx, await anim.prepare(k), k, 1);
+    const d = ctx.getImageData(0, 0, W, H).data;
+    for (let i = 0; i < d.length; i += 12) hist[((d[i] >> 2) << 12) | ((d[i + 1] >> 2) << 6) | (d[i + 2] >> 2)]++;
+    onProgress(0.12 * k / N); await tick();
+  }
+  const palette = medianCutPalette(hist, 255), map = makeMapper(palette);
+  while (palette.length < 256) palette.push([0, 0, 0]);
+  // pass 2: encode
+  const sink = new ByteSink();
+  sink.str('GIF89a'); sink.u16(W); sink.u16(H); sink.byte(0xF7); sink.byte(0); sink.byte(0);
+  for (const [r, g, b] of palette) { sink.byte(r); sink.byte(g); sink.byte(b); }
+  sink.byte(0x21); sink.byte(0xFF); sink.byte(11); sink.str('NETSCAPE2.0'); sink.byte(3); sink.byte(1); sink.u16(0); sink.byte(0);
+  let prev = null;
+  for (let f = 0; f < N; f++) {
+    if (job.cancelled) throw new ExportCancelled();
+    anim.draw(ctx, await anim.prepare(f), f, 1);
+    const data = ctx.getImageData(0, 0, W, H).data, idx = new Uint8Array(W * H);
+    for (let q = 0, o = 0; q < idx.length; q++, o += 4) idx[q] = map(data[o], data[o + 1], data[o + 2]);
+    let x0 = 0, y0 = 0, x1 = W - 1, y1 = H - 1;
+    if (prev) {
+      x0 = W; y0 = H; x1 = -1; y1 = -1;
+      for (let yy = 0; yy < H; yy++) {
+        const row = yy * W;
+        for (let xx = 0; xx < W; xx++) {
+          if (idx[row + xx] !== prev[row + xx]) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; y1 = yy; }
+        }
+      }
+      if (x1 < 0) { x0 = 0; y0 = 0; x1 = 0; y1 = 0; }
+    }
+    const w = x1 - x0 + 1, h = y1 - y0 + 1, sub = new Uint8Array(w * h);
+    for (let sy = 0; sy < h; sy++) {
+      const srow = (y0 + sy) * W;
+      for (let sx = 0; sx < w; sx++) {
+        const v = idx[srow + x0 + sx];
+        sub[sy * w + sx] = prev && prev[srow + x0 + sx] === v ? TRANSP : v;
+      }
+    }
+    const dl = f === N - 1 ? delay + HOLD_S * 100 : delay;
+    sink.byte(0x21); sink.byte(0xF9); sink.byte(4); sink.byte(prev ? 0x05 : 0x04); sink.u16(dl); sink.byte(TRANSP); sink.byte(0);
+    sink.byte(0x2C); sink.u16(x0); sink.u16(y0); sink.u16(w); sink.u16(h); sink.byte(0);
+    lzwEncode(sink, sub, 8);
+    prev = idx;
+    onProgress(0.12 + 0.88 * (f + 1) / N);
+    await tick();
+  }
+  sink.byte(0x3B);
+  return sink.blob('image/gif');
+}
+
+// ── MP4: WebCodecs H.264 → hand-built MP4 (frame-exact, faster than real time) ──
+function splitAnnexB(u8) {
+  const nals = [], n = u8.length;
+  let i = 0, start = -1;
+  while (i + 2 < n) {
+    if (u8[i] === 0 && u8[i + 1] === 0 && (u8[i + 2] === 1 || (u8[i + 2] === 0 && i + 3 < n && u8[i + 3] === 1))) {
+      if (start >= 0) nals.push(u8.subarray(start, i));
+      i += u8[i + 2] === 1 ? 3 : 4; start = i;
+    } else i++;
+  }
+  if (start >= 0) nals.push(u8.subarray(start));
+  return nals.map(x => { let e = x.length; while (e > 1 && x[e - 1] === 0) e--; return x.subarray(0, e); });
+}
+// True when 4-byte big-endian NAL lengths tile the buffer exactly (AVCC). Checking
+// the first bytes for 00 00 01 is not enough: a 256–511-byte NAL's length prefix
+// is 00 00 01 xx.
+function isAvccFramed(u8) {
+  let o = 0;
+  while (o + 4 <= u8.length) {
+    const n = u8[o] * 16777216 + (u8[o + 1] << 16) + (u8[o + 2] << 8) + u8[o + 3];
+    if (n === 0 || o + 4 + n > u8.length) return false;
+    o += 4 + n;
+  }
+  return o === u8.length;
+}
+function avcCFrom(sps, pps) {
+  const out = new Uint8Array(11 + sps.length + pps.length);
+  out.set([1, sps[1], sps[2], sps[3], 0xFF, 0xE1, sps.length >> 8, sps.length & 255], 0);
+  out.set(sps, 8);
+  const o = 8 + sps.length;
+  out.set([1, pps.length >> 8, pps.length & 255], o);
+  out.set(pps, o + 3);
+  return out;
+}
+function nalsToAvcc(nals) {                      // 4-byte length prefixes; parameter sets live in avcC
+  const keep = nals.filter(x => { const t = x[0] & 31; return t !== 7 && t !== 8 && t !== 9; });
+  const out = new Uint8Array(keep.reduce((s, x) => s + 4 + x.length, 0));
+  let o = 0;
+  for (const x of keep) { out.set([x.length >>> 24, (x.length >> 16) & 255, (x.length >> 8) & 255, x.length & 255], o); out.set(x, o + 4); o += 4 + x.length; }
+  return out;
+}
+
+// samples: [{data, cts, key}] in decode order (cts in timescale units); returns Blob parts.
+function muxMp4({ width, height, timescale, frameDur, samples, avcC }) {
+  const u32 = v => [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255];
+  const u16 = v => [(v >> 8) & 255, v & 255];
+  const str = s => Array.from(s, ch => ch.charCodeAt(0));
+  const zeros = n => new Array(n).fill(0);
+  const box = (type, ...parts) => {
+    let len = 8; for (const p of parts) len += p.length;
+    const out = new Uint8Array(len);
+    out.set(u32(len), 0); out.set(str(type), 4);
+    let o = 8; for (const p of parts) { out.set(p, o); o += p.length; }
+    return out;
+  };
+  const full = (type, v, flags, ...parts) => box(type, [v, (flags >> 16) & 255, (flags >> 8) & 255, flags & 255], ...parts);
+  const n = samples.length;
+  const cts = samples.map(s => s.cts);
+  const dts = cts.slice().sort((a, b) => a - b);
+  const dur = dts.map((d, i) => i < n - 1 ? dts[i + 1] - d : frameDur);
+  const offs = cts.map((c, i) => c - dts[i]);
+  const mediaDur = dts[n - 1] - dts[0] + dur[n - 1];
+  const movieDur = Math.round(mediaDur * 1000 / timescale);
+  const matrix = [...u32(0x00010000), ...u32(0), ...u32(0), ...u32(0), ...u32(0x00010000), ...u32(0), ...u32(0), ...u32(0), ...u32(0x40000000)];
+  const runs = (arr) => { const r = []; for (const v of arr) { if (r.length && r[r.length - 1][1] === v) r[r.length - 1][0]++; else r.push([1, v]); } return r; };
+
+  const sttsR = runs(dur), cttsR = runs(offs);
+  const keys = []; samples.forEach((s, i) => { if (s.key) keys.push(i + 1); });
+  const dataLen = samples.reduce((s, x) => s + x.data.length, 0);
+
+  const ftyp = box('ftyp', str('isom'), u32(512), str('isom'), str('iso2'), str('avc1'), str('mp41'));
+  const moovWith = (chunkOffset) => {
+    const stsd = full('stsd', 0, 0, u32(1), box('avc1',
+      zeros(6), u16(1), zeros(16), u16(width), u16(height), u32(0x00480000), u32(0x00480000), u32(0), u16(1),
+      zeros(32), u16(0x18), u16(0xFFFF), box('avcC', avcC)));
+    const stts = full('stts', 0, 0, u32(sttsR.length), sttsR.flatMap(([c, d]) => [...u32(c), ...u32(d)]));
+    const ctts = offs.some(x => x !== 0)
+      ? full('ctts', 1, 0, u32(cttsR.length), cttsR.flatMap(([c, d]) => [...u32(c), ...u32(d >>> 0)])) : null;
+    const stss = full('stss', 0, 0, u32(keys.length), keys.flatMap(u32));
+    const stsc = full('stsc', 0, 0, u32(1), u32(1), u32(n), u32(1));
+    const szs = new Uint8Array(4 * n); samples.forEach((s, i) => szs.set(u32(s.data.length), 4 * i));
+    const stsz = full('stsz', 0, 0, u32(0), u32(n), szs);
+    const stco = full('stco', 0, 0, u32(1), u32(chunkOffset));
+    const stbl = box('stbl', stsd, stts, ...(ctts ? [ctts] : []), stss, stsc, stsz, stco);
+    const minf = box('minf', full('vmhd', 0, 1, zeros(8)), box('dinf', full('dref', 0, 0, u32(1), full('url ', 0, 1))), stbl);
+    const mdia = box('mdia',
+      full('mdhd', 0, 0, u32(0), u32(0), u32(timescale), u32(mediaDur), u16(0x55C4), u16(0)),
+      full('hdlr', 0, 0, u32(0), str('vide'), zeros(12), [...str('VideoHandler'), 0]),
+      minf);
+    const tkhd = full('tkhd', 0, 3, u32(0), u32(0), u32(1), u32(0), u32(movieDur), zeros(8), u16(0), u16(0), u16(0), u16(0),
+      matrix, u32(width * 65536), u32(height * 65536));
+    const mvhd = full('mvhd', 0, 0, u32(0), u32(0), u32(1000), u32(movieDur), u32(0x00010000), u16(0x0100), zeros(10),
+      matrix, zeros(24), u32(2));
+    return box('moov', mvhd, box('trak', tkhd, mdia));
+  };
+  const probe = moovWith(0);
+  const moov = moovWith(ftyp.length + probe.length + 8);
+  const mdatHdr = new Uint8Array([...u32(8 + dataLen), ...str('mdat')]);
+  return [ftyp, moov, mdatHdr, ...samples.map(s => s.data)];
+}
+
+async function pickAvcConfig(width, height) {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') return null;
+  for (const codec of AVC_CODECS) {
+    const cfg = { codec, width, height, bitrate: VIDEO_BITRATE, bitrateMode: 'variable', framerate: VIDEO_FPS, avc: { format: 'avc' } };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch (e) { /* try next */ }
+  }
+  return null;
+}
+function recorderMime() {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return null;
+  return VIDEO_MIMES.find(m => MediaRecorder.isTypeSupported(m)) || null;
+}
+const videoDims = anim => [Math.round(anim.W * VIDEO_SCALE / 2) * 2, Math.round(anim.H * VIDEO_SCALE / 2) * 2];
+
+async function encodeMp4(anim, cfg, fps, job, onProgress) {
+  const [W, H] = [cfg.width, cfg.height], N = anim.frames;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const out = []; let desc = null, encErr = null;
+  const enc = new VideoEncoder({
+    output: (chunk, meta) => {
+      const b = new Uint8Array(chunk.byteLength); chunk.copyTo(b);
+      out.push({ data: b, ts: chunk.timestamp, key: chunk.type === 'key' });
+      const d = meta && meta.decoderConfig && meta.decoderConfig.description;
+      if (d && !desc) desc = d instanceof ArrayBuffer ? new Uint8Array(d.slice(0)) : new Uint8Array(d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength));
+    },
+    error: e => { encErr = e; },
+  });
+  enc.configure(cfg);
+  const rep = Math.round(VIDEO_FPS / fps), hold = HOLD_S * VIDEO_FPS, total = N * rep + hold, us = 1e6 / VIDEO_FPS;
+  let idx = 0;
+  const push = async () => {
+    const vf = new VideoFrame(cv, { timestamp: Math.round(idx * us), duration: Math.round(us), alpha: 'discard' });
+    enc.encode(vf, { keyFrame: idx % (VIDEO_FPS * 2) === 0 });
+    vf.close(); idx++;
+    while (enc.encodeQueueSize > 6 && !encErr) {
+      await new Promise(r => { enc.addEventListener('dequeue', r, { once: true }); setTimeout(r, 40); });
+    }
+    if (encErr) throw encErr;
+  };
+  try {
+    for (let k = 0; k < N; k++) {
+      if (job.cancelled) throw new ExportCancelled();
+      const fr = await anim.prepare(k);
+      ctx.setTransform(W / anim.W, 0, 0, H / anim.H, 0, 0);
+      anim.draw(ctx, fr, k, W / anim.W);
+      for (let r = 0; r < rep; r++) await push();
+      onProgress(idx / total);
+    }
+    for (let r = 0; r < hold; r++) await push();
+    await enc.flush();
+    if (encErr) throw encErr;
+  } finally {
+    if (enc.state !== 'closed') enc.close();
+  }
+  // With a description the chunks are AVCC by spec; without one they are Annex B
+  // → build avcC from SPS/PPS and length-prefix the samples.
+  if (!desc) {
+    let sps = null, pps = null;
+    for (const s of out) {
+      if (isAvccFramed(s.data)) continue;
+      const nals = splitAnnexB(s.data);
+      for (const x of nals) { const t = x[0] & 31; if (t === 7 && !sps) sps = x; if (t === 8 && !pps) pps = x; }
+      s.data = nalsToAvcc(nals);
+    }
+    if (!sps || !pps) throw new Error('encoder produced no SPS/PPS');
+    desc = avcCFrom(sps, pps);
+  }
+  const TS = 90000, frameDur = TS / VIDEO_FPS;
+  const parts = muxMp4({
+    width: W, height: H, timescale: TS, frameDur, avcC: desc,
+    samples: out.map(s => ({ data: s.data, key: s.key, cts: Math.round(s.ts * TS / 1e6) })),
+  });
+  return new Blob(parts, { type: 'video/mp4' });
+}
+
+// Fallback: real-time MediaRecorder capture. Next frame is composed on a back
+// canvas while the current one is on screen, then blitted at its due time.
+async function recordVideo(anim, mime, fps, job, onProgress) {
+  const [W, H] = videoDims(anim), N = anim.frames;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  const back = document.createElement('canvas'); back.width = W; back.height = H;
+  const bctx = back.getContext('2d');
+  const paintBack = async k => {
+    bctx.setTransform(W / anim.W, 0, 0, H / anim.H, 0, 0);
+    anim.draw(bctx, await anim.prepare(k), k, W / anim.W);
+  };
+  const stream = cv.captureStream(0), track = stream.getVideoTracks()[0];
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6e6 }), chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((res, rej) => { rec.onstop = res; rec.onerror = e => rej(e.error || e); });
+  const frameMs = 1000 / fps, total = N * frameMs + HOLD_S * 1000;
+  const blit = () => { ctx.drawImage(back, 0, 0); if (track.requestFrame) track.requestFrame(); };
+  const sleepUntil = t => new Promise(r => setTimeout(r, Math.max(0, t - performance.now())));
+  await paintBack(0);
+  rec.start(250);
+  const t0 = performance.now();
+  try {
+    for (let k = 0; k < N; k++) {
+      if (job.cancelled) throw new ExportCancelled();
+      await sleepUntil(t0 + k * frameMs);
+      blit();
+      if (k + 1 < N) await paintBack(k + 1);
+      onProgress((performance.now() - t0) / total);
+    }
+    const end = t0 + total;
+    while (performance.now() < end) {              // keep repainting through the hold
+      if (job.cancelled) throw new ExportCancelled();
+      blit(); onProgress((performance.now() - t0) / total);
+      await sleepUntil(Math.min(end, performance.now() + 1000 / 30));
+    }
+  } finally {
+    if (rec.state !== 'inactive') rec.stop();
+  }
+  await stopped;
+  const type = mime.split(';')[0], blob = new Blob(chunks, { type });
+  if (type === 'video/mp4') return { blob, ext: 'mp4' };
+  return { blob: await fixWebmDuration(blob, total), ext: 'webm' };
+}
+
+// MediaRecorder WebM files carry no Duration; insert one into Segment › Info.
+function fixWebmDuration(blob, durationMs) {
+  return blob.slice(0, Math.min(blob.size, 65536)).arrayBuffer().then(buf => {
+    const b = new Uint8Array(buf);
+    const vint = (pos, keepMarker) => {
+      const first = b[pos]; let len = 1, mask = 0x80;
+      while (len <= 8 && !(first & mask)) { len++; mask >>= 1; }
+      if (len > 8) throw new Error('bad vint');
+      let val = keepMarker ? first : first & (mask - 1);
+      for (let i = 1; i < len; i++) val = val * 256 + b[pos + i];
+      return { len, val };
+    };
+    let pos = 0, id = vint(pos, true);
+    if (id.val !== 0x1A45DFA3) throw new Error('not EBML');
+    let sz = vint(pos + id.len, false); pos += id.len + sz.len + sz.val;
+    id = vint(pos, true); if (id.val !== 0x18538067) throw new Error('no Segment');
+    sz = vint(pos + id.len, false); pos += id.len + sz.len;
+    for (let guard = 0; guard < 16 && pos < b.length - 8; guard++) {
+      id = vint(pos, true); sz = vint(pos + id.len, false);
+      const dataStart = pos + id.len + sz.len;
+      if (id.val === 0x1549A966) {
+        let q = dataStart; const end = dataStart + sz.val;
+        while (q < end) { const cid = vint(q, true), csz = vint(q + cid.len, false); if (cid.val === 0x4489) return blob; q += cid.len + csz.len + csz.val; }
+        const dur = new Uint8Array(11); dur[0] = 0x44; dur[1] = 0x89; dur[2] = 0x88;
+        new DataView(dur.buffer).setFloat64(3, durationMs);
+        const sizeBytes = new Uint8Array(8); sizeBytes[0] = 0x01;
+        for (let i = 7, v = sz.val + 11; i >= 1; i--) { sizeBytes[i] = v & 255; v = Math.floor(v / 256); }
+        const head = new Uint8Array(buf, 0, pos + id.len), body = new Uint8Array(buf, dataStart, sz.val);
+        return new Blob([head, sizeBytes, body, dur, blob.slice(end)], { type: blob.type });
+      }
+      pos = dataStart + sz.val;
+    }
+    return blob;
+  }).catch(() => blob);
+}
+
+
+// ─── INIT ──────────────────────────────────────────────────
+function showError(msg){
+  const o=$('stateOverlay');o.hidden=false;o.innerHTML=`<span class="err">${msg}</span>`;
+  const b=$('dataStatus');b.className='status-badge error';b.textContent='Unavailable';
+}
+(async function init(){
+  initSearch();bindTimeline();bindMap();
+  document.querySelectorAll('#thrSeg .cc-segmented-btn').forEach(b=>b.onclick=()=>setPeriod(+b.dataset.p));
+  $('playBtn').onclick=play;
+  $('latestBtn').onclick=()=>{stopPlay();setDay(nDays-1);};
+  $('fillBtn').onclick=()=>setFill(!fillOn);
+  $('pngBtn').onclick=exportPNG;
+  $('gifBtn').onclick=()=>exportAnim('gif');
+  $('mp4Btn').onclick=()=>exportAnim('mp4');
+  window.__seasonMapState=()=>({day,nDays,period,fillOn,sel:sel!=null?ST[sel].id:null,hover:hover!=null?ST[hover].id:null,
+    stations:ST.length,end:D&&D.end,seasonYear,playing:PLAY.on,counts:Array.from(COUNTS?COUNTS.slice(day*5,day*5+5):[]),rare:RARECT?RARECT[day]:0,
+    geom:G&&{W:G.W,H:G.H,k:G.k,r:G.r},code:id=>{const k=ST.findIndex(s=>s.id===id);return k<0?null:codeAt(k,day);}});   // read-only hook for automated checks
+  try{
+    const[d,gj]=await Promise.all([
+      fetch('season-map-data.json',{cache:'no-cache'}).then(r=>{if(!r.ok) throw new Error('data '+r.status);return r.json();}),
+      fetch('states-500k.geojson').then(r=>{if(!r.ok) throw new Error('map '+r.status);return r.json();})
+    ]);
+    decodeData(d);buildGeo(gj);placeStations();buildFillGrid();
+  }catch(e){console.error(e);showError('Could not load the season map data. Please try again later.');return;}
+  const qs=new URLSearchParams(location.search);
+  const p=+qs.get('thr');if(p===1981||p===1991){period=p;document.querySelectorAll('#thrSeg .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active',+b.dataset.p===p));}
+  classifyAll();
+  day=nDays-1;
+  const dq=qs.get('d');if(dq){const i=Math.round((Date.parse(dq+'T00:00:00Z')-startMs)/864e5);if(i>=0&&i<nDays) day=i;}
+  const sq=(qs.get('st')||'').toUpperCase();if(sq){const k=ST.findIndex(s=>s.id===sq);if(k>=0) sel=k;}
+  if(qs.get('fill')==='1'){fillOn=true;$('fillBtn').classList.add('is-active');}
+  $('fillBtn').setAttribute('aria-pressed',fillOn);
+  $('stateOverlay').hidden=true;
+  const b=$('dataStatus');b.className='status-badge ok';
+  b.textContent=`Through ${new Date(Date.parse(D.end+'T00:00:00Z')).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'})}`;
+  ['pngBtn','gifBtn','mp4Btn','playBtn','latestBtn'].forEach(id=>$(id).disabled=false);
+  layout();
+  if(window.ResizeObserver) new ResizeObserver(()=>{clearTimeout(window.__rz);window.__rz=setTimeout(layout,100);}).observe($('stage'));
+  window.addEventListener('resize',()=>{clearTimeout(window.__rz);window.__rz=setTimeout(layout,100);});
+  (async()=>{try{const a=mapAnim(1);const[W,H]=videoDims(a);if(!(await pickAvcConfig(W,H))){const m=recorderMime();$('mp4Btn').innerHTML=m&&m.startsWith('video/webm')?'&#8595; WebM':'&#8595; Video';if(!m){EXP.noVideo=true;$('mp4Btn').disabled=true;}}}catch(e){}})();
+})();
+</script>
+</body>
+</html>
