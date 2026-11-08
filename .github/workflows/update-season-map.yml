@@ -1,0 +1,78 @@
+name: Update Season Map Data
+
+# Daily: refresh every roster station's current season year (Dec 1 → latest).
+# Monthly (2nd of the month) or when no data file exists: full period-of-record
+# rebuild — thresholds for both normal periods and the season odds by week.
+# A failed fetch or validation never overwrites the committed file.
+# Read by public/season-map.html (US Season Map).
+
+on:
+  schedule:
+    - cron: '23 15 * * *'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full period-of-record rebuild'
+        type: boolean
+        default: false
+
+concurrency:
+  group: season-map-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Self-test
+        run: python3 scripts/build_season_map.py --selftest
+
+      - name: Choose build mode
+        id: mode
+        run: |
+          if [ "${{ inputs.full }}" = "true" ]; then
+            M=full; WHY="manually requested"
+          elif [ ! -f public/season-map-data.json ]; then
+            M=full; WHY="no committed data yet"
+          elif [ "$(date -u +%d)" = "02" ]; then
+            M=full; WHY="monthly rebuild"
+          else
+            M=daily; WHY="daily refresh"
+          fi
+          echo "mode=$M" >> "$GITHUB_OUTPUT"
+          echo "Mode: $M ($WHY)"
+
+      - name: Build season map data
+        run: python3 scripts/build_season_map.py --mode "${{ steps.mode.outputs.mode }}"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/season-map-data.json
+          if git diff --cached --quiet; then
+            echo "No change in the data file — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Season map data (${{ steps.mode.outputs.mode }} build, $(date -u +%Y-%m-%d))"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "${{ github.ref_name }}" && git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying."
+            sleep 6
+          done
+          echo "Could not push after 3 attempts."
+          exit 1

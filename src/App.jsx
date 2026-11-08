@@ -5,6 +5,7 @@ import HourlyData                  from './pages/HourlyData'
 import Climate                     from './pages/Climate'
 import ENSO                        from './pages/ENSO'
 import Seasons                     from './pages/Seasons'
+import SeasonMap                   from './pages/SeasonMap'
 import IspLive                     from './pages/IspLive'
 import CurrentConditions           from './pages/CurrentConditions'
 import CloudCoverExplorer          from './pages/CloudCoverExplorer'
@@ -179,6 +180,7 @@ export default function App() {
           <Route path="/precipsnow"                          element={<PrecipSnow />}              />
           <Route path="/northeast-climate"                   element={<NortheastClimate />}        />
           <Route path="/seasons"                             element={<Seasons />}                 />
+          <Route path="/season-map"                          element={<SeasonMap />}               />
           <Route path="/monthly"                             element={<HourlyData />}              />
           <Route path="/annual"                             element={<Climate />}                 />
           <Route path="/enso"                                element={<ENSO />}                    />
