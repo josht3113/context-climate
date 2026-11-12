@@ -7,7 +7,7 @@ export default function ESSRT_5() {
       <iframe
         src={`/ESSRT_5.html${search}`}
         title="ESSRT Page 5 — Life Cycles of Stars"
-        style={{ width: '100%', height: 'calc(100vh - 56px)', border: 'none', display: 'block' }}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
       />
     </div>
   )
