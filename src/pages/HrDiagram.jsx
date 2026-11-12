@@ -7,7 +7,7 @@ export default function HrDiagram() {
       <iframe
         src={`/hr-diagram.html${search}`}
         title="H-R Diagram"
-        style={{ width: '100%', height: 'calc(100vh - 56px)', border: 'none', display: 'block' }}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
       />
     </div>
   )
