@@ -54,6 +54,8 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .now.is-live { background: var(--accent-live); color: #0f1a15; }
 .now.is-live i { background: #0f1a15; animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
+.trailT { padding: 9px 12px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.trailT .shrt { display: none; }
 .go { min-width: 104px; padding: 9px 14px; font-size: 15px; white-space: nowrap; }
 .stepr .cc-segmented-btn { padding: 8px 10px; font-size: 14px; font-weight: 700; white-space: nowrap; }
 .snap { padding: 6px 9px; font-size: 14px; font-weight: 600; color: var(--color-text-primary); line-height: 1.15; text-align: center; white-space: nowrap; }
@@ -87,9 +89,9 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .card .verdict { padding: 8px 0 7px; border-bottom: 1px solid var(--color-border); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .card .verdict .big { font-family: var(--font-display); font-weight: 700; font-size: 25px; line-height: 1.05; color: var(--color-text-primary); }
 .card .verdict .sm { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); letter-spacing: .03em; }
-.card .inset { padding: 8px 0 8px; border-bottom: 1px solid var(--color-border); }
+.card .inset { padding: 8px 0 8px; border-bottom: 1px solid var(--color-border); position: relative; flex: 1 1 auto; display: flex; flex-direction: column; max-height: 270px; }
 .card .inset .ih { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-.card .inset canvas { display: block; width: 100%; height: 170px; border-radius: var(--radius-md); cursor: grab; touch-action: none; }
+.card .inset canvas { display: block; width: 100%; height: 0; flex: 1 1 auto; min-height: 170px; border-radius: var(--radius-md); cursor: grab; touch-action: none; }
 .card .tg { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 0; border-bottom: 1px solid var(--color-border); }
 .card .tg .cc-btn { padding: 4px 8px; font-size: 13px; }
 .tgl::before { content: ''; display: inline-block; width: 9px; height: 9px; border: 1.5px solid var(--color-text-muted);
@@ -107,15 +109,15 @@ body { padding: 0; overflow: hidden; min-height: 0; }
   .card .r { padding: 4px 0 3px; }
   .card .v { font-size: 20px; }
   .card .verdict .big { font-size: 22px; }
-  .card .inset canvas { height: 150px; }
+  .card .inset canvas { min-height: 150px; }
   .card .tg { padding: 6px 0; }
 }
 @media (max-height: 680px) {
-  .card .inset canvas { height: 132px; }
+  .card .inset canvas { min-height: 132px; }
   .card .v { font-size: 19px; }
   .card .src { display: none; }
 }
-@media (max-width: 1180px) and (max-height: 700px) { .card .inset canvas { height: 118px; } .card .verdict { padding: 6px 0 5px; } }
+@media (max-width: 1180px) and (max-height: 700px) { .card .inset canvas { min-height: 118px; } .card .verdict { padding: 6px 0 5px; } }
 @media (max-width: 1500px) { .top .sub { display: none; } }
 @media (max-width: 1366px) {
   .snap { padding: 6px 7px; font-size: 13px; }
@@ -138,6 +140,8 @@ body { padding: 0; overflow: hidden; min-height: 0; }
   .snap small { display: none; }
   .stepr .cc-segmented-btn { padding: 8px 8px; }
   .chips .lbl { display: none; }
+  .trailT { padding: 9px 10px; }
+  .trailT .lng { display: none; } .trailT .shrt { display: inline; }
 }
 </style>
 </head>
@@ -468,6 +472,7 @@ const OBS = new A.Observer(LAT, LON, 20);
 const MIN = 60000, HR = 3600000, DAY = 86400000;
 const RANGE = 60;                         // days either side of today
 const SYNODIC = 29.530588853;
+const LIMB = -0.35;                       // centre altitude when the upper limb touches the horizon (rise/set definition)
 const C = { text: '#E8E4D9', sec: '#A6A499', muted: '#948F82', accent: '#3CA3AE', hourly: '#6D96D8', live: '#2AA87E',
   gold: '#D9B45A', moon: '#F3EEDD', panel: '#141815' };
 const PLANETS = [
@@ -990,7 +995,7 @@ function drawPlanets(c, P, sc, lab, hit) {
     hit.push({ x, y, r: 10, html: `<b>${p.name}</b><br>planet · ${p.alt.toFixed(1)}° up · ${Math.round(p.az)}° ${compass16(p.az)}` });
   }
 }
-function drawSunDisk(c, P, sc, lab) {
+function drawSunDisk(c, P, sc, lab, hit) {
   const s = sc.sun; if (s.alt < -1 || !P.inView(s.az, 4)) return;
   const x = P.x(s.az), y = P.y(s.alt), lowF = clamp(1 - s.alt / 25, 0, 1);
   const g = c.createRadialGradient(x, y, 4, x, y, 44); g.addColorStop(0, 'rgba(255,236,170,0.75)'); g.addColorStop(1, 'rgba(255,236,170,0)');
@@ -998,11 +1003,13 @@ function drawSunDisk(c, P, sc, lab) {
   c.beginPath(); c.arc(x, y, 12, 0, TAU); c.fillStyle = rgb(mixRGB([255, 222, 120], [255, 140, 70], lowF)); c.fill();
   c.beginPath(); c.arc(x, y, 7, 0, TAU); c.fillStyle = 'rgba(255,250,228,0.97)'; c.fill();
   lab.add('Sun', x, y, { font: `700 14px ${FB}`, col: '#FFE6A0', pri: 2, dx: 16 });
+  hit.push({ x, y, r: 16, html: `<b>Sun</b><br>${hoverPos(s.alt, s.az)}` });
 }
+const hoverPos = (alt, az) => `${alt.toFixed(1)}° up · ${Math.round(wrap360(az))}° ${compass16(az)}`;
 function projFn(P) { const f = (alt, az) => ({ x: P.x(az), y: P.y(alt) }); f.kx = P.kx; return f; }
 
 /* hour-by-hour positions already passed tonight */
-function drawHourTrail(c, P, sc, lab) {
+function drawHourTrail(c, P, sc, lab, hit) {
   const N = night(S.day), ms = sc.ms;
   c.save(); c.setLineDash([2, 5]); c.lineCap = 'round'; c.strokeStyle = 'rgba(109,150,216,0.55)'; c.lineWidth = 2; c.beginPath();
   let prev = null;
@@ -1015,13 +1022,14 @@ function drawHourTrail(c, P, sc, lab) {
     const b = body('Moon', t); if (b.alt < 0.3 || !P.inView(b.az, 4)) continue;
     const x = P.x(b.az), y = P.y(b.alt);
     c.beginPath(); c.arc(x, y, 5.5, 0, TAU); c.fillStyle = 'rgba(109,150,216,0.28)'; c.fill(); c.strokeStyle = C.hourly; c.lineWidth = 2; c.stroke();
+    hit.push({ x, y, r: 9, html: `<b>Moon · ${fmtHour(t)}</b><br>${hoverPos(b.alt, b.az)}` });
     lab.add(fmtHour(t), x, y, { font: `700 13px ${FM}`, col: '#9DB8E6', pri: 3, tries: [[0, 15, 'center'], [0, -15, 'center'], [10, 0, 'left'], [-10, 0, 'right']] });
   }
 }
 /* night-to-night ghosts since the start of this lunar cycle */
 function cycleStart(k) { const ln = lastNewBefore(obsUTC(k, S.obs) + 0.5 * DAY); if (!ln) return Math.max(-RANGE, k - 15); return clamp(dayOfMS(ln.ms, S.obs), -RANGE, k); }
 function ghostDays() { const k0 = Math.max(cycleStart(S.day), S.day - 16), out = []; for (let k = k0; k < S.day; k++) { const o = obsAt(k, S.obs); if (o.alt > 0.3) out.push(o); } return out; }
-function drawNightTrail(c, P, sc, lab, r) {
+function drawNightTrail(c, P, sc, lab, r, hit) {
   const gs = ghostDays(), pf = projFn(P), night = darkness(sc.sun.alt);
   if (!gs.length) return;
   c.save(); c.setLineDash([2, 6]); c.lineCap = 'round'; c.strokeStyle = 'rgba(232,228,217,0.4)'; c.lineWidth = 1.6; c.beginPath();
@@ -1033,7 +1041,21 @@ function drawNightTrail(c, P, sc, lab, r) {
     if (!P.inView(g.az, 4)) continue;
     const x = P.x(g.az), y = P.y(g.alt);
     drawMoonDisk(c, x, y, r * 0.72, g.m.pa, sunwardAngle(pf, g.m, g.m.sun), { alpha: 0.55, night, day: night < 0.5 });
+    hit.push({ x, y, r: r * 0.72 + 5, html: `<b>Moon · ${fmtDay(g.k)}</b> · ${phaseName(g.m)}<br>${hoverPos(g.alt, g.az)}` });
     lab.add(fmtShort(g.k), x, y, { font: `700 13px ${FM}`, col: 'rgba(232,228,217,0.78)', pri: 3, tries: [[0, r + 10, 'center'], [0, -(r + 10), 'center'], [r + 4, 0, 'left']] });
+  }
+}
+const LM_NAME = { ranch: 'House', colonial: 'House', cape: 'House', split: 'House', oak: 'Oak tree', lamp: 'Streetlight', pole: 'Utility pole', flag: 'Flagpole' };
+const LM_W = { mast: 3, water: 5, lamp: 4, church: 11, pole: 3, flag: 3, pines: 11 };
+const lmTop = L => ({ ranch: L.h + 1.1, colonial: L.h + 2.4, cape: L.h + 1.3, split: L.h + 1.5 })[L.kind] ?? L.h;
+function landmarkHits(P, hit) {
+  for (const L of LANDMARKS) {
+    const hw = (L.w || LM_W[L.kind] || 4) / 2, top = lmTop(L), name = LM_NAME[L.kind] && L.kind !== 'oak' ? LM_NAME[L.kind] : (L.label || LM_NAME[L.kind]);
+    for (const off of [0, 360, -360]) {
+      const d = wrap180(L.az - P.vc) + off; if (Math.abs(d) > P.half + hw) continue;
+      const x = P.W / 2 + d * P.kx;
+      hit.push({ rect: [x - hw * P.kx, P.y(top + 0.4), x + hw * P.kx, P.hy], html: `<b>${name}</b><br>${L.az}° ${compass16(L.az)} · top ${Math.round(top)}° up` });
+    }
   }
 }
 function drawGround(c, P, sc, lab) {
@@ -1062,7 +1084,7 @@ function nextRise(ms) { const key = Math.round(ms / 300000); if (riseCache.key !
 function stampLines(sc) {
   const p = et(sc.ms);
   if (S.step === 0) return [fmtClock(sc.ms, true), DOW[p.dow] + ', ' + MONTHS[p.m] + ' ' + p.d + ', ' + p.y];
-  const l2 = p.dst ? fmtClock(sc.ms, true) + ' · ' + fmtStd(S.obs) + ' standard time' : fmtClock(sc.ms, true);
+  const l2 = p.dst ? fmtClock(sc.ms, true) + ' = ' + fmtStd(S.obs) + ' EST' : fmtClock(sc.ms, true);
   return [fmtDay(S.day), l2];
 }
 function drawStamp(c, P, sc, avoid) {
@@ -1087,42 +1109,51 @@ function drawStage(c, W, H, o = {}) {
   drawSky(c, P, sc);
   const stamp = drawStamp.bind(null, c, P, sc, o.capture ? null : reserve.slice(0, 2));
   const r = 0.2604 * moonEnlarge(P) * P.ky, night = darkness(sc.sun.alt), m = sc.moon;
-  if (m.alt > -1 && P.inView(m.az, 3)) { const x = P.x(m.az), y = P.y(m.alt); reserve.push({ x0: x - r - 6, y0: y - r - 6, x1: x + r + 6, y1: y + r + 6 }); }
+  if (m.alt > LIMB && P.inView(m.az, 3)) { const x = P.x(m.az), y = P.y(m.alt); reserve.push({ x0: x - r - 6, y0: y - r - 6, x1: x + r + 6, y1: y + r + 6 }); }
   const lab = Labels(W, P.hy - 2, reserve);
   if (S.tg.grid) drawGrid(c, P, lab);
   if (S.tg.ecl) drawEcliptic(c, P, R, lab);
   const starsOn = darkness(sc.sun.alt) > 0.02 || S.tg.day;
   if (starsOn) { if (S.tg.lines) drawCons(c, P, R, sc, lab); drawStars(c, P, R, sc, lab, hit); }
   drawPlanets(c, P, sc, lab, hit);
-  drawSunDisk(c, P, sc, lab);
-  if (S.tg.trail) { if (S.step === 0) drawHourTrail(c, P, sc, lab); else drawNightTrail(c, P, sc, lab, r); }
+  drawSunDisk(c, P, sc, lab, hit);
+  if (S.tg.trail) { if (S.step === 0) drawHourTrail(c, P, sc, lab, hit); else drawNightTrail(c, P, sc, lab, r, hit); }
   let moonXY = null;
   if (m.alt > -r / P.ky && P.inView(m.az, 3)) {
     const x = P.x(m.az), y = P.y(m.alt);
     drawMoonDisk(c, x, y, r, m.pa, sunwardAngle(projFn(P), m, m.sun), { halo: true, night, day: night < 0.5, alpha: night < 0.3 ? 0.9 : 1 });
     moonXY = { x, y, r };
-    if (m.alt > 0) hit.push({ x, y, r: r + 6, moon: true, html: `<b>Moon</b> · ${phaseName(m)}<br>${m.alt.toFixed(1)}° up · ${Math.round(m.az)}° ${compass16(m.az)}` });
+    if (m.alt > LIMB) hit.push({ x, y, r: r + 6, moon: true, html: `<b>Moon</b> · ${phaseName(m)}<br>${m.alt.toFixed(1)}° up · ${Math.round(m.az)}° ${compass16(m.az)}` });
   }
   drawSkyline(c, P, skylineTheme(sc.sun.alt));
   drawGround(c, P, sc, lab);
+  if (!o.capture) landmarkHits(P, hit);
   const sb = stamp();
   lab.flush(c);
   // Moon off-screen or below the horizon
-  if (m.alt > 0 && !P.inView(m.az, 0)) {
+  if (m.alt > LIMB && !P.inView(m.az, 0)) {
     const left = wrap180(m.az - S.vc) < 0, x = left ? 16 : W - 16, y = clamp(P.y(m.alt), 80, P.hy - 20);
     c.fillStyle = 'rgba(16,19,17,0.82)'; c.beginPath(); rrect(c, left ? 6 : W - 112, y - 17, 106, 34, 7); c.fill();
     c.fillStyle = C.moon; c.beginPath(); if (left) { c.moveTo(x - 2, y); c.lineTo(x + 10, y - 9); c.lineTo(x + 10, y + 9); } else { c.moveTo(x + 2, y); c.lineTo(x - 10, y - 9); c.lineTo(x - 10, y + 9); } c.closePath(); c.fill();
     c.font = `700 14px ${FM}`; c.textBaseline = 'middle'; c.textAlign = left ? 'left' : 'right'; c.fillText('MOON ' + Math.round(m.az) + '°', left ? x + 16 : x - 16, y);
     hit.push({ x: left ? 50 : W - 50, y, r: 40, jump: m.az, html: '<b>Click</b> to look toward the Moon' });
   }
-  if (m.alt <= 0) {
-    const rt = nextRise(ms), y = 98;
+  if (m.alt <= LIMB) {
+    const y = 98; let t2 = '', go = null;
+    if (S.step === 0) { const rt = nextRise(ms);
+      if (rt) { t2 = 'Rises ' + fmtClock(rt) + (et(rt).d !== et(ms).d ? ' ' + DOW[et(rt).dow] : ''); const k = liveFix(rt); if (k <= RANGE) go = () => jumpToMS(rt); } }
+    else { const k = nextUpNight(S.day);
+      if (k != null) { t2 = 'Next up at this time: ' + fmtDay(k); go = () => { setV(k); renderControls(); followMoon(true); }; }
+      else t2 = 'Not up at this time through ' + fmtShort(RANGE); }
+    const arrow = go && !o.capture;
     c.textAlign = 'center'; c.textBaseline = 'middle';
-    const t1 = 'MOON BELOW THE HORIZON', t2 = rt ? 'Rises ' + fmtClock(rt) + (et(rt).d !== et(ms).d ? ' ' + DOW[et(rt).dow] : '') : '';
-    c.font = `700 14px ${FM}`; const w = Math.max(c.measureText(t1).width, 150) + 34;
-    c.fillStyle = 'rgba(16,19,17,0.8)'; c.beginPath(); rrect(c, W / 2 - w / 2, y - 22, w, t2 ? 58 : 36, 8); c.fill();
-    c.fillStyle = C.sec; c.fillText(t1, W / 2, y - 4);
-    if (t2) { c.font = `700 19px ${FD}`; c.fillStyle = C.moon; c.fillText(t2, W / 2, y + 20); }
+    const t1 = 'MOON BELOW THE HORIZON', t2s = t2 + (arrow ? '  →' : '');
+    c.font = `700 14px ${FM}`; const w1 = c.measureText(t1).width; c.font = `700 19px ${FD}`; const w = Math.max(w1, c.measureText(t2s).width, 150) + 34, bh = t2 ? 58 : 36;
+    c.fillStyle = 'rgba(16,19,17,0.84)'; c.beginPath(); rrect(c, W / 2 - w / 2, y - 22, w, bh, 8); c.fill();
+    if (arrow) { c.strokeStyle = 'rgba(60,163,174,0.9)'; c.lineWidth = 1.5; c.stroke(); }
+    c.font = `700 14px ${FM}`; c.fillStyle = C.sec; c.fillText(t1, W / 2, y - 4);
+    if (t2) { c.font = `700 19px ${FD}`; c.fillStyle = C.moon; c.fillText(t2s, W / 2, y + 20); }
+    if (arrow) hit.push({ rect: [W / 2 - w / 2, y - 22, W / 2 + w / 2, y - 22 + bh], go, html: '<b>Click</b> to jump there' });
   }
   c.textAlign = 'right'; c.textBaseline = 'middle'; c.font = `700 13px ${FM}`; c.fillStyle = 'rgba(232,228,217,0.6)';
   c.fillText('MOON ENLARGED ×' + moonEnlarge(P), W - 14, o.capture ? 22 : 64);
@@ -1133,11 +1164,14 @@ function drawStage(c, W, H, o = {}) {
 /* ══════════════════════════ DOME INSET ══════════════════════════ */
 const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 function domeCam(w, h, az, el) {
+  const mt0 = 14, mb0 = 12, K0 = Math.min(w * 0.46, (h - mt0 - mb0) / (1 + Math.sin(el * RAD)));
+  if (K0 >= w * 0.46 - 0.5) el = clamp(Math.asin(clamp((h - mt0 - mb0) / K0 - 1, 0, 1)) * DEG, el, 36);     // spare height: look down a little more
   const e = el * RAD, a = az * RAD, FV = [Math.cos(e) * Math.sin(a), Math.cos(e) * Math.cos(a), -Math.sin(e)], RV = [Math.cos(a), -Math.sin(a), 0], UV = cross3(RV, FV);
-  const mt = 14, mb = 12, K = Math.min(w * 0.40, (h - mt - mb) / (1 + Math.sin(e))), SX = w / 2, SY = h - mb - K * Math.sin(e);
+  const mt = 14, mb = 12, K = Math.min(w * 0.46, (h - mt - mb) / (1 + Math.sin(e))), SX = w / 2, SY = h - mb - K * Math.sin(e);
   return { K, SX, SY, e, P: v => ({ x: SX + K * dot3(v, RV), y: SY - K * dot3(v, UV), d: dot3(v, FV) }) };
 }
-function drawDome(c, w, h, sc) {
+let DOME_HIT = [];
+function drawDome(c, w, h, sc, hits) {
   const cam = domeCam(w, h, S.vc + S.domeAz, 24), P = cam.P, sinE = Math.sin(cam.e), sk = skyColors(sc.sun.alt);
   c.fillStyle = '#121614'; c.fillRect(0, 0, w, h);
   c.save(); c.beginPath(); c.arc(cam.SX, cam.SY, cam.K, Math.PI, 0, false); c.ellipse(cam.SX, cam.SY, cam.K, cam.K * sinE, 0, 0, Math.PI, false); c.closePath(); c.clip();
@@ -1150,10 +1184,10 @@ function drawDome(c, w, h, sc) {
     const N = night(S.day); let run = null;
     for (const s of N.samp) { if (s.alt >= 0) { (run || (run = [])).push(vec(s.alt, s.az)); } else if (run) { pathRuns.push(run); run = null; } }
     if (run) pathRuns.push(run);
-    for (const m of N.hours) { const t = N.t0 + m * MIN, b = body('Moon', t); if (b.alt > 0.3) dots.push({ v: vec(b.alt, b.az), past: t <= sc.ms + 1000, hour: true }); }
+    if (S.tg.trail) for (const m of N.hours) { const t = N.t0 + m * MIN, b = body('Moon', t); if (b.alt > 0.3 && t <= sc.ms + 1000) dots.push({ v: vec(b.alt, b.az), past: t <= sc.ms + 1000, hour: true, alt: b.alt, az: b.az, lbl: 'Moon · ' + fmtHour(t) }); }
   } else {
     const k0 = Math.max(cycleStart(S.day), S.day - 16);
-    for (let k = k0; k < S.day; k++) { const o = obsAt(k, S.obs); if (o.alt > 0.3) dots.push({ v: vec(o.alt, o.az), past: true }); }
+    if (S.tg.trail) for (let k = k0; k < S.day; k++) { const o = obsAt(k, S.obs); if (o.alt > 0.3) dots.push({ v: vec(o.alt, o.az), past: true, alt: o.alt, az: o.az, lbl: 'Moon · ' + fmtDay(k) }); }
     const kN = S.obs < 720 ? S.day - 1 : S.day, N = night(clamp(kN, -RANGE - 1, RANGE)); let run = null;
     for (const s of N.samp) { if (s.alt >= 0) { (run || (run = [])).push(vec(s.alt, s.az)); } else if (run) { pathRuns.push(run); run = null; } }
     if (run) pathRuns.push(run);
@@ -1165,10 +1199,14 @@ function drawDome(c, w, h, sc) {
     for (const d of dots) { const p = P(d.v); if ((p.d > 0) !== far) continue; c.beginPath(); c.arc(p.x, p.y, d.hour ? 2.6 : 3.2, 0, TAU);
       c.fillStyle = d.hour ? (d.past ? C.hourly : 'rgba(109,150,216,0.35)') : 'rgba(232,228,217,0.6)'; c.fill(); }
     if (sun.alt > -0.5 && (sp.d > 0) === far) { c.beginPath(); c.arc(sp.x, sp.y, 5, 0, TAU); c.fillStyle = '#FFD27A'; c.fill(); }
-    if (m.alt > -0.3 && (mp.d > 0) === far) { const pf = (alt, az) => { const q = P(vec(alt, az)); return { x: q.x, y: q.y }; };
+    if (m.alt > LIMB && (mp.d > 0) === far) { const pf = (alt, az) => { const q = P(vec(alt, az)); return { x: q.x, y: q.y }; };
       drawMoonDisk(c, mp.x, mp.y, 6, m.pa, sunwardAngle(pf, m, m.sun), { night: 1, ring: true }); }
   };
   layer(true);
+  if (hits) { hits.length = 0;
+    for (const d of dots) { const p = P(d.v); hits.push({ x: p.x, y: p.y, r: 6, html: `<b>${d.lbl}</b><br>${hoverPos(d.alt, d.az)}` }); }
+    if (sun.alt > -0.5) hits.push({ x: sp.x, y: sp.y, r: 8, html: `<b>Sun</b><br>${hoverPos(sun.alt, sun.az)}` });
+    if (m.alt > LIMB) hits.push({ x: mp.x, y: mp.y, r: 9, html: `<b>Moon</b> · ${phaseName(m)}<br>${hoverPos(m.alt, m.az)}` }); }
   c.beginPath(); c.ellipse(cam.SX, cam.SY, cam.K, cam.K * sinE, 0, 0, TAU); c.fillStyle = rgb(mixRGB([22, 27, 23], [62, 72, 58], dayLevel(sun.alt))); c.fill();
   c.strokeStyle = 'rgba(255,255,255,0.32)'; c.lineWidth = 1; c.stroke();
   // the panorama's field of view as a wedge on the ground
@@ -1178,12 +1216,13 @@ function drawDome(c, w, h, sc) {
   c.beginPath(); c.arc(o.x, o.y, 2.5, 0, TAU); c.fillStyle = '#E8E4D9'; c.fill();
   layer(false);
   c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `700 13px ${FM}`;
-  for (const [az, t] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) { const p = P(vec(0, az).map(x => x * 1.15)); c.fillStyle = 'rgba(232,228,217,0.85)'; c.fillText(t, p.x, p.y); }
+  const lr = cam.K * 1.15 + 9 < w / 2 ? 1.15 : 0.86;      // compass letters move inside the rim when the dome fills the width
+  for (const [az, t] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'W']]) { const p = P(vec(0, az).map(x => x * lr)); c.fillStyle = 'rgba(232,228,217,0.85)'; c.fillText(t, p.x, p.y); }
 }
 
 /* ══════════════════════════ STATE ══════════════════════════ */
 const S = { step: 0, day: 0, tmin: 0, obs: 19 * 60, live: false, liveMS: Date.now(), vc: 180, vcTo: null, fov: 180,
-  tween: null, played: false, tg: { trail: true, lines: true, grid: true, ecl: false, day: false }, domeAz: 0 };
+  tween: null, played: false, tg: { trail: false, lines: true, grid: true, ecl: false, day: false }, domeAz: 0 };
 let HIT = [], MOONXY = null, CW = 0, CH = 0, DPR = 1, capturing = false, dirty = true, cardDirty = true;
 function curMS() { if (S.step === 0) return S.live ? S.liveMS : noonUTC(S.day) + S.tmin * MIN; return obsUTC(S.day, S.obs); }
 function liveFix(ms) { const p = et(ms), base = Date.UTC(TODAY.y, TODAY.m, TODAY.d), k = Math.round((Date.UTC(p.y, p.m, p.d) - base) / DAY) - (p.h < 12 ? 1 : 0); return k; }
@@ -1191,11 +1230,12 @@ function applyLive() { S.liveMS = Date.now(); S.day = clamp(liveFix(S.liveMS), -
 const OBS_TIMES = [[6 * 60, '6 AM'], [19 * 60, '7 PM'], [22 * 60, '10 PM']];
 
 /* ══════════════════════════ STEPS ══════════════════════════ */
+function nightClock(ms, k) { const c = civil(k), p = et(ms); return fmtClock(ms) + (p.d !== c.d ? ' ' + DOW[p.dow] : ''); }   // next-morning times carry the weekday
 function snaps0() {
   const N = night(S.day), out = [];
-  if (N.rise) out.push({ v: (N.rise - N.t0) / MIN, l: 'Moonrise', s: fmtClock(N.rise) });
-  if (N.high) out.push({ v: (N.high - N.t0) / MIN, l: 'Highest', s: fmtClock(N.high) });
-  if (N.set) out.push({ v: (N.set - N.t0) / MIN, l: 'Moonset', s: fmtClock(N.set) });
+  if (N.rise) out.push({ v: (N.rise - N.t0) / MIN, l: 'Moonrise', s: nightClock(N.rise, S.day) });
+  if (N.high) out.push({ v: (N.high - N.t0) / MIN, l: 'Highest', s: nightClock(N.high, S.day) });
+  if (N.set) out.push({ v: (N.set - N.t0) / MIN, l: 'Moonset', s: nightClock(N.set, S.day) });
   return out.sort((a, b) => a.v - b.v);
 }
 function cycleQuarters(k) {
@@ -1233,6 +1273,12 @@ function setDay(k) {          // change the night (step 1) keeping the clock tim
   S.tmin = clamp(frac, 0, night(S.day).len);
   renderControls(); touched();
 }
+function nextUpNight(k) { for (let j = k + 1; j <= RANGE; j++) if (obsAt(j, S.obs).alt > LIMB) return j; return null; }
+function jumpToMS(ms) {        // step 1: go to an exact moment (e.g. the next moonrise), switching nights if needed
+  S.tween = null; S.live = false; S.day = clamp(liveFix(ms), -RANGE, RANGE);
+  S.tmin = clamp((ms - noonUTC(S.day)) / MIN, 0, night(S.day).len);
+  renderControls(); followMoon(true); touched();
+}
 function stepBy(d) {
   S.tween = null; S.live = false;
   if (S.step === 0) {
@@ -1268,7 +1314,7 @@ function followMoon(force) {
   const half = lastProj.half, margin = force ? 8 : Math.min(22, half * 0.3);     // a fresh view stays facing south unless the Moon would be off screen
   if (half >= 179) return;
   const ms = curMS(), m = moonAt(ms); let az = m.az;
-  if (m.alt < 0) { if (!force) return; const rt = nextRise(ms); if (rt == null || rt - ms > 14 * HR) { S.vcTo = 180; return; } az = body('Moon', rt).az; }
+  if (m.alt < LIMB) { if (!force) return; const rt = nextRise(ms); if (rt == null || rt - ms > 14 * HR) { S.vcTo = 180; return; } az = body('Moon', rt).az; }
   const base = force ? 180 : (S.vcTo ?? S.vc), d = wrap180(az - base);
   if (Math.abs(d) > half - margin) S.vcTo = wrap360(az - Math.sign(d) * (half - margin - 4));
   else if (force) S.vcTo = 180;
@@ -1288,6 +1334,9 @@ function renderControls() {
   const bm = mk('button', 'cc-segmented-btn', `−1<span class="unit"> ${unit}</span>`), bp = mk('button', 'cc-segmented-btn', `+1<span class="unit"> ${unit}</span>`);
   bm.onclick = () => stepBy(-1); bp.onclick = () => stepBy(1); bm.title = S.step === 0 ? 'Back to the previous whole hour' : 'Previous night'; bp.title = S.step === 0 ? 'Ahead to the next whole hour' : 'Next night';
   sr.append(bm, bp); ctl.appendChild(sr);
+  const tb = mk('button', 'cc-btn tgl trailT' + (S.tg.trail ? ' is-active' : ''), `<span class="lng">Earlier ${S.step === 0 ? 'hours' : 'nights'}</span><span class="shrt">Trail</span>`); tb.id = 'bTrail';
+  tb.title = S.step === 0 ? 'Show where the Moon was at each earlier hour tonight' : 'Show where the Moon was on each earlier night this cycle';
+  tb.onclick = () => { S.tg.trail = !S.tg.trail; tb.classList.toggle('is-active', S.tg.trail); cardDirty = true; dirty = true; }; ctl.appendChild(tb);
   ctl.appendChild(mk('div', 'sep'));
   const g = mk('div', 'grp'); g.id = 'snaps';
   const sl = snapList(); renderedSnaps = sl.map(s => s.v).join();
@@ -1350,7 +1399,7 @@ function drawStrip() {
     for (let k = -RANGE; k <= RANGE; k++) { const cv = civil(k); if (cv.d !== 1) continue; const x = Math.round(X(k)) + 0.5;
       c.strokeStyle = 'rgba(232,228,217,0.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
       const lb = MONTHS[cv.m], tw = c.measureText(lb).width; if (x + 3 + tw < w - 2 && x > lastX) { c.textAlign = 'left'; c.fillStyle = 'rgba(232,228,217,0.8)'; c.fillText(lb, x + 3, 9); lastX = x + tw + 8; } }
-    const pr = clamp(cw * 7.38 * 0.42, 2.6, 4.8); for (const q of QUARTERS) { const k = dayOfMS(q.ms, S.obs); if (k < -RANGE || k > RANGE) continue; phaseIcon(c, X(k) + cw / 2, h * 0.42, pr, q.q); }
+    const pr = clamp(cw * 7.38 * 0.42, 2.6, 4.8); for (const q of QUARTERS) { const k = dayOfMS(q.ms, S.obs); if (k < -RANGE || k > RANGE) continue; phaseIcon(c, X(k) + cw / 2, h * 0.5, pr, q.q); }
     for (let k = -RANGE + 1; k <= RANGE; k++) { if (isDST(obsUTC(k, S.obs)) !== isDST(obsUTC(k - 1, S.obs))) { const x = Math.round(X(k)) + 0.5; c.save(); c.setLineDash([3, 3]); c.strokeStyle = C.gold; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); c.restore(); } }
     const tx = X(0) + cw / 2; c.strokeStyle = C.live; c.lineWidth = 2; c.beginPath(); c.moveTo(tx, 0); c.lineTo(tx, h); c.stroke();
     playhead(c, X(S.day) + cw / 2, h);
@@ -1404,18 +1453,22 @@ function chipBoxes() {      // reserve label space under the floating chips
 const cardEl = document.getElementById('card');
 cardEl.innerHTML = `<div class="eb" id="cEb"></div>
   <div class="verdict"><span class="big" id="cBig"></span><span class="sm" id="cSm"></span></div>
-  <div class="inset"><div class="ih"><span class="l">Sky dome</span><span class="l" id="cDomeNote"></span></div><canvas id="cDome"></canvas></div>
+  <div class="inset"><div class="ih"><span class="l">Sky dome</span><span class="l" id="cDomeNote"></span></div><canvas id="cDome"></canvas><div class="tip" id="domeTip"></div></div>
   <div class="tg" id="cTg"></div>
   <div id="cRows"></div><div class="src" id="cSrc"></div>`;
-const TOGGLES = [['trail', 'Trail'], ['lines', 'Constellations'], ['grid', 'Grid'], ['ecl', 'Ecliptic'], ['day', 'Stars by day']];
+const TOGGLES = [['lines', 'Constellations'], ['grid', 'Grid'], ['ecl', 'Ecliptic'], ['day', 'Stars by day']];
 function renderToggles() {
   const tg = document.getElementById('cTg'); tg.innerHTML = '';
   TOGGLES.forEach(([k, l]) => { const b = mk('button', 'cc-btn tgl' + (S.tg[k] ? ' is-active' : ''), l); b.onclick = () => { S.tg[k] = !S.tg[k]; renderToggles(); cardDirty = true; dirty = true; }; tg.appendChild(b); });
 }
 const riseDayCache = new Map();
 function moonriseOn(k) { if (riseDayCache.has(k)) return riseDayCache.get(k); const t0 = midnightUTC(k), t1 = midnightUTC(k + 1), r = searchRS('Moon', +1, t0, 1.05), v = r != null && r < t1 ? r : null; riseDayCache.set(k, v); return v; }
+function sinceHour(ms) {
+  const a = body('Moon', ms), b = body('Moon', ms - HR), d = Math.acos(clamp(dot3(vec(a.alt, a.az), vec(b.alt, b.az)), -1, 1)) * DEG;
+  return { l: 'Since 1 hr earlier', v: d.toFixed(1) + '°', u: 'westward' };
+}
 function cardModel() {
-  const ms = curMS(), m = moonAt(ms), p = et(ms), up = m.alt > 0;
+  const ms = curMS(), m = moonAt(ms), p = et(ms), up = m.alt > LIMB;
   const altTxt = (m.alt < 0 ? '−' : '') + Math.abs(m.alt).toFixed(1) + '°', azTxt = Math.round(m.az) + '° ' + compass16(m.az);
   const ln = lastNewBefore(ms), age = ln ? (ms - ln.ms) / DAY : null;
   const phase = { l: 'Phase', v: phaseName(m), u: Math.round(m.frac * 100) + '% lit' };
@@ -1423,7 +1476,7 @@ function cardModel() {
   if (S.step === 0) {
     const N = night(S.day);
     return { eb: 'Tonight · hour by hour', big: fmtClock(ms), sm: (p.dst ? 'EDT' : 'EST') + ' · ' + DOW[p.dow] + ' ' + MONTHS[p.m] + ' ' + p.d,
-      rows: [pos, phase, { two: [{ l: 'Moonrise', v: N.rise ? fmtClock(N.rise) : '—' }, { l: 'Moonset', v: N.set ? fmtClock(N.set) : '—' }] }],
+      rows: [pos, sinceHour(ms), phase, { two: [{ l: 'Moonrise', v: N.rise ? fmtClock(N.rise) : '—', sub: N.rise ? dayTag(N.rise) : '' }, { l: 'Moonset', v: N.set ? fmtClock(N.set) : '—', sub: N.set ? dayTag(N.set) : '' }] }],
       note: S.live ? 'live' : '' };
   }
   const rows = [phase];
@@ -1437,6 +1490,7 @@ function cardModel() {
   rows.push({ two: [{ l: 'Moon age', v: age != null ? age.toFixed(1) + ' d' : '—', sub: 'since new moon' }, { l: 'Moonrise', v: r ? fmtClock(r) : 'None', sub: ch }] });
   return { eb: 'Night to night · ' + fmtStd(S.obs) + ' EST', big: fmtDay(S.day), sm: p.dst ? fmtClock(ms, true) + ' clock' : fmtClock(ms, true), rows };
 }
+function dayTag(ms) { const p = et(ms); return DOW[p.dow] + ' ' + MONTHS[p.m] + ' ' + p.d; }
 function rowsHTML(m) {
   let h = '';
   for (const r of m.rows) {
@@ -1457,7 +1511,7 @@ function renderCard() {
   const cvI = document.getElementById('cDome'), w = cvI.clientWidth || 258, h = cvI.clientHeight || 170, d = Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
   if (cvI.width !== Math.round(w * d) || cvI.height !== Math.round(h * d)) { cvI.width = Math.round(w * d); cvI.height = Math.round(h * d); }
   const c2 = cvI.getContext('2d'); c2.setTransform(d, 0, 0, d, 0, 0);
-  drawDome(c2, w, h, sceneAt(curMS()));
+  drawDome(c2, w, h, sceneAt(curMS()), DOME_HIT);
   document.getElementById('printStarsWhen').textContent = fmtDay(S.step === 0 ? liveOrDay() : S.day) + ' · ' + fmtClock(curMS(), true);
   cardDirty = false;
 }
@@ -1465,8 +1519,15 @@ const liveOrDay = () => { const p = et(curMS()), base = Date.UTC(TODAY.y, TODAY.
 const SRC = 'Moon, Sun & planets: Astronomy Engine (MIT) · Stars: HYG via d3-celestial, lines: Stellarium (CC BY-SA 4.0) · Long Island 40.8°N 73.1°W · Eastern Time';
 { const dc = document.getElementById('cDome'); let dd = null;
   dc.addEventListener('pointerdown', e => { dd = { x: e.clientX, a: S.domeAz }; try { dc.setPointerCapture(e.pointerId); } catch (_) {} });
-  dc.addEventListener('pointermove', e => { if (!dd) return; S.domeAz = wrap180(dd.a - (e.clientX - dd.x) * 0.8); cardDirty = true; });
-  dc.addEventListener('pointerup', () => { dd = null; }); dc.addEventListener('pointercancel', () => { dd = null; });
+  const dt = document.getElementById('domeTip');
+  dc.addEventListener('pointermove', e => {
+    if (!dd) { const r = dc.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top; let b = null, bd = 1e9;
+      for (const h of DOME_HIT) { const d = Math.hypot(x - h.x, y - h.y); if (d <= h.r && d < bd) { bd = d; b = h; } }
+      if (b) { dt.innerHTML = b.html; dt.style.display = 'block'; const tw = dt.offsetWidth, iw = dc.parentElement.clientWidth;
+        dt.style.left = clamp(x + 12, 0, Math.max(0, iw - tw)) + 'px'; dt.style.top = (dc.offsetTop + y + 14) + 'px'; } else dt.style.display = 'none';
+      return; }
+    dt.style.display = 'none'; S.domeAz = wrap180(dd.a - (e.clientX - dd.x) * 0.8); cardDirty = true; });
+  dc.addEventListener('pointerup', () => { dd = null; }); dc.addEventListener('pointerleave', () => { dt.style.display = 'none'; }); dc.addEventListener('pointercancel', () => { dd = null; });
   dc.addEventListener('dblclick', () => { S.domeAz = 0; cardDirty = true; }); }
 
 /* ══════════════════════════ CANVAS / LOOP ══════════════════════════ */
@@ -1509,7 +1570,15 @@ function setStep(i) {
 /* stage interaction: drag to look around, drag the Moon along tonight's path, hover for names */
 let drag = null;
 const ptr = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
-function hitAt(p) { let b = null, bd = 1e9; for (const h of HIT) { const d = Math.hypot(p[0] - h.x, p[1] - h.y); if (d <= h.r && d < bd) { bd = d; b = h; } } return b; }
+function hitAt(p) {        // jump boxes first, then round targets (nearest wins), then landmark boxes
+  const inR = h => p[0] >= h.rect[0] && p[0] <= h.rect[2] && p[1] >= h.rect[1] && p[1] <= h.rect[3];
+  for (const h of HIT) if (h.rect && h.go && inR(h)) return h;
+  let b = null, bd = 1e9;
+  for (const h of HIT) { if (h.rect) continue; const d = Math.hypot(p[0] - h.x, p[1] - h.y); if (d <= h.r && d < bd) { bd = d; b = h; } }
+  if (b) return b;
+  for (const h of HIT) if (h.rect && !h.go && p[0] >= h.rect[0] && p[0] <= h.rect[2] && p[1] >= h.rect[1] && p[1] <= h.rect[3]) return h;
+  return null;
+}
 function moonDragTo(p) {
   const N = night(S.day), P = lastProj; let best = null, bd = 1e9;
   for (const s of N.samp) { if (s.alt < -0.5 || !P.inView(s.az, 2)) continue; const d = Math.hypot(P.x(s.az) - p[0], P.y(s.alt) - p[1]); if (d < bd) { bd = d; best = s; } }
@@ -1517,6 +1586,7 @@ function moonDragTo(p) {
 }
 cv.addEventListener('pointerdown', e => {
   const p = ptr(e), h = hitAt(p); tip.style.display = 'none';
+  if (h && h.go) { h.go(); tip.style.display = 'none'; return; }
   if (h && h.jump != null) { S.vcTo = wrap360(h.jump); S.fov = S.fov; dirty = true; return; }
   if (S.step === 0 && MOONXY && Math.hypot(p[0] - MOONXY.x, p[1] - MOONXY.y) < MOONXY.r + 10) drag = { kind: 'moon' };
   else drag = { kind: 'pan', x: p[0], vc: S.vc };
@@ -1526,7 +1596,7 @@ cv.addEventListener('pointermove', e => {
   const p = ptr(e);
   if (drag) { if (drag.kind === 'moon') moonDragTo(p); else { S.vc = wrap360(drag.vc - (p[0] - drag.x) / lastProj.kx); dirty = true; cardDirty = true; renderChips(); } return; }
   const h = hitAt(p);
-  cv.classList.toggle('on-moon', !!(h && (h.moon || h.jump != null)));
+  cv.classList.toggle('on-moon', !!(h && (h.moon || h.jump != null || h.go)));
   if (h) { tip.innerHTML = h.html; tip.style.display = 'block'; const tw = tip.offsetWidth; tip.style.left = clamp(p[0] + 14, 4, CW - tw - 4) + 'px'; tip.style.top = clamp(p[1] + 14, 4, CH - 60) + 'px'; }
   else tip.style.display = 'none';
 });
@@ -1545,7 +1615,7 @@ const EW = 1280, EH = 720, ECW = 290;
 function stampText() {
   const ms = curMS();
   if (S.step === 0) { const p = et(ms); return `Tonight · ${fmtClock(ms, true)} · ${DOW[p.dow]}, ${MONTHS[p.m]} ${p.d}, ${p.y} · Long Island, NY`; }
-  return `Night to night · ${fmtDay(S.day)} · ${fmtClock(ms, true)}${et(ms).dst ? ' (' + fmtStd(S.obs) + ' standard)' : ''} · Long Island, NY`;
+  return `Night to night · ${fmtDay(S.day)} · ${fmtClock(ms, true)}${et(ms).dst ? ' (= ' + fmtStd(S.obs) + ' EST)' : ''} · Long Island, NY`;
 }
 function wrapText(c, t, maxW) { const out = []; let cur = ''; for (const w of t.split(' ')) { const tr = cur ? cur + ' ' + w : w; if (c.measureText(tr).width > maxW && cur) { out.push(cur); cur = w; } else cur = tr; } if (cur) out.push(cur); return out; }
 function drawCardCanvas(c, x, y, w, h, m) {
@@ -1557,7 +1627,7 @@ function drawCardCanvas(c, x, y, w, h, m) {
   c.font = `700 13px ${FM}`; c.fillStyle = C.accent; c.fillText(m.eb.toUpperCase(), px, yy); yy += 13; line();
   yy += 21; c.font = `700 24px ${FD}`; c.fillStyle = C.text; c.fillText(m.big, px, yy); const bw = c.measureText(m.big).width;
   c.font = `700 13px ${FM}`; c.fillStyle = C.sec; c.fillText(m.sm, px + bw + 9, yy + 2); yy += 18; line();
-  yy += 8; const ih = 156; c.save(); c.beginPath(); rrect(c, px, yy, pw, ih, 4); c.clip(); c.translate(px, yy); drawDome(c, pw, ih, sceneAt(curMS())); c.restore(); yy += ih + 8; line();
+  yy += 8; const ih = 210; c.save(); c.beginPath(); rrect(c, px, yy, pw, ih, 4); c.clip(); c.translate(px, yy); drawDome(c, pw, ih, sceneAt(curMS())); c.restore(); yy += ih + 8; line();
   for (const r of m.rows) {
     if (r.two) { yy += 15; r.two.forEach((q, i) => { const xx = px + i * pw / 2; c.font = `500 12px ${FM}`; c.fillStyle = C.sec; c.fillText(q.l.toUpperCase(), xx, yy);
         c.font = `700 21px ${FD}`; c.fillStyle = q.dim ? C.sec : C.text; c.fillText(q.v, xx, yy + 21); if (q.sub) { c.font = `500 12px ${FM}`; c.fillStyle = C.sec; c.fillText(q.sub, xx, yy + 39); } }); yy += r.two.some(q => q.sub) ? 50 : 34; line(); continue; }
@@ -1611,7 +1681,7 @@ let sweeping = false;
 function frameMoon(W, H) {      // keep the Moon well inside an export frame of a different size
   if (S.fov === 360) return;
   const P = makeProj(W, H, S.vc, S.fov), m = moonAt(curMS()), d = wrap180(m.az - S.vc), mg = Math.min(30, P.half * 0.3);
-  if (m.alt > 0 && Math.abs(d) > P.half - mg) S.vc = wrap360(m.az - Math.sign(d) * (P.half - mg));
+  if (m.alt > LIMB && Math.abs(d) > P.half - mg) S.vc = wrap360(m.az - Math.sign(d) * (P.half - mg));
 }
 /* animation keys: whole hours from moonrise to moonset (step 1) or every night of this lunar cycle (step 2) */
 function sweepKeys() {
@@ -1821,7 +1891,7 @@ function buildSheet(doc, withStars) {
   txt('10° = about one fist held at arm\'s length', fx + 10 * L.k + 8, fy, 9);
   txt('Altitude lines every 10° · azimuth in degrees from north', L.x0 + L.w, fy, 9, { align: 'right', gray: 60 });
   if (withStars) { const ms = curMS(), p = et(ms);
-    txt(`Stars and planets for ${DOW[p.dow]}, ${MONTHS[p.m]} ${p.d}, ${p.y} at ${fmtClock(ms, true)}${S.step === 1 && p.dst ? ' (' + fmtStd(S.obs) + ' standard time)' : ''}`, L.x0, 90, 9.5, { bold: true, gray: 30 }); }
+    txt(`Stars and planets for ${DOW[p.dow]}, ${MONTHS[p.m]} ${p.d}, ${p.y} at ${fmtClock(ms, true)}${S.step === 1 && p.dst ? ' (= ' + fmtStd(S.obs) + ' EST)' : ''}`, L.x0, 90, 9.5, { bold: true, gray: 30 }); }
 }
 function sheetStars(doc, g, P, txt) {
   const ms = curMS(), R = horRot(ms), inRange = h => h.alt > 0.3 && h.az >= 90 && h.az <= 270 && h.alt < PDF_SHEET.alt - 1;
