@@ -273,6 +273,7 @@ body:not(.t-page) #view{display:none}
           <button class="cc-segmented-btn" data-col="continent">Continent</button>
         </div>
         <canvas id="acv" aria-label="Process animation"></canvas>
+
       </div>
 
       <div class="cc-scene-bar" id="bar">
@@ -614,7 +615,7 @@ var S = {
   tourIdx:-1, thru:false, thruT:null,
   view:'quarter', s:0, spin:-74, tilt:22,
   iTween:null, iThru:false,
-  anim:'seismic', v:0, aTween:null, aThru:false
+  anim:'seismic', v:0, aTween:null, aThru:false, ex:0, exF:0, exRaf:0
 };
 
 /* ════════════════════════════ PRINTED PAGE: geometry + stops ════════════════════════════
@@ -1031,7 +1032,7 @@ function itemHTML(h){
   return '<button class="k-it" data-id="' + h.id + '"><span class="bd" style="--c:' + CAT[h.cat].c + '">' + (h.q ? '?' : h.n) + '</span><span>' + esc(h.label) + '</span><span class="tg">' + tg + '</span></button>';
 }
 function colSegHTML(){
-  return '<div class="cc-segmented" style="margin:0 0 8px" data-colseg="1"><button class="cc-segmented-btn' + (S.col === 'ocean' ? ' is-active' : '') + '" data-col="ocean" style="padding:5px 10px;font-size:12px">Ocean</button>' +
+  return '<div class="cc-segmented" style="margin:0 0 8px; flex:none" data-colseg="1"><button class="cc-segmented-btn' + (S.col === 'ocean' ? ' is-active' : '') + '" data-col="ocean" style="padding:5px 10px;font-size:12px">Ocean</button>' +
          '<button class="cc-segmented-btn' + (S.col === 'continent' ? ' is-active' : '') + '" data-col="continent" style="padding:5px 10px;font-size:12px">Continent</button></div>';
 }
 function probeRowsHTML(d, col){
@@ -1093,8 +1094,9 @@ function renderCard(){
   else if (S.tab === 'inside') updateInsideCard();
 }
 card.addEventListener('click', function(e){
-  var t = e.target.closest('[data-id],[data-anim],[data-back],[data-pick],[data-showpage],[data-inside],[data-col]');
+  var t = e.target.closest('[data-id],[data-anim],[data-back],[data-pick],[data-showpage],[data-inside],[data-col],[data-ex]');
   if (!t) return;
+  if (t.dataset.ex != null){ setEx(+t.dataset.ex); return; }
   if (t.dataset.col){ setCol(t.dataset.col); return; }
   if (t.dataset.back){ clearSel(); return; }
   if (t.dataset.anim){ openAnim(t.dataset.anim, +t.dataset.snap); return; }
@@ -1140,7 +1142,7 @@ function setHash(){
     var h = '';
     if (S.tab === 'page'){ if (S.sel) h = 'h=' + S.sel; else if (S.probeOn) h = 'd=' + Math.round(S.depth) + (S.col === 'continent' ? '&col=continent' : ''); }
     else if (S.tab === 'inside') h = 'tab=inside&view=' + S.view + '&d=' + Math.round(S.depth) + (S.col === 'continent' ? '&col=continent' : '');
-    else if (S.tab === 'proc') h = 'tab=processes&anim=' + S.anim;
+    else if (S.tab === 'proc') h = 'tab=processes&anim=' + S.anim + (S.ex && ANIMS[S.anim].scale ? '&scale=true' : '');
     hashLock = true;
     try { history.replaceState(null, '', h ? '#' + h : location.pathname + location.search); } catch (e) {}
     hashLock = false;
@@ -1945,65 +1947,6 @@ function readIso(v){
     ['Ocean depth', G.water > 0.95 ? ((o.top - (ct.top + 0.8 * G.k)) / G.k).toFixed(1) : '—', G.water > 0.95 ? 'km' : '', 1]] };
 }
 
-/* ── 4. seafloor spreading: ridge → trench ── */
-function lithoKm(age){ return 2.32 * Math.sqrt(31.56 * age); }
-function oceanKm(age){ return 2.5 + 0.35 * Math.sqrt(age); }
-var SP = { xr:200, xt:760, sea:120, kz:2.2, ageMax:80, ang:0.62 };
-function spAgeCol(age){ var t = c01(age / SP.ageMax); return mixRGB([214, 138, 88], [88, 100, 112], t); }
-function drawSpread(c, v){
-  var xr = SP.xr, xt = SP.xt, sea = SP.sea, kz = SP.kz, am = SP.ageMax, kx = (xt - xr) / am;
-  var X = function(age){ return xr + age * kx; }, topY = function(age){ return sea + oceanKm(age) * kz; }, botY = function(age){ return topY(age) + Math.max(4, lithoKm(age) * kz); };
-  c.fillStyle = '#20262A'; c.fillRect(0, 0, VW, sea);
-  var g = c.createLinearGradient(0, sea, 0, VH); g.addColorStop(0, LC.asth); g.addColorStop(1, '#4a3122'); c.fillStyle = g; c.fillRect(0, sea, VW, VH - sea);
-  var a;
-  for (a = 0; a < am; a += 0.5){ c.fillStyle = spAgeCol(a); c.fillRect(X(a), topY(a), kx * 0.5 + 0.7, botY(a) - topY(a)); }
-  for (a = 0; a < (xr - 4) / kx; a += 0.5){ c.fillStyle = spAgeCol(a); c.fillRect(xr - (a + 0.5) * kx, topY(a), kx * 0.5 + 0.7, botY(a) - topY(a)); }
-  var h = lithoKm(am) * kz, y0 = topY(am), Ls = 330, dx = Math.cos(SP.ang), dy = Math.sin(SP.ang);
-  var fb = [xt + Ls * dx - h * Math.sin(SP.ang), y0 + Ls * dy + h * Math.cos(SP.ang)];
-  c.fillStyle = spAgeCol(am); c.beginPath(); c.moveTo(xt - 1, y0); c.lineTo(xt + Ls * dx, y0 + Ls * dy); c.lineTo(fb[0], fb[1]); c.lineTo(xt - 1, y0 + h); c.closePath(); c.fill();
-  c.strokeStyle = 'rgba(243,239,228,0.6)'; c.lineWidth = 1.5; c.setLineDash([6, 4]); c.beginPath();
-  for (a = 0; a <= am; a += 1){ if (a === 0) c.moveTo(X(a), botY(a)); else c.lineTo(X(a), botY(a)); }
-  c.lineTo(fb[0], fb[1]); c.moveTo(xr, botY(0)); for (a = 0; a < (xr - 4) / kx; a += 1) c.lineTo(xr - a * kx, botY(a)); c.stroke(); c.setLineDash([]);
-  /* continent (plate 3) */
-  var lb = sea + 150 * kz * 0.6, xs = xt + (lb - y0) / Math.tan(SP.ang);
-  c.fillStyle = LC.contDeep; c.beginPath(); c.moveTo(xt, sea - 4); c.lineTo(VW, sea - 4); c.lineTo(VW, lb); c.lineTo(xs, lb); c.lineTo(xt, y0); c.closePath(); c.fill();
-  var cb = sea + 35 * kz, xc = xt + (cb - y0) / Math.tan(SP.ang);
-  c.fillStyle = LC.cont; c.beginPath(); c.moveTo(xt, sea - 4); c.lineTo(VW, sea - 4); c.lineTo(VW, cb); c.lineTo(Math.max(xt, xc), cb); c.lineTo(xt, y0); c.closePath(); c.fill();
-  c.fillStyle = '#7a6448'; c.beginPath(); c.moveTo(xt + 60, sea - 4); c.lineTo(xt + 90, sea - 34); c.lineTo(xt + 120, sea - 4); c.closePath(); c.fill();
-  c.fillStyle = LC.water; c.beginPath(); c.moveTo(0, sea);
-  for (a = (xr - 4) / kx; a >= 0; a -= 1) c.lineTo(xr - a * kx, topY(a));
-  for (a = 0; a <= am; a += 1) c.lineTo(X(a), topY(a));
-  c.lineTo(xt, sea); c.closePath(); c.fill();
-  c.fillStyle = LC.waterTop; c.fillRect(0, sea - 4, xt, 4);
-  /* seafloor born every 10 Myr */
-  var Tm = v * 100;
-  c.strokeStyle = 'rgba(255,255,255,0.4)'; c.lineWidth = 1.2;
-  for (var bb = -100; bb <= 100; bb += 10){ var ag = Tm - bb; if (ag < 0 || ag > am) continue;
-    c.beginPath(); c.moveTo(X(ag), topY(ag)); c.lineTo(X(ag), botY(ag)); c.stroke();
-    var xl = xr - ag * kx; if (xl > 4){ c.beginPath(); c.moveTo(xl, topY(ag)); c.lineTo(xl, botY(ag)); c.stroke(); } }
-  c.strokeStyle = LC.melt; c.lineWidth = 4; c.beginPath(); c.moveTo(xr, VH - 10); c.lineTo(xr, topY(0) + 3); c.stroke();
-  arrowLine(c, xr - 30, sea + 70, xr - 100, sea + 70, '#F3EFE4', 3); arrowLine(c, xr + 30, sea + 70, xr + 100, sea + 70, '#F3EFE4', 3);
-  arrowLine(c, xt - 160, sea + 110, xt - 90, sea + 110 + 4, '#F3EFE4', 3);
-  var mx, my;
-  if (Tm <= am){ mx = X(Tm); my = topY(Tm); } else { var dl = (Tm - am) * kx * 2.2; mx = xt + dl * dx; my = y0 + dl * dy; }
-  c.fillStyle = COL.probe; c.beginPath(); c.arc(mx, my, 8, 0, 6.2832); c.fill(); c.strokeStyle = '#1E2320'; c.lineWidth = 2; c.stroke();
-  txt(c, 'Ridge', xr, 30, { align:'center', col:'#FFB27A', w:700 });
-  txt(c, 'Trench', xt, 30, { align:'center', col:'#FFB27A', w:700 });
-  txt(c, 'Plate 1', 60, 70, { align:'center' }); txt(c, 'Plate 2', (xr + xt) / 2, 70, { align:'center' }); txt(c, 'Plate 3', 900, 70, { align:'center' });
-  txt(c, 'Lithosphere', (xr + xt) / 2 + 60, (topY(50) + botY(50)) / 2, { align:'center' });
-  txt(c, 'Asthenosphere', 380, 500, { align:'center', col:'#F3DCC8' });
-  /* age key */
-  for (var i = 0; i <= 40; i++){ c.fillStyle = spAgeCol(i * 2); c.fillRect(620 + i * 6, 510, 6.5, 14); }
-  txt(c, 'Young', 612, 517, { align:'right', size:18, halo:false, col:LC.dim }); txt(c, 'Old', 874, 517, { size:18, halo:false, col:LC.dim });
-  tag(c, 'VERTICAL ×15', 20, 516);
-}
-function readSpread(v){
-  var Tm = v * 100, am = SP.ageMax;
-  if (Tm <= am) return { stats:[['Age', Math.round(Tm), 'million yr'], ['From ridge', fmt(Math.round(Tm * 50)), 'km'], ['Ocean depth', oceanKm(Tm).toFixed(1), 'km'], ['Plate thickness', Math.round(lithoKm(Tm)), 'km'], ['Plate speed', '5', 'cm/yr', 1]] };
-  var dk = (Tm - am) * 50 * Math.sin(SP.ang);
-  return { stats:[['Age', Math.round(Tm), 'million yr'], ['Past the trench', fmt(Math.round((Tm - am) * 50)), 'km'], ['Depth', '≈ ' + Math.round(oceanKm(am) + lithoKm(am) / 2 + dk), 'km'], ['Plate thickness', Math.round(lithoKm(am)), 'km'], ['Plate speed', '5', 'cm/yr', 1]] };
-}
-
 /* ── 5. transform fault (map view) ── */
 var TF_Q = (function(){ var r = rng(4711), q = []; for (var i = 0; i < 80; i++) q.push({ s:r(), u:r(), w:r(), e:r() }); return q; })();
 function drawTransform(c, v){
@@ -2040,65 +1983,6 @@ function solDry(d){ var P = d * 0.0331; return -5.104 * P * P + 132.899 * P + 11
 function solWet(d){ var P = d * 0.0331; return 1050 - 75 * P; }
 function adia(d, tp){ return tp + 0.54 * d; }
 function crossDepth(tp){ var lo = 0, hi = 250; for (var i = 0; i < 40; i++){ var m = (lo + hi) / 2; if (adia(m, tp) > solDry(m)) lo = m; else hi = m; } return (lo + hi) / 2; }
-var SB = { k:1.8, sea:110, xt:300, dip:35 * Math.PI / 180, wedgeX:0 };
-SB.wedgeX = SB.xt + 100 / Math.tan(SB.dip) * SB.k;
-function drawSubduct(c, v){
-  var k = SB.k, sea = SB.sea, xt = SB.xt, dip = SB.dip, Y = function(d){ return sea + d * k; };
-  var sinkP = seg(v, 0, 0.3), wetP = seg(v, 0.3, 0.55), meltP = seg(v, 0.55, 0.8), riseP = seg(v, 0.8, 1);
-  c.fillStyle = '#20262A'; c.fillRect(0, 0, VW, sea);
-  var g = c.createLinearGradient(0, sea, 0, VH); g.addColorStop(0, LC.asth); g.addColorStop(1, '#4a3122'); c.fillStyle = g; c.fillRect(0, sea, VW, VH - sea);
-  var th = 90 * k, dx = Math.cos(dip), dy = Math.sin(dip), L = 600;
-  /* sinking slab */
-  c.fillStyle = LC.plateOld; c.beginPath(); c.moveTo(0, Y(4.5)); c.lineTo(xt, Y(6)); c.lineTo(xt + L * dx, Y(6) + L * dy); c.lineTo(xt + L * dx - th * dy, Y(6) + L * dy + th * dx); c.lineTo(xt - th * dy * 0.4, Y(6) + th); c.lineTo(0, Y(4.5) + th); c.closePath(); c.fill();
-  c.fillStyle = '#4c5a60'; c.beginPath(); c.moveTo(0, Y(4.5)); c.lineTo(xt, Y(6)); c.lineTo(xt + L * dx, Y(6) + L * dy); c.lineTo(xt + L * dx - 8 * k * dy, Y(6) + L * dy + 8 * k * dx); c.lineTo(xt, Y(14)); c.lineTo(0, Y(12)); c.closePath(); c.fill();
-  /* continent */
-  c.fillStyle = LC.contDeep; c.beginPath(); c.moveTo(xt + 10, sea - 4); c.lineTo(VW, sea - 4); c.lineTo(VW, Y(120)); c.lineTo(xt + 114 / Math.tan(dip) * k, Y(120)); c.closePath(); c.fill();
-  c.fillStyle = LC.cont; c.beginPath(); c.moveTo(xt + 10, sea - 4); c.lineTo(VW, sea - 4); c.lineTo(VW, Y(35)); c.lineTo(xt + 29 / Math.tan(dip) * k, Y(35)); c.closePath(); c.fill();
-  waterBand(c, 0, xt + 10, sea - 4, Y(5));
-  c.fillStyle = LC.water; c.beginPath(); c.moveTo(xt - 20, Y(5)); c.lineTo(xt, Y(8)); c.lineTo(xt + 12, sea - 4); c.closePath(); c.fill();
-  /* moving stripes on the plate */
-  var off = (v * 260) % 52;
-  c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 2;
-  for (var s = -52; s < xt; s += 52){ var sx = s + off; if (sx < 0 || sx > xt - 4) continue; c.beginPath(); c.moveTo(sx, Y(5)); c.lineTo(sx, Y(5) + th * 0.6); c.stroke(); }
-  /* tracked parcel on the slab top */
-  var dist = lerp(-80, 100 / dy * k, ease(sinkP));
-  var mx = dist < 0 ? xt + dist : xt + dist * dx, my = dist < 0 ? Y(6) : Y(6) + dist * dy;
-  /* earthquakes along the slab */
-  var r = rng(99);
-  for (var i = 0; i < 18; i++){ var u = r(), ph = (v * 6 + r()) % 1; if (ph < 0.25){ var dd = u * 520; quake(c, xt + dd * dx - 10 * dy, Y(6) + dd * dy + 10 * dx, 1 - ph / 0.25, 5); } }
-  /* water rising from the slab */
-  var wx = SB.wedgeX, wy = Y(100);
-  if (wetP > 0 && v < 0.85){ for (var j = 0; j < 14; j++){ var ph2 = (wetP * 2.2 + j / 14) % 1, xx = wx - 20 + (j % 5) * 12, yy = lerp(wy + 6, wy - 70, ph2);
-    c.fillStyle = 'rgba(140,192,240,' + (0.95 - ph2 * 0.6) + ')'; c.beginPath(); c.arc(xx, yy, 4.5, 0, 6.2832); c.fill(); } }
-  /* melt blob in the wedge */
-  if (meltP > 0){ var rr = 10 + 26 * meltP; var gg = c.createRadialGradient(wx + 20, wy - 60, 2, wx + 20, wy - 60, rr);
-    gg.addColorStop(0, 'rgba(255,190,90,0.95)'); gg.addColorStop(1, 'rgba(255,120,50,0.15)'); c.fillStyle = gg; c.beginPath(); c.arc(wx + 20, wy - 60, rr, 0, 6.2832); c.fill(); }
-  /* magma rises, volcano grows */
-  var vx = wx + 30, vh = 12 + 26 * riseP;
-  if (riseP > 0){ var my2 = lerp(wy - 60, sea - 2, riseP);
-    c.strokeStyle = 'rgba(255,140,66,0.85)'; c.lineWidth = 7; c.beginPath(); c.moveTo(wx + 20, wy - 60); c.quadraticCurveTo(vx - 6, (wy - 60 + sea) / 2, vx, my2); c.stroke(); }
-  c.fillStyle = '#7a6448'; c.beginPath(); c.moveTo(vx - 50, sea - 4); c.lineTo(vx, sea - 4 - vh); c.lineTo(vx + 50, sea - 4); c.closePath(); c.fill();
-  if (riseP > 0.9){ c.fillStyle = 'rgba(200,200,200,0.5)'; c.beginPath(); c.arc(vx + 8, sea - 4 - vh - 18, 14, 0, 6.2832); c.arc(vx + 24, sea - 4 - vh - 34, 18, 0, 6.2832); c.fill(); c.fillStyle = LC.melt; c.beginPath(); c.arc(vx, sea - 4 - vh, 5, 0, 6.2832); c.fill(); }
-  c.fillStyle = COL.probe; c.beginPath(); c.arc(mx, my, 8, 0, 6.2832); c.fill(); c.strokeStyle = '#1E2320'; c.lineWidth = 2; c.stroke();
-  /* depth scale */
-  [0, 100, 200].forEach(function(d){ txt(c, d + ' km', 990, Y(d) + (d ? 0 : 14), { align:'right', size:18, mono:1, w:400, col:LC.dim }); c.strokeStyle = 'rgba(232,228,217,0.25)'; c.beginPath(); c.moveTo(900, Y(d)); c.lineTo(930, Y(d)); c.stroke(); });
-  txt(c, 'Trench', xt - 10, 40, { align:'center', col:'#FFB27A', w:700 });
-  txt(c, 'Oceanic plate', 130, Y(40), { align:'center' });
-  txt(c, 'Continent', 820, 60, { align:'center' });
-  txt(c, 'Mantle', 800, Y(150), { align:'center', col:'#F3DCC8' });
-  if (wetP > 0 && v < 0.85) txt(c, 'Water', wx - 70, wy - 40, { col:LC.wet, w:700, align:'right' });
-  if (meltP > 0.3) txt(c, 'Magma', wx + 66, wy - 64, { col:'#FFB27A', w:700 });
-  tag(c, 'TRUE SCALE', 20, 516);
-}
-function readSubduct(v){
-  var sinkP = seg(v, 0, 0.3), wetP = seg(v, 0.3, 0.55), meltP = seg(v, 0.55, 0.8);
-  var d = Math.max(6, lerp(-80, 100 / Math.sin(SB.dip) * SB.k, ease(sinkP)) * Math.sin(SB.dip) / SB.k + 6);
-  var mp = lerp(solDry(100), solWet(100), ease(wetP));
-  return { stats:[['Plate depth', Math.round(Math.min(100, d)), 'km'], ['Mantle above it', '≈ 1,250', '°C'],
-    ['Melting point', fmt(round10(mp)), '°C'], ['Melt', meltP > 0 ? Math.round(meltP * 15) : 0, '%'],
-    ['Water added', v < 0.3 ? 'No' : 'Yes', '', 1]] };
-}
-
 /* ── 7. three ways to cross the melting curve ── */
 var MELT = { ridge:{ tp:1346, d0:190, d1:8 }, plume:{ tp:1546, d0:200, d1:80 } };
 MELT.ridge.dc = crossDepth(MELT.ridge.tp); MELT.plume.dc = crossDepth(MELT.plume.tp);
@@ -2177,46 +2061,6 @@ function readMelt(v){
   return { stats:[['Path', nm, '', 1], ['Depth', Math.round(st.d), 'km'], ['Temperature', fmt(round10(st.T)), '°C'], ['Melting point', fmt(round10(st.sol)), '°C'], ['Melt', Math.round(st.F * 100), '%']] };
 }
 
-/* ── 8. hotspot track: Hawaiʻi ── */
-var HAWAII = [['Kauaʻi', 5.1], ['Oʻahu', 3.0], ['Molokaʻi', 1.9], ['Maui', 1.3], ['Hawaiʻi', 0.4]];
-var TR_KM = 95;
-function drawTrack(c, v){
-  var px0 = 880, kx = 1.35, floor = 300, kz = 24, sea = floor - 4.5 * kz, Tm = v * 6;
-  c.fillStyle = '#20262A'; c.fillRect(0, 0, VW, sea);
-  waterBand(c, 0, VW, sea, floor);
-  c.fillStyle = '#4f5a60'; c.fillRect(0, floor, VW, 70);
-  var g = c.createLinearGradient(0, floor + 70, 0, VH); g.addColorStop(0, LC.asth); g.addColorStop(1, '#4a3122'); c.fillStyle = g; c.fillRect(0, floor + 70, VW, VH - floor - 70);
-  var gr = c.createLinearGradient(0, VH, 0, floor + 70); gr.addColorStop(0, 'rgba(255,140,66,0.25)'); gr.addColorStop(1, 'rgba(255,140,66,0.75)');
-  c.fillStyle = gr; c.beginPath(); c.moveTo(px0 - 40, VH); c.lineTo(px0 - 22, floor + 70); c.lineTo(px0 + 22, floor + 70); c.lineTo(px0 + 40, VH); c.closePath(); c.fill();
-  c.fillStyle = 'rgba(255,140,66,0.9)'; c.fillRect(px0 - 5, floor, 10, 70);
-  var off = (Tm * TR_KM * kx) % 60;
-  c.strokeStyle = 'rgba(255,255,255,0.14)'; c.lineWidth = 2; for (var s = VW + 60; s > -60; s -= 60){ var sx = s - off; c.beginPath(); c.moveTo(sx, floor + 8); c.lineTo(sx, floor + 62); c.stroke(); }
-  arrowLine(c, 640, floor + 36, 520, floor + 36, '#F3EFE4', 3.5); txt(c, 'Plate moves', 652, floor + 36);
-  var labs = [];
-  HAWAII.forEach(function(isl){
-    var tb = 6 - isl[1]; if (Tm < tb) return;
-    var age = Tm - tb, x = px0 - age * TR_KM * kx, grow = c01(age / 0.6);
-    var elev = age < 0.6 ? lerp(-4.5, 4.0, grow) : 4.0 - 0.75 * (age - 0.6);
-    var hpx = (elev + 4.5) * kz, wpx = 50 + hpx * 0.32, active = age < 0.7;
-    c.fillStyle = active ? '#8a5a3a' : '#6e5a48'; c.beginPath(); c.moveTo(x - wpx, floor); c.lineTo(x, floor - hpx); c.lineTo(x + wpx, floor); c.closePath(); c.fill();
-    if (elev > 0){ c.fillStyle = active ? '#9b6a45' : '#76664f'; c.beginPath(); var wl = wpx * (1 - (4.5 * kz) / hpx); c.moveTo(x - wl, sea); c.lineTo(x, floor - hpx); c.lineTo(x + wl, sea); c.closePath(); c.fill(); }
-    if (active && hpx > 10){ c.fillStyle = LC.melt; c.beginPath(); c.arc(x, floor - hpx, 5, 0, 6.2832); c.fill();
-      c.strokeStyle = 'rgba(255,140,66,0.85)'; c.lineWidth = 5; c.beginPath(); c.moveTo(px0, floor + 70); c.lineTo(x, floor - hpx + 4); c.stroke(); }
-    labs.push({ x:x, y:floor - hpx, n:isl[0], age:age, active:active });
-  });
-  labs.forEach(function(l, i){
-    var y = [40, 72, 104][i % 3];
-    c.strokeStyle = 'rgba(243,239,228,0.45)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(l.x, y + 14); c.lineTo(l.x, Math.max(y + 14, l.y - 3)); c.stroke();
-    txt(c, l.n + (l.active ? ' · active' : ' · ' + l.age.toFixed(1) + ' Myr'), l.x, y, { align:'center', col:l.active ? '#FFB27A' : '#F3EFE4', w:700 });
-  });
-  txt(c, 'Hotspot', px0 - 50, 470, { col:'#FFB27A', w:700, align:'right' });
-  txt(c, 'Sea level', 20, sea - 16, { size:18, col:'#BFD6E3' });
-  tag(c, 'VERTICAL ×18', 20, 516);
-}
-function trackActive(Tm){ var a = '—'; HAWAII.forEach(function(isl){ var age = Tm - (6 - isl[1]); if (age >= 0 && age < 0.7) a = isl[0]; }); return a; }
-function readTrack(v){ var Tm = v * 6, ago = 6 - Tm;
-  return { stats:[['Time', ago < 0.05 ? 'Today' : ago.toFixed(1), ago < 0.05 ? '' : 'million yr ago'], ['Plate moved', fmt(Math.round(Tm * TR_KM)), 'km'], ['Active volcano', trackActive(Tm), '', 1], ['Plate speed', '≈ 9.5', 'cm/yr', 1]] }; }
-
 /* ── 9. made of vs behaves as ── */
 function drawVocab(c, v){
   var d = v * 700, top = 70, bot = 520, K = (bot - top) / 700, Y = function(dd){ return top + Math.min(dd, 700) * K; };
@@ -2247,6 +2091,335 @@ function drawVocab(c, v){
 function readVocab(v){ var d = v * 700, sp = sampleAt(d, 'ocean');
   return { stats:[['Depth', fmt(Math.round(d)), 'km'], ['Temperature', '≈ ' + fmt(round10(sp.T)), '°C'], ['Made of', d < 7 ? 'Oceanic crust' : d < 670 ? 'Upper mantle' : 'Lower mantle', '', 1], ['Behaves as', d < 100 ? 'Lithosphere' : d < 350 ? 'Asthenosphere' : 'Solid mantle', '', 1]] }; }
 
+/* ── plate animations (spreading, subduction, hotspot) ── */
+/* Shared plate-tectonics drawing system: one rock palette, real geometry in km, a vertical
+   exaggeration that tweens to true scale (S.exF: 0 = exaggerated, 1 = true scale). */
+var PC = {
+  sky:'#20262A', crustO:'#4B5652', crustOtop:'#56625D', crustC:'#A58E6C', crustCdeep:'#8E7A5D',
+  lithYoung:[138, 104, 82], lithOld:[90, 96, 104], slabCore:'#536070', contLith:'#6E6455',
+  asthTop:'#73543F', asthBot:'#5C4334', plumeCore:'rgba(154,100,70,0.85)', melt:'#FF8C42', meltHi:'#FFD08A',
+  flow:'rgba(236,226,206,0.40)', iso:'#9EC9E8', land:'#6C7A58', landHi:'#8A8A5E'
+};
+function exE(E){ return lerp(E, 1, S.exF); }
+function sstep(a, b, x){ var t = c01((x - a) / (b - a)); return t * t * (3 - 2 * t); }
+function path2(c, pts){ c.beginPath(); pts.forEach(function(p, i){ if (i) c.lineTo(p[0], p[1]); else c.moveTo(p[0], p[1]); }); }
+function polyFill(c, top, bot, fill){ c.beginPath(); top.forEach(function(p, i){ if (i) c.lineTo(p[0], p[1]); else c.moveTo(p[0], p[1]); }); for (var i = bot.length - 1; i >= 0; i--) c.lineTo(bot[i][0], bot[i][1]); c.closePath(); c.fillStyle = fill; c.fill(); }
+function asthBG(c, y0){ var g = c.createLinearGradient(0, y0, 0, VH); g.addColorStop(0, PC.asthTop); g.addColorStop(1, PC.asthBot); c.fillStyle = g; c.fillRect(0, y0, VW, VH - y0); }
+function meltDot(c, x, y, r, a){ c.fillStyle = 'rgba(255,140,66,' + a + ')'; c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fill(); }
+function leader(c, x0, y0, x1, y1){ c.strokeStyle = 'rgba(243,239,228,0.7)'; c.lineWidth = 1.4; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); c.fillStyle = 'rgba(243,239,228,0.9)'; c.beginPath(); c.arc(x1, y1, 2.6, 0, 6.2832); c.fill(); }
+/* streamline with moving chevrons (phase from v only) */
+function flowLine(c, pts, phase, n){
+  c.strokeStyle = PC.flow; c.lineWidth = 1.6; c.setLineDash([2, 6]); path2(c, pts); c.stroke(); c.setLineDash([]);
+  var L = [0]; for (var i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  var tot = L[L.length - 1]; if (tot < 20) return;
+  for (var k = 0; k < (n || 3); k++){
+    var d = ((phase + k / (n || 3)) % 1) * tot, j = 1; while (j < L.length - 1 && L[j] < d) j++;
+    var f = (d - L[j - 1]) / ((L[j] - L[j - 1]) || 1), x = lerp(pts[j - 1][0], pts[j][0], f), y = lerp(pts[j - 1][1], pts[j][1], f), a = Math.atan2(pts[j][1] - pts[j - 1][1], pts[j][0] - pts[j - 1][0]);
+    c.save(); c.translate(x, y); c.rotate(a); c.strokeStyle = 'rgba(244,236,218,0.85)'; c.lineWidth = 2.2; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-6, -5); c.lineTo(1, 0); c.lineTo(-6, 5); c.stroke(); c.restore();
+  }
+}
+function bez(p0, p1, p2, n){ var o = []; for (var i = 0; i <= (n || 24); i++){ var t = i / (n || 24), u = 1 - t; o.push([u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]]); } return o; }
+/* bending slab path in km (X right, Z down) from the trench */
+function bendPath(X0, Z0, s0, dipDeg, bendL, uMax){
+  var pts = [], X = X0, Z = Z0, du = 4, dip = dipDeg * Math.PI / 180;
+  for (var u = 0; u <= uMax; u += du){
+    var phi = dip * sstep(0, bendL, u);
+    pts.push({ s:s0 + u, X:X, Z:Z, nx:-Math.sin(phi), nz:Math.cos(phi), phi:phi });
+    X += Math.cos(phi) * du; Z += Math.sin(phi) * du;
+  }
+  return pts;
+}
+function atS(pts, s){ var i = 1; while (i < pts.length - 1 && pts[i].s < s) i++; var a = pts[i - 1], b = pts[i], f = c01((s - a.s) / ((b.s - a.s) || 1));
+  return { s:s, X:lerp(a.X, b.X, f), Z:lerp(a.Z, b.Z, f), nx:lerp(a.nx, b.nx, f), nz:lerp(a.nz, b.nz, f), H:a.H != null ? lerp(a.H, b.H, f) : null, age:a.age != null ? lerp(a.age, b.age, f) : null }; }
+function slabTopZ(pts, X){ for (var i = 1; i < pts.length; i++) if (pts[i].X >= X){ var a = pts[i - 1], b = pts[i], f = (X - a.X) / ((b.X - a.X) || 1); return lerp(a.Z, b.Z, f); } return 1e9; }
+function scaleBars(c, x, y, hx, vz, hKm){
+  var hl = hKm * hx;
+  c.strokeStyle = '#E8E4D9'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(x - hl, y); c.lineTo(x, y); c.moveTo(x - hl, y - 6); c.lineTo(x - hl, y + 6); c.moveTo(x, y - 6); c.lineTo(x, y + 6); c.stroke();
+  txt(c, fmt(hKm) + ' km', x - hl / 2, y - 16, { align:'center', size:18, mono:1, w:700 });
+  var vk = 100 * vz > 170 ? 50 : 100, vl = vk * vz, vx = x - hl - 26;
+  c.beginPath(); c.moveTo(vx, y); c.lineTo(vx, y - vl); c.moveTo(vx - 6, y); c.lineTo(vx + 6, y); c.moveTo(vx - 6, y - vl); c.lineTo(vx + 6, y - vl); c.stroke();
+  txt(c, vk + ' km', vx, y - vl - 16, { align:'center', size:18, mono:1, w:700 });
+}
+function exTag(c, E, x, y){ tag(c, S.exF > 0.98 ? 'TRUE SCALE · NO EXAGGERATION' : S.exF > 0.02 ? 'VERTICAL ×' + exE(E).toFixed(1) : 'VERTICAL ×' + E, x, y); }
+
+/* ── 4. seafloor spreading: ridge → trench ── */
+var SP = { hx:0.14, E:10, sea:118, xr:230, sT:4000, spd:50, ageT:80, Tend:90, dip:38, bendL:300 };
+function spH(age){ return 110 * Math.tanh(2.32 * Math.sqrt(31.56 * Math.max(age, 0)) / 110); }
+function spFloor(X){ var age = Math.abs(X) / SP.spd, z = 2.5 + 0.35 * Math.sqrt(Math.min(age, SP.ageT)); return X > 0 ? z + 2.8 * sstep(SP.sT - 160, SP.sT, X) : z; }
+var SP_MELT = (function(){ var r = rng(5150), m = []; for (var i = 0; i < 170; i++){ var u = r(), w = r() * 2 - 1; m.push({ z:8 + Math.pow(u, 0.8) * 52, w:w * Math.pow(Math.abs(w), 0.4), a:r() }); } return m; })();
+function spGeom(){
+  var vz = SP.hx * exE(SP.E), X = function(km){ return SP.xr + km * SP.hx; }, Y = function(z){ return SP.sea + z * vz; };
+  var top = [], bot = [], crust = [], pts = [];
+  for (var s = 0; s <= SP.sT; s += 20){ var age = s / SP.spd, H = spH(age), z = spFloor(s); pts.push({ s:s, X:s, Z:z, nx:0, nz:1, H:H, age:age }); }
+  var zT = spFloor(SP.sT), HT = spH(SP.ageT);
+  bendPath(SP.sT, zT, SP.sT, SP.dip, SP.bendL, 900).forEach(function(p, i){ if (i){ p.H = HT; p.age = p.s / SP.spd; pts.push(p); } });
+  return { vz:vz, X:X, Y:Y, pts:pts, HT:HT };
+}
+function drawSpread(c, v){
+  var G = spGeom(), vz = G.vz, X = G.X, Y = G.Y, pts = G.pts, Tm = v * SP.Tend;
+  c.fillStyle = PC.sky; c.fillRect(0, 0, VW, SP.sea);
+  asthBG(c, SP.sea);
+  /* mantle flow: broad slow rise under the ridge, then dragged sideways under each plate */
+  var zb = Math.min(330, (VH - SP.sea) / vz), ph = v * 4;
+  [[160, 150, 1500], [520, 185, 2600], [1000, 225, 3600]].forEach(function(f, k){ [1, -1].forEach(function(sd){
+    var p0 = [X(sd * f[0]), Y(zb)], p1 = [X(sd * f[0] * 0.55), Y(f[1])], p2 = [X(sd * f[2]), Y(f[1] - 8)];
+    var pp = bez(p0, p1, p2, 30); if (sd < 0) pp = pp.filter(function(q){ return q[0] > -20; });
+    flowLine(c, pp, ph + k * 0.33 + (sd > 0 ? 0 : 0.5), 2); }); });
+  /* plate 1 (left of the ridge) */
+  var t1 = [], b1 = [];
+  for (var s1 = 0; s1 <= SP.xr / SP.hx + 30; s1 += 20){ var z1 = spFloor(-s1), H1 = spH(s1 / SP.spd); t1.push([X(-s1), Y(z1)]); b1.push([X(-s1), Y(z1 + H1)]); }
+  for (var i = 0; i < t1.length - 1; i++){ var ag = (i + 0.5) * 20 / SP.spd; polyFill(c, [t1[i], t1[i + 1]], [b1[i], b1[i + 1]], mixRGB(PC.lithYoung, PC.lithOld, c01(ag / SP.ageT))); }
+  /* plate 2 + slab as age-colored quads */
+  for (var j = 0; j < pts.length - 1; j++){
+    var a = pts[j], b = pts[j + 1];
+    var qa = [X(a.X), Y(a.Z)], qb = [X(b.X), Y(b.Z)], ra = [X(a.X + a.nx * a.H), Y(a.Z + a.nz * a.H)], rb = [X(b.X + b.nx * b.H), Y(b.Z + b.nz * b.H)];
+    polyFill(c, [qa, qb], [ra, rb], mixRGB(PC.lithYoung, PC.lithOld, c01(((a.age + b.age) / 2) / SP.ageT)));
+  }
+  /* oceanic crust band (constant 7 km) */
+  var ct = [], cb = [];
+  for (var k2 = t1.length - 1; k2 >= 0; k2--){ ct.push(t1[k2]); cb.push([t1[k2][0], t1[k2][1] + 7 * vz]); }
+  pts.forEach(function(p){ ct.push([X(p.X), Y(p.Z)]); cb.push([X(p.X + p.nx * 7), Y(p.Z + p.nz * 7)]); });
+  polyFill(c, ct, cb, PC.crustO);
+  /* lithosphere base (dashed) */
+  c.strokeStyle = 'rgba(243,239,228,0.6)'; c.lineWidth = 1.5; c.setLineDash([7, 5]);
+  path2(c, b1.slice().reverse().concat(pts.map(function(p){ return [X(p.X + p.nx * p.H), Y(p.Z + p.nz * p.H)]; }))); c.stroke(); c.setLineDash([]);
+  /* melt: a few percent partial melt in a shallow zone under the ridge, below the thin young plate */
+  var mz = []; for (var zz0 = 8; zz0 <= 60; zz0 += 4) mz.push([X(-(6 + (zz0 - 8) / 52 * 95)), Y(spFloor(0) + zz0)]);
+  for (var zz1 = 60; zz1 >= 8; zz1 -= 4) mz.push([X(6 + (zz1 - 8) / 52 * 95), Y(spFloor(0) + zz1)]);
+  path2(c, mz); c.closePath(); c.fillStyle = 'rgba(255,140,66,0.13)'; c.fill();
+  SP_MELT.forEach(function(m, i){ if (i % 4) return;
+    var Xk = m.w * (6 + (m.z - 8) / 52 * 95), zk = spFloor(Math.abs(Xk)) + m.z, base = spFloor(Math.abs(Xk)) + spH(Math.abs(Xk) / SP.spd);
+    if (zk < base) return; meltDot(c, X(Xk), Y(zk), 1.7, 0.5 + 0.4 * (1 - (m.z - 8) / 52)); });
+  var lens = [X(0), Y(spFloor(0) + 2.5)]; c.fillStyle = PC.melt; c.beginPath(); c.ellipse(lens[0], lens[1], 8, Math.max(1.5, 0.9 * vz), 0, 0, 6.2832); c.fill();
+  /* continent (plate 3), cut by the slab */
+  var xs0 = SP.sT, xsE = (VW - SP.xr) / SP.hx + 20, top3 = [], bc3 = [], bl3 = [];
+  for (var Xc = xs0; Xc <= xsE; Xc += 10){
+    var e = Xc < xs0 + 70 ? lerp(-spFloor(xs0), -1.5, sstep(xs0, xs0 + 70, Xc)) : Xc < xs0 + 140 ? lerp(-1.5, 0.4, sstep(xs0 + 70, xs0 + 140, Xc)) : 0.4 + 1.2 * sstep(xs0 + 140, xs0 + 320, Xc);
+    var stz = slabTopZ(pts, Xc), zc = Math.min(35, stz + e), zl = Math.min(120, stz + e);
+    top3.push([X(Xc), Y(-e)]); bc3.push([X(Xc), Y(Math.max(-e, zc))]); bl3.push([X(Xc), Y(Math.max(-e, zl))]);
+  }
+  polyFill(c, top3, bl3, PC.contLith); polyFill(c, top3, bc3, PC.crustC);
+  /* arc volcano above the slab at ~100 km + melt in the wedge */
+  var Xarc = xs0; for (var q = 0; q < pts.length; q++) if (pts[q].Z >= 100){ Xarc = pts[q].X; break; }
+  var vy = Y(-1.6), vx = X(Xarc), vh = Math.max(6, 2.6 * vz);
+  c.fillStyle = '#7d6a52'; c.beginPath(); c.moveTo(vx - 26, vy + 2); c.lineTo(vx - 3, vy - vh); c.lineTo(vx + 3, vy - vh); c.lineTo(vx + 26, vy + 2); c.closePath(); c.fill();
+  for (var mk = 0; mk < 10; mk++){ var rr = rng(77 + mk)(); meltDot(c, vx - 10 + rr * 20, Y(88 + mk * 1.6), 1.8, 0.7); }
+  /* water */
+  var wtop = [], wbot = [];
+  for (var w = t1.length - 1; w >= 0; w--){ wtop.push([t1[w][0], SP.sea]); wbot.push(t1[w]); }
+  for (var sW = 0; sW <= SP.sT; sW += 20){ wtop.push([X(sW), SP.sea]); wbot.push([X(sW), Y(spFloor(sW))]); }
+  for (var Xw = xs0; Xw <= xs0 + 140; Xw += 10){ var ew = Xw < xs0 + 70 ? lerp(-spFloor(xs0), -1.5, sstep(xs0, xs0 + 70, Xw)) : lerp(-1.5, 0.4, sstep(xs0 + 70, xs0 + 140, Xw)); if (ew >= 0) break; wtop.push([X(Xw), SP.sea]); wbot.push([X(Xw), Y(-ew)]); }
+  var gW = c.createLinearGradient(0, SP.sea, 0, Y(6)); gW.addColorStop(0, '#3D6E88'); gW.addColorStop(1, '#2C5872');
+  polyFill(c, wtop, wbot, gW);
+  c.fillStyle = 'rgba(214,232,240,0.7)'; c.fillRect(0, SP.sea - 1, X(xs0 + 120), 2);
+  /* seafloor born every 10 Myr rides with the plate, down the slab too */
+  c.strokeStyle = 'rgba(255,255,255,0.42)'; c.lineWidth = 1.3;
+  for (var bb = -200; bb <= 200; bb += 10){ var ag2 = Tm - bb; if (ag2 <= 0) continue;
+    var sp = ag2 * SP.spd; if (sp < pts[pts.length - 1].s){ var P = atS(pts, sp); c.beginPath(); c.moveTo(X(P.X), Y(P.Z)); c.lineTo(X(P.X + P.nx * P.H), Y(P.Z + P.nz * P.H)); c.stroke(); }
+    if (sp < SP.xr / SP.hx){ c.beginPath(); c.moveTo(X(-sp), Y(spFloor(-sp))); c.lineTo(X(-sp), Y(spFloor(-sp) + spH(ag2))); c.stroke(); } }
+  /* tracked seafloor */
+  var D = atS(pts, Tm * SP.spd), dx = X(D.X), dy = Y(D.Z);
+  c.fillStyle = COL.probe; c.beginPath(); c.arc(dx, dy, 8, 0, 6.2832); c.fill(); c.strokeStyle = '#1E2320'; c.lineWidth = 2; c.stroke();
+  /* motion arrows above the plates */
+  arrowLine(c, X(-500), SP.sea - 20, X(-1300), SP.sea - 20, '#F3EFE4', 3);
+  arrowLine(c, X(1600), SP.sea - 20, X(2600), SP.sea - 20, '#F3EFE4', 3);
+  /* labels */
+  txt(c, 'Plate 1', 100, 24, { align:'center' }); txt(c, 'Ridge', SP.xr, 24, { align:'center', col:'#FFB27A', w:700 });
+  txt(c, 'Plate 2', X(2100), 24, { align:'center' }); txt(c, 'Trench', X(SP.sT), 24, { align:'center', col:'#FFB27A', w:700 }); txt(c, 'Plate 3', 915, 24, { align:'center' });
+  txt(c, 'Continent', X(xs0 + 520), SP.sea - 46, { align:'center', size:18, col:'#E3DED1' });
+  var pc = atS(pts, 900); leader(c, X(pc.X) + 50, SP.sea - 50, X(pc.X), Y(pc.Z + 3.5)); txt(c, 'Oceanic crust · 7 km', X(pc.X) + 56, SP.sea - 56, { size:18 });
+  var pl = atS(pts, 2900), lt = pl.H * vz, lx = X(pl.X), ly = Y(pl.Z + pl.H / 2);
+  if (lt > 40) txt(c, 'Lithosphere', lx, ly, { align:'center', w:700 });
+  else { leader(c, lx + 50, ly + 70, lx, ly); txt(c, 'Lithosphere', lx + 56, ly + 74, { w:700 }); }
+  var meltY = Y(spFloor(0) + 45); leader(c, X(0) + 70, meltY + 26, X(14), Y(spFloor(0) + 30)); txt(c, 'Partial melt', X(0) + 76, meltY + 30, { col:'#FFB27A', w:700 });
+  txt(c, 'Asthenosphere · solid, flows', 790, VH - 40, { align:'center', col:'#EAD9C6' });
+  scaleBars(c, 560, 540, SP.hx, vz, 1000);
+  exTag(c, SP.E, 20, 516);
+}
+function readSpread(v){
+  var Tm = v * SP.Tend;
+  if (Tm <= SP.ageT) return { stats:[['Age', Math.round(Tm), 'million yr'], ['From ridge', fmt(Math.round(Tm * SP.spd)), 'km'], ['Ocean depth', (2.5 + 0.35 * Math.sqrt(Tm)).toFixed(1), 'km'], ['Plate thickness', Math.round(spH(Tm)), 'km · crust 7']] };
+  var G = spGeom(), D = atS(G.pts, Tm * SP.spd);
+  return { stats:[['Age', Math.round(Tm), 'million yr'], ['Past the trench', fmt(Math.round((Tm - SP.ageT) * SP.spd)), 'km'], ['Depth', '≈ ' + Math.round(D.Z), 'km'], ['Plate thickness', Math.round(spH(SP.ageT)), 'km · crust 7']] };
+}
+
+/* ── 6. subduction: water lowers the melting point ── */
+var SB = { hx:1.3, E:2, sea:124, ox:60, Xt:200, zFloor:5.2, H:95, dip:45, bendL:170 };
+var SB_RND = (function(){ var r = rng(2026), A = []; for (var i = 0; i < 260; i++) A.push([r(), r(), r(), r()]); return A; })();
+function sbFloor(X){ return SB.zFloor + 2.8 * sstep(SB.Xt - 70, SB.Xt, X); }
+function sbGeom(){
+  var vz = SB.hx * exE(SB.E), X = function(km){ return SB.ox + km * SB.hx; }, Y = function(z){ return SB.sea + z * vz; };
+  var pts = [];
+  for (var s = -60; s <= SB.Xt; s += 5) pts.push({ s:s, X:s, Z:sbFloor(s), nx:0, nz:1, H:SB.H });
+  bendPath(SB.Xt, sbFloor(SB.Xt), SB.Xt, SB.dip, SB.bendL, 760).forEach(function(p, i){ if (i){ p.H = SB.H; pts.push(p); } });
+  var arc = pts[0]; for (var i = 0; i < pts.length; i++) if (pts[i].Z >= 100){ arc = pts[i]; break; }
+  return { vz:vz, X:X, Y:Y, pts:pts, arc:arc };
+}
+function sbElev(Xk, G){ var Xa = G.arc.X, x0 = SB.Xt;
+  if (Xk < x0 + 60) return lerp(-sbFloor(x0), -2.2, sstep(x0, x0 + 60, Xk));
+  if (Xk < x0 + 110) return lerp(-2.2, 0.3, sstep(x0 + 60, x0 + 110, Xk));
+  return 0.3 + 1.4 * sstep(x0 + 110, Xa - 20, Xk) + 1.2 * Math.exp(-Math.pow((Xk - Xa) / 45, 2)) - 0.5 * sstep(Xa + 40, Xa + 160, Xk); }
+function isoPath(G, nT0, uTip, zT, g0){
+  var pts = G.pts, X = G.X, Y = G.Y, out = [], sT = SB.Xt;
+  pts.forEach(function(p){ if (p.s > sT + uTip) return; var f = p.s <= sT + 60 ? 1 : 1 - sstep(sT + 60, sT + uTip, p.s), n = nT0 * f; out.push([X(p.X + p.nx * n), Y(p.Z + p.nz * n)]); });
+  var back = [];
+  for (var k = pts.length - 1; k >= 0; k--){ var p = pts[k]; if (p.s > sT + uTip || p.s < sT) continue;
+    var g = g0 * sstep(sT + uTip, sT + uTip * 0.55, p.s); var px = p.X - p.nx * g, pz = p.Z - p.nz * g; if (pz < zT){ back.push([X(px), Y(zT)]); break; } back.push([X(px), Y(pz)]); }
+  var lastX = back.length ? back[back.length - 1][0] : X(sT);
+  return { inside:out, outside:back.concat([[Math.max(lastX, VW), Y(zT)]]) };
+}
+function drawSubduct(c, v){
+  var G = sbGeom(), vz = G.vz, X = G.X, Y = G.Y, pts = G.pts, sT = SB.Xt;
+  var sinkP = seg(v, 0, 0.3), wetP = seg(v, 0.3, 0.55), meltP = seg(v, 0.55, 0.8), riseP = seg(v, 0.8, 1);
+  c.fillStyle = PC.sky; c.fillRect(0, 0, VW, SB.sea);
+  asthBG(c, SB.sea);
+  /* overriding continental plate (crust + mantle lithosphere), cut by the slab */
+  var top = [], bc = [], bl = [], xE = (VW - SB.ox) / SB.hx + 10;
+  for (var Xc = sT; Xc <= xE; Xc += 4){ var e = sbElev(Xc, G), st = slabTopZ(pts, Xc);
+    top.push([X(Xc), Y(-e)]); bc.push([X(Xc), Y(Math.max(-e, Math.min(35, st)))]); bl.push([X(Xc), Y(Math.max(-e, Math.min(Xc > G.arc.X - 40 ? lerp(70, 110, sstep(G.arc.X, G.arc.X + 250, Xc)) : 70, st)))]); }
+  /* corner flow in the mantle wedge, dragged down beside the slab */
+  var ph = v * 5;
+  [[0, 112], [1, 150], [2, 195]].forEach(function(q){ var k = q[0], zs = q[1], s0 = sT + 120 + k * 70, P0 = atS(pts, s0 + 140 + k * 40);
+    var a = [X(G.arc.X + 360), Y(zs)], b = [X(atS(pts, s0).X + 40 + k * 30), Y(zs - 6)], e2 = [X(P0.X - P0.nx * 14), Y(P0.Z - P0.nz * 14)];
+    flowLine(c, bez(a, b, e2, 28), ph + k * 0.3, 3); });
+  polyFill(c, top, bl, PC.contLith); polyFill(c, top, bc, PC.crustC);
+  /* slab: cold core (cool tones) inside a rock rim */
+  var bands = [[0, SB.H, '#666769'], [14, 82, '#5D6570'], [28, 66, PC.slabCore]];
+  bands.forEach(function(bd){ var tp = [], bt = []; pts.forEach(function(p){ tp.push([X(p.X + p.nx * bd[0]), Y(p.Z + p.nz * bd[0])]); bt.push([X(p.X + p.nx * bd[1]), Y(p.Z + p.nz * bd[1])]); }); polyFill(c, tp, bt, bd[2]); });
+  var ct = [], cbt = []; pts.forEach(function(p){ ct.push([X(p.X), Y(p.Z)]); cbt.push([X(p.X + p.nx * 7), Y(p.Z + p.nz * 7)]); }); polyFill(c, ct, cbt, PC.crustO);
+  /* plate texture rides along the whole plate, slab included */
+  var off = (v * 240) % 40; c.strokeStyle = 'rgba(255,255,255,0.16)'; c.lineWidth = 1.6;
+  for (var s = -80; s < pts[pts.length - 1].s; s += 40){ var ss = s + off; if (ss < pts[0].s) continue; var P = atS(pts, ss); c.beginPath(); c.moveTo(X(P.X), Y(P.Z)); c.lineTo(X(P.X + P.nx * SB.H), Y(P.Z + P.nz * SB.H)); c.stroke(); }
+  /* water */
+  var wt = [], wb = []; for (var Xw = -60; Xw <= sT + 110; Xw += 4){ var z = Xw <= sT ? sbFloor(Xw) : -sbElev(Xw, G); if (z <= 0) break; wt.push([X(Xw), SB.sea]); wb.push([X(Xw), Y(z)]); }
+  var gW = c.createLinearGradient(0, SB.sea, 0, Y(8)); gW.addColorStop(0, '#3D6E88'); gW.addColorStop(1, '#2C5872'); polyFill(c, wt, wb, gW);
+  /* isotherms: the cold plate stays cold as it sinks */
+  [[500, 24, 300, 24, 6], [1000, 56, 560, 58, 16]].forEach(function(it){ var I = isoPath(G, it[1], it[2], it[3], it[4]);
+    c.strokeStyle = PC.iso; c.lineWidth = 2; c.setLineDash([9, 6]); c.globalAlpha = 0.85; path2(c, I.inside); c.stroke(); path2(c, I.outside); c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
+    var lp = I.inside[Math.min(10, I.inside.length - 1)]; txt(c, fmt(it[0]) + ' °C', lp[0] + 4, lp[1] - 12, { size:18, col:PC.iso, w:700 }); });
+  /* earthquakes in the cold top of the slab */
+  SB_RND.slice(0, 26).forEach(function(r){ var ph2 = (v * 7 + r[0]) % 1; if (ph2 > 0.22) return; var P = atS(pts, sT + 20 + r[1] * 620), n = 3 + r[2] * 22; quake(c, X(P.X + P.nx * n), Y(P.Z + P.nz * n), 1 - ph2 / 0.22, 5); });
+  /* water leaves the slab at ~100 km, the mantle above it melts, blobs rise to a chamber */
+  var A = G.arc, ax = X(A.X), ay = Y(A.Z);
+  if (wetP > 0) SB_RND.slice(30, 52).forEach(function(r){ var p2 = (wetP * 1.6 + r[0]) % 1, P = atS(pts, sT + (A.s - sT) * (0.82 + r[1] * 0.3)), x0 = X(P.X - P.nx * 3), y0 = Y(P.Z - P.nz * 3);
+    c.fillStyle = 'rgba(140,192,240,' + (0.95 - p2 * 0.7) + ')'; c.beginPath(); c.arc(x0 + (r[2] - 0.5) * 12, y0 - p2 * 26 * vz / 2, 3.2, 0, 6.2832); c.fill(); });
+  if (meltP > 0) SB_RND.slice(60, 60 + Math.round(40 * meltP)).forEach(function(r){ var P = atS(pts, A.s - 30 + r[0] * 60), n = 6 + r[1] * 26; meltDot(c, X(P.X - P.nx * n) + (r[2] - 0.5) * 10, Y(P.Z - P.nz * n), 2 + r[3] * 1.6, 0.85); });
+  var cx = X(A.X - 6), cy = Y(9), crw = 18 + 10 * riseP, crh = Math.max(5, 3.2 * vz);
+  if (riseP > 0 || meltP > 0.6){
+    var rp2 = riseP > 0 ? riseP : (meltP - 0.6) * 0.4;
+    [[0, 9, -10], [0.27, 7, 8], [0.55, 10, -4], [0.8, 6, 12]].forEach(function(bq){ var p3 = (rp2 * 1.4 + bq[0]) % 1, bx = lerp(X(A.X - 10), cx, p3) + bq[2] * (1 - p3) + Math.sin(p3 * 5 + bq[0] * 9) * 5, by = lerp(Y(A.Z - 26), cy + crh, p3);
+      c.globalAlpha = c01((1 - p3) * 4) * 0.9; c.fillStyle = '#FF9650'; c.beginPath(); c.ellipse(bx, by, bq[1] * 0.75, bq[1], 0, 0, 6.2832); c.fill(); c.globalAlpha = 1; });
+  }
+  if (riseP > 0){
+    var gC = c.createRadialGradient(cx, cy, 2, cx, cy, crw); gC.addColorStop(0, 'rgba(255,200,110,0.95)'); gC.addColorStop(1, 'rgba(255,120,50,0.55)');
+    c.fillStyle = gC; c.beginPath(); c.ellipse(cx, cy, crw, crh, 0, 0, 6.2832); c.fill();
+  }
+  /* arc volcano (stratovolcano) */
+  var vb = Y(-sbElev(A.X, G)), vh = 26 + 18 * riseP;
+  c.fillStyle = '#7d6a52'; c.beginPath(); c.moveTo(ax - 54, vb + 3); c.quadraticCurveTo(ax - 18, vb - vh * 0.5, ax - 4, vb - vh); c.lineTo(ax + 4, vb - vh); c.quadraticCurveTo(ax + 18, vb - vh * 0.5, ax + 54, vb + 3); c.closePath(); c.fill();
+  if (riseP > 0.85){ c.strokeStyle = 'rgba(255,140,66,0.8)'; c.lineWidth = 2.5; c.beginPath(); c.moveTo(cx, cy - crh); c.lineTo(ax, vb - vh); c.stroke();
+    c.fillStyle = 'rgba(205,205,205,0.5)'; [[14, 14, 11], [30, 26, 14], [48, 34, 12]].forEach(function(q){ c.beginPath(); c.arc(ax + q[0], vb - vh - q[1], q[2], 0, 6.2832); c.fill(); });
+    c.fillStyle = PC.melt; c.beginPath(); c.arc(ax, vb - vh, 4, 0, 6.2832); c.fill(); }
+  /* tracked parcel on the slab top */
+  var Pp = atS(pts, lerp(sT - 60, A.s, ease(sinkP))); c.fillStyle = COL.probe; c.beginPath(); c.arc(X(Pp.X), Y(Pp.Z), 8, 0, 6.2832); c.fill(); c.strokeStyle = '#1E2320'; c.lineWidth = 2; c.stroke();
+  /* depth ticks + labels */
+  [0, 50, 100, 150, 200, 250].forEach(function(d){ var y = Y(d); if (y > VH - 70) return; c.strokeStyle = 'rgba(232,228,217,0.4)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(VW - 16, y); c.lineTo(VW - 4, y); c.stroke(); txt(c, d + ' km', VW - 22, y, { align:'right', size:18, mono:1, w:400, col:LC.dim }); });
+  txt(c, 'Trench', X(sT), 26, { align:'center', col:'#FFB27A', w:700 });
+  txt(c, 'Volcano', ax, 26, { align:'center', col:'#FFB27A', w:700 });
+  txt(c, 'Oceanic plate', X(40), SB.sea - 34, { align:'center' });
+  txt(c, 'Continent', X(G.arc.X + 230), SB.sea - 52, { align:'center' });
+  txt(c, 'Continental crust', X(G.arc.X + 230), Y(18), { align:'center', size:18, col:'#2A241C', halo:false, w:700 });
+  txt(c, 'Asthenosphere · solid, flows', 790, VH - 40, { align:'center', col:'#EAD9C6' });
+  if (wetP > 0 && v < 0.85) txt(c, 'Water', ax - 64, ay - 34 * vz / 2, { col:LC.wet, w:700, align:'right' });
+  if (meltP > 0.3) txt(c, 'Melt', X(A.X - 40) + 6, Y(A.Z - 40), { col:'#FFB27A', w:700, align:'right' });
+  if (riseP > 0.2) txt(c, 'Magma chamber', cx + crw + 10, cy + 4, { col:'#FFD08A', w:700, size:18 });
+  scaleBars(c, 560, 540, SB.hx, vz, 100);
+  exTag(c, SB.E, 20, 516);
+}
+function readSubduct(v){
+  var G = sbGeom(), sinkP = seg(v, 0, 0.3), wetP = seg(v, 0.3, 0.55), meltP = seg(v, 0.55, 0.8);
+  var P = atS(G.pts, lerp(SB.Xt - 60, G.arc.s, ease(sinkP))), mp = lerp(solDry(100), solWet(100), ease(wetP));
+  return { stats:[['Plate depth', Math.round(P.Z), 'km'], ['Mantle above it', '≈ 1,250', '°C'],
+    ['Melting point', fmt(round10(mp)), v < 0.3 ? '°C · dry' : '°C · wet'], ['Melt', meltP > 0 ? Math.round(meltP * 15) : 0, '%']] };
+}
+
+/* ── 8. hotspot track: Hawaiʻi ── */
+var HAWAII = [['Necker', 10.3], ['Nihoa', 7.2], ['Kauaʻi', 5.1], ['Oʻahu', 3.0], ['Molokaʻi', 1.9], ['Maui', 1.3], ['Hawaiʻi', 0.4]];
+var TR = { hx:1.45, E:6, sea:62, ox:860, kmMyr:95, floor:4.8, H:90, Hpeak:9.2, grow:0.8, decline:0.68, sig:42 };
+var TR_KM = TR.kmMyr;
+function trEdifice(age){ if (age < 0) return 0; if (age < TR.grow) return TR.Hpeak * ease(age / TR.grow); return Math.max(0, TR.Hpeak - TR.decline * (age - TR.grow)); }
+function trVolc(Tm){ return HAWAII.map(function(h){ var age = Tm - (6 - h[1]); if (Math.abs(age) < 1e-6) age = 0; return { n:h[0], age:age, X:-age * TR.kmMyr, h:trEdifice(age), sig:TR.sig + 3 * Math.max(0, age) }; }).filter(function(o){ return o.age >= 0; }); }
+var TR_RND = (function(){ var r = rng(808), A = []; for (var i = 0; i < 200; i++) A.push([r(), r(), r()]); return A; })();
+function drawTrack(c, v){
+  /* plate and plume at true scale; surface relief (ocean depth, volcano heights) exaggerated until "True scale" */
+  var Tm = v * 6, hx = TR.hx, vr = hx * exE(TR.E), X = function(km){ return TR.ox + km * hx; };
+  var Yr = function(z){ return TR.sea + z * vr; }, yF = Yr(TR.floor), Yp = function(dz){ return yF + dz * hx; };
+  var Xl = -TR.ox / hx - 10, Xr = (VW - TR.ox) / hx + 10, vols = trVolc(Tm);
+  function relief(Xk){ var h = 0; vols.forEach(function(o){ h = Math.max(h, o.h * Math.exp(-Math.pow((Xk - o.X) / o.sig, 2))); }); return h; }
+  function baseD(Xk){ return TR.H - 14 * Math.exp(-Math.pow((Xk + 40) / 170, 2)); }
+  c.fillStyle = PC.sky; c.fillRect(0, 0, VW, TR.sea);
+  asthBG(c, yF);
+  /* plume: hot but solid rock rising from deep below; its head spreads under the plate, dragged with it */
+  var yb = Yp(baseD(0)), ph = v * 5;
+  var gS = c.createLinearGradient(X(-75), 0, X(75), 0); gS.addColorStop(0, 'rgba(160,96,58,0)'); gS.addColorStop(0.5, PC.plumeCore); gS.addColorStop(1, 'rgba(160,96,58,0)');
+  c.fillStyle = gS; c.beginPath(); c.moveTo(X(-60), VH); c.lineTo(X(-48), yb + 40); c.lineTo(X(48), yb + 40); c.lineTo(X(60), VH); c.closePath(); c.fill();
+  c.save(); c.beginPath(); c.ellipse(X(-110), yb + 6, 360 * hx * 0.7, 46, 0, 0, 6.2832); c.clip();
+  var gH = c.createRadialGradient(X(0), yb + 10, 4, X(-80), yb + 10, 280 * hx); gH.addColorStop(0, 'rgba(164,104,70,0.92)'); gH.addColorStop(1, 'rgba(150,92,58,0)');
+  c.fillStyle = gH; c.fillRect(0, yb - 4, VW, 120); c.restore();
+  [-30, 0, 30].forEach(function(o, k){ flowLine(c, [[X(o), VH - 4], [X(o * 0.8), yb + 36]], ph + k * 0.33, 2); });
+  flowLine(c, bez([X(-20), yb + 18], [X(-120), yb + 14], [X(-330), yb + 24], 20), ph + 0.2, 2);
+  flowLine(c, bez([X(20), yb + 18], [X(70), yb + 14], [X(150), yb + 26], 16), ph + 0.6, 2);
+  /* melt in the plume head, just under the plate */
+  TR_RND.slice(0, 46).forEach(function(r){ meltDot(c, X((r[0] - 0.55) * 110), yb + 4 + r[1] * 26, 1.6 + r[2] * 1.3, 0.75); });
+  /* the moving plate: crust + mantle lithosphere, 90 km */
+  var tp = [], bt = [], ct = [];
+  for (var Xk = Xl; Xk <= Xr; Xk += 4){ tp.push([X(Xk), yF]); bt.push([X(Xk), Yp(baseD(Xk))]); ct.push([X(Xk), Yp(7)]); }
+  polyFill(c, tp, bt, mixRGB(PC.lithYoung, PC.lithOld, 0.85)); polyFill(c, tp, ct, PC.crustO);
+  var off = (Tm * TR.kmMyr) % 60; c.strokeStyle = 'rgba(255,255,255,0.14)'; c.lineWidth = 1.6;
+  for (var s = Xr + 60; s > Xl - 60; s -= 60){ var xs = X(s - off); c.beginPath(); c.moveTo(xs, Yp(8)); c.lineTo(xs, Yp(baseD(s - off)) - 2); c.stroke(); }
+  c.strokeStyle = 'rgba(243,239,228,0.55)'; c.lineWidth = 1.5; c.setLineDash([7, 5]); path2(c, bt); c.stroke(); c.setLineDash([]);
+  /* magma crosses the plate only above the plume: offset dike segments and rising blobs */
+  var act = vols.filter(function(o){ return o.age < 0.9; });
+  if (act.length){
+    var r0 = rng(31), segs = 6, y0 = yb, y1 = yF;
+    for (var k = 0; k < segs; k++){ var ya = lerp(y0, y1, k / segs) - 2, yb2 = lerp(y0, y1, (k + 0.8) / segs), xo = X((r0() - 0.5) * 30);
+      c.strokeStyle = 'rgba(255,140,66,0.7)'; c.lineWidth = 2.4; c.beginPath(); c.moveTo(xo, ya); c.lineTo(xo + (r0() - 0.5) * 8, yb2); c.stroke(); }
+    [0, 0.33, 0.66].forEach(function(o, k){ var p3 = (v * 9 + o) % 1, bx = X(Math.sin(p3 * 7 + k) * 10), by = lerp(y0, y1, p3);
+      c.globalAlpha = c01((1 - p3) * 5) * 0.9; c.fillStyle = '#FF9650'; c.beginPath(); c.ellipse(bx, by, 4.5, 6, 0, 0, 6.2832); c.fill(); c.globalAlpha = 1; });
+  }
+  /* edifices: broad shields that grow, then erode and subside as the plate carries them off */
+  var land = [], under = [];
+  for (var Xs = Xl; Xs <= Xr; Xs += 2){ land.push([X(Xs), Yr(TR.floor - relief(Xs))]); under.push([X(Xs), yF + 1]); }
+  polyFill(c, land, under, '#5f5a52');
+  act.forEach(function(o){ if (o.h > 2){ var cyy = Yr(TR.floor - o.h + 3.5); c.fillStyle = 'rgba(255,170,90,0.9)'; c.beginPath(); c.ellipse(X(o.X), cyy, 10, Math.max(2.5, 0.8 * vr), 0, 0, 6.2832); c.fill();
+    c.strokeStyle = 'rgba(255,140,66,0.6)'; c.lineWidth = 2; c.beginPath(); c.moveTo(X(o.X * 0.4), yF); c.quadraticCurveTo(X(o.X * 0.7), lerp(yF, cyy, 0.5), X(o.X), cyy); c.stroke(); } });
+  var gW = c.createLinearGradient(0, TR.sea, 0, yF); gW.addColorStop(0, '#3D6E88'); gW.addColorStop(1, '#2C5872');
+  c.save(); c.beginPath(); c.rect(0, TR.sea, VW, yF - TR.sea); c.clip();
+  c.fillStyle = gW; c.beginPath(); c.moveTo(0, TR.sea); land.forEach(function(q){ c.lineTo(q[0], Math.max(TR.sea, q[1])); }); c.lineTo(VW, TR.sea); c.closePath(); c.fill(); c.restore();
+  c.save(); c.beginPath(); c.rect(0, 0, VW, TR.sea); c.clip(); polyFill(c, land, land.map(function(q){ return [q[0], TR.sea + 1]; }), PC.land); c.restore();
+  c.fillStyle = 'rgba(214,232,240,0.7)'; c.fillRect(0, TR.sea - 1, VW, 2);
+  act.forEach(function(o){ if (o.h > 1.5){ c.fillStyle = PC.melt; c.beginPath(); c.arc(X(o.X), Yr(TR.floor - o.h), 4.5, 0, 6.2832); c.fill(); } });
+  /* labels */
+  var labs = vols.filter(function(o){ var x = X(o.X); return x > 30 && x < VW - 30; }).sort(function(a, b){ return b.X - a.X; });
+  labs.forEach(function(o, i){
+    var x = X(o.X), y = 20 + (i % 2) * 26, active = o.age < 0.9, sub = TR.floor - o.h > 0, top2 = Yr(TR.floor - o.h);
+    c.strokeStyle = 'rgba(243,239,228,0.45)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x, y + 12); c.lineTo(x, Math.max(y + 12, top2 - 4)); c.stroke();
+    txt(c, o.n + (active ? ' · active' : sub ? ' · seamount' : ' · ' + o.age.toFixed(1) + ' Myr'), x, y, { align:'center', col:active ? '#FFB27A' : '#F3EFE4', w:700, size:18 });
+  });
+  var lb = Yp(48);
+  txt(c, 'Pacific Plate (lithosphere) · 90 km', X(-380), lb, { align:'center', w:700 });
+  arrowLine(c, X(-150), lb, X(-240), lb, '#F3EFE4', 3.5);
+  txt(c, 'Plume · hot solid rock, fixed', X(-70), VH - 70, { col:'#FFD0A8', w:700, align:'right' });
+  txt(c, 'Melt', X(-110), yb + 30, { col:'#FFB27A', w:700, align:'right' });
+  txt(c, 'Asthenosphere · solid, flows', X(-420), yb + 64, { align:'center', col:'#EAD9C6' });
+  scaleBars(c, 560, 540, hx, hx, 100);
+  tag(c, S.exF > 0.98 ? 'TRUE SCALE · NO EXAGGERATION' : 'RELIEF ×' + (S.exF > 0.02 ? exE(TR.E).toFixed(1) : TR.E) + ' · PLATE TRUE SCALE', 20, 516);
+}
+function trackActive(Tm){ var a = '—'; trVolc(Tm).forEach(function(o){ if (o.age < 0.9) a = o.n; }); return a; }
+function readTrack(v){ var Tm = v * 6, ago = 6 - Tm;
+  return { stats:[['Time', ago < 0.05 ? 'Today' : ago.toFixed(1), ago < 0.05 ? '' : 'million yr ago'], ['Plate moved', fmt(Math.round(Tm * TR.kmMyr)), 'km'], ['Active volcano', trackActive(Tm), ''], ['Plate speed', '≈ 9.5', 'cm/yr']] }; }
+
 /* ── registry ── */
 var ANIMS = {
   seismic:{ n:'Seismic waves', short:'Seismic', hs:'OCORE', link:[LINK.seismic, 'Seismic Wave Explorer'], draw:drawSeismic, read:readSeismic,
@@ -2261,33 +2434,31 @@ var ANIMS = {
     t:'Blocks of oceanic and continental crust at the page’s densities, floating on mantle rock.',
     src:'Page densities (oceanic 3.0, continental 2.8, mantle 3.4 g/cm³) · idealized blocks',
     snaps:[{ v:0, b:'Placed', i:'not floating yet' }, { v:0.7, b:'Floating', i:'settled' }, { v:1, b:'Ocean fills', i:'water added' }] },
-  spread:{ n:'Seafloor spreading', short:'Spreading', hs:'RIDGE', link:[LINK.seafloor, 'Seafloor Spreading'], draw:drawSpread, read:readSpread,
-    t:'A piece of seafloor (yellow dot) followed from the ridge where it forms to the trench.',
-    src:'Ocean depth: Parsons & Sclater (1977) · plate thickness: cooling half-space · 5 cm/yr',
-    snaps:[{ v:0, b:'Born', i:'at the ridge' }, { v:0.2, b:'20 Myr', i:'4,000 km... ' }, { v:0.5, b:'50 Myr', i:'older' }, { v:0.8, b:'80 Myr', i:'at the trench' }, { v:1, b:'100 Myr', i:'sinking' }] },
+  spread:{ n:'Seafloor spreading', short:'Spreading', hs:'RIDGE', link:[LINK.seafloor, 'Seafloor Spreading'], draw:drawSpread, read:readSpread, scale:1,
+    t:'A piece of seafloor (yellow dot) followed from the ridge where it forms to the trench where it sinks.',
+    src:'Ocean depth: Parsons & Sclater (1977) · plate thickness: cooling plate model · crust 7 km · 5 cm/yr · idealized',
+    snaps:[{ v:0, b:'Born', i:'at the ridge' }, { v:20 / 90, b:'20 Myr', i:'1,000 km out' }, { v:50 / 90, b:'50 Myr', i:'2,500 km out' }, { v:80 / 90, b:'80 Myr', i:'at the trench' }, { v:1, b:'90 Myr', i:'sinking' }] },
   transform:{ n:'Transform fault', short:'Transform', hs:'FAULT', draw:drawTransform, read:readTransform,
     t:'Map view of an ocean ridge offset by a transform fault, with earthquakes as they happen.',
     src:'Idealized · spreading ≈ 4 cm/yr on each side',
     snaps:[{ v:0, b:'Start', i:'0 Myr' }, { v:1 / 3, b:'4 Myr', i:'' }, { v:2 / 3, b:'8 Myr', i:'' }, { v:1, b:'12 Myr', i:'' }] },
-  subduct:{ n:'Subduction', short:'Subduction', hs:'TRENCH', link:[LINK.subduction, 'Wadati-Benioff Zone Explorer'], draw:drawSubduct, read:readSubduct,
-    t:'An oceanic plate sinking beneath a continent, drawn at true scale.',
-    src:'Idealized · melting points at 100 km: Hirschmann (2000) dry, water-saturated approximate',
+  subduct:{ n:'Subduction', short:'Subduction', hs:'TRENCH', link:[LINK.subduction, 'Wadati-Benioff Zone Explorer'], draw:drawSubduct, read:readSubduct, scale:1,
+    t:'An old oceanic plate sinking beneath a continent. Dashed lines are temperatures.',
+    src:'Idealized · isotherms schematic · melting points at 100 km: Hirschmann (2000) dry, water-saturated approximate',
     snaps:[{ v:0, b:'Trench', i:'plate arrives' }, { v:0.3, b:'100 km', i:'plate sinks' }, { v:0.55, b:'Water', i:'released' }, { v:0.8, b:'Melting', i:'mantle melts' }, { v:1, b:'Volcano', i:'erupts' }] },
   melt:{ n:'Melting', short:'Melting', hs:'MAGR', draw:drawMelt, read:readMelt,
     t:'Three pieces of mantle rock on a temperature–depth graph with the melting curve.',
     src:'Dry melting curve: Hirschmann (2000) · water-saturated curve approximate · mantle 1,346 °C, plume +200 °C',
     snaps:[{ v:0, b:'Start', i:'solid rock' }, { v:1 / 3, b:'Ridge', i:'rises' }, { v:2 / 3, b:'Plume', i:'hotter' }, { v:1, b:'Subduction', i:'water added' }] },
-  track:{ n:'Hotspot track', short:'Hotspot', hs:'HOTV', draw:drawTrack, read:readTrack,
+  track:{ n:'Hotspot track', short:'Hotspot', hs:'HOTV', draw:drawTrack, read:readTrack, scale:1,
     t:'The Pacific Plate moving over the Hawaiian hotspot for the last 6 million years.',
-    src:'Island ages: K–Ar compilation (Clouard & Bonneville 2005) · ≈ 9.5 cm/yr',
+    src:'Island ages: K–Ar compilation (Clouard & Bonneville 2005) · ≈ 9.5 cm/yr · island heights and plume idealized',
     snaps:[{ v:0.9 / 6, b:'5.1 Ma', i:'Kauaʻi' }, { v:3 / 6, b:'3.0 Ma', i:'Oʻahu' }, { v:4.7 / 6, b:'1.3 Ma', i:'Maui' }, { v:1, b:'Today', i:'Hawaiʻi' }] },
   vocab:{ n:'Made of vs behaves as', short:'Made vs acts', hs:'LITH', draw:drawVocab, read:readVocab,
     t:'The top 700 km described two ways: what the rock is made of, and how it behaves.',
     src:'Ocean column · lithosphere ≈ 100 km, asthenosphere base ≈ 350 km (not sharp) · temperature inferred',
     snaps:[{ v:50 / 700, b:'50 km', i:'lithosphere' }, { v:200 / 700, b:'200 km', i:'asthenosphere' }, { v:500 / 700, b:'500 km', i:'solid mantle' }, { v:690 / 700, b:'690 km', i:'lower mantle' }] }
 };
-ANIMS.spread.snaps[1].i = '1,000 km out';
-ANIMS.spread.snaps[2].i = '2,500 km out';
 var AORDER = ['seismic', 'phase', 'iso', 'spread', 'transform', 'subduct', 'melt', 'track', 'vocab'];
 
 /* ── canvas + controls ── */
@@ -2346,6 +2517,13 @@ function playStep(){
 }
 $('aPlay').onclick = function(){ S.aThru = false; playStep(); };
 $('aThru').onclick = function(){ if (S.aThru){ stopAnim(); return; } S.aThru = true; if (nextSnapV() === null) S.v = 0; playStep(); };
+function setEx(t){
+  if (t === S.ex) return; S.ex = t;
+  document.querySelectorAll('[data-ex]').forEach(function(x){ x.classList.toggle('is-active', +x.dataset.ex === t); });
+  cancelAnimationFrame(S.exRaf); var f0 = S.exF, t0 = performance.now(), D = REDUCED ? 0 : 900;
+  (function f(now){ var r = D ? Math.min(1, (now - t0) / D) : 1; S.exF = lerp(f0, t, ease(r)); drawAnim(); if (r < 1) S.exRaf = requestAnimationFrame(f); })(t0);
+  setHash();
+}
 $('aRange').oninput = function(){ stopAnim(); S.v = this.value / 1000; drawAnim(); };
 function openAnim(key, snapIdx){
   S.anim = key; var sn = ANIMS[key].snaps[snapIdx || 0];
@@ -2356,9 +2534,11 @@ function openAnim(key, snapIdx){
 function procCardHTML(){
   var A = ANIMS[S.anim], html = '<div class="k-eb"><span>Processes</span></div><div class="k-grid">';
   AORDER.forEach(function(k){ html += '<button data-pick="' + k + '" class="' + (k === S.anim ? 'on' : '') + '">' + esc(ANIMS[k].short) + '</button>'; });
-  html += '</div><div class="k-title" style="margin-top:2px">' + esc(A.n) + '</div><p class="k-t">' + esc(A.t) + '</p><div id="pStats"></div>';
+  html += '</div><div class="k-title" style="margin-top:2px">' + esc(A.n) + '</div><p class="k-t">' + esc(A.t) + '</p>';
+  if (A.scale) html += '<div class="cc-segmented" style="margin:0 0 8px; width:100%; flex:none"><button class="cc-segmented-btn' + (S.ex ? '' : ' is-active') + '" data-ex="0" style="flex:1; padding:7px 6px; font-size:13px">Exaggerated</button><button class="cc-segmented-btn' + (S.ex ? ' is-active' : '') + '" data-ex="1" style="flex:1; padding:7px 6px; font-size:13px">True scale</button></div>';
+  html += '<div id="pStats"></div>';
   html += '<button class="k-act alt" data-showpage="' + A.hs + '" style="margin-top:4px">Show on the page</button>';
-  if (A.link) html += '<a class="k-back" href="' + esc(routeHref(A.link[0])) + '" target="_top">Open ' + esc(A.link[1]) + ' &#8599;</a>';
+  if (A.link) html += '<a class="k-back" style="flex:none" href="' + esc(routeHref(A.link[0])) + '" target="_top">Open ' + esc(A.link[1]) + ' &#8599;</a>';
   html += '<div class="cc-card-src">' + esc(A.src) + '</div>';
   return html;
 }
@@ -2378,7 +2558,7 @@ function wrap(c, t, w){ var words = String(t).split(' '), lines = [], cur = ''; 
 function slugify(s){ return s.toLowerCase().replace(/[ʻ’']/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); }
 function slug(){
   var b = 'essrt-p11-earths-interior';
-  if (S.tab === 'proc') return b + '-' + slugify(ANIMS[S.anim].n);
+  if (S.tab === 'proc') return b + '-' + slugify(ANIMS[S.anim].n) + (ANIMS[S.anim].scale && S.exF > 0.5 ? '-true-scale' : '');
   if (S.tab === 'inside') return b + '-' + S.view + '-' + Math.round(S.depth) + 'km';
   return b + (S.sel ? '-' + slugify(BYID[S.sel].label) : S.probeOn ? '-probe-' + Math.round(S.depth) + 'km' : '');
 }
@@ -2704,6 +2884,7 @@ async function exportMP4(){
     var tab = q.get('tab'), h = q.get('h'), anim = q.get('anim'), d = q.get('d'), col = q.get('col'), vw = q.get('view'), ts = q.get('ts'), tour = q.get('tour');
     if (col === 'continent' || col === 'ocean') setCol(col, true);
     if (d != null && !isNaN(+d)) S.depth = clamp(+d, 0, 6378);
+    if (q.get('scale') === 'true'){ S.ex = 1; S.exF = 1;  }
     if (tab === 'processes' || tab === 'proc' || (anim && ANIMS[anim])){ openAnim(ANIMS[anim] ? anim : 'seismic', 0); return; }
     if (tab === 'inside' || ts === '1' || vw === 'cutaway' || vw === 'quarter' || vw === 'true'){
       S.view = ts === '1' ? 'true' : (vw === 'cutaway' || vw === 'true' ? vw : 'quarter'); S.s = S.view === 'true' ? 1 : 0;
