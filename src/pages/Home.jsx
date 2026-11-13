@@ -148,6 +148,14 @@ const SECTIONS = [
     accentVar: '--accent-hourly',
     cards: [
       {
+        tags:       ['US Cities', 'Updates Daily'],
+        title:      'Climate Record Explorer',
+        description:'Rankings, extremes, threshold counts, and first/last dates from the full daily record of 400+ long-term U.S. stations — any statistic, any season or date range, as charts and sortable tables.',
+        footerTags: ['Temperature', 'Precip', 'Snow', 'Degree Days'],
+        to:         '/climate-explorer',
+        thumb:      '/ClimateExplorer_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'Any City'],
         title:      'Climographs',
         description:'The classic monthly climograph for any U.S. city — average temperature and precipitation side by side, with two-city compare mode, °F/°C and in/mm toggles, and full data tables.',
