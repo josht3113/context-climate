@@ -36,9 +36,9 @@ const SECTIONS = [
     cards: [
       {
         tags:       ['US Cities', 'Updates Continuously'],
-        title:      'Local Weather & Forecast',
-        description:'Live station observations with time-series charts, climate normals, daily records, and solar data updated continuously.',
-        footerTags: ['Climate Normals', 'Forecasts', 'Solar & Moon'],
+        title:      'Current Conditions in Context',
+        description:'Live observations for any US station set against its own climate record: how unusual this hour, this day and this season are, with recent weather, the forecast, and the sky.',
+        footerTags: ['Now', 'Context', 'Recent', 'Forecast', 'Sun & Moon'],
         to:         '/current-conditions',
         thumb:      '/current-conditions_thumbnail.png',
       },
