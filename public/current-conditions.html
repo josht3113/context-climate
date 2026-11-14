@@ -2164,23 +2164,24 @@ function cxHeadlines(day){
     else if(yr-last.y>=3&&rank<=Math.max(3,total/3))head=`${words.sup} ${nm}${words.noun} since ${last.y}`;
     else if(gap!=null&&gap>=21)head=`${words.sup} ${words.any} since ${fmtAny(any)}`;
     else{plain=true;head=`${words.lab} ${unit(val)}`+(words.norm!=null?(Math.abs(val-words.norm)<2.5?' · near normal':` · ${Math.round(Math.abs(val-words.norm))}° ${val>words.norm?'above':'below'} normal`):'');}
-    out.push({kind:plain?'':words.kind,head,detail:(plain?'':`${words.lab} ${unit(val)} · `)+`${ord(rank)} ${words.sup.toLowerCase()} of ${total}${plain?' on this date':''}${extra}`});
+    const rOpp=1+prior.filter(r=>warm?r[key]<val:r[key]>val).length,useOpp=plain&&rOpp<rank;
+    out.push({kind:plain?'':words.kind,head,detail:(plain?'':`${words.lab} ${unit(val)} · `)+`${ord(useOpp?rOpp:rank)} ${(useOpp?words.opp:words.sup).toLowerCase()} of ${total}${plain?' on this date':''}${extra}`});
   };
   const t=v=>Math.round(v)+'°';
   const sofar=day.partial?' so far':'';
   if(day.hi!=null){
     const warm=day.norm?day.hi>=day.norm.hi:true;
-    if(warm)one(day.hi,'hi',true,{sup:'Warmest',noun:'',any:'day',kind:'warm',lab:'High'+sofar,norm:day.norm?day.norm.hi:null},A.H,t);
-    else if(!day.partial)one(day.hi,'hi',false,{sup:'Coolest',noun:' high',any:'high',kind:'cold',lab:'High',norm:day.norm?day.norm.hi:null},A.H,t);
+    if(warm)one(day.hi,'hi',true,{sup:'Warmest',noun:'',any:'day',opp:'Coolest',kind:'warm',lab:'High'+sofar,norm:day.norm?day.norm.hi:null},A.H,t);
+    else if(!day.partial)one(day.hi,'hi',false,{sup:'Coolest',noun:' high',any:'high',opp:'Warmest',kind:'cold',lab:'High',norm:day.norm?day.norm.hi:null},A.H,t);
     else out.push({kind:'',head:`High so far ${t(day.hi)}`,detail:day.norm?`Normal high ${t(day.norm.hi)}`:''});
   }
   if(day.lo!=null){
     const cold=day.norm?day.lo<=day.norm.lo:true;
-    if(cold)one(day.lo,'lo',false,{sup:'Coldest',noun:' low',any:'low',kind:'cold',lab:'Low'+sofar,norm:day.norm?day.norm.lo:null},A.L,t);
-    else if(!day.partial)one(day.lo,'lo',true,{sup:'Mildest',noun:' low',any:'low',kind:'warm',lab:'Low',norm:day.norm?day.norm.lo:null},A.L,t);
+    if(cold)one(day.lo,'lo',false,{sup:'Coldest',noun:' low',any:'low',opp:'Mildest',kind:'cold',lab:'Low'+sofar,norm:day.norm?day.norm.lo:null},A.L,t);
+    else if(!day.partial)one(day.lo,'lo',true,{sup:'Mildest',noun:' low',any:'low',opp:'Coldest',kind:'warm',lab:'Low',norm:day.norm?day.norm.lo:null},A.L,t);
     else out.push({kind:'',head:`Low so far ${t(day.lo)}`,detail:day.norm?`Normal low ${t(day.norm.lo)}`:''});
   }
-  if(day.pcp!=null&&day.pcp>=0.01)one(day.pcp,'pcp',true,{sup:'Wettest',noun:'',any:'day',kind:'wet',lab:'Precipitation'+sofar},A.P,v=>v.toFixed(2)+'"');
+  if(day.pcp!=null&&day.pcp>=0.01)one(day.pcp,'pcp',true,{sup:'Wettest',noun:'',any:'day',opp:'Driest',kind:'wet',lab:'Precipitation'+sofar},A.P,v=>v.toFixed(2)+'"');
   return out;
 }
 // Period-to-date statistics for every year, ending on the same calendar date.
@@ -2205,11 +2206,11 @@ function toDate(E){
       if(me[k]==null)return null;const v=all.filter(r=>r[k]!=null),base=v.filter(r=>r.y>=1991&&r.y<=2020);
       if(v.length<10)return null;const ref=base.length>=20?base:v.filter(r=>r.y!==e.y),avg=ref.reduce((a,r)=>a+r[k],0)/ref.length;
       const hiR=1+v.filter(r=>r[k]>me[k]+1e-9).length,loR=1+v.filter(r=>r[k]<me[k]-1e-9).length;
-      return{v:me[k],avg,anom:me[k]-avg,hiR,loR,n:v.length,normal:base.length>=20};
+      return{v:me[k],avg,anom:me[k]-avg,hiR,loR,n:v.length,tie:v.length-(hiR-1)-(loR-1)>1,normal:base.length>=20};
     };
     out.push({lab:df.lab,start:me.start,snow:!!df.snow,t:df.snow?null:pack('t'),p:df.snow?null:pack('p'),s:df.snow?pack('s'):null});
   }
-  return out.filter(r=>r.snow?(r.s&&(r.s.v>0||r.s.avg>=0.1)):(r.t||r.p));
+  return out.filter(r=>r.snow?(r.s&&(r.s.v>0||r.s.avg>=1)):(r.t||r.p));
 }
 function updateContextCard(){
   if(!cur.clim){$('cx-heads').innerHTML=`<div class="fc-empty">${cur.climPending?'Loading the daily record…':'No daily climate record for this station'}</div>`;$('cx-date').innerHTML='';$('cx-todate').innerHTML='';setText('cx-src','');return;}
@@ -2231,7 +2232,7 @@ function updateContextCard(){
   const td=toDate(E);setText('cx-td-sub','through '+fmtDayUTC(E));
   const sgn=(v,d,u)=>`<span class="${v>=0?'dep-w':'dep-c'}">${v>=0?'+':'−'}${Math.abs(v).toFixed(d)}${u}</span>`;
   const sgnP=(v,d,u)=>`<span class="${v>=0?'dep-g':'dep-b'}">${v>=0?'+':'−'}${Math.abs(v).toFixed(d)}${u}</span>`;
-  const rk=(x,hiW,loW)=>x.hiR<=x.loR?`${ord(x.hiR)} ${hiW} of ${x.n}`:`${ord(x.loR)} ${loW} of ${x.n}`;
+  const rk=(x,hiW,loW)=>(x.tie?'tied ':'')+(x.hiR<=x.loR?`${ord(x.hiR)} ${hiW} of ${x.n}`:`${ord(x.loR)} ${loW} of ${x.n}`);
   $('cx-todate').innerHTML=td.length?td.map(p=>`<div class="td"><div class="td-h">${p.lab}</div>`+
     (p.t?`<div class="td-r"><span>Temp</span><b>${p.t.v.toFixed(1)}°</b>${sgn(p.t.anom,1,'°')}<em>${rk(p.t,'warmest','coldest')}</em></div>`:'')+
     (p.p?`<div class="td-r"><span>Precip</span><b>${p.p.v.toFixed(2)}"</b>${sgnP(p.p.anom,2,'"')}<em>${rk(p.p,'wettest','driest')}</em></div>`:'')+
