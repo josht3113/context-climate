@@ -689,9 +689,11 @@ function buildURL(stId, tz, y1, y2) {
   //    extra day's obs correctly (everything but that one rolled-forward
   //    ob gets discarded) -- no change needed there.
   return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?` +
-    `station=${stId}&data=tmpf,dwpf,sknt,gust,skyc1,skyc2,skyc3` +
+    `station=${stId}&data=tmpf,dwpf,sknt,gust,skyc1,skyc2,skyc3,skyc4,peak_wind_gust,peak_wind_time` +
     `&year1=${y1-1}&month1=12&day1=31&year2=${y2+1}&month2=1&day2=1` +
-    `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
+    `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no` +
+    // Routine and special reports only (no 5-minute data), matching the hourly archive.
+    `&report_type=3&report_type=4`;
 }
 
 // IEM's ASOS service sheds load with 503 when it is busy, and a multi-year
@@ -860,11 +862,10 @@ function modeOfHist(hist) {
   return best;
 }
 
-// Wind gusts: a cell's gust is the highest gust reported in the routine
-// ob and any specials since the previous routine ob -- i.e. the hour whose
-// end the routine ob marks. `gustSeen` flags cells where the wind group
-// was reported at all, which is what separates "no gust" (blank) from
-// "no observation" (missing).
+// Wind gusts: a cell's gust is the highest gust or peak-wind remark reported
+// in the clock hour ending at the cell's time (same rule as the hourly
+// archive). `gustSeen` flags cells where the wind group was reported at all,
+// which is what separates "no gust" (blank) from "no observation" (missing).
 const KT_TO_MPH = 1.15078;
 
 // Shifts a local calendar hour by `add` hours (0-2), rolling the date.
@@ -884,7 +885,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   //             keeping each year's own grid instead of folding them all
   //             into a running mean.
   const lines = text.split('\n');
-  let tmpfI=2, dwpfI=3, skntI=4, gustI=99, skyc1I=5, skyc2I=6, skyc3I=7;
+  let tmpfI=2, dwpfI=3, skntI=4, gustI=99, skyc1I=5, skyc2I=6, skyc3I=7, skyc4I=99, pkI=99, pktI=99;
 
   // ── Pass 1: observation-minute histogram per year ──
   const histByYear = new Map();
@@ -979,7 +980,8 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
       const h = line.split(',');
       const fi = f => { const i = h.indexOf(f); return i < 0 ? 99 : i; };
       tmpfI=fi('tmpf'); dwpfI=fi('dwpf'); skntI=fi('sknt'); gustI=fi('gust');
-      skyc1I=fi('skyc1'); skyc2I=fi('skyc2'); skyc3I=fi('skyc3');
+      skyc1I=fi('skyc1'); skyc2I=fi('skyc2'); skyc3I=fi('skyc3'); skyc4I=fi('skyc4');
+      pkI=fi('peak_wind_gust'); pktI=fi('peak_wind_time');
       inData = true;
       continue;
     }
@@ -1011,8 +1013,8 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     const gkt    = parseF(parts[gustI]);
     const gust   = gkt != null ? gkt * KT_TO_MPH : null;
 
-    const c1 = skyToNum(parts[skyc1I]), c2 = skyToNum(parts[skyc2I]), c3 = skyToNum(parts[skyc3I]);
-    const clouds = [c1,c2,c3].reduce((m,v) => v!=null ? (m==null?v:Math.max(m,v)) : m, null);
+    const c1 = skyToNum(parts[skyc1I]), c2 = skyToNum(parts[skyc2I]), c3 = skyToNum(parts[skyc3I]), c4 = skyToNum(parts[skyc4I]);
+    const clouds = [c1,c2,c3,c4].reduce((m,v) => v!=null ? (m==null?v:Math.max(m,v)) : m, null);
 
     const vals = { temp, td, wind, clouds };
 
@@ -1048,20 +1050,35 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
       }
     }
 
-    // ── Gust: the cell of the next routine ob at or after this one ──
+    // ── Gust: highest gust or peak wind in the clock hour ending at the cell's time ──
+    // An ob at H-1:00–H-1:59 counts toward cell H; a peak-wind remark counts
+    // at its own reported time (within the 2 h before the ob, else 30 min before).
     const seen = sknt != null || gust != null;
-    if (!seen) continue;
-    const gShift = (mi <= R ? 0 : 1) + (routineLate ? 1 : 0);
-    const [gyr, gmo, gdy, gh] = shiftHour(ryr, rmo, rdy, rh, gShift);
-    if (gyr < y1 || gyr > y2) continue;
-    const gdoy = getDOY(gyr, gmo, gdy);
-    if (gdoy < 0 || gdoy > 365) continue;
-    const gidx = gdoy * 24 + gh;
-    if (single) applyGust(single, gidx, gust, true);
-    if (accum || compareOut) {
-      if (yearBuf === null) openYearBuf(gyr);
-      if (gyr === yearBufYr) applyGust(yearBuf, gidx, gust, true);
-      else if (gyr > yearBufYr) gustCarry.push({ yr: gyr, idx: gidx, gust, seen: true });
+    const toGustCell = (y, mo, d, h, value, wasSeen) => {
+      const [gyr, gmo, gdy, gh] = shiftHour(y, mo, d, h, 1);
+      if (gyr < y1 || gyr > y2) return;
+      const gdoy = getDOY(gyr, gmo, gdy);
+      if (gdoy < 0 || gdoy > 365) return;
+      const gidx = gdoy * 24 + gh;
+      if (single) applyGust(single, gidx, value, wasSeen);
+      if (accum || compareOut) {
+        if (yearBuf === null) openYearBuf(gyr);
+        if (gyr === yearBufYr) applyGust(yearBuf, gidx, value, wasSeen);
+        else if (gyr > yearBufYr) gustCarry.push({ yr: gyr, idx: gidx, gust: value, seen: wasSeen });
+      }
+    };
+    if (seen) toGustCell(ryr, rmo, rdy, rh, gust, true);
+    const pkt = parseF(parts[pkI]);
+    if (pkt != null) {
+      const obMs = Date.UTC(ryr, rmo - 1, rdy, rh, mi);
+      let pMs = obMs - 30 * 60000;
+      const ps = (parts[pktI] || '').trim();
+      if (ps.length >= 16) {
+        const t = Date.UTC(+ps.slice(0, 4), +ps.slice(5, 7) - 1, +ps.slice(8, 10), +ps.slice(11, 13), +ps.slice(14, 16));
+        if (t === t && t <= obMs && obMs - t <= 2 * 3600000) pMs = t;
+      }
+      const pd = new Date(pMs);
+      toGustCell(pd.getUTCFullYear(), pd.getUTCMonth() + 1, pd.getUTCDate(), pd.getUTCHours(), pkt * KT_TO_MPH, true);
     }
   }
   flushYearBuf();
