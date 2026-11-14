@@ -6,6 +6,7 @@
 <title>Annual Temperature Heatmap | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
+<script src="hourly-archive.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* Tool-specific layout only — shared chrome (colors, buttons, tabs,
@@ -1068,6 +1069,82 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// HOURLY ARCHIVE — completed years
+// ═══════════════════════════════════════════════════════════
+// Completed years come from the pre-built hourly archive (hourly-archive.js),
+// converted to local clock time; the year in progress, and any station the
+// archive does not hold, still come straight from IEM through parseCSVInto.
+async function archivedYears(years) {
+  try {
+    const ok = await Promise.all(years.map(y => HourlyArchive.covers(activeStationId, y)));
+    return new Set(years.filter((y, i) => ok[i]));
+  } catch (e) { return new Set(); }
+}
+// Fills `grid` (makeSingleData / makeYearGrid shape) for one archived year.
+// Same cell rules as parseCSVInto; a cell's gust window ends at its routine ob,
+// which is the archive's previous clock hour. Returns false if unavailable.
+async function archiveGrid(year, grid) {
+  let cy;
+  try { cy = await HourlyArchive.clockYear(activeStationId, STATIONS[activeStationId].tz, year); } catch (e) { return false; }
+  if (!cy) return false;
+  const t0 = Date.UTC(year, 0, 1);
+  for (let i = 0; i < cy.n; i++) {
+    const d = new Date(t0 + i * 3600000);
+    const idx = getDOY(year, d.getUTCMonth() + 1, d.getUTCDate()) * 24 + d.getUTCHours();
+    grid.temp[idx] = cy.tmpf[i]; grid.td[idx] = cy.dwpf[i]; grid.wind[idx] = cy.wind[i];
+    const sk = cy.sky[i]; grid.clouds[idx] = sk === sk ? sk + 1 : NaN;
+    const g = i ? cy.gust[i - 1] : cy.gustBefore;
+    if (g === g) { grid.gustSeen[idx] = 1; if (g > 0 && !(grid.gust[idx] >= g)) grid.gust[idx] = g; }
+  }
+  despikeGrid(grid);
+  return true;
+}
+// Adds one despiked year grid to a climatology accumulator (as flushYearBuf does).
+function accumulateGrid(accum, grid, yr) {
+  for (const f of BASE_FIELDS) {
+    const arr = grid[f], a = accum[f];
+    for (let i = 0; i < GRID_SIZE; i++) {
+      const v = arr[i];
+      if (!isNaN(v)) { a.sum[i] += v; a.sum2[i] += v * v; a.cnt[i]++; }
+    }
+    if (a.sx !== undefined) accumulateTrendYear(a, arr, yr);
+  }
+}
+// Contiguous runs of a sorted year list.
+function yearRuns(years) {
+  const runs = [];
+  for (const y of [...years].sort((a, b) => a - b)) {
+    const r = runs[runs.length - 1];
+    if (r && y === r.end + 1) r.end = y; else runs.push({ start: y, end: y });
+  }
+  return runs;
+}
+// Compare Years: fills compareData for every archived year in the group and
+// fetches their ACIS daily extremes. Returns the set of years it filled.
+async function compareFromArchive(g) {
+  const ys = []; for (let y = g.start; y <= g.end; y++) ys.push(y);
+  const arch = await archivedYears(ys), filled = new Set();
+  await Promise.all([...arch].map(async y => {
+    const grid = makeYearGrid();
+    if (!(await archiveGrid(y, grid))) return;
+    fillFeb29(grid, y);
+    compareData.set(compareDataKey(y), grid);
+    filled.add(y);
+  }));
+  for (const y of filled) for (const k of [...compareDailyCache.keys()]) if (k.startsWith(`${activeStationId}_${y}_`)) compareDailyCache.delete(k);
+  if (filled.size) {
+    const lo = Math.min(...filled), hi = Math.max(...filled);
+    try {
+      const json = await fetchACISDaily(activeStationId, lo, hi);
+      const perYearEx = new Map();
+      parseACISDaily(json, perYearEx);
+      for (const [year, ex] of perYearEx) compareExtremes.set(compareDataKey(year), ex);
+    } catch (e) { /* ACIS is optional here, as in fetchCompareGroup */ }
+  }
+  return filled;
+}
+
+// ═══════════════════════════════════════════════════════════
 // VALUE ACCESSOR
 // ═══════════════════════════════════════════════════════════
 function getGridValue(doy, h) {
@@ -1525,15 +1602,21 @@ function fillFeb29(data, year) {
 async function loadSingleYear(year) {
   stopLiveRefresh();
   const st = STATIONS[activeStationId];
-  showLoading(`Loading ${year} from IEM…`);
+  showLoading(`Loading ${year}…`);
   startFakeProgress();
   try {
-    const text = await fetchIEM(activeStationId, st.tz, year, year);
-    stopFakeProgress();
-    setProgress(80, 'Parsing…');
-    await sleep(20);
-    singleData = makeSingleData();
-    parseCSVInto(text, year, year, singleData, null);
+    const grid = makeSingleData();
+    if ((await archivedYears([year])).has(year) && await archiveGrid(year, grid)) {
+      stopFakeProgress();
+      singleData = grid;
+    } else {
+      const text = await fetchIEM(activeStationId, st.tz, year, year);
+      stopFakeProgress();
+      setProgress(80, 'Parsing…');
+      await sleep(20);
+      singleData = makeSingleData();
+      parseCSVInto(text, year, year, singleData, null);
+    }
     fillFeb29(singleData, year);
     hideLoading();
     updateTitle();
@@ -1563,15 +1646,23 @@ async function loadClimatology(fy, ty) {
     return;
   }
 
-  showLoading(`Fetching ${fy}–${ty} from IEM… (${ty-fy+1} years, may take ~20s)`);
+  showLoading(`Loading ${fy}–${ty}…`);
   startFakeProgress();
   try {
-    const text = await fetchIEM(activeStationId, st.tz, fy, ty);
-    stopFakeProgress();
-    setProgress(70, 'Parsing observations…');
-    await sleep(30);
+    const years = []; for (let y = fy; y <= ty; y++) years.push(y);
+    const arch = await archivedYears(years);
     const accum = makeClimoAccum();
-    parseCSVInto(text, fy, ty, null, accum);
+    const grids = await Promise.all([...arch].sort((a, b) => a - b).map(async y => {
+      const grid = makeYearGrid();
+      return (await archiveGrid(y, grid)) ? [y, grid] : [y, null];
+    }));
+    const rest = years.filter(y => !arch.has(y));
+    for (const [y, grid] of grids) { if (grid) accumulateGrid(accum, grid, y); else rest.push(y); }
+    for (const r of yearRuns(rest)) {
+      const text = await fetchIEM(activeStationId, st.tz, r.start, r.end);
+      parseCSVInto(text, r.start, r.end, null, accum);
+    }
+    stopFakeProgress();
     setProgress(90, 'Computing statistics…');
     await sleep(20);
     climoData = accumToStats(accum);
@@ -1637,6 +1728,20 @@ function groupYearsForFetch(years) {
 // oversized request. Returns { failed, errors } rather than throwing, so a
 // failure in one half never abandons the other half.
 async function fetchCompareGroup(g, depth, onNote) {
+  if (depth === 0) {
+    const fromArchive = await compareFromArchive(g);
+    const rest = [];
+    for (let y = g.start; y <= g.end; y++) if (!fromArchive.has(y)) rest.push(y);
+    if (!rest.length) return { failed: [], errors: [] };
+    if (fromArchive.size) {
+      const out = { failed: [], errors: [] };
+      for (const r of yearRuns(rest)) {
+        const res = await fetchCompareGroup(r, 1, onNote);
+        out.failed.push(...res.failed); out.errors.push(...res.errors);
+      }
+      return out;
+    }
+  }
   const st   = STATIONS[activeStationId];
   const span = g.end - g.start + 1;
   const allYears = () => { const o = []; for (let y = g.start; y <= g.end; y++) o.push(y); return o; };
