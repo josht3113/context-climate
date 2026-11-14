@@ -77,11 +77,10 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Updates Hourly'],
         title:      'Streak Tracker',
-        description:'Current active streaks and all-time records for U.S. cities, tracked hourly or daily.',
+        description:'Active streaks and all-time records for U.S. cities, hourly or daily — heat, humidity, cloud, wind, rain and snow, ranked against every streak since records began.',
         footerTags: ['Temperature', 'Humidity', 'Sky', 'Wind', 'Precip'],
         to:         '/streak-tracker',
         thumb:      '/StreakTracker_thumbnail.png',
-        slow:       true,
       },
       {
         tags:       ['US Cities', 'Updates Daily'],
