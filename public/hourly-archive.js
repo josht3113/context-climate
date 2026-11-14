@@ -120,9 +120,10 @@
     }
     return offCache.get(k);
   }
-  // Clock-minus-standard minutes for each LST hour of the year (0 outside daylight saving).
-  function dstShift(iana, year, n) {
-    const std = stdOffsetMin(iana, year), t0 = Date.UTC(year, 0, 1) - std * 60000;
+  // Clock-minus-standard minutes for each LST hour of the year (0 outside daylight saving),
+  // evaluated `atMin` minutes after the start of the hour.
+  function dstShift(iana, year, n, atMin) {
+    const std = stdOffsetMin(iana, year), t0 = Date.UTC(year, 0, 1) - std * 60000 + atMin * 60000;
     const out = new Int16Array(n);
     const days = n / 24;
     let prev = offsetMin(iana, t0) - std;
@@ -147,7 +148,12 @@
   async function clockYear(id, iana, year) {
     const L = await lstYear(id, year);
     if (!L) return null;
-    const n = L.n, shift = dstShift(iana, year, n), P = L.planes, S = L.scale;
+    // State cells hold the routine ob a few minutes before the hour, so they take the
+    // offset in force then; clock-hour events (gust, precipitation, weather codes) take
+    // the offset at mid-hour. Both match how IEM's local-time timestamps fall.
+    const n = L.n, P = L.planes, S = L.scale;
+    const shiftState = dstShift(iana, year, n, -4), shiftEvent = dstShift(iana, year, n, 30);
+    const EVENT = { gust: 1, p01i: 1, wx: 1 };
     const out = { n };
     for (const v of ['tmpf', 'dwpf', 'feel', 'vsby', 'sky', 'wind', 'gust', 'p01i', 'wx']) out[v] = new Float32Array(n).fill(NaN);
     const conv = {
@@ -157,10 +163,11 @@
       p01i: x => x === -1 ? 0.001 : x / S.p01i, wx: x => x
     };
     for (let k = 0; k < n; k++) {
-      const i = k + shift[k] / 60;
-      if (i < 0 || i >= n) continue;
+      const iS = k + shiftState[k] / 60, iE = k + shiftEvent[k] / 60;
       for (const v in conv) {
         const p = P[v]; if (!p) continue;
+        const i = EVENT[v] ? iE : iS;
+        if (i < 0 || i >= n) continue;
         const x = p[k];
         out[v][i] = x === MISSING ? NaN : conv[v](x);
       }
