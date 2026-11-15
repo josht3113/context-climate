@@ -44,7 +44,7 @@ const SECTIONS = [
       },
       {
         tags:       ['US Cities', 'Updates Hourly'],
-        title:      'Monthly Temperature Heatmap',
+        title:      'Monthly Heatmaps',
         description:'Hour-by-hour temperature, dewpoint, wind, clouds, and anomalies for any month at any US ASOS station. Streams live data for the current month.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies'],
         to:         '/temp-heatmap-monthly',
@@ -52,7 +52,7 @@ const SECTIONS = [
       },
       {
         tags:       ['US Cities', 'Updates Hourly'],
-        title:      'Annual Temperature Heatmap',
+        title:      'Annual Heatmaps',
         description:'Full-year hourly temperature and weather patterns at a glance — 366 days × 24 hours in a single view. Grows in real time through the current year.',
         footerTags: ['Temp', 'Dewpoint', 'Wind', 'Clouds', 'Anomalies'],
         to:         '/temp-heatmap-annual',
