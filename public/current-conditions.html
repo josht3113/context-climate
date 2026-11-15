@@ -277,8 +277,14 @@
           <button class="cc-segmented-btn" data-view="decades">By decade</button>
         </div>
         <div class="cc-segmented" id="cx-elem">
-          <button class="cc-segmented-btn is-active">Temperature</button>
-          <button class="cc-segmented-btn">Dewpoint</button>
+          <button class="cc-segmented-btn is-active" data-v="temp">Temperature</button>
+          <button class="cc-segmented-btn" data-v="dew">Dewpoint</button>
+          <button class="cc-segmented-btn" data-v="wind">Wind</button>
+          <button class="cc-segmented-btn" data-v="pcp">Precip</button>
+        </div>
+        <div class="cc-segmented" id="cx-hl">
+          <button class="cc-segmented-btn is-active">High</button>
+          <button class="cc-segmented-btn">Low</button>
         </div>
         <div class="cc-app-spacer"></div>
         <button class="cc-btn cc-btn-sm" id="cx-png">&#8595; PNG</button>
@@ -2087,7 +2093,7 @@ function exportDome(kind){
 // standard time; cell H holds the observation for (H-1):45 to H:44.
 // ================================================================
 const ARCH_BASE='https://josht3113.github.io/contextclimate-hourly-data/';
-const ARCH_WANT=['tmpf','dwpf','wind'],ARCH_MISS=-32768;
+const ARCH_WANT=['tmpf','dwpf','wind','gust','p01i'],ARCH_MISS=-32768;
 let archIndexP=null;
 const archCache=new Map();
 async function gunzip(buf){
@@ -2184,15 +2190,15 @@ function updateNowPct(){
 // ================================================================
 // CONTEXT TAB
 // ================================================================
-ui.cx={day:0,view:'hours',elem:0};
+ui.cx={day:0,view:'hours',v:'temp',hl:0};
 const cx={hover:null,hit:null};
 // Daily record as typed arrays (rows are consecutive days), built once per station.
 function climArrays(){
   const c=cur.clim;if(!c)return null;if(c.A)return c.A;
   const n=c.rows.length,d0=Math.round(Date.parse(c.rows[0][0]+'T00:00:00Z')/DAY);
-  const H=new Float32Array(n).fill(NaN),L=new Float32Array(n).fill(NaN),P=new Float32Array(n).fill(NaN),S=new Float32Array(n).fill(NaN);
-  c.rows.forEach((r,i)=>{const a=acisVal(r[1]).v,b=acisVal(r[2]).v,p=acisVal(r[3]).v,s=acisVal(r[4]).v;if(a!=null)H[i]=a;if(b!=null)L[i]=b;if(p!=null)P[i]=p;if(s!=null)S[i]=s;});
-  return c.A={d0,n,H,L,P,S};
+  const T=new Uint8Array(n),H=new Float32Array(n).fill(NaN),L=new Float32Array(n).fill(NaN),P=new Float32Array(n).fill(NaN),S=new Float32Array(n).fill(NaN);
+  c.rows.forEach((r,i)=>{const a=acisVal(r[1]).v,b=acisVal(r[2]).v,pp=acisVal(r[3]),p=pp.v,s=acisVal(r[4]).v;if(pp.tr)T[i]=1;if(a!=null)H[i]=a;if(b!=null)L[i]=b;if(p!=null)P[i]=p;if(s!=null)S[i]=s;});
+  return c.A={d0,n,H,L,P,S,T};
 }
 const dnum=(y,m,d)=>Math.round(Date.UTC(y,m-1,d)/DAY);
 const mdOf=d=>{const u=new Date(d*DAY);return{y:u.getUTCFullYear(),m:u.getUTCMonth()+1,d:u.getUTCDate()};};
@@ -2212,14 +2218,14 @@ function hourlyFor(d,f){
   for(const r of cur.hourly){const c=cellOf(r.t);if(Math.floor(c/24)===d&&r[f]!=null)out.set(c-d*24,r[f]);}
   if(out.size)return out;
   const y=mdOf(d).y,a=cur.arch&&cur.arch.years.get(y);
-  if(a&&a[f]){const doy=d-dnum(y,1,1),sc=cur.arch.scale[f]||1;for(let h=0;h<24;h++){const x=a[f][doy*24+h];if(x!=null&&x!==ARCH_MISS)out.set(h,x/sc);}return out;}
+  if(a&&a[f]){const doy=d-dnum(y,1,1),sc=cur.arch.scale[f]||1;for(let h=0;h<24;h++){const x=a[f][doy*24+h];if(x!=null&&x!==ARCH_MISS)out.set(h,f==='p01i'&&x===-1?0.001:x/sc);}return out;}
   const got=cur.dayCache.get(d);
   if(got&&got!=='pending'){for(const r of got)if(r[f]!=null)out.set(cellOf(r.t)-d*24,r[f]);return out;}
   if(!got&&d<lstDay(Date.now())&&d>dnum(1940,1,1)){
     cur.dayCache.set(d,'pending');cur.dayCache.set(d-1,cur.dayCache.get(d-1)||'pending');
     const id=cur.loadId,p=(n,t)=>`year${n}=${t.getUTCFullYear()}&month${n}=${t.getUTCMonth()+1}&day${n}=${t.getUTCDate()}`;
     const t0=new Date(lstDayStart(d-1)-DAY),t1=new Date(lstDayStart(d+1)+DAY);
-    fetch(`https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${curStation[0]}&data=tmpf&data=dwpf&${p(1,t0)}&${p(2,t1)}&tz=UTC&format=onlycomma&latlon=no&missing=empty&trace=T&direct=no&report_type=3&report_type=4`)
+    fetch(`https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?station=${curStation[0]}&data=tmpf&data=dwpf&data=sknt&data=drct&data=gust&data=p01i&data=metar&${p(1,t0)}&${p(2,t1)}&tz=UTC&format=onlycomma&latlon=no&missing=empty&trace=T&direct=no&report_type=3&report_type=4`)
       .then(r=>{if(!r.ok)throw new Error('IEM '+r.status);return r.text();}).then(txt=>{
         if(id!==cur.loadId)return;const recs=buildHourly(parseIEM(txt)).recs;
         for(const k of [d-1,d])cur.dayCache.set(k,recs.filter(r=>Math.floor(cellOf(r.t)/24)===k));
@@ -2335,13 +2341,14 @@ function updateContextCard(){
 }
 
 // ---- density helpers
-function kde(vals,x0,x1,step){
+function kde(vals,x0,x1,step,floor){
   const n=vals.length,nb=Math.round((x1-x0)/step)+1,hist=new Float32Array(nb),out=new Float32Array(nb);if(!n)return out;
   let m=0;for(const v of vals)m+=v;m/=n;let sd=0;for(const v of vals)sd+=(v-m)*(v-m);sd=Math.sqrt(sd/Math.max(1,n-1));
   const bw=Math.max(2,1.06*sd*Math.pow(n,-.2));
   for(const v of vals){const i=Math.round((v-x0)/step);if(i>=0&&i<nb)hist[i]++;}
   const r=Math.ceil(3*bw/step),ker=new Float32Array(2*r+1);let ks=0;for(let k=-r;k<=r;k++){ker[k+r]=Math.exp(-.5*(k*step/bw)*(k*step/bw));ks+=ker[k+r];}
   for(let i=0;i<nb;i++){if(!hist[i])continue;for(let k=-r;k<=r;k++){const j=i+k;if(j>=0&&j<nb)out[j]+=hist[i]*ker[k+r];}}
+  if(floor!=null&&floor===x0)for(let i=0;i<nb;i++){if(!hist[i])continue;for(let j=0;j+i<=r&&j<nb;j++)out[j]+=hist[i]*ker[j+i+r];}   // reflect at the floor
   for(let i=0;i<nb;i++)out[i]/=n*ks*step;
   return out;
 }
@@ -2355,26 +2362,28 @@ function hexA(hex,a){const n=parseInt(hex.slice(1),16);return'rgba('+((n>>16)&25
 function drawRidges(ctx,W,H,M){
   const L=74,R=M.rightW||20,BOT=36,x0=L,x1=W-R,n=M.rows.length;
   ctx.font='400 12px '+MONO;const legW=(M.legend||[]).reduce((a,it)=>a+26+ctx.measureText(it.label).width+18,0);
-  ctx.font='700 13px '+MONO;const two=legW+ctx.measureText(M.caption||'').width>x1-x0-10,TOP=two?60:40;
+  ctx.font='700 13px '+MONO;const two=legW+ctx.measureText(M.caption||'').width>x1-x0-10,TOP=(two?60:40)+(M.note?18:0),tu=M.tickUnit!=null?M.tickUnit:'°';
   const X=v=>x0+(v-M.lo)/(M.hi-M.lo)*(x1-x0);
   const rowH=(H-TOP-BOT)/(n+1.2),amp=rowH*2.1/M.dmax,base=i=>TOP+rowH*(i+2.2);
   const text=(s,x,y,al,col,size,wt)=>{ctx.font=(wt||'400')+' '+(size||12)+'px '+MONO;ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillStyle=col||C_TXT;ctx.fillText(s,x,y);};
   // x grid
   const step=pickStep(M.hi-M.lo,Math.max(3,Math.floor((x1-x0)/70)),[5,10,20,40]);
-  for(let v=Math.ceil(M.lo/step)*step;v<=M.hi;v+=step){const xx=Math.round(X(v))+.5;ctx.strokeStyle=C_GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(xx,TOP);ctx.lineTo(xx,H-BOT);ctx.stroke();text(v+'°',xx,H-BOT+18,'center',C_TXT_HI,13);}
+  for(let v=Math.ceil(M.lo/step)*step;v<=M.hi;v+=step){const xx=Math.round(X(v))+.5;ctx.strokeStyle=C_GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(xx,TOP);ctx.lineTo(xx,H-BOT);ctx.stroke();text(v+tu,xx,H-BOT+18,'center',C_TXT_HI,13);}
   ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.moveTo(x0,H-BOT+.5);ctx.lineTo(x1,H-BOT+.5);ctx.stroke();
+  if(M.note)text(M.note,x0,(two?38:17)+20,'left','#E9B872',12);
   text(M.xlabel,(x0+x1)/2,H-4,'center',C_TXT,12);
   const grad=scaleGradient(ctx,X,M.lo,M.hi,M.col,.86);
   const hov=M.hover;
   M.rows.forEach((r,i)=>{
     const yb=base(i),d=r.dens;if(!d)return;
     ctx.beginPath();ctx.moveTo(x0,yb);
-    for(let j=0;j<d.length;j++)ctx.lineTo(X(M.lo+j*M.step),yb-d[j]*amp);
+    const hc=M.clip?rowH*M.clip:Infinity,yv=j=>yb-Math.min(hc,d[j]*amp);
+    for(let j=0;j<d.length;j++)ctx.lineTo(X(M.lo+j*M.step),yv(j));
     ctx.lineTo(x1,yb);ctx.closePath();
     ctx.fillStyle='#262B27';ctx.fill();ctx.fillStyle=grad;ctx.globalAlpha=hov==null||hov===i?1:.45;ctx.fill();ctx.globalAlpha=1;
-    ctx.beginPath();for(let j=0;j<d.length;j++){const xx=X(M.lo+j*M.step),yy=yb-d[j]*amp;j?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}
+    ctx.beginPath();for(let j=0;j<d.length;j++){const xx=X(M.lo+j*M.step),yy=yv(j);j?ctx.lineTo(xx,yy):ctx.moveTo(xx,yy);}
     ctx.strokeStyle=hov===i?'#fff':'rgba(232,228,217,.6)';ctx.lineWidth=hov===i?1.6:1;ctx.stroke();
-    if(r.med!=null){const j=Math.round((r.med-M.lo)/M.step),xx=X(r.med);ctx.strokeStyle='rgba(20,24,22,.85)';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(xx,yb);ctx.lineTo(xx,yb-(d[j]||0)*amp);ctx.stroke();}
+    if(r.med!=null){const j=Math.round((r.med-M.lo)/M.step),xx=X(r.med);ctx.strokeStyle='rgba(20,24,22,.85)';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(xx,yb);ctx.lineTo(xx,yb-Math.min(hc,(d[j]||0)*amp));ctx.stroke();}
     if(r.label)text(r.label,x0-9,yb+1,'right',r.accent?'#2AA87E':(r.bold||hov===i)?C_TXT_HI:C_TXT,12,(r.bold||r.accent)?'700':'400');
     if(r.right)text(r.right,x1+8,yb+1,'left',C_TXT,12);
   });
@@ -2404,10 +2413,11 @@ function drawRidges(ctx,W,H,M){
 }
 function niceRange(lo,hi){return[Math.floor((lo-1)/5)*5,Math.ceil((hi+1)/5)*5];}
 function cxModel(){
-  const day=cxDay(),v=ui.cx.view,t=mdOf(day.d);
+  const day=cxDay(),v=ui.cx.view,t=mdOf(day.d),cv=ui.cx.v;
+  if(cv==='wind'||cv==='pcp'||(cv==='dew'&&v!=='hours'))return cxModelVar(day,cv,t);
   if(v==='hours'){
-    if(!cur.arch)return{msg:cur.archState==='none'?'NO HOURLY ARCHIVE FOR THIS STATION':cur.archState==='error'?'HOURLY ARCHIVE UNAVAILABLE':'LOADING HOURLY ARCHIVE...'};
-    const f=ui.cx.elem?'dwpf':'tmpf',cl=hourClim(cur.arch,f,t.m,t.d),col=ui.cx.elem?dewBarColor:tempBarColor;
+    if(!cur.arch)return{msg:archMsg()};
+    const dw=cv==='dew',f=dw?'dwpf':'tmpf',cl=hourClim(cur.arch,f,t.m,t.d),col=dw?dewBarColor:tempBarColor;
     if(cl.hrs.every(a=>a.length<50))return{msg:'NOT ENOUGH HOURLY HISTORY'};
     const hv=hourlyFor(day.d,f),hp=hourlyFor(day.d-1,f),byCell={get:k=>hv.get(k-day.d*24)};
     const pathFor=m=>{const p=[];for(let h=0;h<24;h++){const x=m.get(h);if(x!=null)p.push({row:h,v:x});}return p;};
@@ -2417,18 +2427,18 @@ function cxModel(){
     const nowH=day.partial?((cellOf(Date.now())%24)+24)%24:-1;
     const rows=cl.hrs.map((a,h)=>({label:hourName(h),bold:h%6===0,accent:h===nowH,vals:a,dens:kde(a,lo,hi,.5),med:quant(a,.5)}));
     const dmax=Math.max(1e-6,...rows.map(r=>Math.max(...r.dens)));
-    const what=ui.cx.elem?'Dewpoint':'Temperature',hov=cx.hover;
+    const what=dw?'Dewpoint':'Temperature',hov=cx.hover;
     let caption=`${winLabel(day.d)} · ${cl.y0}–${cl.y1}`;
     if(hov!=null&&cl.hrs[hov].length){const a=cl.hrs[hov],ob=byCell.get(day.d*24+hov);
       caption=`${hourName(hov)} · usually ${Math.round(quant(a,.1))}–${Math.round(quant(a,.9))}° · median ${Math.round(quant(a,.5))}°`+(ob!=null?` · ${day.ref} ${Math.round(ob)}° (${ord(Math.max(1,Math.min(99,Math.round(pctOf(a,ob)))))} pct)`:'');}
-    return{kind:'ridge',rows,lo,hi,step:.5,dmax,col,path,pathDim:prev,hover:hov,caption,xlabel:what+' °F',
+    return{kind:'ridge',src:'arch',rows,lo,hi,step:.5,dmax,col,path,pathDim:prev,hover:hov,caption,xlabel:what+' °F',
       legend:[{kind:'path',label:ui.cx.day<2?day.word+' ('+day.name+')':day.label},{kind:'dim',label:fmtDayUTC(day.d-1)},{kind:'med',label:'median'}],
       title:`${what} by hour`,sub:`each ridge: that hour's ${what.toLowerCase()}s, ${winLabel(day.d)}, ${cl.y0}–${cl.y1}`};
   }
   const A=climArrays();
   if(!A)return{msg:cur.climPending?'LOADING THE DAILY RECORD...':'NO DAILY CLIMATE RECORD FOR THIS STATION'};
   if(v==='decades'){
-    const arr=ui.cx.elem?A.L:A.H,what=ui.cx.elem?'low':'high',val=ui.cx.elem?day.lo:day.hi,y0=mdOf(A.d0).y,groups=new Map();
+    const arr=ui.cx.hl?A.L:A.H,what=ui.cx.hl?'low':'high',val=ui.cx.hl?day.lo:day.hi,y0=mdOf(A.d0).y,groups=new Map();
     for(let y=y0,yEnd=mdOf(lstDay(Date.now())).y;y<=yEnd;y++){const c=sameDay(y,t.m,t.d),D=Math.floor(y/10)*10;
       for(let k=-ARCH_WIN;k<=ARCH_WIN;k++){const i=c+k-A.d0;if(i<0||i>=A.n||c+k===day.d)continue;const x=arr[i];if(isNaN(x))continue;if(!groups.has(D))groups.set(D,[]);groups.get(D).push(x);}}
     const keys=[...groups.keys()].sort((a,b)=>a-b).filter(k=>groups.get(k).length>=30);
@@ -2439,12 +2449,12 @@ function cxModel(){
     const dmax=Math.max(...rows.map(r=>Math.max(...r.dens))),hov=cx.hover;
     let caption=`${winLabel(day.d)} · daily ${what}s`;
     if(hov!=null){const a=rows[hov].vals;caption=`${rows[hov].label} · ${a.length} days · usually ${Math.round(quant(a,.1))}–${Math.round(quant(a,.9))}°`+(val!=null?` · ${Math.round(val)}° is the ${ord(Math.max(1,Math.min(99,Math.round(pctOf(a,val)))))} pct`:'');}
-    return{kind:'ridge',rows,lo,hi,step:.5,dmax,col:tempBarColor,hover:hov,caption,xlabel:`Daily ${what} °F`,rightW:104,
+    return{kind:'ridge',src:'acis',rows,lo,hi,step:.5,dmax,col:tempBarColor,hover:hov,caption,xlabel:`Daily ${what} °F`,rightW:104,
       mark:val!=null?{v:val,label:`${day.label}: ${Math.round(val)}°${day.partial?' so far':''}`}:null,legend:[{kind:'med',label:'median'}],
       title:`Daily ${what}s by decade`,sub:`${winLabel(day.d)} of every year`};
   }
   const ys=yearSeries(day.d);if(ys.length<5)return{msg:'NOT ENOUGH DATA'};
-  return{kind:'date',ys,day,title:`${day.name} in every year`,sub:'daily high and low'+(ui.cx.day>1?', '+mdOf(day.d).y+' marked':'')};
+  return{kind:'date',src:'acis',ys,day,title:`${day.name} in every year`,sub:'daily high and low'+(ui.cx.day>1?', '+mdOf(day.d).y+' marked':'')};
 }
 function drawDateView(ctx,W,H,M){
   const L=52,R=118,TOP=40,BOT=34,x0=L,x1=W-R,day=M.day,cy=mdOf(day.d).y;
@@ -2478,7 +2488,252 @@ function drawDateView(ctx,W,H,M){
   ctx.beginPath();ctx.arc(x0+15+w1+16,13,4,0,7);ctx.fillStyle=tempBarColor(lo+5);ctx.fill();text('low',x0+15+w1+26,17);
   return{hit:(px)=>{if(px<x0||px>x1)return null;const y=Math.round(ya+(px-x0)/(x1-x0)*(yb-ya+1)-.5);return all.some(r=>r.y===y)?y:null;}};
 }
-function drawContext(ctx,W,H,M){return M.kind==='ridge'?drawRidges(ctx,W,H,M):drawDateView(ctx,W,H,M);}
+
+// ================================================================
+// CONTEXT — dewpoint, wind and precipitation views
+// ================================================================
+const CXV={temp:{lab:'Temperature'},dew:{lab:'Dewpoint',f:'dwpf',col:dewBarColor,u:'°',name:'dewpoint'},wind:{lab:'Wind',f:'wind',col:windBarColor,u:' mph',name:'wind speed'},pcp:{lab:'Precip'}};
+function archMsg(){return cur.archState==='none'?'NO HOURLY ARCHIVE FOR THIS STATION':cur.archState==='error'?'HOURLY ARCHIVE UNAVAILABLE':'LOADING HOURLY ARCHIVE...';}
+// One day's mean (>=18 hours) or maximum of an archive variable; null when the archive lacks it.
+function archDay(y,doy,f,stat){
+  const a=cur.arch&&cur.arch.years.get(y);if(!a||!a[f])return undefined;
+  const p=a[f],sc=cur.arch.scale[f]||1;if((doy+1)*24>p.length)return null;
+  let s=0,n=0,mx=null;for(let h=0;h<24;h++){const x=p[doy*24+h];if(x===ARCH_MISS)continue;n++;s+=x;if(mx==null||x>mx)mx=x;}
+  return stat==='mean'?(n>=18?s/n/sc:null):(n?mx/sc:null);
+}
+// The same for any day: the archive where it has the year, otherwise hourly observations.
+function dayStat(d,f,stat,partial){
+  const y=mdOf(d).y,v=archDay(y,d-dnum(y,1,1),f,stat);if(v!==undefined)return v;
+  const vals=[...hourlyFor(d,f).values()].filter(x=>x!=null);
+  if(stat==='mean')return vals.length>=(partial?1:18)?vals.reduce((a,b)=>a+b,0)/vals.length:null;
+  return vals.length?Math.max(...vals):null;
+}
+function archYears(){return cur.arch?[...cur.arch.years.keys()].sort((a,b)=>a-b):[];}
+// Hourly precipitation for one calendar date: per clock hour, hours with a report and
+// hours with at least 0.01", within ARCH_WIN days, all archive years.
+function hourPcpClim(arch,month,day){
+  const key='p01i'+month+'-'+day;if(arch.clim.has(key))return arch.clim.get(key);
+  const n=new Array(24).fill(0),wet=new Array(24).fill(0),amt=Array.from({length:24},()=>[]);let y0=null,y1=null;
+  for(const[y,o] of arch.years){
+    const a=o.p01i;if(!a)continue;
+    const leap=yearHours(y)===8784,dd=(month===2&&day===29&&!leap)?28:day,doy=Math.round((Date.UTC(y,month-1,dd)-Date.UTC(y,0,1))/DAY);let any=false;
+    for(let k=-ARCH_WIN;k<=ARCH_WIN;k++){
+      let di=doy+k,arr=a;
+      if(di<0){const p=arch.years.get(y-1);if(!p||!p.p01i)continue;arr=p.p01i;di+=yearHours(y-1)/24;}
+      else if(di>=arr.length/24){const p=arch.years.get(y+1);if(!p||!p.p01i)continue;di-=arr.length/24;arr=p.p01i;}
+      for(let h=0;h<24;h++){const x=arr[di*24+h];if(x===ARCH_MISS)continue;n[h]++;any=true;if(x>=1){wet[h]++;amt[h].push(x/100);}}
+    }
+    if(any){if(y0==null||y<y0)y0=y;if(y1==null||y>y1)y1=y;}
+  }
+  const res={n,wet,amt:amt.map(a=>Float32Array.from(a).sort()),y0,y1};
+  arch.clim.set(key,res);return res;
+}
+const PCP_BINS=[{lab:'Dry',col:'rgba(232,228,217,.10)'},{lab:'Trace',col:'rgba(232,228,217,.32)'},{lab:'0.01–0.09"',col:precipBarColor(0.05)},
+  {lab:'0.10–0.49"',col:precipBarColor(0.3)},{lab:'0.50–0.99"',col:precipBarColor(0.75)},{lab:'1"+',col:precipBarColor(1)}];
+function pcpBin(v,tr){return v==null?null:tr&&v===0?1:v<0.005?0:v<0.095?2:v<0.495?3:v<0.995?4:5;}
+const fmtIn=(v,tr)=>v==null?'--':(tr&&v===0)?'T':v.toFixed(2)+'"';
+
+function cxModelVar(day,v,t){
+  const view=ui.cx.view,V=CXV[v];
+  // ---- hour by hour
+  if(view==='hours'){
+    if(!cur.arch)return{msg:archMsg()};
+    if(v==='pcp'){
+      const cl=hourPcpClim(cur.arch,t.m,t.d);if(cl.n.every(x=>x<50))return{msg:'NOT ENOUGH HOURLY HISTORY'};
+      const freq=cl.n.map((x,h)=>x?cl.wet[h]/x*100:null),hv=hourlyFor(day.d,'p01i'),hov=cx.hover;
+      const day1=new Map();for(const[h,x] of hv)day1.set(h,x===-1?0.001:x);
+      let caption=`${winLabel(day.d)} · ${cl.y0}–${cl.y1}`;
+      if(hov!=null&&cl.n[hov]){const a=cl.amt[hov],ob=day1.get(hov);
+        caption=`${hourName(hov)} · measurable in ${freq[hov].toFixed(1)}% of hours`+(a.length?` · median wet hour ${quant(a,.5).toFixed(2)}"`:'')+(ob!=null?` · ${day.ref} ${ob===0.001?'trace':ob.toFixed(2)+'"'}`:'');}
+      return{kind:'pcph',freq,day1,hover:hov,caption,nowH:day.partial?((cellOf(Date.now())%24)+24)%24:-1,dayLabel:ui.cx.day<2?day.word:day.label,src:'arch',
+        title:'Precipitation by hour',sub:`share of hours with at least 0.01", ${winLabel(day.d)}, ${cl.y0}–${cl.y1}`};
+    }
+    const f=V.f,cl=hourClim(cur.arch,f,t.m,t.d);
+    if(cl.hrs.every(a=>a.length<50))return{msg:'NOT ENOUGH HOURLY HISTORY'};
+    const hv=hourlyFor(day.d,f),hp=hourlyFor(day.d-1,f);
+    const pathFor=m=>{const p=[];for(let h=0;h<24;h++){const x=m.get(h);if(x!=null)p.push({row:h,v:x});}return p;};
+    const path=pathFor(hv),prev=pathFor(hp),full=cl.hrs.filter(a=>a.length);
+    let hi=Math.max(...full.map(a=>quant(a,.995)));path.concat(prev).forEach(p=>{hi=Math.max(hi,p.v);});
+    const lo=0;hi=Math.max(15,Math.ceil((hi+1)/5)*5);
+    const nowH=day.partial?((cellOf(Date.now())%24)+24)%24:-1;
+    const rows=cl.hrs.map((a,h)=>({label:hourName(h),bold:h%6===0,accent:h===nowH,vals:a,dens:kde(a,lo,hi,.5,0),med:quant(a,.5)}));
+    const mx=rows.map(r=>Math.max(...r.dens)).sort((a,b)=>a-b),hov=cx.hover;
+    let caption=`${winLabel(day.d)} · ${cl.y0}–${cl.y1}`;
+    if(hov!=null&&cl.hrs[hov].length){const a=cl.hrs[hov],ob=hv.get(hov);
+      caption=`${hourName(hov)} · usually ${Math.round(quant(a,.1))}–${Math.round(quant(a,.9))} mph · median ${Math.round(quant(a,.5))} · calm ${(pctOf(a,0.5)).toFixed(0)}%`+(ob!=null?` · ${day.ref} ${Math.round(ob)} mph`:'');}
+    return{kind:'ridge',rows,lo,hi,step:.5,dmax:Math.max(1e-6,mx[mx.length-1]),col:V.col,path,pathDim:prev,hover:hov,caption,xlabel:'Wind speed mph',tickUnit:'',src:'arch',
+      legend:[{kind:'path',label:ui.cx.day<2?day.word+' ('+day.name+')':day.label},{kind:'dim',label:fmtDayUTC(day.d-1)},{kind:'med',label:'median'}],
+      title:'Wind by hour',sub:`each ridge: that hour's wind speeds, ${winLabel(day.d)}, ${cl.y0}–${cl.y1}`};
+  }
+  // ---- this date in every year
+  if(view==='date'){
+    const cy=mdOf(day.d).y;
+    if(v==='pcp'){
+      const A=climArrays();if(!A)return{msg:cur.climPending?'LOADING THE DAILY RECORD...':'NO DAILY CLIMATE RECORD FOR THIS STATION'};
+      const ys=[];for(let y=mdOf(A.d0).y,yE=mdOf(lstDay(Date.now())).y;y<=yE;y++){if(y===cy)continue;if(t.m===2&&t.d===29&&yearHours(y)!==8784)continue;
+        const i=dnum(y,t.m,t.d)-A.d0;if(i<0||i>=A.n||isNaN(A.P[i]))continue;ys.push({y,v:A.P[i],tr:!!A.T[i]});}
+      if(ys.length<5)return{msg:'NOT ENOUGH DATA'};
+      const curv=day.pcp!=null?{y:cy,v:day.pcp,tr:!!day.trace&&!day.pcp}:null,wet=ys.filter(r=>r.v>=0.01).length;
+      const base=ys.filter(r=>r.y>=1991&&r.y<=2020);
+      return{kind:'series',mode:'bar',ys,cur:curv,col:precipBarColor,fmt:fmtIn,tick:x=>x.toFixed(2),day,src:'acis',
+        avg:base.length>=20?{v:base.reduce((a,r)=>a+r.v,0)/base.length,lab:'1991–2020 average'}:null,
+        capDefault:`${day.name} · ${ys[0].y}–${Math.max(cy,ys[ys.length-1].y)} · measurable in ${wet} of ${ys.length} years`,
+        hoverCap:r=>`${r.y} · ${fmtIn(r.v,r.tr)}`,legend:[{col:precipBarColor(0.3),lab:'precipitation'}],
+        title:`${day.name} in every year`,sub:'daily precipitation'+(ui.cx.day>1?', '+cy+' marked':'')};
+    }
+    if(!cur.arch)return{msg:archMsg()};
+    const f=V.f,ys=[];
+    for(const y of archYears()){if(y===cy)continue;if(t.m===2&&t.d===29&&yearHours(y)!==8784)continue;
+      const doy=sameDay(y,t.m,t.d)-dnum(y,1,1),m=archDay(y,doy,f,'mean');if(m==null)continue;
+      ys.push({y,v:m,v2:v==='wind'?(archDay(y,doy,'gust','max')||null):null});}
+    if(ys.length<5)return{msg:'NOT ENOUGH HOURLY HISTORY'};
+    const cm=dayStat(day.d,f,'mean',day.partial),cg=v==='wind'?dayStat(day.d,'gust','max',day.partial):null;
+    const curv=cm!=null?{y:cy,v:cm,v2:cg||null}:null,base=ys.filter(r=>r.y>=1991&&r.y<=2020);
+    const what=v==='wind'?'mean wind':'mean dewpoint',u=V.u,r0=x=>Math.round(x)+u;
+    return{kind:'series',mode:'dot',ys,cur:curv,col:V.col,fmt:r0,tick:x=>String(x),floor:v==='wind'?0:null,day,src:'arch',
+      avg:base.length>=20?{v:base.reduce((a,r)=>a+r.v,0)/base.length,lab:'1991–2020 average'}:null,
+      capDefault:`${day.name} · daily ${what} · ${ys[0].y}–${Math.max(cy,ys[ys.length-1].y)}`,
+      hoverCap:r=>`${r.y} · ${what} ${r0(r.v)}`+(r.v2?` · peak gust ${r0(r.v2)}`:''),
+      legend:[{col:V.col(v==='wind'?12:45),lab:what}].concat(v==='wind'?[{tick:true,lab:'peak gust'}]:[]),
+      title:`${day.name} in every year`,sub:`daily ${what}${v==='wind'?' and peak gust':''}`+(ui.cx.day>1?', '+cy+' marked':'')};
+  }
+  // ---- by decade
+  if(v==='pcp'){
+    const A=climArrays();if(!A)return{msg:cur.climPending?'LOADING THE DAILY RECORD...':'NO DAILY CLIMATE RECORD FOR THIS STATION'};
+    const groups=new Map();
+    for(let y=mdOf(A.d0).y,yE=mdOf(lstDay(Date.now())).y;y<=yE;y++){const c=sameDay(y,t.m,t.d),D=Math.floor(y/10)*10;
+      for(let k=-ARCH_WIN;k<=ARCH_WIN;k++){const i=c+k-A.d0;if(i<0||i>=A.n||c+k===day.d||isNaN(A.P[i]))continue;
+        if(!groups.has(D))groups.set(D,[0,0,0,0,0,0]);groups.get(D)[pcpBin(A.P[i],!!A.T[i])]++;}}
+    const keys=[...groups.keys()].sort((a,b)=>a-b).filter(k=>groups.get(k).reduce((a,b)=>a+b,0)>=30);
+    if(!keys.length)return{msg:'NOT ENOUGH DATA'};
+    const rows=keys.map(k=>{const c=groups.get(k),n=c.reduce((a,b)=>a+b,0);return{label:k+'s',n,share:c.map(x=>x/n*100),wet:(n-c[0]-c[1])/n*100};});
+    const mine=day.pcp!=null?pcpBin(day.pcp,!!day.trace&&!day.pcp):null,hov=cx.hover;
+    let caption=`${winLabel(day.d)} · daily precipitation`;
+    if(hov!=null){const r=rows[hov];caption=`${r.label} · ${r.n} days · `+PCP_BINS.map((b,i)=>`${b.lab.replace('"','')} ${Math.round(r.share[i])}%`).join(' · ');}
+    return{kind:'pcpdec',rows,mine,hover:hov,caption,src:'acis',dayLabel:day.label,dayVal:day.pcp!=null?fmtIn(day.pcp,!!day.trace&&!day.pcp)+(day.partial?' so far':''):null,
+      title:'Daily precipitation by decade',sub:`${winLabel(day.d)} of every year`};
+  }
+  if(!cur.arch)return{msg:archMsg()};
+  const f=V.f,groups=new Map();
+  for(const y of archYears()){const c=sameDay(y,t.m,t.d),D=Math.floor(y/10)*10;
+    for(let k=-ARCH_WIN;k<=ARCH_WIN;k++){const d=c+k;if(d===day.d)continue;const yy=mdOf(d).y,m=archDay(yy,d-dnum(yy,1,1),f,'mean');if(m==null)continue;
+      if(!groups.has(D))groups.set(D,[]);groups.get(D).push(m);}}
+  const keys=[...groups.keys()].sort((a,b)=>a-b).filter(k=>groups.get(k).length>=30);
+  if(!keys.length)return{msg:'NOT ENOUGH HOURLY HISTORY'};
+  const val=dayStat(day.d,f,'mean',day.partial),wind=v==='wind';
+  let lo=Infinity,hi=-Infinity;keys.forEach(k=>{const a=groups.get(k).sort((p,q)=>p-q);lo=Math.min(lo,quant(a,.005));hi=Math.max(hi,quant(a,.995));});
+  if(val!=null){lo=Math.min(lo,val);hi=Math.max(hi,val);}[lo,hi]=niceRange(lo,hi);if(wind){lo=0;hi=Math.max(15,hi);}
+  const r0=x=>Math.round(x)+V.u,what=wind?'mean wind':'mean dewpoint';
+  const rows=keys.map(k=>{const a=groups.get(k),m=quant(a,.5);return{label:k+'s',bold:true,vals:a,dens:kde(a,lo,hi,.5,wind?0:null),med:m,right:'median '+r0(m)};});
+  const dmax=Math.max(...rows.map(r=>Math.max(...r.dens))),hov=cx.hover;
+  let caption=`${winLabel(day.d)} · daily ${what}`;
+  if(hov!=null){const a=rows[hov].vals;caption=`${rows[hov].label} · ${a.length} days · usually ${Math.round(quant(a,.1))}–${r0(quant(a,.9))}`+(val!=null?` · ${r0(val)} is the ${ord(Math.max(1,Math.min(99,Math.round(pctOf(a,val)))))} pct`:'');}
+  return{kind:'ridge',rows,lo,hi,step:.5,dmax,col:V.col,hover:hov,caption,xlabel:wind?'Daily mean wind mph':'Daily mean dewpoint °F',tickUnit:wind?'':'°',rightW:wind?120:104,src:'arch',
+    note:wind?'Anemometer moves and the 1990s switch to ASOS affect comparisons between decades.':null,
+    mark:val!=null?{v:val,label:`${day.label}: ${r0(val)}${day.partial?' so far':''}`}:null,legend:[{kind:'med',label:'median'}],
+    title:`Daily ${what} by decade`,sub:`${winLabel(day.d)} of every year`};
+}
+
+// ---- hourly precipitation frequency: one bar per clock hour, the day's amounts on the right
+function drawPcpHours(ctx,W,H,M){
+  const L=74,R=150,TOP=40,BOT=36,x0=L,x1=W-R,cx0=x1+26,cx1=W-8,n=24,rowH=(H-TOP-BOT)/n;
+  const text=(s,x,y,al,col,size,wt)=>{ctx.font=(wt||'400')+' '+(size||12)+'px '+MONO;ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillStyle=col||C_TXT;ctx.fillText(s,x,y);};
+  const fmax=Math.max(5,...M.freq.filter(v=>v!=null)),hiF=Math.ceil(fmax*1.1/5)*5,X=v=>x0+v/hiF*(x1-x0);
+  const step=pickStep(hiF,Math.max(3,Math.floor((x1-x0)/70)),[1,2,5,10,20,25]);
+  for(let v=0;v<=hiF+1e-9;v+=step){const xx=Math.round(X(v))+.5;ctx.strokeStyle=C_GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(xx,TOP);ctx.lineTo(xx,H-BOT);ctx.stroke();text(v+'%',xx,H-BOT+18,'center',C_TXT_HI,13);}
+  ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.moveTo(x0,H-BOT+.5);ctx.lineTo(x1,H-BOT+.5);ctx.stroke();
+  text('Hours with at least 0.01"',(x0+x1)/2,H-4,'center',C_TXT,12);
+  const amts=[...M.day1.values()].filter(v=>v>0.001),amax=Math.max(0.1,...amts),AX=v=>cx0+Math.min(1,v/amax)*(cx1-cx0-52);
+  ctx.strokeStyle='rgba(255,255,255,.12)';ctx.beginPath();ctx.moveTo(cx0-.5,TOP);ctx.lineTo(cx0-.5,H-BOT);ctx.stroke();
+  text(M.dayLabel,cx0+4,TOP-6,'left',C_TXT_HI,12,'700');
+  const bh=Math.max(3,Math.min(16,rowH*.62));
+  for(let h=0;h<n;h++){
+    const yc=TOP+rowH*(h+.5),em=M.hover===h;
+    if(em){ctx.fillStyle='rgba(255,255,255,.05)';ctx.fillRect(4,yc-rowH/2,W-8,rowH);}
+    text(hourName(h),x0-9,yc+4,'right',h===M.nowH?'#2AA87E':(h%6===0||em)?C_TXT_HI:C_TXT,12,(h%6===0||h===M.nowH)?'700':'400');
+    const f=M.freq[h];if(f!=null){ctx.fillStyle=precipBarColor(0.3);ctx.globalAlpha=M.hover==null||em?.9:.5;ctx.fillRect(x0,yc-bh/2,Math.max(1,X(f)-x0),bh);ctx.globalAlpha=1;
+      if(rowH>=13)text(f.toFixed(f<10?1:0)+'%',X(f)+6,yc+4,'left',em?C_TXT_HI:C_TXT,12);}
+    const a=M.day1.get(h);
+    if(a==null){text('·',cx0+4,yc+4,'left','rgba(232,228,217,.25)',12);continue;}
+    if(a===0)continue;
+    if(a===0.001){text('T',cx0+4,yc+4,'left',C_TXT,12,'700');continue;}
+    ctx.fillStyle=precipBarColor(Math.max(0.05,a));ctx.fillRect(cx0+2,yc-bh/2,Math.max(2,AX(a)-cx0-2),bh);
+    text(a.toFixed(2)+'"',AX(a)+5,yc+4,'left',CREAM,12,'700');
+  }
+  ctx.fillStyle=precipBarColor(0.3);ctx.fillRect(x0,7,16,12);text('share of hours with measurable precipitation',x0+24,17,'left',C_TXT,12);
+  text(M.caption,x1,TOP-6,'right',M.hover!=null?C_TXT_HI:C_TXT,13,M.hover!=null?'700':'400');
+  return{hit:(px,py)=>{if(py<TOP||py>H-BOT)return null;return Math.max(0,Math.min(n-1,Math.floor((py-TOP)/rowH)));}};
+}
+// ---- one value (or bar) per year on this date
+function drawSeries(ctx,W,H,M){
+  const L=58,R=150,TOP=40,BOT=34,x0=L,x1=W-R,day=M.day,cy=mdOf(day.d).y;
+  const all=M.ys.concat(M.cur?[Object.assign({cur:true},M.cur)]:[]).sort((a,b)=>a.y-b.y);
+  const vals=all.flatMap(r=>[r.v,r.v2]).filter(v=>v!=null);if(M.avg)vals.push(M.avg.v);
+  let lo,hi;
+  if(M.mode==='bar'){lo=0;const mx=Math.max(0.1,...vals);const st=mx<=.5?.1:mx<=1?.25:mx<=2.5?.5:1;hi=Math.ceil(mx*1.08/st)*st;}
+  else{[lo,hi]=niceRange(Math.min(...vals),Math.max(...vals));if(M.floor!=null)lo=M.floor;}
+  const ya=all[0].y,yb=Math.max(cy,all[all.length-1].y);
+  const X=y=>x0+(y-ya+.5)/(yb-ya+1)*(x1-x0),Y=v=>H-BOT-(v-lo)/(hi-lo)*(H-BOT-TOP-6);
+  const text=(s,x,y,al,col,size,wt)=>{ctx.font=(wt||'400')+' '+(size||12)+'px '+MONO;ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillStyle=col||C_TXT;ctx.fillText(s,x,y);};
+  const nt=Math.max(3,Math.floor((H-TOP-BOT)/44)),step=M.mode==='bar'?pickStep(hi,nt,[.05,.1,.2,.25,.5,1,2]):pickStep(hi-lo,nt,[2,5,10,20]);
+  for(let v=Math.ceil(lo/step-1e-9)*step;v<=hi+1e-9;v+=step){const yy=Math.round(Y(v))+.5;ctx.strokeStyle=C_GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x0,yy);ctx.lineTo(x1,yy);ctx.stroke();text(M.tick(Math.round(v*100)/100),x0-8,yy+4,'right',C_TXT,13);}
+  const ystep=pickStep(yb-ya,Math.max(3,Math.floor((x1-x0)/80)),[5,10,20,25,50]);
+  for(let y=Math.ceil(ya/ystep)*ystep;y<=yb;y+=ystep){const xx=Math.round(X(y))+.5;ctx.strokeStyle='rgba(255,255,255,.3)';ctx.beginPath();ctx.moveTo(xx,H-BOT);ctx.lineTo(xx,H-BOT+5);ctx.stroke();text(String(y),xx,H-BOT+20,'center',C_TXT_HI,13);}
+  ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.moveTo(x0,H-BOT+.5);ctx.lineTo(x1,H-BOT+.5);ctx.stroke();
+  if(M.avg){const yy=Math.round(Y(M.avg.v))+.5;ctx.setLineDash([5,4]);ctx.strokeStyle='rgba(232,228,217,.6)';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(x0,yy);ctx.lineTo(x1,yy);ctx.stroke();ctx.setLineDash([]);
+    text(M.avg.lab,x1+8,yy-3,'left',C_TXT,12);text(M.fmt(M.avg.v),x1+8,yy+12,'left',C_TXT_HI,12);}
+  const slot=(x1-x0)/(yb-ya+1),bw=Math.max(1.5,Math.min(9,slot*.62)),rad=Math.max(2.2,Math.min(4.5,slot*.32)),hov=cx.hover;
+  for(const r of all){
+    const xx=X(r.y),em=r.cur||hov===r.y;
+    if(M.mode==='bar'){
+      if(r.tr&&r.v===0){ctx.fillStyle=em?CREAM:'rgba(232,228,217,.45)';ctx.fillRect(xx-bw/2,Y(0)-2,bw,2);continue;}
+      if(!(r.v>0))continue;const yy=Y(r.v);ctx.fillStyle=M.col(Math.max(0.05,r.v));ctx.fillRect(xx-bw/2,yy,bw,Y(0)-yy);
+      if(em){ctx.strokeStyle=CREAM;ctx.lineWidth=1.6;ctx.strokeRect(xx-bw/2-1,yy-1,bw+2,Y(0)-yy+1);}
+    }else{
+      if(r.v2!=null&&r.v2>r.v){ctx.strokeStyle=em?CREAM:'rgba(232,228,217,.22)';ctx.lineWidth=em?2:1;ctx.beginPath();ctx.moveTo(xx,Y(r.v));ctx.lineTo(xx,Y(r.v2));ctx.stroke();
+        ctx.strokeStyle=M.col(r.v2);ctx.lineWidth=2.4;ctx.beginPath();ctx.moveTo(xx-rad-1,Y(r.v2));ctx.lineTo(xx+rad+1,Y(r.v2));ctx.stroke();}
+      ctx.beginPath();ctx.arc(xx,Y(r.v),em?rad+1.8:rad,0,7);ctx.fillStyle=M.col(r.v);ctx.fill();if(em){ctx.strokeStyle=CREAM;ctx.lineWidth=1.6;ctx.stroke();}
+    }
+  }
+  const top=M.ys.reduce((a,b)=>!a||b.v>a.v?b:a,null);if(top&&top.v>0)text(top.y+' · '+M.fmt(top.v,top.tr),X(top.y),Y(top.v)-9,'center',C_TXT_HI,12);
+  if(M.mode==='dot'&&!M.floor&&M.floor!==0){const bot=M.ys.reduce((a,b)=>!a||b.v<a.v?b:a,null);if(bot)text(bot.y+' · '+M.fmt(bot.v),X(bot.y),Y(bot.v)+19,'center',C_TXT_HI,12);}
+  const me=all.find(r=>r.cur);
+  if(me){const s=M.fmt(me.v,me.tr),dot=M.mode==='dot',sx=dot?X(cy)-rad-9:X(cy)+bw/2+1,yy=dot?Y(me.v)+5:Y(Math.max(me.v,0))-10;ctx.font='700 14px '+MONO;ctx.textAlign='right';ctx.lineJoin='round';ctx.lineWidth=4;ctx.strokeStyle='#262B27';ctx.strokeText(s,sx,yy);ctx.fillStyle=CREAM;ctx.fillText(s,sx,yy);}
+  let lx=x0;
+  for(const it of M.legend){
+    if(it.tick){ctx.strokeStyle=M.col(30);ctx.lineWidth=2.4;ctx.beginPath();ctx.moveTo(lx,13);ctx.lineTo(lx+12,13);ctx.stroke();text(it.lab,lx+18,17);lx+=18+ctx.measureText(it.lab).width+16;}
+    else if(M.mode==='bar'){ctx.fillStyle=it.col;ctx.fillRect(lx,6,8,13);text(it.lab,lx+14,17);lx+=14+ctx.measureText(it.lab).width+16;}
+    else{ctx.beginPath();ctx.arc(lx+4,13,4,0,7);ctx.fillStyle=it.col;ctx.fill();text(it.lab,lx+14,17);lx+=14+ctx.measureText(it.lab).width+16;}
+  }
+  const r=hov!=null?all.find(q=>q.y===hov):null;
+  text(r?M.hoverCap(r):M.capDefault,x1,17,'right',r?C_TXT_HI:C_TXT,13,r?'700':'400');
+  return{hit:px=>{if(px<x0||px>x1)return null;const y=Math.round(ya+(px-x0)/(x1-x0)*(yb-ya+1)-.5);return all.some(q=>q.y===y)?y:null;}};
+}
+// ---- precipitation by decade: share of days in each amount class
+function drawPcpDecades(ctx,W,H,M){
+  const L=74,R=104,BOT=30,x0=L,x1=W-R,n=M.rows.length;
+  const text=(s,x,y,al,col,size,wt)=>{ctx.font=(wt||'400')+' '+(size||12)+'px '+MONO;ctx.textAlign=al||'left';ctx.textBaseline='alphabetic';ctx.fillStyle=col||C_TXT;ctx.fillText(s,x,y);};
+  // legend (wraps to two lines when narrow)
+  ctx.font='400 12px '+MONO;let lx=x0,ly=17;const leg=[];
+  PCP_BINS.forEach((b,i)=>{const w=18+ctx.measureText(b.lab).width+16;if(lx+w>x1&&lx>x0){lx=x0;ly+=20;}leg.push([b,i,lx,ly]);lx+=w;});
+  const TOP=ly+46,rowH=(H-TOP-BOT)/n,bh=Math.max(10,Math.min(34,rowH*.66)),X=v=>x0+v/100*(x1-x0);
+  for(const[b,i,x,y] of leg){const me=i===M.mine;ctx.fillStyle=b.col;ctx.fillRect(x,y-10,12,12);if(me){ctx.strokeStyle=CREAM;ctx.lineWidth=1.6;ctx.strokeRect(x-1.5,y-11.5,15,15);}text(b.lab,x+18,y,'left',me?CREAM:C_TXT,12,me?'700':'400');}
+  for(let v=0;v<=100;v+=25){const xx=Math.round(X(v))+.5;ctx.strokeStyle=C_GRID;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(xx,TOP-6);ctx.lineTo(xx,H-BOT);ctx.stroke();text(v+'%',xx,H-BOT+18,'center',C_TXT_HI,13);}
+  text('wet days',x1+10,TOP-10,'left',C_TXT,12);
+  M.rows.forEach((r,k)=>{
+    const yc=TOP+rowH*(k+.5),em=M.hover===k;let acc=0;
+    text(r.label,x0-9,yc+4,'right',em?CREAM:C_TXT_HI,12,'700');
+    r.share.forEach((s,i)=>{const a=X(acc),b=X(acc+s);acc+=s;if(b-a<.5)return;ctx.fillStyle=PCP_BINS[i].col;ctx.globalAlpha=M.hover==null||em?1:.55;ctx.fillRect(a,yc-bh/2,b-a,bh);ctx.globalAlpha=1;
+      if(b-a>=34&&bh>=14)text(Math.round(s)+'%',(a+b)/2,yc+4,'center',i>=4?'#1E2320':i>=2?'#E8E4D9':C_TXT,12,i>=2?'700':'400');});
+    if(em){ctx.strokeStyle=CREAM;ctx.lineWidth=1.4;ctx.strokeRect(x0-.5,yc-bh/2-.5,x1-x0+1,bh+1);}
+    text(Math.round(r.wet)+'%',x1+10,yc+4,'left',em?CREAM:C_TXT_HI,13,'700');
+  });
+  const cap=M.hover!=null?M.caption:(M.dayVal!=null?`${M.dayLabel}: ${M.dayVal} · `:'')+M.caption;
+  ctx.font='700 13px '+MONO;text(fitText(ctx,cap,x1-x0),x0,ly+24,'left',M.hover!=null?C_TXT_HI:C_TXT,13,M.hover!=null?'700':'400');
+  return{hit:(px,py)=>{if(py<TOP||py>H-BOT)return null;return Math.max(0,Math.min(n-1,Math.floor((py-TOP)/rowH)));}};
+}
+
+function drawContext(ctx,W,H,M){return({ridge:drawRidges,date:drawDateView,series:drawSeries,pcph:drawPcpHours,pcpdec:drawPcpDecades})[M.kind](ctx,W,H,M);}
 function renderContext(){
   const stage=$('cx-stage'),w=stage.offsetWidth,h=stage.offsetHeight;if(!w||!h||!curStation)return;
   const ctx=setupCanvas($('cx-canvas'),w,h);ctx.clearRect(0,0,w,h);
@@ -2491,17 +2746,18 @@ function syncCxControls(){
   if(cur.clim)pk.min=cur.clim.rows[0][0];
   $('cx-next').disabled=ui.cx.day===0;$('cx-today').classList.toggle('is-active',ui.cx.day===0);
   document.querySelectorAll('#cx-view .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active',b.dataset.view===ui.cx.view));
-  const el=$('cx-elem'),lab=ui.cx.view==='hours'?['Temperature','Dewpoint']:['High','Low'];
-  el.hidden=ui.cx.view==='date';
-  el.querySelectorAll('.cc-segmented-btn').forEach((b,i)=>{b.textContent=lab[i];b.classList.toggle('is-active',i===ui.cx.elem);});
+  document.querySelectorAll('#cx-elem .cc-segmented-btn').forEach(b=>b.classList.toggle('is-active',b.dataset.v===ui.cx.v));
+  $('cx-hl').hidden=!(ui.cx.view==='decades'&&ui.cx.v==='temp');
+  document.querySelectorAll('#cx-hl .cc-segmented-btn').forEach((b,i)=>b.classList.toggle('is-active',i===ui.cx.hl));
 }
 function initContext(){
   const go=n=>{const max=cur.clim?lstDay(Date.now())-Math.round(Date.parse(cur.clim.rows[0][0]+'T00:00:00Z')/DAY):RECENT_DAYS;
     ui.cx.day=Math.max(0,Math.min(max,n));cx.hover=null;syncCxControls();updateContextCard();renderContext();if(curStation)syncURL();};
   $('cx-prev').addEventListener('click',()=>go(ui.cx.day+1));$('cx-next').addEventListener('click',()=>go(ui.cx.day-1));$('cx-today').addEventListener('click',()=>go(0));
   $('cx-pick').addEventListener('change',e=>{const t=Date.parse(e.target.value+'T00:00:00Z');if(!isNaN(t))go(lstDay(Date.now())-Math.round(t/DAY));});
-  document.querySelectorAll('#cx-view .cc-segmented-btn').forEach(b=>b.addEventListener('click',()=>{ui.cx.view=b.dataset.view;ui.cx.elem=0;cx.hover=null;syncCxControls();renderContext();}));
-  document.querySelectorAll('#cx-elem .cc-segmented-btn').forEach((b,i)=>b.addEventListener('click',()=>{ui.cx.elem=i;cx.hover=null;syncCxControls();renderContext();}));
+  document.querySelectorAll('#cx-view .cc-segmented-btn').forEach(b=>b.addEventListener('click',()=>{ui.cx.view=b.dataset.view;cx.hover=null;syncCxControls();renderContext();}));
+  document.querySelectorAll('#cx-elem .cc-segmented-btn').forEach(b=>b.addEventListener('click',()=>{ui.cx.v=b.dataset.v;cx.hover=null;syncCxControls();renderContext();}));
+  document.querySelectorAll('#cx-hl .cc-segmented-btn').forEach((b,i)=>b.addEventListener('click',()=>{ui.cx.hl=i;cx.hover=null;syncCxControls();renderContext();}));
   const cv=$('cx-canvas');
   const move=e=>{if(!cx.hit)return;const b=cv.getBoundingClientRect(),h=cx.hit(e.clientX-b.left,e.clientY-b.top);if(h!==cx.hover){cx.hover=h;renderContext();}};
   cv.addEventListener('pointermove',move);cv.addEventListener('pointerdown',move);
@@ -2509,8 +2765,8 @@ function initContext(){
   cv.addEventListener('click',e=>{if(ui.cx.view!=='hours'&&ui.cx.view!=='decades')return;});
   $('cx-png').addEventListener('click',()=>{
     const hv=cx.hover;cx.hover=null;const M=cxModel();cx.hover=hv;if(M.msg)return;const c=cur.clim;
-    exportPNG({title:M.title+' — '+stnLine(),sub:`${curStation[0]}  ·  ${M.sub}`,W:1300,H:ui.cx.view==='hours'?900:720,name:`${curStation[0]}_context-${ui.cx.view}_${dayISO(cxDay().d)}`,
-      footer:ui.cx.view==='hours'?'Data: NOAA ASOS via Iowa Environmental Mesonet':'Data: NOAA ACIS'+(c?' ('+c.name+')':''),draw:(k,W,H)=>drawContext(k,W,H,M)});
+    exportPNG({title:M.title+' — '+stnLine(),sub:`${curStation[0]}  ·  ${M.sub}`,W:1300,H:ui.cx.view==='hours'?900:720,name:`${curStation[0]}_context-${ui.cx.v}-${ui.cx.view}_${dayISO(cxDay().d)}`,
+      footer:M.src==='arch'?`Data: hourly ASOS archive ${cur.arch.first}–${cur.arch.last} via Iowa Environmental Mesonet`:'Data: NOAA ACIS'+(c?' ('+climSource(c)+')':''),draw:(k,W,H)=>drawContext(k,W,H,M)});
   });
   syncCxControls();
 }
@@ -2641,9 +2897,10 @@ function cardContent(kind){
       if(p.p)rows.push([p.lab+' precip',p.p.v.toFixed(2)+'"',sg(p.p.anom,2,'"'),rk(p.p,'wettest','driest'),p.p.anom>=0?'#6FCF97':'#D2A66A']);});
     const main=[{t:'eb',text:ui.cx.day<2?day.word+' in context':'In context',sub:fmtDayUTC(day.d,ui.cx.day>1?{weekday:'short',year:'numeric'}:{weekday:'short'})}].concat(heads.length?heads.map(h=>Object.assign({t:'hl'},h)):[{t:'line',text:'No values yet for this day',color:C_SEC}]);
     const side=[{t:'eb',text:'To date',sub:'through '+fmtDayUTC(E)},{t:'kv',rows:rows.slice(0,4)}];
-    const save={v:ui.cx.view,e:ui.cx.elem,h:cx.hover};ui.cx.view=cur.arch?'hours':'date';ui.cx.elem=0;cx.hover=null;
-    const M=cxModel();ui.cx.view=save.v;ui.cx.elem=save.e;cx.hover=save.h;
-    return{main,side,scale:1.18,footer:'Data: '+acisSrc+(cur.arch&&!M.msg&&M.kind==='ridge'?`; hourly ASOS archive ${cur.arch.first}–${cur.arch.last} via IEM`:''),
+    const save={view:ui.cx.view,v:ui.cx.v,h:cx.hover};ui.cx.view=cur.arch?'hours':'date';cx.hover=null;
+    let M=cxModel();if(M.msg){ui.cx.view='date';ui.cx.v='temp';M=cxModel();}
+    ui.cx.view=save.view;ui.cx.v=save.v;cx.hover=save.h;
+    return{main,side,scale:1.18,footer:'Data: '+acisSrc+(!M.msg&&M.src==='arch'?`; hourly ASOS archive ${cur.arch.first}–${cur.arch.last} via IEM`:''),
       sub:fmtDayUTC(day.d,{weekday:'long',year:'numeric',month:'long'})+(M.msg?'':' · '+M.title.toLowerCase()),
       gfx:M.msg?null:(g,w,h)=>drawContext(g,w,h,M)};
   }
