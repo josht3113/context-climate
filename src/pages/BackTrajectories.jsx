@@ -1,9 +1,15 @@
+import { useLocation } from 'react-router-dom'
+
 export default function BackTrajectories() {
+  // pass ?city=…&t=…&len=…&h=…&unc=0 through to the tool
+  const search = useLocation().search
   return (
-    <iframe
-      src={import.meta.env.BASE_URL + 'back-trajectories.html'}
-      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
-      title="Back Trajectories"
-    />
-  );
+    <div style={{ position: 'fixed', top: '56px', left: 0, right: 0, bottom: 0 }}>
+      <iframe
+        src={`${import.meta.env.BASE_URL}back-trajectories.html${search}`}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        title="Back Trajectories"
+      />
+    </div>
+  )
 }
