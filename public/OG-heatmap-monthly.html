@@ -419,6 +419,29 @@ let TOTAL_W         = 31 * CELL_W + AVG_GAP + CELL_W;          // 933 px at expo
 // Size cells to the space available in the chart stage. Width is shared by
 // every mode; height fits 24 hours + the footer rows (Compare's hourly
 // blocks reuse it and scroll).
+// Usable stage height, measured from offsetHeight so it doesn't change when
+// a scrollbar appears or disappears inside the stage. When the grid can't
+// fit across even at minimum cell width, a horizontal scrollbar is certain,
+// so its thickness is reserved -- decided from widths alone, so no height
+// ever feeds back into whether that scrollbar shows.
+let scrollbarPx = -1;
+function scrollbarThickness() {
+  if (scrollbarPx < 0) {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
+    document.body.appendChild(d);
+    scrollbarPx = d.offsetWidth - d.clientWidth;
+    d.remove();
+  }
+  return scrollbarPx;
+}
+function stageFitH(st, cs) {
+  const h = st.offsetHeight - parseFloat(cs.borderTopWidth) - parseFloat(cs.borderBottomWidth)
+          - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const w = st.offsetWidth - parseFloat(cs.borderLeftWidth) - parseFloat(cs.borderRightWidth)
+          - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - HOUR_COL_W - 2;
+  return (w - AVG_GAP) < 32 * CELL_W_MIN + 2 ? h - scrollbarThickness() : h;
+}
 function fitCells() {
   if (exportCells) {
     CELL_W = EXPORT_CELL_W; CELL_H = EXPORT_CELL_H;
@@ -427,7 +450,7 @@ function fitCells() {
     if (st && st.clientWidth) {
       const cs = getComputedStyle(st);
       const w = st.clientWidth  - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - HOUR_COL_W - 2;
-      const h = st.clientHeight - parseFloat(cs.paddingTop)  - parseFloat(cs.paddingBottom) - DAYBAR_H - 2;
+      const h = stageFitH(st, cs) - DAYBAR_H - 2;
       // Cells stay near their original width (cap 32 px); the width left
       // over goes to the side chart. If the cap leaves too little for it,
       // fall back to the original 29 px before giving the chart up.
@@ -1749,9 +1772,11 @@ function recomputeCompareStripH() {
   const n = compareYears.length;
   if (!n) { compareStripH = COMPARE_STRIP_H_MAX; return; }
   const st = document.getElementById('hm-stage');
-  if (!st || !st.clientHeight) return;
+  if (!st || !st.offsetHeight) return;
   const cs = getComputedStyle(st);
-  const avail = st.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - DAYBAR_H - 4;
+  // The side chart's axis hangs SIDE_AXIS_H below the last strip; reserve it
+  // whether or not the side chart is showing so the fit never depends on width.
+  const avail = stageFitH(st, cs) - DAYBAR_H - 4 - SIDE_AXIS_H;
   compareStripH = Math.max(COMPARE_STRIP_H_MIN,
                   Math.min(COMPARE_STRIP_H_MAX, Math.floor(avail / n)));
 }
@@ -2240,7 +2265,7 @@ function renderCompareStrips() {
   ctx.strokeRect(0.75, 0.75, GRID_W - 1.5, stackH - 1.5);
   ctx.strokeRect(AVG_X + 0.75, 0.75, cw - 1.5, stackH - 1.5);
 
-  if (!compareValuesVisible()) return;
+  if (!compareValuesVisible()) { afterRender(); return; }
 
   // ── Cell value text ──
   ctx.save();
@@ -4611,7 +4636,7 @@ function init() {
   let lastStage = '';
   if (window.ResizeObserver) new ResizeObserver(() => {
     const st = document.getElementById('hm-stage');
-    const key = st.clientWidth + 'x' + st.clientHeight;
+    const key = st.clientWidth + 'x' + st.offsetHeight;
     if (key !== lastStage) { lastStage = key; relayout(); }
   }).observe(document.getElementById('hm-stage'));
 }
