@@ -1,9 +1,11 @@
 export default function TideWatch() {
   return (
-    <iframe
-      src={import.meta.env.BASE_URL + 'tide-watch.html'}
-      style={{ width: '100%', height: 'calc(100vh - 60px)', border: 'none', display: 'block' }}
-      title="Tide Watch"
-    />
-  );
+    <div style={{ position: 'fixed', top: '56px', left: 0, right: 0, bottom: 0 }}>
+      <iframe
+        src={`${import.meta.env.BASE_URL}tide-watch.html`}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        title="Tide Watch"
+      />
+    </div>
+  )
 }
