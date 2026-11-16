@@ -36,6 +36,7 @@ import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import ESSRT_15                    from './pages/ESSRT_15'
 import ESSRT_19                    from './pages/ESSRT_19'
+import ESSRT_20                    from './pages/ESSRT_20'
 import ESSRT_2                     from './pages/ESSRT_2'
 import ESSRT_3                     from './pages/ESSRT_3'
 import ESSRT_5                     from './pages/ESSRT_5'
@@ -208,6 +209,7 @@ export default function App() {
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
           <Route path="/ESSRT_15"                            element={<ESSRT_15 />}                />
           <Route path="/ESSRT_19"                            element={<ESSRT_19 />}                />
+          <Route path="/ESSRT_20"                            element={<ESSRT_20 />}                />
           <Route path="/ESSRT_2"                             element={<ESSRT_2 />}                 />
           <Route path="/ESSRT_3"                             element={<ESSRT_3 />}                 />
           <Route path="/ESSRT_5"                             element={<ESSRT_5 />}                 />
