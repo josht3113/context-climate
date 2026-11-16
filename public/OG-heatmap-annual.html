@@ -7,339 +7,342 @@
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
 <script src="hourly-archive.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* Tool-specific layout only — shared chrome (colors, buttons, tabs,
-     selects, panels, stat chips) lives in core-sample-tools.css.
-     Font stack is intentionally kept on this tool's original faces
-     (Plus Jakarta Sans / Barlow Condensed / JetBrains Mono) rather than
-     the shared Zilla Slab / Public Sans / Courier Prime — Courier Prime
-     is wide enough that "Midnight" clips in the 56px hour-label column
-     and the 9px grid-cell values get harder to read at that size. */
   :root {
     --tool-accent: var(--accent-climate); /* Climatology Heatmaps section */
-    --font-body:  'Plus Jakarta Sans', sans-serif;
-    --font-label: 'Barlow Condensed', sans-serif;
-    --font-mono:  'JetBrains Mono', monospace;
-    --gold: #FFD700; /* field-toggle active state — kept distinct from
-                         --tool-accent so field selection reads differently
-                         from the mode tabs above it */
+    --gold: #FFD700; /* field selection — distinct from the mode switch */
   }
-  .cc-stat-value { font-family: var(--font-mono); }
+  [hidden] { display:none !important; }
 
-  body { padding: 40px 0 56px; } /* container below owns horizontal padding */
-  .container { max-width: 1440px; margin: 0 auto; padding: 0 28px; }
+  /* ── Frame: the grid keeps its own width (≤ 1328 px, 21 px rows), so the
+     whole app is capped to it and the scene is only as tall as its content. ── */
+  .cc-app { max-width:1452px; margin:0 auto; }
+  .cc-app-main { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
+  .cc-scene { align-self:start; max-height:100%; }
+  .cc-scene-head, .period-bar, .cc-scene-bar { flex-shrink:0; }
+  .cc-scene-stage { flex:0 1 auto; overflow:auto; }
+  .bar-sub { display:flex; align-items:baseline; gap:6px 16px; flex-wrap:wrap; }
+  .bar-src { margin-left:auto; font-family:var(--font-body); font-size:13px; color:var(--color-text-muted); white-space:nowrap; }
 
-  /* ── Title ── */
-  .page-title { font-weight: 700; font-size: 22px; letter-spacing: -0.3px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .title-sep { color: var(--color-text-muted); font-weight: 400; }
-  .live-dot { font-size: 10px; color: var(--accent-live); margin-left: 2px; animation: livepulse 2s ease-in-out infinite; }
+  /* ── Top row ── */
+  .cc-app-top .cc-segmented-btn { font-size:13px; padding:10px 16px; }
+  .top-sel { font-family:var(--font-body); font-size:15px; font-weight:600; color:var(--color-text-primary); padding:8px 30px 8px 12px; }
+  #year-select { color:var(--tool-accent); min-width:92px; }
+  .exp { display:flex; gap:6px; }
+  .exp .cc-btn { padding:8px 12px; font-size:14px; font-weight:700; }
+
+  /* Station finder */
+  .finder-group { position:relative; flex:0 0 auto; display:flex; align-items:stretch; border:1px solid var(--color-border-hover); border-radius:var(--radius-md); background:var(--color-surface); transition:border-color .15s; }
+  .finder-group:focus-within { border-color:var(--tool-accent); }
+  .finder-group .search-icon { display:flex; align-items:center; padding-left:12px; color:var(--color-text-muted); font-size:16px; pointer-events:none; }
+  .finder-group .search-input { width:220px; background:transparent; border:none; border-radius:0; padding:9px 10px; color:var(--color-text-primary); font-family:var(--font-mono); font-size:15px; outline:none; }
+  .finder-group .search-input::placeholder { color:var(--color-text-muted); }
+  .finder-sep { width:1px; align-self:stretch; margin:7px 0; background:var(--color-border); }
+  .finder-group .locate-btn { border:none; border-radius:0; background:transparent; white-space:nowrap; font-size:14px; padding:6px 12px; color:var(--color-text-primary); }
+  .locate-btn.loading { opacity:.5; pointer-events:none; }
+  .dropdown { position:absolute; top:calc(100% + 4px); left:0; right:0; min-width:340px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-md); max-height:300px; overflow-y:auto; z-index:300; display:none; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+  .dropdown.open { display:block; }
+  .d-item { padding:8px 12px; cursor:pointer; font-family:var(--font-mono); font-size:14px; display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--color-border); transition:background .1s; }
+  .d-item:last-child { border-bottom:none; }
+  .d-item:hover, .d-item.hi { background:rgba(208,132,37,.18); }
+  .d-item .d-id { color:var(--tool-accent); font-weight:700; width:46px; flex-shrink:0; }
+  .d-item .d-name { color:var(--color-text-primary); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .d-item .d-st { color:var(--color-text-muted); font-size:13px; width:22px; text-align:right; }
+  .d-item .d-dist { color:var(--tool-accent); font-size:12px; width:46px; flex-shrink:0; text-align:right; }
+
+  /* ── Scene head: station + period, readouts, legend ── */
+  .hm-heading { font-family:var(--font-display); font-weight:700; font-size:22px; line-height:1.15; color:var(--color-text-primary); white-space:nowrap; }
+  .hm-period { font-family:var(--font-mono); font-size:15px; color:var(--color-text-secondary); white-space:nowrap; }
+  .live-dot { font-size:11px; color:var(--accent-live); animation:livepulse 2s ease-in-out infinite; }
   @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .ro-row { display:flex; align-items:baseline; gap:4px 18px; flex-wrap:wrap; margin-left:10px; }
+  .roh { display:flex; align-items:baseline; gap:7px; white-space:nowrap; }
+  .roh .cc-stat-label { font-family:var(--font-mono); font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--color-text-secondary); }
+  .roh .cc-stat-value { font-family:var(--font-display); font-weight:700; font-size:26px; line-height:1.1; color:var(--color-text-primary); }
+  .roh .cc-stat-note { font-family:var(--font-mono); font-size:12px; color:var(--color-text-secondary); }
+  .legend-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .legend-end { font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--color-text-secondary); white-space:nowrap; }
+  #legend-canvas { border-radius:var(--radius-sm); border:1px solid var(--color-border); display:block; width:220px; height:14px; }
+  .legend-key { display:none; align-items:center; gap:6px; font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--color-text-secondary); white-space:nowrap; margin-left:12px; }
+  .legend-key.on { display:inline-flex; }
+  .legend-swatch { width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--color-border); background:#58544D; }
 
-  /* ── Top control bar — station/year controls and the stat chips
-     used to stack as three separate left-aligned rows, leaving most of
-     the container's right side empty. They're now siblings in one
-     wrapping flex row so the chips can float to the right edge instead. ── */
-  .top-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 22px; margin-bottom: 14px; }
-  .top-bar .cc-stat-row { margin-left: auto; margin-bottom: 0; }
+  /* ── Period bar (Multi-Year Avg / Compare Years) ── */
+  .period-bar { display:none; align-items:center; flex-wrap:wrap; gap:8px 10px; padding:8px 14px; border-bottom:1px solid var(--color-border); }
+  .period-bar.on { display:flex; }
+  .pb-grp { display:flex; align-items:center; flex-wrap:wrap; gap:6px 8px; }
+  .pb-l { font-family:var(--font-mono); font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--color-text-secondary); }
+  .pb-sep { width:1px; align-self:stretch; background:var(--color-border); margin:2px 4px; }
+  .period-bar .cc-select { font-family:var(--font-body); font-size:15px; font-weight:600; color:var(--color-text-primary); padding:6px 26px 6px 10px; }
+  .period-bar .cc-btn { padding:6px 10px; font-size:14px; color:var(--color-text-primary); }
+  .period-bar .cc-btn.primary { color:var(--color-bg); }
 
-  /* ── Station row ── */
-  .station-row { display: flex; align-items: center; gap: 10px; margin-bottom: 0; }
-  .control-label { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
-  /* Station finder — same search + Near Me control as Current Conditions,
-     over the shared roster in station-roster.js. */
-  .finder-group { position: relative; flex: 0 0 auto; display: flex; align-items: stretch; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface); transition: border-color .15s; }
-  .finder-group:focus-within { border-color: var(--tool-accent); }
-  .finder-group .search-icon { display: flex; align-items: center; padding-left: 12px; color: var(--color-text-muted); font-size: 16px; pointer-events: none; }
-  .finder-group .search-input { width: 250px; background: transparent; border: none; border-radius: 0; padding: 8px 10px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 14px; outline: none; }
-  .finder-group .search-input::placeholder { color: var(--color-text-muted); }
-  .finder-sep { width: 1px; align-self: stretch; margin: 7px 0; background: var(--color-border); }
-  .finder-group .locate-btn { border: none; border-radius: 0; background: transparent; white-space: nowrap; }
-  .locate-btn.loading { opacity: .5; pointer-events: none; }
-  .dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; min-width: 340px; background: var(--color-surface-2); border: 1px solid var(--color-border); border-radius: var(--radius-md); max-height: 272px; overflow-y: auto; z-index: 300; display: none; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
-  .dropdown.open { display: block; }
-  .d-item { padding: 8px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 14px; display: flex; gap: 10px; align-items: center; border-bottom: 1px solid var(--color-border); transition: background .1s; }
-  .d-item:last-child { border-bottom: none; }
-  .d-item:hover, .d-item.hi { background: rgba(208,132,37,.18); }
-  .d-item .d-id { color: var(--tool-accent); font-weight: 700; width: 46px; flex-shrink: 0; }
-  .d-item .d-name { color: var(--color-text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .d-item .d-st { color: var(--color-text-muted); font-size: 13px; width: 22px; text-align: right; }
-  .d-item .d-dist { color: var(--tool-accent); font-size: 12px; width: 46px; flex-shrink: 0; text-align: right; }
-
-  /* ── Controls row ── */
-  .controls-row { display: flex; align-items: center; gap: 8px; margin-bottom: 0; flex-wrap: wrap; min-height: 30px; }
-
-  /* ── Field buttons — no shared cc- equivalent; kept bespoke so the
-     active state (gold) reads distinctly from the tab-bar's tool-accent
-     active state. Split into two evenly-spaced groups (base fields /
-     anomaly fields) divided by a hairline, instead of one left-clustered
-     row, so the buttons fill the row's full width. Each group starts at the
-     width its own buttons need and shares out whatever is left, so a group
-     can never be squeezed narrower than its labels; groups with no visible
-     buttons are hidden by updateFieldGroups(). ── */
-  .field-toggle { display: flex; align-items: stretch; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 14px; }
-  .field-group { display: flex; gap: 8px; flex: 1 1 auto; }
-  .field-toggle-sep { width: 1px; flex: 0 0 auto; align-self: stretch; background: var(--color-border); }
-  .field-btn {
-    font-family: var(--font-label); font-size: 13px; font-weight: 600;
-    letter-spacing: 0.3px; padding: 4px 13px; border-radius: var(--radius-md);
-    border: 1px solid var(--color-border); background: transparent;
-    color: var(--color-text-muted); cursor: pointer; transition: all 0.15s;
-    flex: 1 1 0; text-align: center; white-space: nowrap;
-  }
-  .field-btn.active { background: rgba(255,215,0,0.08); border-color: var(--gold); color: var(--gold); }
-  .field-btn:hover:not(.active):not(.disabled) { border-color: var(--color-border-hover); color: var(--color-text-primary); }
-  .field-btn.disabled { opacity: 0.3; cursor: default; }
-  /* Anomaly/std-dev buttons default to a dim gray-on-gray look — bumped
-     here to a brighter, gold-tinted treatment (short of the full active
-     gold, which stays reserved for the selected state) so they're legible
-     even while disabled, waiting on a Multi-Year Avg to load. */
-  .field-btn.anom-field:not(.active) { border-color: rgba(255,215,0,0.35); color: #D9CE8F; }
-  .field-btn.anom-field:not(.active):hover:not(.disabled) { border-color: rgba(255,215,0,0.6); color: var(--gold); }
-  .field-btn.anom-field.disabled:not(.active) { opacity: 0.55; }
-  @media (max-width: 760px) {
-    .field-toggle { flex-wrap: wrap; }
-    .field-group { flex: 1 1 100%; }
-    .field-toggle-sep { display: none; }
-  }
-
-  /* ── Legend ── */
-  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .legend-end { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
-  #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
-  .legend-key { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; margin-left: 14px; display: none; align-items: center; gap: 6px; }
-  .legend-key.on { display: inline-flex; }
-  .legend-swatch { width: 14px; height: 14px; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: #58544D; }
-
-  /* ── Compare Years — year chips + empty state ── */
-  .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .compare-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-family: var(--font-label); font-size: 13px; font-weight: 600;
-    padding: 3px 6px 3px 10px; border-radius: 20px;
-    background: rgba(255,215,0,0.08); border: 1px solid var(--gold); color: var(--gold);
-    white-space: nowrap;
-  }
-  .compare-chip button {
-    background: none; border: none; color: inherit; cursor: pointer;
-    font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 50%;
-  }
-  .compare-chip button:hover { background: rgba(255,215,0,0.18); }
-  .compare-notice {
-    display: none; align-items: center; gap: 10px; flex-wrap: wrap;
-    font-family: var(--font-label); font-size: 13px; color: #ffb38a;
-    border: 1px solid rgba(255,136,85,0.45); border-radius: var(--radius-md);
-    background: rgba(255,136,85,0.08); padding: 5px 10px; margin-bottom: 8px;
-  }
-  .compare-notice.on { display: flex; }
-
-  .compare-empty {
-    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-    font-family: var(--font-label); font-size: 14px; color: var(--color-text-muted);
-    text-align: center; padding: 20px; pointer-events: none;
-  }
-
-  /* ── Heatmap ── */
-  .heatmap-wrapper { width: 100%; }
-  .heatmap-inner { display: flex; align-items: flex-start; }
-  .hour-labels { flex-shrink: 0; width: 56px; display: flex; flex-direction: column; }
-  .hour-labels-spacer { height: 26px; }
+  /* ── Heatmap stage ── */
+  .hm { padding:6px 14px 6px 8px; }
+  .heatmap-inner { display:flex; align-items:flex-start; }
+  .hour-labels { flex-shrink:0; width:76px; display:flex; flex-direction:column; }
+  .hour-labels-spacer { height:28px; flex-shrink:0; }
   .hour-label {
-    font-family: var(--font-label); font-size: 13px; font-weight: 600;
-    color: var(--color-text-secondary); text-align: right; padding-right: 9px;
-    display: flex; align-items: center; justify-content: flex-end;
+    font-family:var(--font-mono); font-size:14px; font-weight:700;
+    color:#C4C0B4; text-align:right; padding-right:10px;
+    display:flex; align-items:center; justify-content:flex-end; flex-shrink:0;
   }
-  .canvas-area { flex: 1; min-width: 0; position: relative; }
-  .month-label-bar { position: relative; height: 26px; user-select: none; }
+  .canvas-area { flex:1; min-width:0; position:relative; }
+  .month-label-bar { position:relative; height:28px; user-select:none; }
   .month-label {
-    position: absolute; font-family: var(--font-label); font-size: 14px;
-    font-weight: 700; color: var(--color-text-secondary); transform: translateX(-50%);
-    white-space: nowrap; line-height: 26px;
+    position:absolute; font-family:var(--font-mono); font-size:14px; font-weight:700;
+    color:#C4C0B4; transform:translateX(-50%); white-space:nowrap; line-height:28px;
   }
-  .canvas-container { position: relative; }
-  #heatmap-canvas { display: block; width: 100%; cursor: crosshair; border-radius: var(--radius-sm); }
+  .canvas-container { position:relative; min-height:120px; }
+  #heatmap-canvas { display:block; cursor:crosshair; border-radius:var(--radius-sm); }
+
+  /* ── Bar: fields ── */
+  .bar-col { display:flex; flex-direction:column; gap:6px; flex:1; min-width:0; }
+  .field-toggle { display:flex; align-items:stretch; flex-wrap:wrap; gap:6px 10px; }
+  .field-group { display:flex; gap:5px; flex:1 1 auto; }
+  .field-toggle-sep { width:1px; flex:0 0 auto; align-self:stretch; background:var(--color-border); }
+  .field-btn {
+    font-family:var(--font-body); font-size:14px; font-weight:600;
+    padding:7px 10px; border-radius:var(--radius-md);
+    border:1px solid var(--color-border-hover); background:transparent;
+    color:var(--color-text-primary); cursor:pointer; transition:background .15s, border-color .15s, color .15s;
+    flex:1 1 0; text-align:center; white-space:nowrap;
+  }
+  .field-btn.active { background:rgba(255,215,0,0.10); border-color:var(--gold); color:var(--gold); font-weight:700; }
+  .field-btn:hover:not(.active):not(.disabled) { border-color:var(--color-text-muted); background:var(--color-surface-2); }
+  .field-btn.disabled { opacity:0.3; cursor:default; }
+  .field-btn.anom-field:not(.active) { border-color:rgba(255,215,0,0.35); color:#E3D9A0; }
+  .field-btn.anom-field:not(.active):hover:not(.disabled) { border-color:rgba(255,215,0,0.6); color:var(--gold); }
+  .field-btn.anom-field.disabled:not(.active) { opacity:0.55; }
+  .anon-note { font-family:var(--font-mono); font-size:13px; color:var(--color-text-secondary); display:none; }
+
+  /* Compare Years — chips, notice, empty state */
+  .compare-year-chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .compare-year-chips:empty { display:none; }
+  .compare-chip {
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--font-mono); font-size:14px; font-weight:700;
+    padding:3px 6px 3px 10px; border-radius:20px;
+    background:rgba(255,215,0,0.08); border:1px solid var(--gold); color:var(--gold); white-space:nowrap;
+  }
+  .compare-chip button { background:none; border:none; color:inherit; cursor:pointer; font-size:14px; line-height:1; padding:2px 5px; border-radius:50%; }
+  .compare-chip button:hover { background:rgba(255,215,0,0.18); }
+  .year-label-stack { position:relative; width:100%; }
+  .year-label-abs { position:absolute; right:10px; transform:translateY(-50%); font-family:var(--font-mono); font-weight:700; color:var(--gold); line-height:1; white-space:nowrap; }
+  .year-label-abs.hovered { color:#fff; }
+  .compare-notice {
+    display:none; align-items:center; gap:8px; flex-wrap:wrap;
+    font-family:var(--font-mono); font-size:13px; color:#ffb38a;
+    border:1px solid rgba(255,136,85,0.45); border-radius:var(--radius-md);
+    background:rgba(255,136,85,0.08); padding:4px 10px;
+  }
+  .compare-notice.on { display:flex; }
+  .compare-empty {
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:15px; color:var(--color-text-secondary);
+    text-align:center; padding:20px; pointer-events:none;
+  }
 
   /* ── Loading overlay ── */
   .loading-overlay {
-    position: absolute; inset: 0; background: rgba(30,35,32,0.92);
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 14px; z-index: 10; backdrop-filter: blur(4px);
+    position:absolute; inset:0; background:rgba(38,43,39,0.92);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; z-index:10; backdrop-filter:blur(4px);
   }
-  .loading-overlay.hidden { display: none; }
-  .loading-text { font-family: var(--font-label); font-size: 14px; font-weight: 600; letter-spacing: 0.4px; color: var(--color-text-muted); text-align: center; }
-  .progress-track { width: 280px; height: 5px; background: var(--color-surface-2); border-radius: var(--radius-sm); overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--tool-accent); border-radius: var(--radius-sm); transition: width 0.4s ease; width: 0%; }
-  .error-msg { font-family: var(--font-body); font-size: 13px; color: #ef4444; margin-top: 4px; }
+  .loading-overlay.hidden { display:none; }
+  .loading-text { font-family:var(--font-mono); font-size:14px; font-weight:600; letter-spacing:0.4px; color:var(--color-text-secondary); text-align:center; }
+  .progress-track { width:280px; height:5px; background:var(--color-surface-2); border-radius:var(--radius-sm); overflow:hidden; }
+  .progress-fill { height:100%; background:var(--tool-accent); border-radius:var(--radius-sm); transition:width 0.4s ease; width:0%; }
+  .error-msg { font-family:var(--font-body); font-size:13px; color:#ef4444; margin-top:4px; }
 
   /* ── Tooltip ── */
   #tooltip {
-    position: fixed; background: rgba(20,24,21,0.97); border: 1px solid var(--color-border-hover);
-    border-radius: var(--radius-md); padding: 10px 14px; pointer-events: none; z-index: 200;
-    display: none; width: 220px; backdrop-filter: blur(12px);
-    box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    position:fixed; background:rgba(30,35,32,0.97); border:1px solid var(--color-border-hover);
+    border-radius:var(--radius-md); padding:10px 14px; pointer-events:none; z-index:200;
+    display:none; width:220px; box-shadow:0 4px 24px rgba(0,0,0,0.5);
   }
-  .tt-date  { font-family: var(--font-label); font-size: 13px; font-weight: 700; color: var(--color-text-muted); letter-spacing: 0.3px; margin-bottom: 4px; }
-  .tt-value { font-family: var(--font-mono); font-size: 22px; font-weight: 600; color: var(--color-text-primary); line-height: 1; margin-bottom: 3px; }
-  .tt-detail{ font-family: var(--font-body); font-size: 12px; color: var(--color-text-secondary); line-height: 1.4; }
+  .tt-date  { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--color-text-secondary); letter-spacing:0.3px; margin-bottom:4px; }
+  .tt-value { font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--color-text-primary); line-height:1; margin-bottom:3px; }
+  .tt-detail{ font-family:var(--font-body); font-size:12px; color:var(--color-text-secondary); line-height:1.4; }
 
-  /* ── Misc ── */
-  .brand-pill {
-    font-family: var(--font-label); font-size: 12px; font-weight: 700; letter-spacing: 0.4px;
-    background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 20px;
-    color: var(--tool-accent); padding: 3px 12px; text-decoration: none; margin-left: 4px;
-    transition: all 0.15s; white-space: nowrap;
+  /* ── Narrower windows ── */
+  @media (max-width: 1500px) {
+    .cc-app-title { display:none; }
+    .finder-group .search-input { width:150px; }
+    .locate-btn .nm { display:none; }
+    .cc-app-top .cc-segmented-btn { padding:10px 11px; }
+    .cc-app-top { gap:10px; }
+    .field-btn { padding:7px 6px; font-size:13px; }
+    #legend-canvas { width:180px; }
   }
-  .brand-pill:hover { background: var(--color-surface-2); border-color: var(--tool-accent); color: var(--color-text-primary); }
-  .footer { margin-top: 14px; font-family: var(--font-label); font-size: 12px; color: var(--color-text-muted); }
-  .footer strong { color: var(--color-text-secondary); }
-  .anon-note {
-    font-family: var(--font-label); font-size: 12px; color: var(--color-text-muted);
-    margin-bottom: 10px; display: none;
+  @media (max-width: 1280px) {
+    .finder-group .search-input { width:120px; }
+    .exp .cc-btn { padding:8px 7px; font-size:13px; }
+  }
+  /* Short windows (Chromebooks): trim the chrome so the rows give up as
+     little height as possible. */
+  @media (max-height: 700px) and (min-width: 761px) {
+    .cc-app { padding-top:6px; gap:6px; }
+    .cc-app-top { min-height:0; }
+    .cc-app-top .cc-segmented-btn { padding-top:7px; padding-bottom:7px; }
+    .finder-group .search-input { padding-top:6px; padding-bottom:6px; }
+    .top-sel, .exp .cc-btn { padding-top:5px; padding-bottom:5px; }
+    .cc-scene-head { padding-top:4px; padding-bottom:3px; }
+    .period-bar { padding-top:5px; padding-bottom:5px; }
+    .period-bar .cc-select, .period-bar .cc-btn { padding-top:4px; padding-bottom:4px; }
+    .cc-scene-bar { min-height:0; padding-top:5px; padding-bottom:5px; }
+    .field-btn { padding-top:4px; padding-bottom:4px; }
+    .month-label-bar, .hour-labels-spacer { height:22px; }
+    .month-label { line-height:22px; }
+  }
+  @media (max-width: 760px) {
+    .cc-scene { align-self:stretch; max-height:none; }
+    .bar-src { white-space:normal; margin-left:0; }
+    .cc-app-title { display:block; width:100%; font-size:20px; }
+    .cc-app-top .cc-segmented { width:100%; }
+    .cc-app-top .cc-segmented-btn { flex:1; padding:9px 4px; font-size:11px; letter-spacing:.04em; }
+    .cc-app-spacer { display:none; }
+    .finder-group { flex:1 1 100%; }
+    .finder-group .search-input { width:100%; min-width:0; }
+    .cc-scene-stage { height:auto; }
+    .ro-row { margin-left:0; }
+    .legend-row { margin-left:0; flex-wrap:wrap; }
+    .hour-labels { width:60px; }
+    .hour-label { font-size:12px; padding-right:6px; }
+    .field-group { flex:1 1 100%; flex-wrap:wrap; }
+    .field-toggle-sep { display:none; }
   }
 </style>
 
 </head>
-<body>
-<div class="container">
+<body class="cc-app-body">
+<div class="cc-app">
 
-  <div class="page-title">
-    <span id="title-station">Islip, NY</span>
-    <span class="title-sep">|</span>
-    <span>Annual Heatmap</span>
-    <span class="title-sep">|</span>
-    <span id="title-period">2026</span>
-    <span class="live-dot" id="live-dot" style="display:none" title="Live — refreshes every 10 min">●</span>
-    <button class="cc-btn cc-btn-sm" onclick="downloadPNG()">↓ PNG</button>
-    <button class="cc-btn cc-btn-sm" onclick="downloadCSV('wide')">↓ CSV</button>
-    <button class="cc-btn cc-btn-sm" onclick="downloadCSV('long')">↓ CSV rows</button>
-    <a class="brand-pill" href="https://contextclimate.io" target="_blank">[ ] ContextClimate</a>
-  </div>
-
-  <div class="tab-bar">
-    <button class="cc-tab active" id="tab-single"    onclick="setMode('single')">Single Year</button>
-    <button class="cc-tab"        id="tab-climo"     onclick="setMode('climatology')">Multi-Year Avg</button>
-    <button class="cc-tab"        id="tab-compare"   onclick="setMode('compare')">Compare Years</button>
-  </div>
-
-  <div class="top-bar">
-  <div class="station-row">
-    <span class="control-label">Station:</span>
+  <div class="cc-app-top">
+    <h1 class="cc-app-title">Annual Heatmap</h1>
+    <div class="cc-segmented">
+      <button class="cc-segmented-btn active" id="tab-single"  onclick="setMode('single')">Single Year</button>
+      <button class="cc-segmented-btn"        id="tab-climo"   onclick="setMode('climatology')">Multi-Year Avg</button>
+      <button class="cc-segmented-btn"        id="tab-compare" onclick="setMode('compare')">Compare Years</button>
+    </div>
     <div class="finder-group" id="sw">
       <span class="search-icon">&#9906;</span>
       <input type="text" class="search-input" id="si" placeholder="Search station ID or city..." autocomplete="off" spellcheck="false">
       <div class="dropdown" id="dd"></div>
       <div class="finder-sep"></div>
-      <button class="cc-btn cc-btn-sm locate-btn" id="locate-btn" onclick="findNearestStation()" title="Use my location to find the nearest station">&#128205; Near Me</button>
+      <button class="cc-btn locate-btn" id="locate-btn" onclick="findNearestStation()" title="Use my location to find the nearest station">&#128205;<span class="nm"> Near Me</span></button>
+    </div>
+    <select id="year-select" class="cc-select top-sel" onchange="onYearChange()" aria-label="Year"></select>
+    <div class="cc-app-spacer"></div>
+    <div class="exp">
+      <button class="cc-btn" onclick="downloadPNG()">&darr; PNG</button>
+      <button class="cc-btn" onclick="downloadCSV('wide')">&darr; CSV</button>
+      <button class="cc-btn" onclick="downloadCSV('long')">&darr; CSV rows</button>
     </div>
   </div>
 
-  <!-- Single-year controls -->
-  <div id="single-controls" class="controls-row">
-    <span class="control-label">Year:</span>
-    <select id="year-select" class="cc-select" onchange="onYearChange()"></select>
-  </div>
-
-  <!-- Climatology controls -->
-  <div id="climo-controls" class="controls-row" style="display:none">
-    <span class="control-label">From:</span>
-    <select id="from-year" class="cc-select"></select>
-    <span class="control-label">To:</span>
-    <select id="to-year" class="cc-select"></select>
-    <button class="cc-btn cc-btn-sm primary" onclick="onClimoLoad()">Load</button>
-    <span class="control-label" style="margin-left:6px">Presets:</span>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(1991,2020)">1991–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(2001,2020)">2001–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(2011,2020)">2011–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
-  </div>
-
-  <!-- Compare-years controls -->
-  <div id="compare-controls" class="controls-row" style="display:none">
-    <span class="control-label">Add Year:</span>
-    <select id="compare-year-add" class="cc-select"></select>
-    <button class="cc-btn cc-btn-sm primary" onclick="onAddCompareYear()">+ Add</button>
-    <div class="compare-year-chips" id="compare-year-chips"></div>
-    <span class="control-label" style="margin-left:6px">Presets:</span>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(5)">Last 5 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(10)">Last 10 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(30)">Last 30 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setCompareAllYears()">All Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="clearCompareYears()">Clear</button>
-  </div>
-
-  <div class="compare-notice" id="compare-notice">
-    <span id="compare-notice-text"></span>
-    <button class="cc-btn cc-btn-sm" onclick="retryCompareYears()">Retry</button>
-  </div>
-
-  <!-- Stat chips -->
-  <div class="cc-stat-row">
-    <div class="cc-stat-chip"><div class="cc-stat-label" id="sl-avg">Period Avg</div><div class="cc-stat-value" id="sv-avg" style="font-size:26px">—</div></div>
-    <div class="cc-stat-chip"><div class="cc-stat-label" id="sl-max">Period Max</div><div class="cc-stat-value" id="sv-max" style="font-size:26px">—</div></div>
-    <div class="cc-stat-chip"><div class="cc-stat-label" id="sl-min">Period Min</div><div class="cc-stat-value" id="sv-min" style="font-size:26px">—</div><div class="cc-stat-note" id="sv-min-sub" style="font-size:11px;visibility:hidden"></div></div>
-  </div>
-  </div>
-
-  <!-- Field buttons -->
-  <div class="field-toggle" id="field-toggle">
-    <div class="field-group">
-      <button class="field-btn active" id="fld-temp"      onclick="setField('temp')">Temperature</button>
-      <button class="field-btn"        id="fld-td"        onclick="setField('td')">Dewpoint</button>
-      <button class="field-btn"        id="fld-clouds"    onclick="setField('clouds')">Cloud Cover</button>
-      <button class="field-btn"        id="fld-wind"      onclick="setField('wind')">Wind Speed</button>
-      <button class="field-btn"        id="fld-gust"      onclick="setField('gust')">Wind Gusts</button>
-    </div>
-    <div class="field-toggle-sep"></div>
-    <div class="field-group">
-      <button class="field-btn anom-field" id="fld-temp_anom" onclick="setField('temp_anom')">Temp Anomaly</button>
-      <button class="field-btn anom-field" id="fld-td_anom"   onclick="setField('td_anom')">Dew Anomaly</button>
-      <button class="field-btn anom-field" id="fld-temp_z"    onclick="setField('temp_z')">Temp Std Dev</button>
-      <button class="field-btn anom-field" id="fld-td_z"      onclick="setField('td_z')">Dew Std Dev</button>
-    </div>
-    <div class="field-toggle-sep"></div>
-    <div class="field-group">
-      <button class="field-btn anom-field" id="fld-temp_trend" onclick="setField('temp_trend')">Temp Trend</button>
-      <button class="field-btn anom-field" id="fld-td_trend"   onclick="setField('td_trend')">Dew Trend</button>
-      <button class="field-btn anom-field" id="fld-dtr"        onclick="setField('dtr')">Diurnal Range</button>
-    </div>
-  </div>
-  <div class="anon-note" id="anon-note">Anomaly fields require the Multi-Year Avg to be loaded for this station first.</div>
-
-  <!-- Legend -->
-  <div class="legend-row">
-    <span class="legend-end" id="legend-lo"></span>
-    <canvas id="legend-canvas" height="14" width="260"></canvas>
-    <span class="legend-end" id="legend-hi"></span>
-    <span class="legend-key" id="legend-missing"><span class="legend-swatch"></span>Missing</span>
-  </div>
-
-  <!-- Heatmap -->
-  <div class="heatmap-wrapper">
-    <div class="heatmap-inner">
-      <div class="hour-labels" id="hour-labels">
-        <div class="hour-labels-spacer"></div>
+  <div class="cc-app-main" id="app-main">
+    <div class="cc-scene" id="scene">
+      <div class="cc-scene-head" id="scene-head">
+        <span class="hm-heading" id="title-station">Islip, NY</span>
+        <span class="hm-period" id="title-period"></span>
+        <span class="live-dot" id="live-dot" style="display:none" title="Live — refreshes every 10 min">&#9679;</span>
+        <div class="ro-row">
+          <div class="roh"><span class="cc-stat-label" id="sl-avg">Period Avg</span><span class="cc-stat-value" id="sv-avg">—</span></div>
+          <div class="roh"><span class="cc-stat-label" id="sl-max">Period Max</span><span class="cc-stat-value" id="sv-max">—</span></div>
+          <div class="roh"><span class="cc-stat-label" id="sl-min">Period Min</span><span class="cc-stat-value" id="sv-min">—</span><span class="cc-stat-note" id="sv-min-sub" style="visibility:hidden"></span></div>
+        </div>
+        <div class="legend-row">
+          <span class="legend-end" id="legend-lo"></span>
+          <canvas id="legend-canvas" height="14" width="220"></canvas>
+          <span class="legend-end" id="legend-hi"></span>
+          <span class="legend-key" id="legend-missing"><span class="legend-swatch"></span>Missing</span>
+        </div>
       </div>
-      <div class="canvas-area" id="canvas-area">
-        <div class="month-label-bar" id="month-labels"></div>
-        <div class="canvas-container">
-          <canvas id="heatmap-canvas"></canvas>
-          <div class="compare-empty" id="compare-empty">Add a year above to start comparing years side by side.</div>
-          <div class="loading-overlay" id="loading-overlay">
-            <div class="loading-text" id="loading-text">Initializing…</div>
-            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-            <div class="error-msg" id="error-msg" style="display:none"></div>
+      <div class="period-bar" id="period-bar">
+        <div class="pb-grp" id="climo-controls" style="display:none">
+          <span class="pb-l">From</span>
+          <select id="from-year" class="cc-select" aria-label="From year"></select>
+          <span class="pb-l">to</span>
+          <select id="to-year" class="cc-select" aria-label="To year"></select>
+          <button class="cc-btn primary" onclick="onClimoLoad()">Load</button>
+          <span class="pb-sep"></span>
+          <button class="cc-btn" onclick="setPreset(1991,2020)">1991–2020</button>
+          <button class="cc-btn" onclick="setPreset(2001,2020)">2001–2020</button>
+          <button class="cc-btn" onclick="setPreset(2011,2020)">2011–2020</button>
+          <button class="cc-btn" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
+        </div>
+        <div class="pb-grp" id="compare-controls" style="display:none">
+          <select id="compare-year-add" class="cc-select" aria-label="Year to add"></select>
+          <button class="cc-btn primary" onclick="onAddCompareYear()">+ Add</button>
+          <div class="compare-year-chips" id="compare-year-chips"></div>
+          <span class="pb-sep"></span>
+          <button class="cc-btn" onclick="setComparePreset(5)">Last 5</button>
+          <button class="cc-btn" onclick="setComparePreset(10)">Last 10</button>
+          <button class="cc-btn" onclick="setComparePreset(30)">Last 30</button>
+          <button class="cc-btn" onclick="setCompareAllYears()">All Years</button>
+          <button class="cc-btn" onclick="clearCompareYears()">Clear</button>
+        </div>
+        <div class="compare-notice" id="compare-notice">
+          <span id="compare-notice-text"></span>
+          <button class="cc-btn" onclick="retryCompareYears()">Retry</button>
+        </div>
+      </div>
+      <div class="cc-scene-stage" id="hm-stage">
+        <div class="hm">
+          <div class="heatmap-inner">
+            <div class="hour-labels" id="hour-labels">
+              <div class="hour-labels-spacer"></div>
+            </div>
+            <div class="canvas-area" id="canvas-area">
+              <div class="month-label-bar" id="month-labels"></div>
+              <div class="canvas-container">
+                <canvas id="heatmap-canvas"></canvas>
+                <div class="compare-empty" id="compare-empty">Add a year to start comparing.</div>
+                <div class="loading-overlay" id="loading-overlay">
+                  <div class="loading-text" id="loading-text">Initializing…</div>
+                  <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+                  <div class="error-msg" id="error-msg" style="display:none"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cc-scene-bar" id="scene-bar">
+        <div class="bar-col">
+          <div class="field-toggle" id="field-toggle">
+            <div class="field-group">
+              <button class="field-btn active" id="fld-temp"      onclick="setField('temp')">Temperature</button>
+              <button class="field-btn"        id="fld-td"        onclick="setField('td')">Dewpoint</button>
+              <button class="field-btn"        id="fld-clouds"    onclick="setField('clouds')">Cloud Cover</button>
+              <button class="field-btn"        id="fld-wind"      onclick="setField('wind')">Wind Speed</button>
+              <button class="field-btn"        id="fld-gust"      onclick="setField('gust')">Wind Gusts</button>
+            </div>
+            <div class="field-toggle-sep"></div>
+            <div class="field-group">
+              <button class="field-btn anom-field" id="fld-temp_anom" onclick="setField('temp_anom')">Temp Anomaly</button>
+              <button class="field-btn anom-field" id="fld-td_anom"   onclick="setField('td_anom')">Dew Anomaly</button>
+              <button class="field-btn anom-field" id="fld-temp_z"    onclick="setField('temp_z')">Temp Std Dev</button>
+              <button class="field-btn anom-field" id="fld-td_z"      onclick="setField('td_z')">Dew Std Dev</button>
+            </div>
+            <div class="field-toggle-sep"></div>
+            <div class="field-group">
+              <button class="field-btn anom-field" id="fld-temp_trend" onclick="setField('temp_trend')">Temp Trend</button>
+              <button class="field-btn anom-field" id="fld-td_trend"   onclick="setField('td_trend')">Dew Trend</button>
+              <button class="field-btn anom-field" id="fld-dtr"        onclick="setField('dtr')">Diurnal Range</button>
+            </div>
+          </div>
+          <div class="bar-sub">
+            <div class="anon-note" id="anon-note">Anomaly fields require the Multi-Year Avg to be loaded for this station first.</div>
+            <div class="bar-src"><span id="footer-tz">Local Time</span> &middot; Data: IEM ASOS (hourly) &middot; NOAA ACIS (daily high / low)</div>
           </div>
         </div>
       </div>
     </div>
   </div>
-
-  <div class="footer">
-    <span id="footer-tz">Local Time</span> &nbsp;|&nbsp; Data: IEM ASOS &nbsp;|&nbsp;
-    <strong>[ ] ContextClimate</strong>
-  </div>
-
-</div><!-- /.container -->
+</div>
 
 <div id="tooltip">
   <div class="tt-date"   id="tt-date"></div>
@@ -352,9 +355,18 @@
 // ═══════════════════════════════════════════════════════════
 // CONFIG
 // ═══════════════════════════════════════════════════════════
-const CANVAS_HEIGHT = 504;    // 21 px × 24 rows
-const CELL_H        = 21;
-const COMPARE_ROW_H = 28;     // per-year strip height in Compare Years mode
+// Rows fill the height left in the window, but never grow past the
+// original 21 px (Compare strips: 28 px) -- the grid keeps its look and
+// size, and shrinks only as far as a short window needs. The PNG always
+// draws at the original 21 / 28 px. Width fills the stage up to 1328 px.
+const EXPORT_CELL_H = 21, CELL_H_MIN = 12, CANVAS_W_MAX = 1328;
+const EXPORT_ROW_H = 28, COMPARE_ROW_H_MIN = 4;
+const COMPARE_CHIP_LIMIT = 12;  // past this the chips collapse to one summary chip
+let CELL_H        = EXPORT_CELL_H;
+let CANVAS_HEIGHT = 24 * CELL_H;
+let compareRowH   = EXPORT_ROW_H;
+let compareHoverRow = -1;
+let exportCells   = false;
 const DEFAULT_CLIMO_FROM = 1991;
 const DEFAULT_CLIMO_TO   = 2020;
 const FIRST_YEAR    = 1973;
@@ -1286,12 +1298,49 @@ let dpr = window.devicePixelRatio || 1;
 // before any year has been added (renderHeatmap separately no-ops on an
 // empty selection).
 function currentCanvasHeight() {
-  if (mode === 'compare') return Math.max(compareYears.length, 1) * COMPARE_ROW_H;
+  if (mode === 'compare') return Math.max(compareYears.length, 1) * compareRowH;
   return CANVAS_HEIGHT;
 }
 
+// Height available to the grid: the main area's height (fixed by the
+// window, not by the grid) less the scene's own chrome. Nothing measured
+// here depends on the grid's height, so a fit can't feed back on itself.
+function gridAvailH() {
+  const main = document.getElementById('app-main');
+  const scene = document.getElementById('scene');
+  const stage = document.getElementById('hm-stage');
+  if (!main || !main.clientHeight || window.innerWidth <= 760) return null;
+  const chrome = scene.offsetHeight - stage.offsetHeight;
+  const hm = getComputedStyle(stage.firstElementChild);
+  return main.clientHeight - chrome - parseFloat(hm.paddingTop) - parseFloat(hm.paddingBottom)
+       - document.getElementById('month-labels').offsetHeight - 2;
+}
+function fitRows() {
+  if (exportCells) { CELL_H = EXPORT_CELL_H; compareRowH = EXPORT_ROW_H; }
+  else {
+    const h = gridAvailH();
+    CELL_H = h == null ? EXPORT_CELL_H : Math.max(CELL_H_MIN, Math.min(EXPORT_CELL_H, Math.floor(h / 24)));
+    const n = compareYears.length;
+    compareRowH = (h == null || !n) ? EXPORT_ROW_H
+      : Math.max(COMPARE_ROW_H_MIN, Math.min(EXPORT_ROW_H, Math.floor(h / n)));
+  }
+  CANVAS_HEIGHT = 24 * CELL_H;
+}
+// Year labels thin to every 2nd / 5th / 10th year as the strips compress.
+function compareLabelStep() {
+  for (const step of [1, 2, 5, 10]) if (compareRowH * step >= 11) return step;
+  return 10;
+}
+function compareLabelKeep(ri) {
+  const step = compareLabelStep();
+  if (ri % step === 0) return true;
+  const last = compareYears.length - 1;
+  if (ri !== last) return false;
+  return (last % step) * compareRowH >= 11;
+}
 function setupCanvas() {
-  const W = document.getElementById('canvas-area').clientWidth;
+  fitRows();
+  const W = Math.min(CANVAS_W_MAX, document.getElementById('canvas-area').clientWidth);
   const H = currentCanvasHeight();
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
@@ -1390,13 +1439,25 @@ function renderRowLabels() {
   const cont = document.getElementById('hour-labels');
   cont.innerHTML = '<div class="hour-labels-spacer"></div>';
   if (mode === 'compare') {
-    for (const year of compareYears) {
+    // Labels sit at each row's centre inside a stack the canvas's height, so
+    // a label can be taller than its row; they thin out as the rows shrink,
+    // and the hovered row's label always shows.
+    const stack = document.createElement('div');
+    stack.className = 'year-label-stack';
+    stack.id = 'year-label-stack';
+    stack.style.height = (compareYears.length * compareRowH) + 'px';
+    const fontPx = Math.max(9, Math.min(14, compareRowH));
+    compareYears.forEach((year, ri) => {
       const el = document.createElement('div');
-      el.className = 'hour-label';
-      el.style.height = COMPARE_ROW_H + 'px';
-      el.textContent = year;
-      cont.appendChild(el);
-    }
+      el.className = 'year-label-abs';
+      el.dataset.row = String(ri);
+      el.style.top = ((ri + 0.5) * compareRowH) + 'px';
+      el.style.fontSize = fontPx + 'px';
+      el.textContent = compareLabelKeep(ri) ? String(year) : '';
+      stack.appendChild(el);
+    });
+    cont.appendChild(stack);
+    applyCompareHoverLabel();
     return;
   }
   for (let h=0; h<24; h++) {
@@ -1406,6 +1467,21 @@ function renderRowLabels() {
     el.textContent = HOURS[h];
     cont.appendChild(el);
   }
+}
+
+function applyCompareHoverLabel() {
+  const stack = document.getElementById('year-label-stack');
+  if (!stack) return;
+  for (const el of stack.children) {
+    const ri = parseInt(el.dataset.row, 10), on = ri === compareHoverRow;
+    el.textContent = (compareLabelKeep(ri) || on) ? String(compareYears[ri]) : '';
+    el.classList.toggle('hovered', on);
+  }
+}
+function setCompareHoverRow(ri) {
+  if (ri === compareHoverRow) return;
+  compareHoverRow = ri;
+  applyCompareHoverLabel();
 }
 
 function renderMonthLabels() {
@@ -1960,6 +2036,15 @@ function retryCompareYears() { refreshCompareView(); }
 function renderCompareChips() {
   const wrap = document.getElementById('compare-year-chips');
   wrap.innerHTML = '';
+  if (compareYears.length > COMPARE_CHIP_LIMIT) {
+    const lo = compareYears[0], hi = compareYears[compareYears.length - 1];
+    const chip = document.createElement('span');
+    chip.className = 'compare-chip';
+    chip.innerHTML = `${lo}–${hi} · ${compareYears.length} yrs ` +
+      `<button type="button" aria-label="Clear all years" onclick="clearCompareYears()">×</button>`;
+    wrap.appendChild(chip);
+    return;
+  }
   for (const year of compareYears) {
     const chip = document.createElement('span');
     chip.className = 'compare-chip';
@@ -1984,6 +2069,8 @@ async function refreshCompareView() {
     return;
   }
   document.getElementById('compare-empty').style.display = 'none';
+  setupCanvas();
+  renderRowLabels();
 
   const missing = compareYears.filter(y => !compareData.has(compareDataKey(y)));
   let failed = [], errors = [];
@@ -2060,7 +2147,7 @@ function updateTitle() {
   syncURL();
   const st = STATIONS[activeStationId];
   document.getElementById('title-station').textContent = st.label;
-  document.getElementById('footer-tz').textContent = st.tzLabel + ' Local Time';
+  document.getElementById('footer-tz').textContent = st.tzLabel + ' local time';
   if (mode === 'single') {
     document.getElementById('title-period').textContent = currentYear;
   } else if (mode === 'climatology') {
@@ -2068,8 +2155,11 @@ function updateTitle() {
       ? `${fromYear}–${toYear} Trend`
       : `${fromYear}–${toYear} Avg`;
   } else {
+    const n = compareYears.length;
     document.getElementById('title-period').textContent =
-      compareYears.length ? `Compare: ${compareYears.join(', ')}` : 'Compare Years';
+      !n ? 'Compare Years'
+      : n <= 6 ? `Compare: ${summarizeYears(compareYears)}`
+      : `Compare: ${compareYears[0]}–${compareYears[n - 1]} · ${n} years`;
   }
 }
 
@@ -2166,7 +2256,8 @@ function setMode(m) {
   document.getElementById('tab-single').classList.toggle('active', m === 'single');
   document.getElementById('tab-climo').classList.toggle('active',  m === 'climatology');
   document.getElementById('tab-compare').classList.toggle('active', m === 'compare');
-  document.getElementById('single-controls').style.display  = m === 'single' ? 'flex' : 'none';
+  document.getElementById('year-select').style.display      = m === 'single' ? '' : 'none';
+  document.getElementById('period-bar').classList.toggle('on', m !== 'single');
   document.getElementById('climo-controls').style.display   = m === 'climatology' ? 'flex' : 'none';
   document.getElementById('compare-controls').style.display = m === 'compare' ? 'flex' : 'none';
   if (m !== 'compare') hideCompareNotice();
@@ -2175,7 +2266,7 @@ function setMode(m) {
   updateTitle();
   // Both of these are mode-dependent: the sidebar is one label per selected
   // year in Compare mode vs 24 hour labels otherwise, and the canvas height
-  // is compareYears.length * COMPARE_ROW_H vs the fixed 24-row height.
+  // is compareYears.length * compareRowH vs the fixed 24-row height.
   // Without them, switching out of Compare Years kept the compare layout
   // and the other two modes rendered into a mismatched canvas.
   setupCanvas();
@@ -2321,10 +2412,11 @@ canvas.addEventListener('mousemove', e => {
   const W    = canvas.width / dpr;
   const H    = canvas.height / dpr;
   const rows = getRowCount();
-  if (rows === 0 || mx < 0 || mx > W || my < 0 || my > H) { tooltip.style.display='none'; return; }
+  if (rows === 0 || mx < 0 || mx > W || my < 0 || my > H) { tooltip.style.display='none'; setCompareHoverRow(-1); return; }
 
   const doy = Math.min(365, Math.floor(mx / W * 366));
   const row = Math.min(rows-1, Math.floor(my / H * rows));
+  setCompareHoverRow(mode === 'compare' ? row : -1);
   const v   = getCellValue(doy, row);
   refreshNow();
 
@@ -2370,7 +2462,7 @@ canvas.addEventListener('mousemove', e => {
   tooltip.style.left = tx + 'px';
   tooltip.style.top  = ty + 'px';
 });
-canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; });
+canvas.addEventListener('mouseleave', () => { tooltip.style.display='none'; setCompareHoverRow(-1); });
 
 // ═══════════════════════════════════════════════════════════
 // DOWNLOAD PNG
@@ -2410,6 +2502,7 @@ function downloadPNG() {
   const EXPORT_SCALE = 3;
   const origDpr = dpr;
   dpr = EXPORT_SCALE;
+  exportCells = true;
   setupCanvas();
   renderHeatmap();
 
@@ -2523,6 +2616,7 @@ function downloadPNG() {
   // Restore the on-screen canvas to the real screen resolution so nothing
   // looks different to the user after the export capture.
   dpr = origDpr;
+  exportCells = false;
   setupCanvas();
   renderHeatmap();
 
@@ -2755,16 +2849,34 @@ function init() {
     setMode(mode);
   });
 
-  window.addEventListener('resize', () => {
+  const relayout = () => {
     dpr = window.devicePixelRatio || 1;
     setupCanvas();
+    renderRowLabels();
     renderMonthLabels();
     renderLegend();
     const hasData = mode === 'single' ? !!singleData
                   : mode === 'climatology' ? !!climoData
                   : compareYears.length > 0;
     if (hasData) renderHeatmap();
-  });
+  };
+  window.addEventListener('resize', relayout);
+  // The fit depends on the main area's size and on the heights of the head,
+  // period bar and field bar (which wrap with width, mode and chips) --
+  // never on the grid itself.
+  let lastKey = '';
+  const keyNow = () => {
+    const m = document.getElementById('app-main');
+    return [m.clientWidth, m.clientHeight, document.getElementById('scene-head').offsetHeight,
+            document.getElementById('period-bar').offsetHeight, document.getElementById('scene-bar').offsetHeight].join('x');
+  };
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => {
+      const k = keyNow();
+      if (k !== lastKey) { lastKey = k; relayout(); }
+    });
+    for (const id of ['app-main', 'scene-head', 'period-bar', 'scene-bar']) ro.observe(document.getElementById(id));
+  }
 }
 
 init();

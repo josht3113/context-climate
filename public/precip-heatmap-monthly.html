@@ -5,333 +5,289 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monthly Precipitation Heatmap | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="station-roster.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* Tool-specific layout only — shared chrome (colors, buttons, tabs,
-     selects, panels, stat chips) lives in core-sample-tools.css.
-     Font stack is intentionally kept on this tool's original faces
-     (Plus Jakarta Sans / Barlow Condensed / JetBrains Mono) rather than
-     the shared Zilla Slab / Public Sans / Courier Prime — Courier Prime
-     is wide enough that "Midnight" clips in the 56px hour-label column
-     and the 9px grid-cell values get harder to read. */
   :root {
     --tool-accent: var(--accent-climate); /* Climatology Heatmaps section */
-    --font-body:  'Plus Jakarta Sans', sans-serif;
-    --font-label: 'Barlow Condensed', sans-serif;
-    --font-mono:  'JetBrains Mono', monospace;
+    --cc-card-width: 300px;
+    --font-cell: 'JetBrains Mono', monospace; /* numbers printed in the grid */
+    --gold: #FFD700;
   }
-  .cc-stat-value { font-family: var(--font-mono); }
+  [hidden] { display:none !important; }
 
-  body { padding: 40px 0 56px; } /* container below owns horizontal padding */
-  .container { max-width: 1440px; width: fit-content; margin: 0 auto; padding: 0 28px; }
+  /* ── Top row ── */
+  .cc-app-top .cc-segmented-btn { font-size:13px; padding:10px 16px; }
+  .top-sel { font-family:var(--font-body); font-size:15px; font-weight:600; color:var(--color-text-primary); padding:8px 30px 8px 12px; }
+  #year-select { color:var(--tool-accent); min-width:92px; }
+  .exp { display:flex; gap:6px; }
+  .exp .cc-btn { padding:8px 12px; font-size:14px; font-weight:700; }
 
-  .page-title { font-weight: 600; font-size: 22px; letter-spacing: -.2px; color: var(--color-text-primary); margin-bottom: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .title-sep { color: var(--color-text-muted); font-weight: 400; }
-  .live-dot { font-size: 10px; color: var(--accent-live); margin-left: 2px; animation: livepulse 2s ease-in-out infinite; }
-  @keyframes livepulse { 0%,100% { opacity: 1; } 50% { opacity: .2; } }
+  /* Station finder */
+  .finder-group { position:relative; flex:0 0 auto; display:flex; align-items:stretch; border:1px solid var(--color-border-hover); border-radius:var(--radius-md); background:var(--color-surface); transition:border-color .15s; }
+  .finder-group:focus-within { border-color:var(--tool-accent); }
+  .finder-group .search-icon { display:flex; align-items:center; padding-left:12px; color:var(--color-text-muted); font-size:16px; pointer-events:none; }
+  .finder-group .search-input { width:220px; background:transparent; border:none; border-radius:0; padding:9px 10px; color:var(--color-text-primary); font-family:var(--font-mono); font-size:15px; outline:none; }
+  .finder-group .search-input::placeholder { color:var(--color-text-muted); }
+  .finder-sep { width:1px; align-self:stretch; margin:7px 0; background:var(--color-border); }
+  .finder-group .locate-btn { border:none; border-radius:0; background:transparent; white-space:nowrap; font-size:14px; padding:6px 12px; color:var(--color-text-primary); }
+  .locate-btn.loading { opacity:.5; pointer-events:none; }
+  .dropdown { position:absolute; top:calc(100% + 4px); left:0; right:0; min-width:340px; background:var(--color-surface-2); border:1px solid var(--color-border); border-radius:var(--radius-md); max-height:300px; overflow-y:auto; z-index:300; display:none; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+  .dropdown.open { display:block; }
+  .d-item { padding:8px 12px; cursor:pointer; font-family:var(--font-mono); font-size:14px; display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--color-border); transition:background .1s; }
+  .d-item:last-child { border-bottom:none; }
+  .d-item:hover, .d-item.hi { background:rgba(208,132,37,.18); }
+  .d-item .d-id { color:var(--tool-accent); font-weight:700; width:46px; flex-shrink:0; }
+  .d-item .d-name { color:var(--color-text-primary); flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .d-item .d-st { color:var(--color-text-muted); font-size:13px; width:22px; text-align:right; }
+  .d-item .d-dist { color:var(--tool-accent); font-size:12px; width:46px; flex-shrink:0; text-align:right; }
 
-  .top-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 14px 22px; margin-bottom: 14px; }
-  .top-bar .cc-stat-row { margin-left: auto; margin-bottom: 0; }
-  .station-row { display: flex; align-items: center; gap: 10px; margin-bottom: 0; }
-  .control-label { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
-  .station-select { font-size: 15px; min-width: 250px; color: var(--color-text-primary); }
-  .controls-row { display: flex; align-items: center; gap: 8px; margin-bottom: 0; flex-wrap: wrap; min-height: 30px; }
+  /* ── Scene head: station + period, legend ── */
+  .hm-heading { font-family:var(--font-display); font-weight:700; font-size:22px; line-height:1.15; color:var(--color-text-primary); white-space:nowrap; }
+  .hm-period { font-family:var(--font-mono); font-size:15px; color:var(--color-text-secondary); white-space:nowrap; }
+  .live-dot { font-size:11px; color:var(--accent-live); animation:livepulse 2s ease-in-out infinite; }
+  @keyframes livepulse { 0%,100%{opacity:1} 50%{opacity:0.2} }
+  .legend-row { display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .legend-end { font-family:var(--font-mono); font-size:14px; font-weight:700; color:var(--color-text-secondary); white-space:nowrap; }
+  #legend-canvas { border-radius:var(--radius-sm); border:1px solid var(--color-border); display:block; width:240px; height:14px; }
 
-  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-  .legend-end { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-muted); white-space: nowrap; }
-  #legend-canvas { border-radius: var(--radius-sm); border: 1px solid var(--color-border); display: block; }
+  /* ── Heatmap stage ── */
+  .hm { position:absolute; inset:0; padding:10px 14px 8px 4px; overflow:auto; }
+  .heatmap-inner { display:flex; align-items:flex-start; width:max-content; margin:0 auto; }
+  .hour-labels { flex-shrink:0; width:76px; display:flex; flex-direction:column; }
+  .hour-labels-spacer { height:28px; flex-shrink:0; }
+  .hour-label {
+    font-family:var(--font-mono); font-size:14px; font-weight:700;
+    color:#C4C0B4; text-align:right; padding-right:10px;
+    display:flex; align-items:center; justify-content:flex-end; flex-shrink:0;
+  }
+  .canvas-area { position:relative; }
+  .day-label-bar { position:sticky; top:-10px; z-index:2; height:28px; user-select:none; background:var(--color-surface); }
+  .day-label {
+    position:absolute; font-family:var(--font-mono); font-size:14px; font-weight:700;
+    color:#C4C0B4; transform:translateX(-50%); white-space:nowrap; line-height:28px;
+  }
+  .canvas-container { position:relative; min-height:160px; }
+  #heatmap-canvas { display:block; cursor:crosshair; }
 
-  /* ── Compare Years — year chips + empty state ── */
-  .compare-year-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  /* ── Card ── */
+  .cc-card .cc-btn { padding:6px 8px; font-size:14px; color:var(--color-text-primary); }
+  .cc-card .cc-btn.active, .cc-card .cc-btn.on { background:rgba(208,132,37,.14); color:var(--color-text-primary); }
+  .card-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .card-row + .card-row { margin-top:7px; }
+  .card-row .cc-select { flex:1; min-width:0; font-family:var(--font-body); font-size:15px; font-weight:600; color:var(--color-text-primary); padding:7px 26px 7px 10px; }
+  .card-row .to { font-family:var(--font-mono); font-size:13px; color:var(--color-text-secondary); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+  .card-row .cc-btn.primary { color:var(--color-bg); }
+
+  .ro { padding:8px 0 7px; border-bottom:1px solid var(--color-border); }
+  .ro .cc-stat-label { display:block; font-family:var(--font-mono); font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--color-text-secondary); }
+  .ro .cc-stat-value { display:block; font-family:var(--font-display); font-weight:700; font-size:28px; line-height:1.15; color:var(--color-text-primary); }
+  .ro .cc-stat-note { font-family:var(--font-mono); font-size:12px; color:var(--color-text-secondary); }
+
+  /* ── Card: month in context ── */
+  .ctx { border-bottom:none; }
+  #ctx-canvas { display:block; margin-top:2px; }
+  .ctx-axis { display:flex; justify-content:space-between; font-family:var(--font-mono); font-size:12px; font-weight:700; color:var(--color-text-secondary); margin-top:2px; }
+  .ctx-k { display:flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:12px; color:var(--color-text-secondary); margin-top:4px; }
+  .ctx-k i { display:inline-block; width:0; height:12px; border-left:2px dashed var(--tool-accent); }
+  .ctx-v { font-family:var(--font-display); font-weight:700; font-size:22px; line-height:1.2; color:var(--color-text-primary); margin-top:6px; }
+  .ctx-r { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--color-text-secondary); }
+
+  /* Compare Years — chips, notice, empty state */
+  .cc-btn.disabled { opacity:0.4; pointer-events:none; }
+  .compare-year-chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .compare-year-chips:empty { display:none; }
   .compare-chip {
-    display: inline-flex; align-items: center; gap: 4px;
-    font-family: var(--font-label); font-size: 13px; font-weight: 600;
-    padding: 3px 6px 3px 10px; border-radius: 20px;
-    background: rgba(255,215,0,0.08); border: 1px solid #FFD700; color: #FFD700;
-    white-space: nowrap;
+    display:inline-flex; align-items:center; gap:4px;
+    font-family:var(--font-mono); font-size:14px; font-weight:700;
+    padding:3px 6px 3px 10px; border-radius:20px;
+    background:rgba(255,215,0,0.08); border:1px solid var(--gold); color:var(--gold); white-space:nowrap;
   }
-  .compare-chip button {
-    background: none; border: none; color: inherit; cursor: pointer;
-    font-size: 14px; line-height: 1; padding: 2px 5px; border-radius: 50%;
-  }
-  .compare-chip button:hover { background: rgba(255,215,0,0.18); }
+  .compare-chip button { background:none; border:none; color:inherit; cursor:pointer; font-size:14px; line-height:1; padding:2px 5px; border-radius:50%; }
+  .compare-chip button:hover { background:rgba(255,215,0,0.18); }
+  .year-label-stack { position:relative; width:100%; }
+  .year-label-abs { position:absolute; right:10px; transform:translateY(-50%); font-family:var(--font-mono); font-weight:700; color:var(--gold); line-height:1; white-space:nowrap; }
+  .year-label-abs.hovered { color:#fff; }
   .compare-empty {
-    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-    font-family: var(--font-label); font-size: 14px; color: var(--color-text-muted);
-    text-align: center; padding: 20px; pointer-events: none;
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-size:15px; color:var(--color-text-secondary);
+    text-align:center; padding:20px; pointer-events:none;
   }
 
-  .heatmap-wrapper { width: 100%; overflow-x: auto; }
-  .heatmap-inner { display: flex; align-items: flex-start; width: max-content; }
-  .hour-labels { flex-shrink: 0; width: 56px; display: flex; flex-direction: column; }
-  .hour-labels-spacer { height: 26px; }
-  .hour-label { font-family: var(--font-label); font-size: 13px; font-weight: 600; color: var(--color-text-secondary); text-align: right; padding-right: 9px; display: flex; align-items: center; justify-content: flex-end; }
-  .canvas-area { position: relative; }
-  .day-label-bar { position: relative; height: 26px; user-select: none; }
-  .day-label { position: absolute; font-family: var(--font-label); font-size: 12px; font-weight: 600; color: var(--color-text-secondary); transform: translateX(-50%); white-space: nowrap; line-height: 26px; }
-  .canvas-container { position: relative; }
-  #heatmap-canvas { display: block; width: 100%; cursor: crosshair; border-radius: var(--radius-sm); }
+  /* ── Loading overlay ── */
+  .loading-overlay {
+    position:absolute; inset:0; background:rgba(38,43,39,0.92);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:14px; z-index:10; backdrop-filter:blur(4px);
+  }
+  .loading-overlay.hidden { display:none; }
+  .loading-text { font-family:var(--font-mono); font-size:14px; font-weight:600; letter-spacing:0.4px; color:var(--color-text-secondary); text-align:center; }
+  .progress-track { width:280px; height:5px; background:var(--color-surface-2); border-radius:var(--radius-sm); overflow:hidden; }
+  .progress-fill { height:100%; background:var(--tool-accent); border-radius:var(--radius-sm); transition:width 0.4s ease; width:0%; }
+  .error-msg { font-family:var(--font-body); font-size:13px; color:#ef4444; margin-top:4px; }
 
-  .loading-overlay { position: absolute; inset: 0; background: rgba(30,35,32,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 10; backdrop-filter: blur(4px); }
-  .loading-overlay.hidden { display: none; }
-  .loading-text { font-family: var(--font-label); font-size: 14px; font-weight: 600; letter-spacing: .04em; color: var(--color-text-muted); text-align: center; }
-  .progress-track { width: 280px; height: 5px; background: var(--color-surface-2); border-radius: var(--radius-sm); overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--tool-accent); border-radius: var(--radius-sm); transition: width .4s ease; width: 0%; }
-  .error-msg { font-family: var(--font-body); font-size: 13px; color: #ef4444; margin-top: 4px; }
+  /* ── Tooltip ── */
+  #tooltip {
+    position:fixed; background:rgba(30,35,32,0.97); border:1px solid var(--color-border-hover);
+    border-radius:var(--radius-md); padding:10px 14px; pointer-events:none; z-index:200;
+    display:none; width:220px; box-shadow:0 4px 24px rgba(0,0,0,0.5);
+  }
+  .tt-date  { font-family:var(--font-mono); font-size:13px; font-weight:700; color:var(--color-text-secondary); letter-spacing:0.3px; margin-bottom:4px; }
+  .tt-value { font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--color-text-primary); line-height:1; margin-bottom:3px; }
+  .tt-detail{ font-family:var(--font-body); font-size:12px; color:var(--color-text-secondary); line-height:1.4; }
 
-  #tooltip { position: fixed; background: rgba(20,24,21,.97); border: 1px solid var(--color-border-hover); border-radius: var(--radius-md); padding: 10px 14px; pointer-events: none; z-index: 200; display: none; width: 220px; backdrop-filter: blur(12px); box-shadow: 0 4px 24px rgba(0,0,0,.5); }
-  .tt-date { font-family: var(--font-label); font-size: 13px; font-weight: 700; color: var(--color-text-muted); letter-spacing: .03em; margin-bottom: 4px; }
-  .tt-value { font-family: var(--font-mono); font-size: 22px; font-weight: 700; color: var(--color-text-primary); line-height: 1; margin-bottom: 3px; }
-  .tt-detail { font-family: var(--font-body); font-size: 12px; color: var(--color-text-secondary); line-height: 1.4; }
-
-  .brand-pill { font-family: var(--font-label); font-size: 12px; font-weight: 700; letter-spacing: .04em; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 20px; color: var(--tool-accent); padding: 3px 12px; text-decoration: none; margin-left: 4px; transition: all .15s; white-space: nowrap; }
-  .brand-pill:hover { background: var(--color-surface-2); border-color: var(--tool-accent); color: var(--color-text-primary); }
-
-  .footer { margin-top: 14px; font-family: var(--font-label); font-size: 12px; color: var(--color-text-muted); }
-  .footer strong { color: var(--color-text-secondary); }
+  /* ── Narrower windows ── */
+  @media (max-width: 1640px) {
+    .cc-app-title { display:none; }
+  }
+  @media (max-width: 1500px) {
+    .finder-group .search-input { width:150px; }
+    .locate-btn .nm { display:none; }
+    .cc-app-top .cc-segmented-btn { padding:10px 11px; }
+    .cc-app-top { gap:10px; }
+  }
+  @media (max-width: 1280px) {
+    :root { --cc-card-width: 260px; }
+    .finder-group .search-input { width:120px; }
+  }
+  @media (max-height: 760px) {
+    .ro { padding:5px 0 4px; }
+    .ro .cc-stat-value { font-size:26px; }
+  }
+  @media (max-width: 760px) {
+    .cc-app-title { display:block; width:100%; font-size:20px; }
+    .cc-app-top .cc-segmented { width:100%; }
+    .cc-app-top .cc-segmented-btn { flex:1; padding:9px 4px; font-size:11px; letter-spacing:.04em; }
+    .cc-app-spacer { display:none; }
+    .finder-group { flex:1 1 100%; }
+    .finder-group .search-input { width:100%; min-width:0; }
+    .legend-row { margin-left:0; flex-wrap:wrap; }
+    .hour-labels { width:60px; }
+    .hour-label { font-size:12px; padding-right:6px; }
+    .heatmap-inner { margin:0; }
+  }
 </style>
+
 </head>
-<body>
-<div class="container">
+<body class="cc-app-body">
+<div class="cc-app">
 
-  <div class="page-title">
-    <span id="title-station">Islip, NY</span>
-    <span class="title-sep">|</span>
-    <span>Precipitation Heatmap</span>
-    <span class="title-sep">|</span>
-    <span id="title-period">2026</span>
-    <span class="live-dot" id="live-dot" style="display:none" title="Live — refreshes every 10 min">●</span>
-    <button class="cc-btn cc-btn-sm" onclick="downloadPNG()">↓ PNG</button>
-    <a class="brand-pill" href="https://contextclimate.io" target="_blank">[ ] ContextClimate</a>
-  </div>
-
-  <div class="cc-tab-bar" style="margin-bottom:12px">
-    <button class="cc-tab active" id="tab-single" onclick="setMode('single')">Single Year</button>
-    <button class="cc-tab"        id="tab-climo"  onclick="setMode('climatology')">Multi-Year Avg</button>
-    <button class="cc-tab"        id="tab-compare" onclick="setMode('compare')">Compare Years</button>
-  </div>
-
-  <div class="top-bar">
-  <div class="station-row">
-    <span class="control-label">Station:</span>
-    <select id="station-select" class="cc-select station-select" onchange="onStationChange()">
-      <optgroup label="Northeast &amp; Mid-Atlantic">
-        <option value="KISP">Islip, NY</option>
-        <option value="KJFK">New York City (JFK), NY</option>
-        <option value="KLGA">New York City (LGA), NY</option>
-        <option value="KEWR">Newark, NJ</option>
-        <option value="KBDL">Hartford, CT</option>
-        <option value="KPVD">Providence, RI</option>
-        <option value="KBOS">Boston, MA</option>
-        <option value="KALB">Albany, NY</option>
-        <option value="KSYR">Syracuse, NY</option>
-        <option value="KROC">Rochester, NY</option>
-        <option value="KBUF">Buffalo, NY</option>
-        <option value="KBTV">Burlington, VT</option>
-        <option value="KPWM">Portland, ME</option>
-        <option value="KBGR">Bangor, ME</option>
-        <option value="KPHL">Philadelphia, PA</option>
-        <option value="KAVP">Scranton / Wilkes-Barre, PA</option>
-        <option value="KPIT">Pittsburgh, PA</option>
-        <option value="KDCA">Washington, DC</option>
-        <option value="KBWI">Baltimore, MD</option>
-        <option value="KRIC">Richmond, VA</option>
-        <option value="KORF">Norfolk, VA</option>
-      </optgroup>
-      <optgroup label="Southeast">
-        <option value="KRDU">Raleigh-Durham, NC</option>
-        <option value="KCLT">Charlotte, NC</option>
-        <option value="KCHS">Charleston, SC</option>
-        <option value="KCAE">Columbia, SC</option>
-        <option value="KSAV">Savannah, GA</option>
-        <option value="KATL">Atlanta, GA</option>
-        <option value="KBHM">Birmingham, AL</option>
-        <option value="KHSV">Huntsville, AL</option>
-        <option value="KMEM">Memphis, TN</option>
-        <option value="KBNA">Nashville, TN</option>
-        <option value="KTYS">Knoxville, TN</option>
-      </optgroup>
-      <optgroup label="Florida">
-        <option value="KJAX">Jacksonville, FL</option>
-        <option value="KMCO">Orlando, FL</option>
-        <option value="KTPA">Tampa, FL</option>
-        <option value="KRSW">Fort Myers, FL</option>
-        <option value="KMIA">Miami, FL</option>
-      </optgroup>
-      <optgroup label="Gulf South &amp; South Central">
-        <option value="KMOB">Mobile, AL</option>
-        <option value="KPNS">Pensacola, FL</option>
-        <option value="KTLH">Tallahassee, FL</option>
-        <option value="KMSY">New Orleans, LA</option>
-        <option value="KBTR">Baton Rouge, LA</option>
-        <option value="KIAH">Houston (IAH), TX</option>
-        <option value="KHOU">Houston (HOU), TX</option>
-        <option value="KDFW">Dallas / Fort Worth, TX</option>
-        <option value="KAUS">Austin, TX</option>
-        <option value="KSAT">San Antonio, TX</option>
-        <option value="KOKC">Oklahoma City, OK</option>
-        <option value="KTUL">Tulsa, OK</option>
-        <option value="KLIT">Little Rock, AR</option>
-        <option value="KICT">Wichita, KS</option>
-        <option value="KSGF">Springfield, MO</option>
-      </optgroup>
-      <optgroup label="Great Lakes">
-        <option value="KERI">Erie, PA</option>
-        <option value="KCLE">Cleveland, OH</option>
-        <option value="KCMH">Columbus, OH</option>
-        <option value="KTOL">Toledo, OH</option>
-        <option value="KIND">Indianapolis, IN</option>
-        <option value="KSBN">South Bend, IN</option>
-        <option value="KGRR">Grand Rapids, MI</option>
-        <option value="KLAN">Lansing, MI</option>
-        <option value="KFNT">Flint, MI</option>
-        <option value="KDTW">Detroit, MI</option>
-        <option value="KMKE">Milwaukee, WI</option>
-        <option value="KMSN">Madison, WI</option>
-        <option value="KGRB">Green Bay, WI</option>
-      </optgroup>
-      <optgroup label="Upper Midwest &amp; Plains">
-        <option value="KORD">Chicago, IL</option>
-        <option value="KSTL">St. Louis, MO</option>
-        <option value="KMSP">Minneapolis, MN</option>
-        <option value="KDLH">Duluth, MN</option>
-        <option value="KFAR">Fargo, ND</option>
-        <option value="KBIS">Bismarck, ND</option>
-        <option value="KFSD">Sioux Falls, SD</option>
-        <option value="KDSM">Des Moines, IA</option>
-        <option value="KOMA">Omaha, NE</option>
-        <option value="KMCI">Kansas City, MO</option>
-      </optgroup>
-      <optgroup label="Mountain West">
-        <option value="KDEN">Denver, CO</option>
-        <option value="KCOS">Colorado Springs, CO</option>
-        <option value="KGJT">Grand Junction, CO</option>
-        <option value="KRAP">Rapid City, SD</option>
-        <option value="KSLC">Salt Lake City, UT</option>
-        <option value="KABQ">Albuquerque, NM</option>
-        <option value="KELP">El Paso, TX</option>
-        <option value="KBIL">Billings, MT</option>
-        <option value="KGTF">Great Falls, MT</option>
-        <option value="KBZN">Bozeman, MT</option>
-        <option value="KBOI">Boise, ID</option>
-        <option value="KGEG">Spokane, WA</option>
-        <option value="KPHX">Phoenix, AZ</option>
-        <option value="KTUS">Tucson, AZ</option>
-        <option value="KLAS">Las Vegas, NV</option>
-        <option value="KRNO">Reno, NV</option>
-      </optgroup>
-      <optgroup label="Pacific Coast">
-        <option value="KSEA">Seattle, WA</option>
-        <option value="KPDX">Portland, OR</option>
-        <option value="KEUG">Eugene, OR</option>
-        <option value="KMFR">Medford, OR</option>
-        <option value="KYKM">Yakima, WA</option>
-        <option value="KSFO">San Francisco, CA</option>
-        <option value="KSJC">San Jose, CA</option>
-        <option value="KOAK">Oakland, CA</option>
-        <option value="KSMF">Sacramento, CA</option>
-        <option value="KFAT">Fresno, CA</option>
-        <option value="KBFL">Bakersfield, CA</option>
-        <option value="KLAX">Los Angeles, CA</option>
-        <option value="KSNA">Orange County, CA</option>
-        <option value="KSAN">San Diego, CA</option>
-      </optgroup>
-      <optgroup label="Alaska &amp; Hawaii">
-        <option value="PANC">Anchorage, AK</option>
-        <option value="PAFA">Fairbanks, AK</option>
-        <option value="PHNL">Honolulu, HI</option>
-      </optgroup>
-    </select>
-  </div>
-
-  <div id="single-controls" class="controls-row">
-    <span class="control-label">Month:</span>
-    <select id="month-select" class="cc-select" onchange="onMonthChange()"></select>
-    <span class="control-label" style="margin-left:4px">Year:</span>
-    <select id="year-select" class="cc-select" onchange="onYearChange()"></select>
-  </div>
-
-  <div id="climo-controls" class="controls-row" style="display:none">
-    <span class="control-label">Month:</span>
-    <select id="month-select-climo" class="cc-select" onchange="onMonthChangeClimo()"></select>
-    <span class="control-label" style="margin-left:4px">From:</span>
-    <select id="from-year" class="cc-select"></select>
-    <span class="control-label">To:</span>
-    <select id="to-year" class="cc-select"></select>
-    <button class="cc-btn cc-btn-sm primary" onclick="onClimoLoad()">Load</button>
-    <span class="control-label" style="margin-left:6px">Presets:</span>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(1991,2020)">1991–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(2001,2020)">2001–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(2011,2020)">2011–2020</button>
-    <button class="cc-btn cc-btn-sm" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
-  </div>
-
-  <div id="compare-controls" class="controls-row" style="display:none">
-    <span class="control-label">Month:</span>
-    <select id="month-select-compare" class="cc-select" onchange="onMonthChangeCompare()"></select>
-    <span class="control-label" style="margin-left:4px">Add Year:</span>
-    <select id="compare-year-add" class="cc-select"></select>
-    <button class="cc-btn cc-btn-sm primary" onclick="onAddCompareYear()">+ Add</button>
-    <div class="compare-year-chips" id="compare-year-chips"></div>
-    <span class="control-label" style="margin-left:6px">Presets:</span>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(5)">Last 5 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(10)">Last 10 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setComparePreset(30)">Last 30 Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="setCompareAllYears()">All Years</button>
-    <button class="cc-btn cc-btn-sm" onclick="clearCompareYears()">Clear</button>
-    <button class="cc-btn cc-btn-sm active" id="cmp-values-btn" onclick="toggleCompareValues()">Values</button>
-  </div>
-
-  <div class="cc-stat-row">
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label" id="sl-total">Monthly Total</div>
-      <div class="cc-stat-value" id="sv-total" style="font-size:26px">—</div>
-      <div class="cc-stat-note" id="sv-total-sub" style="font-size:11px">liquid equiv.</div>
+  <div class="cc-app-top">
+    <h1 class="cc-app-title">Precipitation Heatmap</h1>
+    <div class="cc-segmented">
+      <button class="cc-segmented-btn active" id="tab-single"  onclick="setMode('single')">Single Year</button>
+      <button class="cc-segmented-btn"        id="tab-climo"   onclick="setMode('climatology')">Multi-Year Avg</button>
+      <button class="cc-segmented-btn"        id="tab-compare" onclick="setMode('compare')">Compare Years</button>
     </div>
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label" id="sl-wetdays">Wet Days</div>
-      <div class="cc-stat-value" id="sv-wetdays" style="font-size:26px">—</div>
-      <div class="cc-stat-note" style="font-size:11px">days w/ measurable precip</div>
+    <div class="finder-group" id="sw">
+      <span class="search-icon">&#9906;</span>
+      <input type="text" class="search-input" id="si" placeholder="Search station ID or city..." autocomplete="off" spellcheck="false">
+      <div class="dropdown" id="dd"></div>
+      <div class="finder-sep"></div>
+      <button class="cc-btn locate-btn" id="locate-btn" onclick="findNearestStation()" title="Use my location to find the nearest station">&#128205;<span class="nm"> Near Me</span></button>
     </div>
-    <div class="cc-stat-chip">
-      <div class="cc-stat-label" id="sl-peak">Peak Hour</div>
-      <div class="cc-stat-value" id="sv-peak" style="font-size:26px">—</div>
-      <div class="cc-stat-note" id="sv-peak-sub" style="font-size:11px">highest single hour</div>
+    <select id="month-select" class="cc-select top-sel" onchange="onMonthChange()" aria-label="Month"></select>
+    <select id="month-select-climo" class="cc-select top-sel" onchange="onMonthChangeClimo()" aria-label="Month" style="display:none"></select>
+    <select id="month-select-compare" class="cc-select top-sel" onchange="onMonthChangeCompare()" aria-label="Month" style="display:none"></select>
+    <select id="year-select" class="cc-select top-sel" onchange="onYearChange()" aria-label="Year"></select>
+    <div class="cc-app-spacer"></div>
+    <div class="exp">
+      <button class="cc-btn" onclick="downloadPNG()">&darr; PNG</button>
     </div>
   </div>
-  </div>
 
-  <div class="legend-row">
-    <span class="legend-end">Dry</span>
-    <canvas id="legend-canvas" height="14" width="260"></canvas>
-    <span class="legend-end" id="legend-hi">&ge; 1.00 in/hr</span>
-  </div>
-
-  <div class="heatmap-wrapper">
-    <div class="heatmap-inner">
-      <div class="hour-labels" id="hour-labels">
-        <div class="hour-labels-spacer"></div>
+  <div class="cc-app-main">
+    <div class="cc-scene">
+      <div class="cc-scene-head">
+        <span class="hm-heading" id="title-station">Islip, NY</span>
+        <span class="hm-period" id="title-period"></span>
+        <span class="live-dot" id="live-dot" style="display:none" title="Live — refreshes every 10 min">&#9679;</span>
+        <div class="legend-row">
+          <span class="legend-end">Dry</span>
+          <canvas id="legend-canvas" height="14" width="240"></canvas>
+          <span class="legend-end" id="legend-hi">&ge; 1.00 in/hr</span>
+        </div>
       </div>
-      <div class="canvas-area" id="canvas-area">
-        <div class="day-label-bar" id="day-labels"></div>
-        <div class="canvas-container">
-          <canvas id="heatmap-canvas"></canvas>
-          <div class="compare-empty" id="compare-empty">Add a year above to start comparing years side by side.</div>
-          <div class="loading-overlay" id="loading-overlay">
-            <div class="loading-text" id="loading-text">Initializing…</div>
-            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-            <div class="error-msg" id="error-msg" style="display:none"></div>
+      <div class="cc-scene-stage">
+        <div class="hm" id="hm-stage">
+          <div class="heatmap-inner">
+            <div class="hour-labels" id="hour-labels">
+              <div class="hour-labels-spacer"></div>
+            </div>
+            <div class="canvas-area" id="canvas-area">
+              <div class="day-label-bar" id="day-labels"></div>
+              <div class="canvas-container">
+                <canvas id="heatmap-canvas"></canvas>
+                <div class="compare-empty" id="compare-empty">Add a year to start comparing.</div>
+                <div class="loading-overlay" id="loading-overlay">
+                  <div class="loading-text" id="loading-text">Initializing…</div>
+                  <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+                  <div class="error-msg" id="error-msg" style="display:none"></div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="footer">
-    <span id="footer-tz">Local Time</span> &nbsp;|&nbsp; Data: IEM ASOS &amp; NOAA ACIS &nbsp;|&nbsp;
-    <strong>[ ] ContextClimate</strong>
+    <div class="cc-card">
+      <div id="climo-controls" style="display:none">
+        <div class="cc-card-eb">Period</div>
+        <div class="cc-card-grp">
+          <div class="card-row">
+            <select id="from-year" class="cc-select" aria-label="From year"></select>
+            <span class="to">to</span>
+            <select id="to-year" class="cc-select" aria-label="To year"></select>
+          </div>
+          <div class="card-row"><button class="cc-btn primary" style="flex:1" onclick="onClimoLoad()">Load</button></div>
+          <div class="card-row grid2">
+            <button class="cc-btn" onclick="setPreset(1991,2020)">1991–2020</button>
+            <button class="cc-btn" onclick="setPreset(2001,2020)">2001–2020</button>
+            <button class="cc-btn" onclick="setPreset(2011,2020)">2011–2020</button>
+            <button class="cc-btn" onclick="setPreset(FIRST_YEAR,CURRENT_YEAR)">Full Record</button>
+          </div>
+        </div>
+      </div>
+      <div id="compare-controls" style="display:none">
+        <div class="cc-card-eb">Years</div>
+        <div class="cc-card-grp">
+          <div class="card-row">
+            <select id="compare-year-add" class="cc-select" aria-label="Year to add"></select>
+            <button class="cc-btn primary" onclick="onAddCompareYear()">+ Add</button>
+          </div>
+          <div class="card-row"><div class="compare-year-chips" id="compare-year-chips"></div></div>
+          <div class="card-row grid2">
+            <button class="cc-btn" onclick="setComparePreset(5)">Last 5</button>
+            <button class="cc-btn" onclick="setComparePreset(10)">Last 10</button>
+            <button class="cc-btn" onclick="setComparePreset(30)">Last 30</button>
+            <button class="cc-btn" onclick="setCompareAllYears()">All Years</button>
+          </div>
+          <div class="card-row grid2">
+            <button class="cc-btn" onclick="clearCompareYears()">Clear</button>
+            <button class="cc-btn active" id="cmp-values-btn" onclick="toggleCompareValues()">Values</button>
+          </div>
+        </div>
+      </div>
+      <div class="cc-card-eb" style="margin-top:4px">Summary</div>
+      <div class="ro"><div class="cc-stat-label" id="sl-total">Monthly Total</div><div class="cc-stat-value" id="sv-total">—</div><div class="cc-stat-note" id="sv-total-sub">liquid equiv.</div></div>
+      <div class="ro"><div class="cc-stat-label" id="sl-wetdays">Wet Days</div><div class="cc-stat-value" id="sv-wetdays">—</div><div class="cc-stat-note">days w/ measurable precip</div></div>
+      <div class="ro"><div class="cc-stat-label" id="sl-peak">Peak Hour</div><div class="cc-stat-value" id="sv-peak">—</div><div class="cc-stat-note" id="sv-peak-sub">highest single hour</div></div>
+      <div class="cc-card-grp ctx" id="ctx-grp" style="display:none">
+        <div class="cc-card-l" id="ctx-label"></div>
+        <canvas id="ctx-canvas"></canvas>
+        <div class="ctx-axis"><span id="ctx-lo"></span><span id="ctx-hi"></span></div>
+        <div class="ctx-k" id="ctx-k"><i></i><span id="ctx-k-t"></span></div>
+        <div class="ctx-v" id="ctx-v"></div>
+        <div class="ctx-r" id="ctx-r"></div>
+      </div>
+      <div class="cc-card-src">
+        <span id="footer-tz">Local Time</span><br>
+        Data: IEM ASOS (hourly) &middot; NOAA ACIS (daily and monthly totals)
+      </div>
+    </div>
   </div>
-
 </div>
 
 <div id="tooltip">
@@ -346,22 +302,36 @@
 // CONFIG
 // ═══════════════════════════════════════════════
 const TRACE            = 0.001;
-const CANVAS_HEIGHT    = 504;
-const CELL_H           = 21;
-const CELL_W           = 29;
+const MEASURABLE       = 0.01;   // a "wet day" needs a measurable total; trace doesn't count
+// Cell size fills the stage on screen (fitCells); PNG export always draws
+// at the original fixed 29 x 21 px cell.
+const EXPORT_CELL_W = 29, EXPORT_CELL_H = 21;
+const CELL_W_MIN = 22, CELL_W_CAP = 36, CELL_H_MIN = 14, CELL_H_MAX = 40;
+const HOUR_COL_W = 76, DAYBAR_H = 28;
+let CELL_H           = EXPORT_CELL_H;
+let CELL_W           = EXPORT_CELL_W;
+let CANVAS_HEIGHT    = 24 * CELL_H;
+let exportCells      = false;
 const FOOTER_ROWS      = 2;    // Total, Wet Hrs
-const FOOTER_H         = FOOTER_ROWS * CELL_H;
+let FOOTER_H           = FOOTER_ROWS * CELL_H;
 const FOOTER_GAP       = 6;
 const AVG_GAP          = 5;
-const TOTAL_H          = CANVAS_HEIGHT + FOOTER_GAP + FOOTER_H;
-const TOTAL_W          = 31 * CELL_W + AVG_GAP + CELL_W;
+let TOTAL_H            = CANVAS_HEIGHT + FOOTER_GAP + FOOTER_H;
+let TOTAL_W            = 31 * CELL_W + AVG_GAP + CELL_W;
 const GRID_SIZE        = 366 * 24;
 // Compare Years: one row per selected year, <=31 columns of that day's
 // PRECIPITATION TOTAL (the ACIS daily series that already feeds the Total
 // footer row), plus a Tot cell holding the month's total for that year.
 // At <=31 columns the cells are wide enough to print the number in, which
 // the 366-column Annual tool can't do.
-const COMPARE_STRIP_H  = 26;
+// The strips fit the stage: row height = available height / year count,
+// clamped. MAX keeps a handful of years looking like they always did; MIN
+// is where a row stops reading as a strip. PNG keeps the original 26 px.
+const COMPARE_STRIP_H_MAX = 44, COMPARE_STRIP_H_MIN = 4, EXPORT_STRIP_H = 26;
+const COMPARE_VALUE_MIN_H = 16;  // below this a printed value no longer fits
+const COMPARE_CHIP_LIMIT  = 12;  // past this the chips collapse to one summary chip
+let compareStripH = EXPORT_STRIP_H;
+let compareHoverRow = -1;
 const FIRST_YEAR       = 1973;
 const CURRENT_YEAR     = new Date().getFullYear();
 const DEFAULT_CLIMO_FROM = 1991;
@@ -381,116 +351,14 @@ const MONTH_START_DOY = (() => {
 // ═══════════════════════════════════════════════
 // STATIONS
 // ═══════════════════════════════════════════════
-const STATIONS = {
-  KISP:{label:'Islip, NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KJFK:{label:'New York City (JFK), NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KLGA:{label:'New York City (LGA), NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KEWR:{label:'Newark, NJ',tz:'America/New_York',tzLabel:'Eastern'},
-  KBDL:{label:'Hartford, CT',tz:'America/New_York',tzLabel:'Eastern'},
-  KPVD:{label:'Providence, RI',tz:'America/New_York',tzLabel:'Eastern'},
-  KBOS:{label:'Boston, MA',tz:'America/New_York',tzLabel:'Eastern'},
-  KALB:{label:'Albany, NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KSYR:{label:'Syracuse, NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KROC:{label:'Rochester, NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KBUF:{label:'Buffalo, NY',tz:'America/New_York',tzLabel:'Eastern'},
-  KBTV:{label:'Burlington, VT',tz:'America/New_York',tzLabel:'Eastern'},
-  KPWM:{label:'Portland, ME',tz:'America/New_York',tzLabel:'Eastern'},
-  KBGR:{label:'Bangor, ME',tz:'America/New_York',tzLabel:'Eastern'},
-  KPHL:{label:'Philadelphia, PA',tz:'America/New_York',tzLabel:'Eastern'},
-  KAVP:{label:'Scranton / Wilkes-Barre, PA',tz:'America/New_York',tzLabel:'Eastern'},
-  KPIT:{label:'Pittsburgh, PA',tz:'America/New_York',tzLabel:'Eastern'},
-  KDCA:{label:'Washington, DC',tz:'America/New_York',tzLabel:'Eastern'},
-  KBWI:{label:'Baltimore, MD',tz:'America/New_York',tzLabel:'Eastern'},
-  KRIC:{label:'Richmond, VA',tz:'America/New_York',tzLabel:'Eastern'},
-  KORF:{label:'Norfolk, VA',tz:'America/New_York',tzLabel:'Eastern'},
-  KRDU:{label:'Raleigh-Durham, NC',tz:'America/New_York',tzLabel:'Eastern'},
-  KCLT:{label:'Charlotte, NC',tz:'America/New_York',tzLabel:'Eastern'},
-  KCHS:{label:'Charleston, SC',tz:'America/New_York',tzLabel:'Eastern'},
-  KCAE:{label:'Columbia, SC',tz:'America/New_York',tzLabel:'Eastern'},
-  KSAV:{label:'Savannah, GA',tz:'America/New_York',tzLabel:'Eastern'},
-  KATL:{label:'Atlanta, GA',tz:'America/New_York',tzLabel:'Eastern'},
-  KBHM:{label:'Birmingham, AL',tz:'America/Chicago',tzLabel:'Central'},
-  KHSV:{label:'Huntsville, AL',tz:'America/Chicago',tzLabel:'Central'},
-  KMEM:{label:'Memphis, TN',tz:'America/Chicago',tzLabel:'Central'},
-  KBNA:{label:'Nashville, TN',tz:'America/Chicago',tzLabel:'Central'},
-  KTYS:{label:'Knoxville, TN',tz:'America/New_York',tzLabel:'Eastern'},
-  KJAX:{label:'Jacksonville, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KMCO:{label:'Orlando, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KTPA:{label:'Tampa, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KRSW:{label:'Fort Myers, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KMIA:{label:'Miami, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KMOB:{label:'Mobile, AL',tz:'America/Chicago',tzLabel:'Central'},
-  KPNS:{label:'Pensacola, FL',tz:'America/Chicago',tzLabel:'Central'},
-  KTLH:{label:'Tallahassee, FL',tz:'America/New_York',tzLabel:'Eastern'},
-  KMSY:{label:'New Orleans, LA',tz:'America/Chicago',tzLabel:'Central'},
-  KBTR:{label:'Baton Rouge, LA',tz:'America/Chicago',tzLabel:'Central'},
-  KIAH:{label:'Houston (IAH), TX',tz:'America/Chicago',tzLabel:'Central'},
-  KHOU:{label:'Houston (HOU), TX',tz:'America/Chicago',tzLabel:'Central'},
-  KDFW:{label:'Dallas / Fort Worth, TX',tz:'America/Chicago',tzLabel:'Central'},
-  KAUS:{label:'Austin, TX',tz:'America/Chicago',tzLabel:'Central'},
-  KSAT:{label:'San Antonio, TX',tz:'America/Chicago',tzLabel:'Central'},
-  KOKC:{label:'Oklahoma City, OK',tz:'America/Chicago',tzLabel:'Central'},
-  KTUL:{label:'Tulsa, OK',tz:'America/Chicago',tzLabel:'Central'},
-  KLIT:{label:'Little Rock, AR',tz:'America/Chicago',tzLabel:'Central'},
-  KICT:{label:'Wichita, KS',tz:'America/Chicago',tzLabel:'Central'},
-  KSGF:{label:'Springfield, MO',tz:'America/Chicago',tzLabel:'Central'},
-  KERI:{label:'Erie, PA',tz:'America/New_York',tzLabel:'Eastern'},
-  KCLE:{label:'Cleveland, OH',tz:'America/New_York',tzLabel:'Eastern'},
-  KCMH:{label:'Columbus, OH',tz:'America/New_York',tzLabel:'Eastern'},
-  KTOL:{label:'Toledo, OH',tz:'America/New_York',tzLabel:'Eastern'},
-  KIND:{label:'Indianapolis, IN',tz:'America/Indiana/Indianapolis',tzLabel:'Eastern'},
-  KSBN:{label:'South Bend, IN',tz:'America/Chicago',tzLabel:'Central'},
-  KGRR:{label:'Grand Rapids, MI',tz:'America/New_York',tzLabel:'Eastern'},
-  KLAN:{label:'Lansing, MI',tz:'America/New_York',tzLabel:'Eastern'},
-  KFNT:{label:'Flint, MI',tz:'America/New_York',tzLabel:'Eastern'},
-  KDTW:{label:'Detroit, MI',tz:'America/New_York',tzLabel:'Eastern'},
-  KMKE:{label:'Milwaukee, WI',tz:'America/Chicago',tzLabel:'Central'},
-  KMSN:{label:'Madison, WI',tz:'America/Chicago',tzLabel:'Central'},
-  KGRB:{label:'Green Bay, WI',tz:'America/Chicago',tzLabel:'Central'},
-  KORD:{label:'Chicago, IL',tz:'America/Chicago',tzLabel:'Central'},
-  KSTL:{label:'St. Louis, MO',tz:'America/Chicago',tzLabel:'Central'},
-  KMSP:{label:'Minneapolis, MN',tz:'America/Chicago',tzLabel:'Central'},
-  KDLH:{label:'Duluth, MN',tz:'America/Chicago',tzLabel:'Central'},
-  KFAR:{label:'Fargo, ND',tz:'America/Chicago',tzLabel:'Central'},
-  KBIS:{label:'Bismarck, ND',tz:'America/Chicago',tzLabel:'Central'},
-  KFSD:{label:'Sioux Falls, SD',tz:'America/Chicago',tzLabel:'Central'},
-  KDSM:{label:'Des Moines, IA',tz:'America/Chicago',tzLabel:'Central'},
-  KOMA:{label:'Omaha, NE',tz:'America/Chicago',tzLabel:'Central'},
-  KMCI:{label:'Kansas City, MO',tz:'America/Chicago',tzLabel:'Central'},
-  KDEN:{label:'Denver, CO',tz:'America/Denver',tzLabel:'Mountain'},
-  KCOS:{label:'Colorado Springs, CO',tz:'America/Denver',tzLabel:'Mountain'},
-  KGJT:{label:'Grand Junction, CO',tz:'America/Denver',tzLabel:'Mountain'},
-  KRAP:{label:'Rapid City, SD',tz:'America/Denver',tzLabel:'Mountain'},
-  KSLC:{label:'Salt Lake City, UT',tz:'America/Denver',tzLabel:'Mountain'},
-  KABQ:{label:'Albuquerque, NM',tz:'America/Denver',tzLabel:'Mountain'},
-  KELP:{label:'El Paso, TX',tz:'America/Denver',tzLabel:'Mountain'},
-  KBIL:{label:'Billings, MT',tz:'America/Denver',tzLabel:'Mountain'},
-  KGTF:{label:'Great Falls, MT',tz:'America/Denver',tzLabel:'Mountain'},
-  KBZN:{label:'Bozeman, MT',tz:'America/Denver',tzLabel:'Mountain'},
-  KBOI:{label:'Boise, ID',tz:'America/Boise',tzLabel:'Mountain'},
-  KGEG:{label:'Spokane, WA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KPHX:{label:'Phoenix, AZ',tz:'America/Phoenix',tzLabel:'Mountain'},
-  KTUS:{label:'Tucson, AZ',tz:'America/Phoenix',tzLabel:'Mountain'},
-  KLAS:{label:'Las Vegas, NV',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KRNO:{label:'Reno, NV',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSEA:{label:'Seattle, WA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KPDX:{label:'Portland, OR',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KEUG:{label:'Eugene, OR',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KMFR:{label:'Medford, OR',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KYKM:{label:'Yakima, WA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSFO:{label:'San Francisco, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSJC:{label:'San Jose, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KOAK:{label:'Oakland, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSMF:{label:'Sacramento, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KFAT:{label:'Fresno, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KBFL:{label:'Bakersfield, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KLAX:{label:'Los Angeles, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSNA:{label:'Orange County, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  KSAN:{label:'San Diego, CA',tz:'America/Los_Angeles',tzLabel:'Pacific'},
-  PANC:{label:'Anchorage, AK',tz:'America/Anchorage',tzLabel:'Alaska'},
-  PAFA:{label:'Fairbanks, AK',tz:'America/Anchorage',tzLabel:'Alaska'},
-  PHNL:{label:'Honolulu, HI',tz:'Pacific/Honolulu',tzLabel:'Hawaii'},
-};
+// Built from the shared roster in station-roster.js. `tz` is the station's
+// exact IANA zone, since hours are binned by local time across decades.
+const STATIONS = Object.fromEntries(STATION_ROSTER.map(([id, name, st, lat, lon, tz]) => [id, {
+  id, name, st, lat, lon,
+  label:   `${name}, ${st}`,
+  tz:      stationIANA(id, tz),
+  tzLabel: STATION_TZ_LABEL[tz] || 'Local',
+}]));
 
 // ═══════════════════════════════════════════════
 // COLOR SCALES
@@ -701,7 +569,7 @@ function getCompareWetDays(year){
   if(!arr)return null;
   let n=0;
   const days=getMonthDaysForYear(year);
-  for(let d=0;d<days;d++){const v=arr[MONTH_START_DOY[activeMonth]+d];if(!isNaN(v)&&v>=TRACE)n++;}
+  for(let d=0;d<days;d++){const v=arr[MONTH_START_DOY[activeMonth]+d];if(!isNaN(v)&&v>=MEASURABLE-1e-6)n++;}
   return n;
 }
 
@@ -738,7 +606,10 @@ function fmtPrecipDisplay(v){
 function buildURL(stId,tz,y1,y2){
   return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?`+
     `station=${stId}&data=p01i`+
-    `&year1=${y1}&month1=1&day1=1&year2=${y2}&month2=12&day2=31`+
+    // IEM's end date is exclusive, so Dec 31 needs Jan 1 of the next year;
+    // every ob rolls forward an hour, so the prior Dec 31's 23:xx ob is the
+    // one that fills Jan 1 Midnight. parseCSVInto() drops the padding days.
+    `&year1=${y1-1}&month1=12&day1=31&year2=${y2+1}&month2=1&day2=1`+
     `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no`;
 }
 
@@ -855,10 +726,90 @@ function parseACISDaily(json,single,accum,compareOut){
 // Clamped to one row's worth so the element never collapses to 0px with
 // nothing selected.
 function activeCanvasHeight(){
-  if(mode==='compare')return Math.max(compareYears.length,1)*COMPARE_STRIP_H;
+  if(mode==='compare')return Math.max(compareYears.length,1)*compareStripH;
   return TOTAL_H;
 }
+// Usable stage height, from offsetHeight so it doesn't change when a
+// scrollbar appears inside the stage. When the grid can't fit across even
+// at minimum cell width a horizontal scrollbar is certain, so its thickness
+// is reserved -- decided from widths alone, so no height feeds back into
+// whether that scrollbar shows.
+let scrollbarPx=-1;
+function scrollbarThickness(){
+  if(scrollbarPx<0){
+    const d=document.createElement('div');
+    d.style.cssText='position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
+    document.body.appendChild(d);
+    scrollbarPx=d.offsetWidth-d.clientWidth;
+    d.remove();
+  }
+  return scrollbarPx;
+}
+function stageInnerW(st,cs){
+  return st.offsetWidth-parseFloat(cs.borderLeftWidth)-parseFloat(cs.borderRightWidth)
+        -parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight)-HOUR_COL_W-2;
+}
+function stageFitH(st,cs){
+  const h=st.offsetHeight-parseFloat(cs.borderTopWidth)-parseFloat(cs.borderBottomWidth)
+        -parseFloat(cs.paddingTop)-parseFloat(cs.paddingBottom);
+  return (stageInnerW(st,cs)-AVG_GAP)<32*CELL_W_MIN+2?h-scrollbarThickness():h;
+}
+function fitCells(){
+  if(exportCells){CELL_W=EXPORT_CELL_W;CELL_H=EXPORT_CELL_H;}
+  else{
+    const st=document.getElementById('hm-stage');
+    if(st&&st.offsetWidth){
+      const cs=getComputedStyle(st);
+      const w=stageInnerW(st,cs);
+      const h=stageFitH(st,cs)-DAYBAR_H-2;
+      CELL_W=Math.max(CELL_W_MIN,Math.min(CELL_W_CAP,Math.floor((w-AVG_GAP)/32*4)/4));
+      CELL_H=Math.max(CELL_H_MIN,Math.min(CELL_H_MAX,Math.floor((h-FOOTER_GAP)/(24+FOOTER_ROWS)*4)/4));
+    }
+  }
+  CANVAS_HEIGHT=24*CELL_H;
+  FOOTER_H=FOOTER_ROWS*CELL_H;
+  TOTAL_H=CANVAS_HEIGHT+FOOTER_GAP+FOOTER_H;
+  TOTAL_W=31*CELL_W+AVG_GAP+CELL_W;
+}
+// Fits the daily strip stack to the stage. Runs before setupCanvas().
+function recomputeCompareStripH(){
+  if(exportCells){compareStripH=EXPORT_STRIP_H;return;}
+  if(mode!=='compare')return;
+  const n=compareYears.length;
+  if(!n){compareStripH=COMPARE_STRIP_H_MAX;return;}
+  const st=document.getElementById('hm-stage');
+  if(!st||!st.offsetHeight)return;
+  const avail=stageFitH(st,getComputedStyle(st))-DAYBAR_H-4;
+  compareStripH=Math.max(COMPARE_STRIP_H_MIN,Math.min(COMPARE_STRIP_H_MAX,Math.floor(avail/n)));
+}
+function compareValuesVisible(){return compareShowValues&&compareStripH>=COMPARE_VALUE_MIN_H;}
+function updateCompareValuesBtn(){
+  const b=document.getElementById('cmp-values-btn');
+  const roomy=compareStripH>=COMPARE_VALUE_MIN_H;
+  b.classList.toggle('active',compareShowValues&&roomy);
+  b.classList.toggle('disabled',!roomy);
+  b.title=roomy?'':'Rows are too short to print values';
+}
+// Year labels thin to every 2nd / 5th / 10th year as the strips compress.
+function compareLabelStep(){
+  for(const step of[1,2,5,10]) if(compareStripH*step>=11) return step;
+  return 10;
+}
+function compareLabelKeep(ri){
+  const step=compareLabelStep();
+  if(ri%step===0) return true;
+  const last=compareYears.length-1;
+  if(ri!==last) return false;
+  return (last-(last-(last%step)))*compareStripH>=11;
+}
+// Grid numbers grow with the cell from the original 29 x 21 up to a third.
+function cellFont(basePx,rowH){
+  const k=Math.max(1,Math.min(CELL_W/EXPORT_CELL_W,(rowH||CELL_H)/19,4/3));
+  return `${(basePx*k).toFixed(1)}px "JetBrains Mono",monospace`;
+}
 function setupCanvas(){
+  fitCells();
+  recomputeCompareStripH();
   const H=activeCanvasHeight();
   canvas.style.width  = TOTAL_W+'px';
   canvas.style.height = H+'px';
@@ -1019,6 +970,7 @@ function renderHeatmap(){
   // ── Cell values ──
   renderCellValues(cw,ch,mDays,totColVals,totalRowVals,wetHrRowVals,
                    totOfTotal,totOfWet,AVG_X);
+  if(!exportCells)renderContext();
 }
 
 function renderCellValues(cw,ch,mDays,totColVals,totalRowVals,wetHrRowVals,
@@ -1029,7 +981,7 @@ function renderCellValues(cw,ch,mDays,totColVals,totalRowVals,wetHrRowVals,
   ctx.shadowColor='rgba(0,0,0,0.55)';
   ctx.shadowBlur=1.5;
   ctx.fillStyle='#000000';
-  ctx.font='9px "JetBrains Mono",monospace';
+  ctx.font=cellFont(9);
 
   // Main grid
   for(let d=0;d<mDays;d++){
@@ -1104,7 +1056,7 @@ function renderCompareHeatmap(){
   const pw=canvas.width,ph=canvas.height;
   if(!compareYears.length){ctx.clearRect(0,0,pw,ph);return;}
 
-  const cw=CELL_W,sh=COMPARE_STRIP_H;
+  const cw=CELL_W,sh=compareStripH;
   const GRID_W=31*cw;
   const TOT_X=GRID_W+AVG_GAP;
   const stackH=compareYears.length*sh;
@@ -1153,13 +1105,13 @@ function renderCompareHeatmap(){
   ctx.strokeRect(.75,.75,GRID_W-1.5,stackH-1.5);
   ctx.strokeRect(TOT_X+.75,.75,cw-1.5,stackH-1.5);
 
-  if(!compareShowValues)return;
+  if(!exportCells)renderContext();
+  if(!compareValuesVisible())return;
 
-  // ── Cell value text ── (29px-wide cells have the room the Annual tool's
-  // 3px-wide ones don't)
+  // ── Cell value text ──
   ctx.save();
   ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.font='9px "JetBrains Mono",monospace';
+  ctx.font=cellFont(9,compareStripH);
   ctx.shadowColor='rgba(0,0,0,0.45)';ctx.shadowBlur=1.5;
   compareYears.forEach((year,ri)=>{
     const cy=ri*sh+sh/2;
@@ -1228,6 +1180,15 @@ async function ensureCompareYearsData(years,onProgress){
 function renderCompareChips(){
   const wrap=document.getElementById('compare-year-chips');
   wrap.innerHTML='';
+  if(compareYears.length>COMPARE_CHIP_LIMIT){
+    const lo=compareYears[0],hi=compareYears[compareYears.length-1];
+    const chip=document.createElement('span');
+    chip.className='compare-chip';
+    chip.innerHTML=`${lo}–${hi} · ${compareYears.length} yrs `+
+      `<button type="button" aria-label="Clear all years" onclick="clearCompareYears()">×</button>`;
+    wrap.appendChild(chip);
+    return;
+  }
   for(const year of compareYears){
     const chip=document.createElement('span');
     chip.className='compare-chip';
@@ -1259,7 +1220,7 @@ async function refreshCompareView(){
     }catch(e){stopFakeProgress();showError(e.message);console.error(e);return;}
   }
 
-  setupCanvas();renderHourLabels();renderDayLabels();
+  setupCanvas();renderHourLabels();renderDayLabels();updateCompareValuesBtn();
   renderCompareHeatmap();renderLegend();updateTitle();updateStats();
 }
 
@@ -1288,8 +1249,9 @@ function setCompareAllYears(){
 }
 // Numbers-in-cells toggle.
 function toggleCompareValues(){
+  if(compareStripH<COMPARE_VALUE_MIN_H)return;
   compareShowValues=!compareShowValues;
-  document.getElementById('cmp-values-btn').classList.toggle('active',compareShowValues);
+  updateCompareValuesBtn();
   if(mode==='compare'&&compareYears.length)renderCompareHeatmap();
 }
 
@@ -1297,17 +1259,25 @@ function renderHourLabels(){
   const cont=document.getElementById('hour-labels');
   cont.innerHTML='<div class="hour-labels-spacer"></div>';
   if(mode==='compare'){
-    // One gold year label per strip. Heights must match COMPARE_STRIP_H
-    // exactly or the labels drift out of line with the canvas rows.
-    for(const year of compareYears){
+    // Labels sit at each row's centre inside a stack the canvas's height, so
+    // a label can be taller than its row; they thin out as the rows shrink,
+    // and the hovered row's label always shows.
+    const stack=document.createElement('div');
+    stack.className='year-label-stack';
+    stack.id='year-label-stack';
+    stack.style.height=(compareYears.length*compareStripH)+'px';
+    const fontPx=Math.max(9,Math.min(13,compareStripH));
+    compareYears.forEach((year,ri)=>{
       const el=document.createElement('div');
-      el.className='hour-label';
-      el.style.height=COMPARE_STRIP_H+'px';
-      el.style.color='#FFD700';
-      el.style.fontWeight='700';
-      el.textContent=String(year);
-      cont.appendChild(el);
-    }
+      el.className='year-label-abs';
+      el.dataset.row=String(ri);
+      el.style.top=((ri+0.5)*compareStripH)+'px';
+      el.style.fontSize=fontPx+'px';
+      el.textContent=compareLabelKeep(ri)?String(year):'';
+      stack.appendChild(el);
+    });
+    cont.appendChild(stack);
+    applyCompareHoverLabel();
     return;
   }
   for(let h=0;h<24;h++){
@@ -1333,6 +1303,21 @@ function renderHourLabels(){
     el.textContent=text;
     cont.appendChild(el);
   }
+}
+
+function applyCompareHoverLabel(){
+  const stack=document.getElementById('year-label-stack');
+  if(!stack)return;
+  for(const el of stack.children){
+    const ri=parseInt(el.dataset.row,10),on=ri===compareHoverRow;
+    el.textContent=(compareLabelKeep(ri)||on)?String(compareYears[ri]):'';
+    el.classList.toggle('hovered',on);
+  }
+}
+function setCompareHoverRow(ri){
+  if(ri===compareHoverRow)return;
+  compareHoverRow=ri;
+  applyCompareHoverLabel();
 }
 
 function renderDayLabels(){
@@ -1396,7 +1381,7 @@ function updateStats(){
     const doy=MONTH_START_DOY[activeMonth]+d;
     // Daily total from ACIS
     const dt=getDayTotal(doy);
-    if(dt!=null&&!isNaN(dt)&&dt>=TRACE){wetDays++;hasData=true;}
+    if(dt!=null&&!isNaN(dt)){hasData=true;if(dt>=MEASURABLE-1e-6)wetDays++;}
     // Hourly for peak and total fallback
     for(let h=0;h<24;h++){
       const v=getGridValue(doy,h);
@@ -1474,7 +1459,7 @@ function updateTitle(){
     :(compareYears.length
         ? `${MONTHS_FULL[activeMonth]} · Comparing ${compareYears.length} Year${compareYears.length>1?'s':''}`
         : `${MONTHS_FULL[activeMonth]} · Compare Years`);
-  document.getElementById('footer-tz').textContent=st.tzLabel+' Local Time';
+  document.getElementById('footer-tz').textContent=st.tzLabel+' local time';
   const liveDot=document.getElementById('live-dot');
   liveDot.style.display=(mode==='single'&&currentYear===CURRENT_YEAR)?'inline':'none';
 }
@@ -1589,9 +1574,12 @@ function setMode(m){
   document.getElementById('tab-single').classList.toggle('active',m==='single');
   document.getElementById('tab-climo').classList.toggle('active',m==='climatology');
   document.getElementById('tab-compare').classList.toggle('active',m==='compare');
-  document.getElementById('single-controls').style.display=m==='single'?'flex':'none';
-  document.getElementById('climo-controls').style.display=m==='climatology'?'flex':'none';
-  document.getElementById('compare-controls').style.display=m==='compare'?'flex':'none';
+  document.getElementById('climo-controls').style.display=m==='climatology'?'block':'none';
+  document.getElementById('compare-controls').style.display=m==='compare'?'block':'none';
+  document.getElementById('month-select').style.display        =m==='single'?'':'none';
+  document.getElementById('month-select-climo').style.display  =m==='climatology'?'':'none';
+  document.getElementById('month-select-compare').style.display=m==='compare'?'':'none';
+  document.getElementById('year-select').style.display         =m==='single'?'':'none';
   if(m!=='compare')document.getElementById('compare-empty').style.display='none';
   // Canvas height, sidebar layout and legend scale are all mode-dependent,
   // so all three are rebuilt on every switch -- otherwise leaving Compare
@@ -1654,8 +1642,63 @@ function setPreset(fy,ty){
   fromYear=fy;toYear=ty;climoData=null;loadClimatology(fromYear,toYear);
 }
 
-function onStationChange(){
-  activeStationId=document.getElementById('station-select').value;
+let ddIdx=-1;
+function haversineMiles(lat1,lon1,lat2,lon2){
+  const R=3958.8,toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.asin(Math.sqrt(a));
+}
+// "Near Me": rank the roster by distance and offer the closest in the
+// dropdown rather than auto-picking one.
+function findNearestStation(){
+  const btn=document.getElementById('locate-btn');
+  if(!navigator.geolocation){alert('Geolocation is not supported by this browser.');return;}
+  const orig=btn.innerHTML;btn.classList.add('loading');btn.innerHTML='&#8987; Locating…';
+  navigator.geolocation.getCurrentPosition(pos=>{
+    btn.classList.remove('loading');btn.innerHTML=orig;
+    const{latitude:lat,longitude:lon}=pos.coords;
+    const ranked=Object.values(STATIONS).map(s=>({s,dist:haversineMiles(lat,lon,s.lat,s.lon)}))
+      .sort((a,b)=>a.dist-b.dist).slice(0,8);
+    document.getElementById('si').value='';
+    renderDD(ranked.map(r=>r.s),ranked.map(r=>r.dist));
+  },err=>{
+    btn.classList.remove('loading');btn.innerHTML=orig;
+    alert('Could not get your location: '+(err&&err.message?err.message:'permission denied or unavailable.'));
+  },{enableHighAccuracy:false,timeout:8000,maximumAge:600000});
+}
+function initSearch(){
+  const inp=document.getElementById('si'),dd=document.getElementById('dd');
+  const all=Object.values(STATIONS);
+  inp.addEventListener('input',()=>{
+    ddIdx=-1;const q=inp.value.trim().toLowerCase();
+    if(!q){dd.classList.remove('open');return;}
+    renderDD(all.filter(s=>s.id.toLowerCase().startsWith(q)||s.id.slice(1).toLowerCase().startsWith(q)||
+                           s.name.toLowerCase().includes(q)||s.st.toLowerCase()===q).slice(0,18));
+  });
+  inp.addEventListener('keydown',e=>{
+    const items=dd.querySelectorAll('.d-item');
+    if(e.key==='ArrowDown'){e.preventDefault();ddIdx=Math.min(ddIdx+1,items.length-1);highlightDD(items);}
+    else if(e.key==='ArrowUp'){e.preventDefault();ddIdx=Math.max(ddIdx-1,0);highlightDD(items);}
+    else if(e.key==='Enter'){e.preventDefault();if(ddIdx>=0&&items[ddIdx])items[ddIdx].click();}
+    else if(e.key==='Escape'){dd.classList.remove('open');}
+  });
+  document.addEventListener('click',e=>{if(!document.getElementById('sw').contains(e.target))dd.classList.remove('open');});
+}
+function highlightDD(items){items.forEach((el,i)=>{el.classList.toggle('hi',i===ddIdx);if(i===ddIdx)el.scrollIntoView({block:'nearest'});});}
+function renderDD(matches,dists){
+  const dd=document.getElementById('dd');
+  if(!matches.length){dd.classList.remove('open');return;}
+  dd.innerHTML=matches.map((s,i)=>`<div class="d-item"><span class="d-id">${s.id}</span><span class="d-name">${s.name}</span>`+
+    (dists?`<span class="d-dist">${dists[i].toFixed(0)}mi</span>`:'')+`<span class="d-st">${s.st}</span></div>`).join('');
+  dd.querySelectorAll('.d-item').forEach((el,i)=>el.addEventListener('click',()=>{
+    document.getElementById('si').value='';dd.classList.remove('open');selectStation(matches[i].id);
+  }));
+  dd.classList.add('open');
+}
+function selectStation(id){
+  if(!STATIONS[id]||id===activeStationId)return;
+  activeStationId=id;
   singleData=null;
   climoData=climoCache.get(`${activeStationId}_${fromYear}_${toYear}`)||null;
   stopLiveRefresh();
@@ -1678,11 +1721,12 @@ canvas.addEventListener('mousemove',e=>{
 
   if(mode==='compare'){
     if(!compareYears.length){tooltip.style.display='none';return;}
-    const stackH=compareYears.length*COMPARE_STRIP_H;
+    const stackH=compareYears.length*compareStripH;
     if(mx<0||mx>TOTAL_W||my<0||my>stackH){tooltip.style.display='none';return;}
     // Tot column values are printed in the cell already
     if(mx>31*CELL_W){tooltip.style.display='none';return;}
-    const ri=Math.min(compareYears.length-1,Math.floor(my/COMPARE_STRIP_H));
+    const ri=Math.min(compareYears.length-1,Math.floor(my/compareStripH));
+    setCompareHoverRow(ri);
     const year=compareYears[ri];
     const col=Math.min(30,Math.floor(mx/CELL_W));
     // Past this year's own February length -- that cell is dark, not data
@@ -1733,7 +1777,7 @@ canvas.addEventListener('mousemove',e=>{
   tooltip.style.left=tx+'px';
   tooltip.style.top=ty+'px';
 });
-canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';});
+canvas.addEventListener('mouseleave',()=>{tooltip.style.display='none';setCompareHoverRow(-1);});
 
 // ═══════════════════════════════════════════════
 // DOWNLOAD PNG
@@ -1754,6 +1798,7 @@ function downloadPNG(){
   const EXPORT_SCALE = 3;
   const origDpr = dpr;
   dpr = EXPORT_SCALE;
+  exportCells = true;
   setupCanvas();
   renderActiveHeatmap();
 
@@ -1815,7 +1860,7 @@ function downloadPNG(){
     oc.font='bold 12px "Barlow Condensed",sans-serif';
     oc.fillStyle='#FFD700';
     compareYears.forEach((year,ri)=>{
-      oc.fillText(String(year),hLabelX,HDR+DBAR+(ri+0.5)*COMPARE_STRIP_H);
+      oc.fillText(String(year),hLabelX,HDR+DBAR+(ri+0.5)*compareStripH);
     });
     oc.font='11px "Barlow Condensed",sans-serif';
   }else{
@@ -1846,6 +1891,7 @@ function downloadPNG(){
   // Restore the on-screen canvas to its normal screen resolution now that
   // we've captured the high-res version into the export canvas above.
   dpr = origDpr;
+  exportCells = false;
   setupCanvas();
   renderActiveHeatmap();
 
@@ -1873,6 +1919,191 @@ function downloadPNG(){
 }
 
 // ═══════════════════════════════════════════════
+// MONTH IN CONTEXT — every year's total for this month
+// ═══════════════════════════════════════════════
+// One ACIS request per station for the whole period of record, monthly
+// sums. A month with any missing day comes back 'M' and is left out, so a
+// gap never reads as a dry month.
+const monthlyCache=new Map();   // stationId -> { status, by: Map(year -> 12 totals|null) }
+const NORMAL_FROM=1991,NORMAL_TO=2020,NORMAL_MIN_YEARS=24;
+async function ensureMonthly(stId){
+  if(monthlyCache.has(stId))return;
+  monthlyCache.set(stId,{status:'loading'});
+  try{
+    const sid=stId.startsWith('K')?stId.slice(1):stId;
+    const r=await fetch('https://data.rcc-acis.org/StnData',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sid,sdate:'por',edate:'por',
+        elems:[{name:'pcpn',interval:'mly',duration:'mly',reduce:'sum',maxmissing:0}]})
+    });
+    if(!r.ok)throw new Error(`ACIS HTTP ${r.status}`);
+    const json=await r.json();
+    const by=new Map();
+    for(const row of(json.data||[])){
+      if(!Array.isArray(row)||row.length<2)continue;
+      const y=parseInt(row[0].slice(0,4),10),m=parseInt(row[0].slice(5,7),10)-1;
+      if(isNaN(y)||isNaN(m))continue;
+      if(!by.has(y))by.set(y,new Array(12).fill(null));
+      const v=row[1]==='T'?TRACE:parseFloat(row[1]);
+      by.get(y)[m]=isNaN(v)?null:v;
+    }
+    monthlyCache.set(stId,{status:'ok',by});
+  }catch(e){
+    monthlyCache.set(stId,{status:'err'});
+  }
+  if(stId===activeStationId)renderContext();
+}
+function niceStep(raw){
+  const p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p;
+  return(f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p;
+}
+function niceDomain(lo,hi,n){
+  if(!(hi>lo))hi=lo+1;
+  const step=niceStep((hi-lo)/n);
+  return{lo:Math.floor(lo/step)*step,hi:Math.ceil(hi/step)*step,step};
+}
+function ordinal(n){
+  const s=['th','st','nd','rd'],v=n%100;
+  return n+(s[(v-20)%10]||s[v]||s[0]);
+}
+const fIn=v=>(v<TRACE+0.0005?'T':v.toFixed(2))+'"';
+
+function renderContext(){
+  const grp=document.getElementById('ctx-grp');
+  if(!grp||exportCells)return;
+  const mc=monthlyCache.get(activeStationId);
+  if(!mc)ensureMonthly(activeStationId);
+  if(!mc||mc.status!=='ok'){grp.style.display='none';return;}
+
+  const pts=[];
+  for(const[y,months]of mc.by){const v=months[activeMonth];if(v!=null)pts.push({y,v});}
+  if(pts.length<5){grp.style.display='none';return;}
+
+  // The month still in progress: its total so far, from the daily totals
+  // this view already loaded. Shown, but not ranked -- it can only grow.
+  const now=new Date();
+  let partial=null;
+  if(mode==='single'&&singleData&&currentYear===CURRENT_YEAR&&activeMonth===now.getMonth()
+     &&!pts.some(p=>p.y===currentYear)){
+    let s=0,n=0;
+    for(let d=0;d<getMonthDays();d++){
+      const v=singleData.dayTotal[MONTH_START_DOY[activeMonth]+d];
+      if(!isNaN(v)){s+=v;n++;}
+    }
+    if(n)partial={y:currentYear,v:s,days:n};
+  }
+  grp.style.display='';
+
+  const normSet=pts.filter(p=>p.y>=NORMAL_FROM&&p.y<=NORMAL_TO);
+  const normal=normSet.length>=NORMAL_MIN_YEARS?normSet.reduce((a,p)=>a+p.v,0)/normSet.length:null;
+
+  const all=partial?pts.concat([partial]):pts.slice();
+  const yrs=pts.map(p=>p.y);
+  const y0=Math.min(...yrs),y1=Math.max(...yrs);
+  const hl=mode==='single'?new Set([currentYear])
+         :mode==='climatology'?new Set(all.filter(p=>p.y>=fromYear&&p.y<=toYear).map(p=>p.y))
+         :new Set(compareYears);
+  document.getElementById('ctx-label').textContent=`${MONTHS_FULL[activeMonth]} totals · ${y0}–${y1}`;
+
+  // Dot plot: one dot per year, stacked in value bins from zero
+  const cv=document.getElementById('ctx-canvas');
+  const W=Math.max(160,cv.parentElement.clientWidth);
+  const dom=niceDomain(0,Math.max(...all.map(p=>p.v)),4);
+  let D=8;
+  const binsFor=d=>Math.max(8,Math.floor((W-8)/(d+1)));
+  let nb=binsFor(D),stacks;
+  const place=()=>{
+    stacks=new Map();
+    for(const p of all.slice().sort((a,b)=>(hl.has(a.y)-hl.has(b.y))||a.y-b.y)){
+      const b=Math.round((p.v-dom.lo)/(dom.hi-dom.lo)*(nb-1));
+      if(!stacks.has(b))stacks.set(b,[]);
+      stacks.get(b).push(p);
+    }
+    return Math.max(...[...stacks.values()].map(s=>s.length));
+  };
+  let tall=place();
+  while(tall*(D+1)>72&&D>4){D--;nb=binsFor(D);tall=place();}
+  const H=tall*(D+1)+6;
+  cv.style.width=W+'px';cv.style.height=H+'px';
+  cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);
+  const c=cv.getContext('2d');
+  c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,W,H);
+  const bx=b=>4+(b+0.5)*((W-8)/nb);
+  const xOf=v=>Math.round(4+(v-dom.lo)/(dom.hi-dom.lo)*(W-8))+0.5;
+  for(const[b,stack]of stacks){
+    stack.forEach((p,i)=>{
+      const cx=bx(b),cy=H-3-(i+0.5)*(D+1);
+      const[r,g,bb]=getColorRGB(p.v,SCALE_MONTH_TOTAL);
+      const on=hl.has(p.y);
+      c.globalAlpha=on||!hl.size?1:0.4;
+      c.fillStyle=`rgb(${r},${g},${bb})`;
+      c.beginPath();c.arc(cx,cy,D/2,0,Math.PI*2);c.fill();
+      // Hairline ring so the near-black dry months stay visible on the card
+      c.strokeStyle='rgba(232,228,217,0.28)';c.lineWidth=1;
+      c.beginPath();c.arc(cx,cy,D/2-0.5,0,Math.PI*2);c.stroke();
+      if(on&&mode!=='climatology'){
+        c.globalAlpha=1;c.strokeStyle='#FFFFFF';c.lineWidth=2;
+        if(p===partial)c.setLineDash([2,2]);
+        c.beginPath();c.arc(cx,cy,D/2+1.5,0,Math.PI*2);c.stroke();c.setLineDash([]);
+      }
+    });
+  }
+  c.globalAlpha=1;
+  // Reference line: the selected range's mean in Multi-Year Avg, the
+  // 1991-2020 average otherwise
+  const sel=all.filter(p=>hl.has(p.y));
+  const refV=mode==='climatology'?(sel.length?sel.reduce((a,p)=>a+p.v,0)/sel.length:null):normal;
+  const key=document.getElementById('ctx-k');
+  if(refV!=null){
+    c.strokeStyle='#D08425';c.lineWidth=2;c.setLineDash([3,3]);
+    c.beginPath();c.moveTo(xOf(refV),0);c.lineTo(xOf(refV),H);c.stroke();c.setLineDash([]);
+    document.getElementById('ctx-k-t').textContent=
+      `${mode==='climatology'?`${fromYear}–${toYear}`:`${NORMAL_FROM}–${NORMAL_TO}`} avg ${fIn(refV)}`;
+    key.style.display='';
+  }else key.style.display='none';
+  const dp=dom.step<0.1?2:dom.step<1?1:0;
+  document.getElementById('ctx-lo').textContent=dom.lo.toFixed(dp)+'"';
+  document.getElementById('ctx-hi').textContent=dom.hi.toFixed(dp)+'"';
+
+  // Readout. Ranks count from the nearer end; equal totals share a rank.
+  const rankOf=p=>{
+    const n=pts.length,wet=1+pts.filter(q=>q.v>p.v).length,dry=1+pts.filter(q=>q.v<p.v).length;
+    const tie=pts.filter(q=>q.v===p.v).length>1?' (tie)':'';
+    return wet<=dry?`${ordinal(wet)} wettest of ${n}${tie}`:`${ordinal(dry)} driest of ${n}${tie}`;
+  };
+  const pctN=v=>normal?`${Math.round(v/normal*100)}% of ${NORMAL_FROM}–${NORMAL_TO} avg`:'';
+  let v='',r='';
+  if(mode==='single'){
+    const p=pts.find(q=>q.y===currentYear);
+    if(p){
+      v=`${currentYear}: ${fIn(p.v)}`;
+      r=[rankOf(p),pctN(p.v)].filter(Boolean).join(' · ');
+    }else if(partial){
+      v=`${currentYear}: ${fIn(partial.v)} so far`;
+      const k=pts.filter(q=>q.v<partial.v).length;
+      r=`${partial.days} day${partial.days>1?'s':''} · `+(k?`wetter than ${k} of ${pts.length} full months`:pctN(partial.v)||'no full months below it yet');
+    }else{
+      v=`${currentYear}: ${currentYear===CURRENT_YEAR&&activeMonth>=now.getMonth()?'no data yet':'incomplete record'}`;
+    }
+  }else if(mode==='climatology'){
+    if(sel.length){
+      v=`${fromYear}–${toYear}: ${fIn(refV)} avg`;
+      r=`${sel.length} of ${all.length} years`;
+    }
+  }else{
+    const s=pts.filter(p=>hl.has(p.y));
+    if(s.length){
+      const hi=s.reduce((a,p)=>p.v>a.v?p:a),lo=s.reduce((a,p)=>p.v<a.v?p:a);
+      v=`Wettest: ${hi.y} ${fIn(hi.v)}`;
+      r=`Driest: ${lo.y} ${fIn(lo.v)}`;
+    }
+  }
+  document.getElementById('ctx-v').textContent=v;
+  document.getElementById('ctx-r').textContent=r;
+}
+
+// ═══════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════
 function init(){
@@ -1897,18 +2128,29 @@ function init(){
     const o3=document.createElement('option');o3.value=y;o3.textContent=y;cmpSel.appendChild(o3);
   }
   yrSel.value=currentYear;fromSel.value=fromYear;toSel.value=toYear;
+  initSearch();
 
   requestAnimationFrame(()=>{
     setupCanvas();renderHourLabels();renderDayLabels();renderLegend();updateTitle();
     loadSingleYear(currentYear);
   });
 
-  window.addEventListener('resize',()=>{
+  const relayout=()=>{
     dpr=window.devicePixelRatio||1;
-    setupCanvas();renderDayLabels();renderLegend();
+    setupCanvas();renderHourLabels();renderDayLabels();renderLegend();
+    if(mode==='compare')updateCompareValuesBtn();
     const hasData=mode==='single'?!!singleData:mode==='climatology'?!!climoData:compareYears.length>0;
     if(hasData) renderActiveHeatmap();
-  });
+  };
+  window.addEventListener('resize',relayout);
+  // Keyed on offsetHeight, which a scrollbar inside the stage doesn't change,
+  // so a scrollbar appearing can't re-trigger a fit.
+  let lastStage='';
+  if(window.ResizeObserver)new ResizeObserver(()=>{
+    const st=document.getElementById('hm-stage');
+    const key=st.offsetWidth+'x'+st.offsetHeight;
+    if(key!==lastStage){lastStage=key;relayout();}
+  }).observe(document.getElementById('hm-stage'));
 }
 
 init();
