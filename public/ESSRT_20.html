@@ -179,7 +179,7 @@ body { padding: 0; overflow: hidden; min-height: 0; }
   .k-src { padding-top: 4px; }
   .k-l { margin: 6px 0 3px; }
 }
-@media (max-height: 620px) { .k-src.ix { display: none; } .k-row.opt { display: none; } .k-cmp { display: none; } }
+@media (max-height: 620px) { .k-src.ix { display: none; } .k-row.opt { display: none; } .k-cmp { display: none; } .k-l.opt, .ramp.opt, .ramp-l.opt { display: none; } }
 
 .cmp { width: 100%; border-collapse: collapse; margin: 8px 0 6px; font-family: var(--font-body); table-layout: fixed; }
 .cmp col.lab { width: 40%; }
@@ -479,10 +479,29 @@ function samp(G, lon, lat) {
   return w >= 0.5 ? s / w : NaN;
 }
 const G = {};
+/* Light, speed-aware smoothing: a ½° Gaussian (σ in cells) removes bin-to-bin sampling noise in slow
+   flow; currents faster than ~0.75 m/s keep the full-resolution values. */
+function smoothUV(u, v, ny, nx, sig, wrap) {
+  const r = Math.ceil(sig * 3), k = []; let ks = 0; for (let i = -r; i <= r; i++) { const w = Math.exp(-i * i / (2 * sig * sig)); k.push(w); ks += w; }
+  const pass = (src, horiz) => { const out = new Float32Array(src.length), wt = new Float32Array(src.length);
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) { let s = 0, w = 0;
+      for (let t = -r; t <= r; t++) { let jj = j, ii = i; if (horiz) { ii = i + t; if (wrap) ii = (ii + nx) % nx; else if (ii < 0 || ii >= nx) continue; } else { jj = j + t; if (jj < 0 || jj >= ny) continue; }
+        const val = src[jj * nx + ii]; if (val === val) { s += val * k[t + r]; w += k[t + r]; } }
+      out[j * nx + i] = w > 0 ? s / w : NaN; } return out; };
+  const res = [u, v].map(a => pass(pass(a, true), false));
+  for (let n = 0; n < u.length; n++) {
+    if (u[n] !== u[n]) { res[0][n] = NaN; res[1][n] = NaN; continue; }
+    const t = clamp((Math.hypot(u[n], v[n]) - 0.35) / 0.4, 0, 1);
+    res[0][n] = lerp(res[0][n], u[n], t); res[1][n] = lerp(res[1][n], v[n], t);
+  }
+  return res;
+}
 function setupData(d) {
   DATA = d;
-  G.u = mkGrid(d.cur, decCur(d.cur, d.cur.u), true); G.v = mkGrid(d.cur, decCur(d.cur, d.cur.v), true);
-  G.nu = mkGrid(d.nwa, decCur(d.nwa, d.nwa.u), false); G.nv = mkGrid(d.nwa, decCur(d.nwa, d.nwa.v), false);
+  const [su, sv] = smoothUV(decCur(d.cur, d.cur.u), decCur(d.cur, d.cur.v), d.cur.ny, d.cur.nx, 0.7, true);
+  G.u = mkGrid(d.cur, su, true); G.v = mkGrid(d.cur, sv, true);
+  const [nu, nv] = smoothUV(decCur(d.nwa, d.nwa.u), decCur(d.nwa, d.nwa.v), d.nwa.ny, d.nwa.nx, 1.4, false);
+  G.nu = mkGrid(d.nwa, nu, false); G.nv = mkGrid(d.nwa, nv, false);
   G.eddy = mkGrid(d.eddy, decU8(d.eddy.v, q => q / 200), true);
   G.sst = mkGrid(d.sst, decU8(d.sst.ann, q => q / 5 - 2), true);
   // latitude average of all ocean (each row of the SST grid)
@@ -575,7 +594,7 @@ function viewChanged() { VIEW_GEN++; document.getElementById('zPct').textContent
 const KEY_WARM = new Set([422, 423, 424, 425]), KEY_COLD = new Set([426, 427]);
 const BOX_OF = { gulf: 'gulf', kuro: 'kuroshio', agul: 'agulhas', braz: 'brazil', calif: 'california', can: 'canary', peru: 'peru', beng: 'benguela',
   nec_p: 'nec_pac', acc: 'acc', lab: 'labrador', norw: 'norwegian', ecc_p: 'ecc_pac' };
-const PAIR_OF = { peru: 'peru', braz: 'peru', beng: 'safrica', agul: 'safrica', calif: 'usa', lab: 'north', norw: 'north', can: 'li', gulf: 'li' };
+const PAIR_OF = { peru: 'peru', braz: 'peru', beng: 'safrica', agul: 'safrica', calif: 'usa', lab: 'north', norw: 'north', gulf: 'usa' };
 const PSRC = 'ESSRT 2026 p. 20 (NYSED), redrawn from the PDF’s vector art.';
 const LI = { lat: 40.8, lon: -73.1, mk: PAGE.LI };
 // shaft direction (dash marching needs it)
@@ -932,7 +951,7 @@ function pageCardHTML() {
     if (gid) h += `<div class="k-row sm"><span class="l">Part of</span><span class="v"><button data-gyre="${gid}">${GYR[gid].name}</button></span></div>`;
     h += `</div>`;
     h += `<button class="k-act" data-real="cur:${c.id}:${i}">&#9654; See it in the real ocean</button>`;
-    const pr = PAIR_OF[c.id]; if (pr) h += `<button class="k-act alt" data-pair="${pr}">Coastal climate: ${PAIRS_BY[pr].short}</button>`;
+    const pr = PAIR_OF[c.id]; if (pr) h += `<button class="k-act alt" data-pair="${pr}">Coastal climate: ${PAIRS_BY[pr].n}</button>`;
     if (c.id === 'peru') h += `<a class="k-act alt" target="_top" href="${routeHref('/earthandspace/kelvin-wave-explainer')}">Kelvin Wave &amp; ENSO &#8599;</a>`;
     h += `<button class="k-back" data-back="1">&larr; All</button>`;
   } else if (s && s.k === 'li') {
@@ -940,7 +959,6 @@ function pageCardHTML() {
     h += `<div class="k-rows"><div class="k-row"><span class="l">Latitude</span><span class="v">40.8° N</span></div><div class="k-row"><span class="l">Longitude</span><span class="v">73.1° W</span></div>`;
     h += `<div class="k-row sm"><span class="l">Nearest arrow</span><span class="v"><button data-cur="gulf">Gulf Stream C.</button></span></div></div>`;
     h += `<button class="k-act" data-real="li">&#9654; Release drifters south of Long Island</button>`;
-    h += `<button class="k-act alt" data-pair="li">Coastal climate: Islip &amp; Porto</button>`;
     h += `<button class="k-back" data-back="1">&larr; All</button>`;
   } else if (s && s.k === 'key') {
     h += `<div class="k-eb" style="color:#2AA87E"><span>How to read it</span></div><div class="k-title">Key</div>`;
@@ -1339,7 +1357,6 @@ const PAIRS = [
   { id: 'safrica', n: 'South Africa', short: 'Alexander Bay & Durban', a: 'alexanderbay', b: 'durban', ca: 'beng', cb: 'agul' },
   { id: 'usa', n: 'United States', short: 'San Francisco & Norfolk', a: 'sanfrancisco', b: 'norfolk', ca: 'calif', cb: 'gulf' },
   { id: 'north', n: 'North Atlantic', short: 'Nain & Bergen', a: 'nain', b: 'bergen', ca: 'lab', cb: 'norw' },
-  { id: 'li', n: 'Long Island', short: 'Porto & Islip', a: 'porto', b: 'islip', ca: 'can', cb: 'gulf' },
 ];
 const PAIRS_BY = {}; PAIRS.forEach(p => PAIRS_BY[p.id] = p);
 const SHORTN = { lima: 'Lima', salvador: 'Salvador', alexanderbay: 'Alexander Bay', durban: 'Durban', sanfrancisco: 'San Francisco', norfolk: 'Norfolk', nain: 'Nain', bergen: 'Bergen', porto: 'Porto', islip: 'Islip' };
@@ -1581,12 +1598,12 @@ function rCardHTML() {
   const vb = visibleBoxes();
   if (S.rtracks && vb.length) {
     const nT = vb.reduce((s, k) => s + (DATA.drifters[k] ? DATA.drifters[k].tracks.length : 0), 0);
-    h += `<div class="k-l">Real drifters</div><p class="k-note" style="margin-top:2px">${S.rbox === null ? nT + ' tracks from ' + vb.length + ' places' : vb.map(k => DATA.drifters[k].name).join(' · ') + ' (' + nT + ' tracks)'}${S.drift ? ', drawn to the same day' : ''}.</p>`;
+    h += `<div class="k-l">Real drifters</div><p class="k-note" style="margin-top:2px">${S.rbox === null ? nT + ' tracks from ' + vb.length + ' places' : vb.map(k => DATA.drifters[k].name).join(' · ') + ' · ' + nT + ' tracks'}${S.drift ? ', drawn to the same day' : ''}.</p>`;
     if (S.rbox !== null) h += `<button class="k-back" data-allboxes="1">Show all real drifters</button>`;
   }
-  h += `<div class="k-l">Current speed</div><div class="ramp" style="background:linear-gradient(90deg,rgb(70,140,150),rgb(205,245,248))"></div><div class="ramp-l"><span>Slow</span><span>1 m/s+</span></div>`;
+  h += `<div class="k-l opt">Current speed</div><div class="ramp opt" style="background:linear-gradient(90deg,rgb(70,140,150),rgb(205,245,248))"></div><div class="ramp-l opt"><span>Slow</span><span>1 m/s+</span></div>`;
   h += `<div class="lg"><div><i class="ln" style="border-color:${C.model}"></i>Model drifters</div><div><i class="ln" style="border-color:${C.real}"></i>Real drifters</div>${S.rarrows ? '<div><i class="ln d" style="border-color:#F2EFE6"></i>Page arrows</div>' : ''}</div>`;
-  h += `<div class="k-src">Currents: NOAA AOML drifter climatology v${DATA.cur.ver || '3'} (Laurindo et al. 2017), 15 m, annual mean. Real tracks: NOAA Global Drifter Program, 2005–2022. Model drifters: mean current${S.reddy ? ' plus random eddies sized to measured eddy speeds' : ''}.</div>`;
+  h += `<div class="k-src">Currents: NOAA AOML drifter climatology v${DATA.cur.ver || '3'} (Laurindo et al. 2017), 15 m annual mean, slow flow smoothed to ½°. Real: NOAA Global Drifter Program 2005–2022, typical tracks; buoys that lost their drogue also ride the wind. Model: mean current${S.reddy ? ' + random eddies sized to measured eddy speeds' : ''}.</div>`;
   return h;
 }
 function rCardModel() {
@@ -1629,7 +1646,7 @@ function realHover(px, py) {
 }
 function realClick(px, py) {
   if (!DATA) return; const f = toFrame(px, py), ll = unproj(f[0], f[1]); if (!ll) return;
-  if (release(ll[0], ll[1])) { S.dplay = { from: 0, to: 90, t0: performance.now(), dur: 700 + Math.sqrt(90) * 160 }; hideHint(); refresh(true); }
+  if (release(ll[0], ll[1])) { S.rbox = nearBoxes(ll[0], ll[1]); S.dplay = { from: 0, to: 90, t0: performance.now(), dur: 700 + Math.sqrt(90) * 160 }; hideHint(); refresh(true); }
 }
 function goReal(spec) {
   const parts = spec.split(':');
@@ -1653,6 +1670,10 @@ function goReal(spec) {
 }
 function nearestOcean(lon, lat) { for (let r = 0.25; r < 4; r += 0.25) for (let a = 0; a < 16; a++) { const x = lon + r * Math.cos(a * Math.PI / 8), y = lat + r * Math.sin(a * Math.PI / 8); if (curUV(x, y)) return [x, y]; } return null; }
 const PENDING = [];
+function nearBoxes(lon, lat) {
+  const near = Object.entries(DATA.drifters).filter(([k, b]) => hav(lon, lat, (b.box[2] + b.box[3]) / 2, (b.box[0] + b.box[1]) / 2) < 1500).map(([k]) => k);
+  return near.length ? near : null;
+}
 const BOXES_STATIC = { gulf: [34, 36.5, -76, -73.5], kuroshio: [30, 34, 131, 137], agulhas: [-33.5, -30, 29, 32], brazil: [-25, -21, -42, -38], california: [34, 39, -127, -123.5], canary: [26, 32, -17, -12],
   peru: [-18, -10, -81, -76], benguela: [-30, -24, 11, 14.5], nec_pac: [10, 16, -150, -135], acc: [-58, -54, -66, -58], labrador: [52, 57, -57, -52], norwegian: [62, 66, 0, 6], ecc_pac: [5, 8, -150, -120] };
 
@@ -2070,7 +2091,7 @@ document.getElementById('lkPrev').href = routeHref('/ESSRT_19');
   for (const f of PENDING.splice(0)) f();
   RP.gen = -1; refresh(true);
 })();
-window.OCEAN20 = { S, VW, PAGE, ARW, CUR, GYR, GYRES, proj, unproj, curUV, sstAt, zmAt, release, driftStats, setTab, pgSelect, startTrace, wSet, wField, WSTEPS, WS, exportPNG, compose, cardModel, sweep, G, get DATA() { return DATA; } };
+window.OCEAN20 = { S, VW, viewChanged, vwFocus, PAGE, ARW, CUR, GYR, GYRES, proj, unproj, curUV, sstAt, zmAt, release, driftStats, setTab, pgSelect, startTrace, wSet, wField, WSTEPS, WS, exportPNG, compose, cardModel, sweep, G, get DATA() { return DATA; } };
 
 </script>
 </body>
