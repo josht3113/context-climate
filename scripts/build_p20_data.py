@@ -295,10 +295,16 @@ def section_drifters(out, work):
                     first[i] = t
             log(f'box {key}: {len(rows)} rows, {len(first)} drifters ({time.time() - t0:.0f}s)')
             cands = sorted(first.items(), key=lambda kv: kv[1])
-            # spread candidates through time, then fetch up to 18 tracks
-            if len(cands) > 18:
-                idx = np.linspace(0, len(cands) - 1, 18).round().astype(int)
+            # spread candidates evenly through 2005-2022, then fetch up to 36 tracks
+            if len(cands) > 36:
+                idx = np.linspace(0, len(cands) - 1, 36).round().astype(int)
                 cands = [cands[i] for i in idx]
+            def gc(a, b):
+                p1, p2 = math.radians(a[1]), math.radians(b[1]); dl = math.radians(b[2] - a[2])
+                return 6371 * math.acos(max(-1, min(1, math.sin(p1) * math.sin(p2) + math.cos(p1) * math.cos(p2) * math.cos(dl))))
+            def en(a, b):
+                d = b[2] - a[2]; d = (d + 180) % 360 - 180
+                return (d * 111.2 * math.cos(math.radians((a[1] + b[1]) / 2)), (b[1] - a[1]) * 111.2)
             tracks = []
             for i, tfirst in cands:
                 try:
@@ -310,42 +316,45 @@ def section_drifters(out, work):
                     except Exception:
                         q2 = q2.replace(f'ID=%22{i}%22', f'ID={i}')
                         h2, r2 = erddap_csv(q2.replace('>', '%3E').replace('<', '%3C'), max_time=300)
-                    pts = []
-                    drog = None
+                    pts = []; drog = None
                     for r in r2:
                         try:
                             pts.append((r[1], float(r[2]), ((float(r[3]) + 180) % 360) - 180))
                         except ValueError:
                             continue
-                        if has_drogue and r[4] and r[4] != 'NaN':
+                        if has_drogue and len(r) > 4 and r[4] and r[4] != 'NaN':
                             drog = r[4]
-                    # daily: keep 00Z points
                     day = [p for p in pts if p[0][11:13] == '00']
-                    if len(day) < 30:
+                    if len(day) < 60:
                         continue
-                    # drogued part only when we know the loss date
                     nd = len(day)
                     if drog:
-                        try:
-                            dl = drog[:19]
-                            day_d = [p for p in day if p[0][:19] < dl]
-                            nd = len(day_d)
-                        except Exception:
-                            pass
-                    # net displacement (km) as a "followed the current" score
-                    def gc(a, b):
-                        p1, p2 = math.radians(a[1]), math.radians(b[1]); dl = math.radians(b[2] - a[2])
-                        return 6371 * math.acos(max(-1, min(1, math.sin(p1) * math.sin(p2) + math.cos(p1) * math.cos(p2) * math.cos(dl))))
-                    path = sum(gc(day[k], day[k + 1]) for k in range(len(day) - 1))
-                    disp = gc(day[0], day[min(len(day) - 1, 120)])
+                        nd = len([p for p in day if p[0][:19] < drog[:19]])
+                    disp = {d: en(day[0], day[d]) for d in (60, 180, 360) if d < len(day)}
                     tracks.append({'id': i, 't0': day[0][0][:10], 'n': len(day), 'drogued_days': nd, 'drogue_lost': drog,
-                                   'path_km': round(path), 'disp120_km': round(disp),
+                                   'disp': {str(k): [round(v[0]), round(v[1])] for k, v in disp.items()},
                                    'lat': [round(p[1], 3) for p in day], 'lon': [round(p[2], 3) for p in day]})
                 except Exception as e:
                     log(f'  track {i} failed: {e}')
-            tracks.sort(key=lambda t: -t['disp120_km'])
-            res['boxes'][key] = {'name': nm, 'box': [la0, la1, lo0, lo1], 'n_drifters': len(first), 'tracks': tracks[:8]}
-            log(f'  kept {len(tracks[:8])}: ' + ', '.join(f"{t['id']} {t['t0']} disp120 {t['disp120_km']} km drogued {t['drogued_days']}/{t['n']}" for t in tracks[:8]))
+            # representative, not fastest: rank by distance from the median 180-day displacement
+            # (60-day when too few reach 180), preferring tracks still drogued at day 60
+            key_d = '180' if sum('180' in t['disp'] for t in tracks) >= 6 else '60'
+            pool = [t for t in tracks if key_d in t['disp']]
+            stats = {}
+            for d in ('60', '180', '360'):
+                v = [t['disp'][d] for t in tracks if d in t['disp']]
+                if v:
+                    stats[d] = {'n': len(v), 'e': round(float(np.median([x[0] for x in v]))), 'nn': round(float(np.median([x[1] for x in v])))}
+            if pool:
+                me = np.median([t['disp'][key_d][0] for t in pool]); mn = np.median([t['disp'][key_d][1] for t in pool])
+                for t in pool:
+                    t['_score'] = math.hypot(t['disp'][key_d][0] - me, t['disp'][key_d][1] - mn) * (1.0 if t['drogued_days'] >= 60 else 1.6)
+                pool.sort(key=lambda t: t['_score'])
+            keep = pool[:6]
+            for t in keep:
+                t.pop('_score', None)
+            res['boxes'][key] = {'name': nm, 'box': [la0, la1, lo0, lo1], 'n_drifters': len(first), 'n_fetched': len(tracks), 'rank_day': key_d, 'median_disp': stats, 'tracks': keep}
+            log(f'  box {key}: fetched {len(tracks)}, medians {stats}; kept ' + ', '.join(f"{t['id']} {t['t0']} d{key_d} {t['disp'].get(key_d)} drogued {t['drogued_days']}" for t in keep))
         except Exception as e:
             log(f'box {key} failed: {e}')
     json.dump(res, open(os.path.join(out, 'drifters.json'), 'w'), separators=(',', ':'))
