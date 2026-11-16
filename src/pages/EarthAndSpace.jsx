@@ -113,6 +113,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Page 18', 'Interactive'],
+        title:       'Weather Map Symbols',
+        description: 'Explore ESSRT page 18 interactively — read the printed station model one part at a time, build wind barbs, turn the wind, decode pressure codes, then build your own station model with every 2026 weather symbol.',
+        footerTags:  ['Station Models', 'Weather Symbols', 'Pressure Codes'],
+        to:          '/ESSRT_18',
+        thumb:       '/ESSRT_18_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Page 19', 'Interactive'],
         title:       'Planetary Wind Belts',
         description: 'Explore ESSRT page 19 interactively — follow a 14-stop tour that lights up each belt, cell and jet stream on both the map and the cross section, probe any latitude, read any wind arrow on a compass, then watch each stop in motion in the circulation model.',
@@ -616,9 +625,9 @@ const SECTIONS = [
       {
         tags:        ['Weather Map Symbols', 'Interactive'],
         title:       'Station Model Builder',
-        description: 'Plot any surface observation on a station model and watch each variable appear in its place. Live decode of the three-digit pressure code.',
+        description: 'Click any part of a station model and change it — every 2026 ESSRT weather symbol, the four pressure-trend symbols, wind barbs you can drag, and a live decode of the pressure codes.',
         footerTags:  ['Station Models', 'Weather Maps'],
-        to:          '/earthandspace/station-model-builder',
+        to:          '/ESSRT_18?step=build',
         thumb:       '/station_model_builder_thumbnail.png',
         status:      'live',
       },

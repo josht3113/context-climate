@@ -35,6 +35,7 @@ import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import ESSRT_15                    from './pages/ESSRT_15'
+import ESSRT_18                    from './pages/ESSRT_18'
 import ESSRT_19                    from './pages/ESSRT_19'
 import ESSRT_20                    from './pages/ESSRT_20'
 import ESSRT_2                     from './pages/ESSRT_2'
@@ -124,7 +125,6 @@ import GreenhouseGasTracker        from './pages/GreenhouseGasTracker'
 import Climographs                 from './pages/Climographs'
 import CoreFurnace                 from './pages/CoreFurnace'
 import AtmosphericDensity          from './pages/AtmosphericDensity'
-import StationModelBuilder         from './pages/StationModelBuilder'
 import ContactMetamorphism         from './pages/ContactMetamorphism'
 import DopplerShiftChallenge       from './pages/DopplerShiftChallenge'
 import FoucaultPendulum            from './pages/FoucaultPendulum'
@@ -208,6 +208,7 @@ export default function App() {
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
           <Route path="/ESSRT_15"                            element={<ESSRT_15 />}                />
+          <Route path="/ESSRT_18"                            element={<ESSRT_18 />}                />
           <Route path="/ESSRT_19"                            element={<ESSRT_19 />}                />
           <Route path="/ESSRT_20"                            element={<ESSRT_20 />}                />
           <Route path="/ESSRT_2"                             element={<ESSRT_2 />}                 />
@@ -298,7 +299,7 @@ export default function App() {
           <Route path="/climographs"                                element={<Climographs />}                />
           <Route path="/earthandspace/core-furnace"                element={<CoreFurnace />}                />
           <Route path="/earthandspace/atmospheric-density"         element={<AtmosphericDensity />}         />
-          <Route path="/earthandspace/station-model-builder"       element={<StationModelBuilder />}        />
+          <Route path="/earthandspace/station-model-builder"       element={<Navigate to="/ESSRT_18?step=build" replace />} />
           <Route path="/earthandspace/contact-metamorphism"        element={<ContactMetamorphism />}        />
           <Route path="/earthandspace/sediment-transport"         element={<SedimentTransport />}        />
           <Route path="/earthandspace/deposition-sorting"         element={<DepositionSorting />}        />
