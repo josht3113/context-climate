@@ -121,6 +121,15 @@ const SECTIONS = [
         thumb:       '/ESSRT_19_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['ESSRT', 'Page 20', 'Interactive'],
+        title:       'Surface Ocean Currents',
+        description: 'Explore ESSRT page 20 interactively — trace each gyre around its ocean, color the key, lay the page 19 wind belts underneath and read any current\'s direction, then compare warm and cold currents with real ocean temperatures, coastal climates and drifting buoys.',
+        footerTags:  ['Ocean Currents', 'Gyres', 'Warm & Cold Currents'],
+        to:          '/ESSRT_20',
+        thumb:       '/ESSRT_20_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
@@ -620,6 +629,15 @@ const SECTIONS = [
         footerTags:  ['Trade Winds & Westerlies', 'Jet Streams'],
         to:          '/ESSRT_19?step=rot',
         thumb:       '/planetary-wind-belts_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Ocean Circulation', 'Interactive'],
+        title:       'Surface Ocean Currents',
+        description: 'Watch the real ocean move with NOAA drifting-buoy currents, release your own drifters, see how winds and coastlines build a gyre, and compare coastal climates beside warm and cold currents. Includes the interactive ESSRT page 20.',
+        footerTags:  ['Gyres', 'Gulf Stream', 'Coastal Climate'],
+        to:          '/ESSRT_20?tab=real',
+        thumb:       '/ocean-currents_thumbnail.png',
         status:      'live',
       },
       {
