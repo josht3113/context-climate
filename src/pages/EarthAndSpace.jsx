@@ -112,6 +112,15 @@ const SECTIONS = [
         thumb:       '/ESSRT_15_thumbnail.png',
         status:      'live',
       },
+      {
+        tags:        ['ESSRT', 'Page 19', 'Interactive'],
+        title:       'Planetary Wind Belts',
+        description: 'Explore ESSRT page 19 interactively — follow a 14-stop tour that lights up each belt, cell and jet stream on both the map and the cross section, probe any latitude, read any wind arrow on a compass, then watch each stop in motion in the circulation model.',
+        footerTags:  ['Wind Belts', 'Pressure Belts', 'Jet Streams'],
+        to:          '/ESSRT_19',
+        thumb:       '/ESSRT_19_thumbnail.png',
+        status:      'live',
+      },
     ],
   },
 
@@ -607,9 +616,9 @@ const SECTIONS = [
       {
         tags:        ['Global Circulation', 'Interactive'],
         title:       'Planetary Wind Belts',
-        description: 'An interactive tool to complement page 19 of the ESSRT. Drag a latitude marker across either view, release a parcel and watch it close its loop around a Hadley, Ferrel or polar cell.',
+        description: 'Drag a latitude marker across either view, release a parcel and watch it close its loop around a Hadley, Ferrel or polar cell. Includes the interactive ESSRT page 19.',
         footerTags:  ['Trade Winds & Westerlies', 'Jet Streams'],
-        to:          '/earthandspace/planetary-wind-belts',
+        to:          '/ESSRT_19?step=rot',
         thumb:       '/planetary-wind-belts_thumbnail.png',
         status:      'live',
       },

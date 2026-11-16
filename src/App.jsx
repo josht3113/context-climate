@@ -35,6 +35,7 @@ import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
 import ESSRT_15                    from './pages/ESSRT_15'
+import ESSRT_19                    from './pages/ESSRT_19'
 import ESSRT_2                     from './pages/ESSRT_2'
 import ESSRT_3                     from './pages/ESSRT_3'
 import ESSRT_5                     from './pages/ESSRT_5'
@@ -124,7 +125,6 @@ import CoreFurnace                 from './pages/CoreFurnace'
 import AtmosphericDensity          from './pages/AtmosphericDensity'
 import StationModelBuilder         from './pages/StationModelBuilder'
 import ContactMetamorphism         from './pages/ContactMetamorphism'
-import PlanetaryWindBelts          from './pages/PlanetaryWindBelts'
 import DopplerShiftChallenge       from './pages/DopplerShiftChallenge'
 import FoucaultPendulum            from './pages/FoucaultPendulum'
 import SeasonsExplorer             from './pages/SeasonsExplorer'
@@ -207,6 +207,7 @@ export default function App() {
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
           <Route path="/ESSRT_15"                            element={<ESSRT_15 />}                />
+          <Route path="/ESSRT_19"                            element={<ESSRT_19 />}                />
           <Route path="/ESSRT_2"                             element={<ESSRT_2 />}                 />
           <Route path="/ESSRT_3"                             element={<ESSRT_3 />}                 />
           <Route path="/ESSRT_5"                             element={<ESSRT_5 />}                 />
@@ -300,7 +301,7 @@ export default function App() {
           <Route path="/earthandspace/sediment-transport"         element={<SedimentTransport />}        />
           <Route path="/earthandspace/deposition-sorting"         element={<DepositionSorting />}        />
           <Route path="/earthandspace/river-landscapes"           element={<RiverLandscapes />}          />
-          <Route path="/earthandspace/planetary-wind-belts"        element={<PlanetaryWindBelts />}         />
+          <Route path="/earthandspace/planetary-wind-belts"        element={<Navigate to="/ESSRT_19?step=rot" replace />} />
           <Route path="/earthandspace/doppler-shift-challenge"     element={<DopplerShiftChallenge />}      />
           <Route path="/earthandspace/big-bang-model"              element={<BigBangModel />}               />
           <Route path="/earthandspace/foucault-pendulum"           element={<FoucaultPendulum />}           />
