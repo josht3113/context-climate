@@ -97,7 +97,7 @@ const SECTIONS = [
       {
         tags:        ['ESSRT', 'Page 12', 'Interactive'],
         title:       'Radiometric Dating & Hotspots',
-        description: 'Explore ESSRT page 12 interactively — slide a sample\'s age to see which isotopes can date it, filter by material, then date the Hawaiian chain and find out which hotspots sit on plate boundaries.',
+        description: 'Explore ESSRT page 12 interactively — follow the table and the map stop by stop, probe any sample age right on the printed table, compare half-lives and dating ranges, then watch the Hawaiian and Yellowstone chains build over a hotspot.',
         footerTags:  ['Half-Life', 'Radiometric Dating', 'Hotspots'],
         to:          '/ESSRT_12',
         thumb:       '/ESSRT_12_thumbnail.png',
@@ -801,6 +801,15 @@ const SECTIONS = [
         footerTags:  ['Plate Tectonics', 'Mid-Ocean Ridge'],
         to:          '/earthandspace/seafloor-spreading',
         thumb:       '/SeafloorSpreading_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Plate Tectonics', 'Interactive'],
+        title:       'Hotspots & Hotspot Tracks',
+        description: 'Find which of the 19 ESSRT hotspots sit on, near or far from a plate boundary, read the dated volcanoes along five hotspot tracks, then watch the Hawaiian–Emperor chain and the Yellowstone track build as the plate moves. Includes the interactive ESSRT page 12.',
+        footerTags:  ['Hotspots', 'Plate Motion', 'Hawaiian–Emperor Chain'],
+        to:          '/ESSRT_12?tab=hotspots',
+        thumb:       '/hotspots_thumbnail.png',
         status:      'live',
       },
       {

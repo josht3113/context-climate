@@ -4,7 +4,7 @@ export default function ESSRT_12() {
       <iframe
         src="/ESSRT_12.html"
         title="ESSRT Page 12 — Radiometric Dating & Hotspots"
-        style={{ width: '100%', height: 'calc(100vh - 56px)', border: 'none', display: 'block' }}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
       />
     </div>
   )
