@@ -104,6 +104,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Page 14', 'Interactive'],
+        title:       'Igneous Rock Composition',
+        description: 'Explore ESSRT page 14 interactively — drag a line across the composition chart to read each mineral\'s percentage, see the same minerals light up on Bowen\'s Reaction Series, measure each band top − bottom, and watch the rock\'s texture change from granite to peridotite.',
+        footerTags:  ['Bowen\'s Reaction Series', 'Mineral Composition', 'Igneous Rocks'],
+        to:          '/ESSRT_14',
+        thumb:       '/ESSRT_14_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Page 15', 'Interactive'],
         title:       'Rock Cycle Infographic',
         description: 'Explore ESSRT page 15 interactively — click any marker on the rock cycle diagram to unpack processes, structures and other important aspects of the rock cycle. Guided tour and rock types functions available.',

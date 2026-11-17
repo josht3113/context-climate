@@ -34,6 +34,7 @@ import RiverLandscapes             from './pages/RiverLandscapes'
 import BowensGoldich                from './pages/BowensGoldich'
 import ESSRT_8_9_10                from './pages/ESSRT_8_9_10'
 import ESSRT_6_7                   from './pages/ESSRT_6_7'
+import ESSRT_14                    from './pages/ESSRT_14'
 import ESSRT_15                    from './pages/ESSRT_15'
 import ESSRT_16_17                 from './pages/ESSRT_16_17'
 import ESSRT_18                    from './pages/ESSRT_18'
@@ -208,6 +209,7 @@ export default function App() {
           <Route path="/bowens_goldich"                      element={<BowensGoldich />}           />
           <Route path="/ESSRT_8_9_10"                        element={<ESSRT_8_9_10 />}            />
           <Route path="/ESSRT_6_7"                           element={<ESSRT_6_7 />}               />
+          <Route path="/ESSRT_14"                            element={<ESSRT_14 />}                />
           <Route path="/ESSRT_15"                            element={<ESSRT_15 />}                />
           <Route path="/ESSRT_16_17"                         element={<ESSRT_16_17 />}             />
           <Route path="/ESSRT_18"                            element={<ESSRT_18 />}                />
