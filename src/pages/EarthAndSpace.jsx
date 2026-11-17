@@ -113,6 +113,15 @@ const SECTIONS = [
         status:      'live',
       },
       {
+        tags:        ['ESSRT', 'Pages 16 & 17', 'Interactive'],
+        title:       'Mineral Identification',
+        description: 'Explore ESSRT pages 16–17 interactively — click any box to light its path through the flowchart, follow a mineral from Start Here step by step, key out a sample one test at a time, and compare hardness ranges against the Mohs scale and its tools.',
+        footerTags:  ['Mineral ID', 'Mohs Scale', 'Cleavage & Streak'],
+        to:          '/ESSRT_16_17',
+        thumb:       '/ESSRT_16_17_thumbnail.png',
+        status:      'live',
+      },
+      {
         tags:        ['ESSRT', 'Page 18', 'Interactive'],
         title:       'Weather Map Symbols',
         description: 'Explore ESSRT page 18 interactively — read the printed station model one part at a time, build wind barbs, turn the wind, decode pressure codes, then build your own station model with every 2026 weather symbol.',
@@ -683,6 +692,15 @@ const SECTIONS = [
         footerTags:  ['Mineral ID', 'Hardness', 'Cleavage & Fracture'],
         to:          '/earthandspace/mineral-properties-lab',
         thumb:       '/MineralPropertiesLab_thumbnail.png',
+        status:      'live',
+      },
+      {
+        tags:        ['Minerals', 'ESSRT', 'Interactive'],
+        title:       'Mineral Identification Key',
+        description: 'Key out a mineral one test at a time — luster, hardness against glass, cleavage, streak — with photos of every mineral on the ESSRT flowchart. Includes the interactive ESSRT pages 16–17.',
+        footerTags:  ['Mineral ID', 'Flowchart', 'Mohs Scale'],
+        to:          '/ESSRT_16_17?tab=key',
+        thumb:       '/mineral-identification_thumbnail.png',
         status:      'live',
       },
       {
