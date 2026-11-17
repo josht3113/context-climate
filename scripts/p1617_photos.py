@@ -52,14 +52,15 @@ def search(q, width, n=25):
                     "artist": md.get("Artist", {}).get("value", ""), "w": ii["width"], "h": ii["height"],
                     "index": p.get("index", 99)})
     return sorted(out, key=lambda c: c["index"])
-def run1():
-    os.makedirs("photos/candidates", exist_ok=True)
+def run1(TERMS=TERMS, out="photos/candidates", cat=False):
+    os.makedirs(out, exist_ok=True)
     try: font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
     except Exception: font = ImageFont.load_default()
     for key, terms in TERMS.items():
         seen, cands = set(), []
         for t in terms:
-            for q in (f'intitle:"{t}" insource:"Lavinsky"', f'intitle:"{t}" filetype:bitmap'):
+            qs = (f'incategory:"{t}" filetype:bitmap',) if cat else (f'intitle:"{t}" insource:"Lavinsky"', f'intitle:"{t}" filetype:bitmap')
+            for q in qs:
                 for c in search(q, 260):
                     if c["title"] in seen: continue
                     seen.add(c["title"]); cands.append(c)
@@ -76,8 +77,8 @@ def run1():
             x, y = (i % cols) * cell, (i // cols) * cell
             dr.rectangle([x, y, x + 34, y + 28], fill=(0, 0, 0)); dr.text((x + 4, y + 2), str(i), fill=(255, 220, 0), font=font)
             time.sleep(0.15)
-        sheet.save(f"photos/candidates/{key}.jpg", quality=80)
-        json.dump(cands, open(f"photos/candidates/{key}.json", "w"), indent=1)
+        sheet.save(f"{out}/{key}.jpg", quality=80)
+        json.dump(cands, open(f"{out}/{key}.json", "w"), indent=1)
         print(key, len(cands))
 def run2():
     sel = json.load(open("photos/select.json")); os.makedirs("photos/full", exist_ok=True); man = {}
@@ -96,4 +97,6 @@ def run2():
             print(fn); time.sleep(0.3)
     json.dump(man, open("photos/manifest.json", "w"), indent=1)
 if __name__ == "__main__":
-    run2() if os.path.exists("photos/select.json") else run1()
+    if os.path.exists("photos/select.json"): run2()
+    elif os.path.exists("photos/terms2.json"): run1(json.load(open("photos/terms2.json")), "photos/candidates2", cat=True)
+    else: run1()
