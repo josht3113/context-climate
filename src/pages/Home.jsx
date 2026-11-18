@@ -239,8 +239,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Snowfall'],
         title:      'Snowfall Season Window',
-        description:'First and last snowfall dates and season length for Northeast cities — visualizing how the window of winter precipitation shifts year to year.',
-        footerTags: ['First Snow', 'Last Snow', 'Season Length', 'Trends'],
+        description:'First and last snowfall and snow-cover dates for 370+ US stations — every snow day of every season, the odds by date, and where this season stands.',
+        footerTags: ['First Snow', 'Last Snow', 'Snow Cover', 'Odds by Date'],
         to:         '/snowfall-season-window',
         thumb:      '/snowfall_season_window_thumbnail.png',
       },
