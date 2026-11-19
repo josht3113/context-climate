@@ -443,7 +443,7 @@ function flagValue(x){
 }
 function prevText(kind,x,v,stat){
   // x = [rank, n, best other, its latest year, years sharing it, at least as extreme]
-  const pv=fmtVal(kind,x[2]),py=`${x[3]}${x[4]>1?` +${x[4]-1}`:''}`;
+  const pv=fmtVal(kind,x[2]),py=`${x[3]}${x[4]>1?' & earlier':''}`;
   if(x[0]===1) return x[2]===v?`ties ${py}`:`previous record ${pv} (${py})`;
   return `record ${pv} (${py})`;
 }
@@ -652,14 +652,16 @@ function drawRibbon(ctx,x0,y0,w,h,i,opt={}){
   }
   ctx.font=`12px ${MONO}`;ctx.textBaseline='top';ctx.textAlign='center';ctx.fillStyle=MUTED;
   if(opt.labels!==false){
-    for(let d=0;d<nDays;d++){
-      const dt=dateOf(d);
-      if(dt.getUTCDay()!==0&&d!==0&&d!==nDays-1) continue;
-      if(d!==nDays-1&&nDays-1-d<3) continue;
-      if(d===0&&dt.getUTCDay()!==0&&per*nDays<500) continue;
-      const lb=mdLabel(d),tw=ctx.measureText(lb).width;
-      ctx.fillText(lb,clamp(x0+(d+0.5)*per,x0+tw/2,x0+w-tw/2),y0+h+3);
+    // Sundays plus the last day; a label is skipped when it would touch its neighbour
+    const lab=d=>{const lb=mdLabel(d),tw=ctx.measureText(lb).width;return{lb,tw,x:clamp(x0+(d+0.5)*per,x0+tw/2,x0+w-tw/2)};};
+    const last=lab(nDays-1),drawn=[last];
+    for(let d=0;d<nDays-1;d++){
+      if(dateOf(d).getUTCDay()!==0) continue;
+      const L=lab(d);
+      if(drawn.some(o=>Math.abs(o.x-L.x)<(o.tw+L.tw)/2+10)) continue;
+      drawn.push(L);
     }
+    for(const L of drawn) ctx.fillText(L.lb,L.x,y0+h+3);
   }
   const px=x0+(i+0.5)*per;
   ctx.fillStyle=DOT_EDGE;ctx.fillRect(px-2,y0-3,4,h+6);
@@ -1005,11 +1007,12 @@ const CO_SIZE={
   png: {w:400,pad:16,name:25,body:15,small:13,gap:10,lines:5},
   anim:{w:320,pad:13,name:20,body:13,small:12,gap:8,lines:4}
 };
-function coHeight(z){return Math.ceil(z.pad+z.name+5+z.small+z.gap+z.body+z.gap+z.lines*(z.body+z.small+12)+z.pad);}
+function coHeight(z,n){const L=n==null?z.lines:n;return Math.ceil(z.pad+z.name+5+z.small+z.gap+z.body+z.gap+Math.max(1,L)*(z.body+z.small+12)+z.pad+(n!=null&&n>z.lines?z.small+6:0));}
 function fitText(ctx,txt,maxW,font,size,min){let f=size;ctx.font=font(f);while(ctx.measureText(txt).width>maxW&&f>min){f-=0.5;ctx.font=font(f);}return f;}
 function clipText(ctx,txt,maxW){if(ctx.measureText(txt).width<=maxW) return txt;while(txt.length>4&&ctx.measureText(txt+'…').width>maxW) txt=txt.slice(0,-1);return txt+'…';}
 function rrect(ctx,x,y,w,h,r){ctx.beginPath();if(ctx.roundRect) ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h);}
 function drawCallout(ctx,G,k,i,box,z){
+  const nl=box.lines??z.lines;
   const s=ST[k],fl=flagsAt(k,i),{x,y,w,h}=box,x0=x+z.pad,iw=w-2*z.pad;
   ctx.save();
   const[px,py]=G.pts[k],qx=clamp(px,x,x+w),qy=clamp(py,y,y+h);
@@ -1032,7 +1035,7 @@ function drawCallout(ctx,G,k,i,box,z){
   const vl=valsLine(s,i).replace(/<[^>]+>/g,'');
   fitText(ctx,vl,iw,f=>`${f}px ${MONO}`,z.body,10);ctx.fillText(vl,x0,yy);yy+=z.gap;
   if(!fl.length){ctx.fillStyle=MUTED;ctx.font=`${z.body}px ${MONO}`;ctx.fillText(s.ranked?'Nothing in the top 3 on this date':'Record under 30 years',x0,yy+z.body+6);}
-  fl.slice(0,z.lines).forEach(xx=>{
+  fl.slice(0,nl).forEach(xx=>{
     yy+=z.body+8;
     const c=FAM_COLOR[famOf(xx.f)],cy=yy-z.body*0.35;
     ctx.beginPath();ctx.arc(x0+5,cy,5,0,Math.PI*2);
@@ -1044,20 +1047,20 @@ function drawCallout(ctx,G,k,i,box,z){
     yy+=z.small+4;
     ctx.fillStyle=MUTED;ctx.font=`${z.small}px ${MONO}`;ctx.fillText(clipText(ctx,flagDetail(xx,i,s),iw-16),x0+16,yy);
   });
-  if(fl.length>z.lines){ctx.fillStyle=MUTED;ctx.font=`${z.small}px ${MONO}`;ctx.fillText(`+ ${fl.length-z.lines} more`,x0,y+h-z.pad+2);}
+  if(fl.length>nl){ctx.fillStyle=MUTED;ctx.font=`${z.small}px ${MONO}`;ctx.fillText(`+ ${fl.length-nl} more`,x0,y+h-z.pad+2);}
   ctx.restore();
 }
 const CO_GAP=22;
-function sideCallout(G,k,z){
-  const h=coHeight(z),[px,py]=G.pts[k],left=px<G.W/2,M=16;
+function sideCallout(G,k,z,n){
+  const h=coHeight(z,n),[px,py]=G.pts[k],left=px<G.W/2,M=16;
   const x=left?G.fx-CO_GAP-z.w:G.fx+G.fw+CO_GAP;
   const p0=Math.min(0,x-M),p1=Math.max(G.W,x+z.w+M);
-  return{left,extra:Math.ceil(p1-p0-G.W),panel:[p0,p1],box:{x,y:clamp(py-h/2,M,G.H-h-M),w:z.w,h}};
+  return{left,extra:Math.ceil(p1-p0-G.W),panel:[p0,p1],box:{x,y:clamp(py-h/2,M,G.H-h-M),w:z.w,h,lines:n==null?z.lines:Math.min(n,z.lines)}};
 }
 async function exportPNG(co){
   const PAD=28,mapW=1344,mapH=820,z=CO_SIZE.png;
   const MG=makeGeom(mapW,mapH,16,0.25);
-  const side=co!=null?sideCallout(MG,co,z):null,extra=side?side.extra:0;
+  const side=co!=null?sideCallout(MG,co,z,flagsAt(co,day).length):null,extra=side?side.extra:0;
   const FW=1400+extra,FH=112+mapH+20+28+58+40;
   const off=document.createElement('canvas');off.width=FW*EXPORT_SCALE;off.height=FH*EXPORT_SCALE;
   const oc=off.getContext('2d');oc.scale(EXPORT_SCALE,EXPORT_SCALE);
