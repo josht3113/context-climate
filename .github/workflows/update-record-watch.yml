@@ -1,0 +1,99 @@
+name: Update Record Watch Data
+
+# Daily: refresh the last 60 days of every cached daily record and rebuild
+# public/record-watch-data.json (records and near-records for the last 30 days).
+# Monthly (3rd of the month), on request, or when the cache or data file is
+# missing: full period-of-record fetch for every record.
+# A failed fetch or validation never overwrites the committed file.
+# Read by public/record-watch.html (Record Watch).
+
+on:
+  schedule:
+    - cron: '41 16 * * *'
+  push:
+    branches: [record-watch]
+    paths: ['.github/workflows/update-record-watch.yml', 'scripts/build_record_watch.py']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full period-of-record rebuild'
+        type: boolean
+        default: false
+
+concurrency:
+  group: record-watch-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Self-test
+        run: python3 scripts/build_record_watch.py --selftest
+
+      - name: Restore record cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .rw-cache
+          key: record-watch-por-${{ github.run_id }}
+          restore-keys: record-watch-por-
+
+      - name: Choose build mode
+        id: mode
+        run: |
+          if [ "${{ inputs.full }}" = "true" ]; then
+            M=full; WHY="manually requested"
+          elif [ ! -f public/record-watch-data.json ] || [ ! -d .rw-cache ]; then
+            M=full; WHY="no committed data or cache yet"
+          elif [ "$(date -u +%d)" = "03" ]; then
+            M=full; WHY="monthly rebuild"
+          else
+            M=daily; WHY="daily refresh"
+          fi
+          echo "mode=$M" >> "$GITHUB_OUTPUT"
+          echo "Mode: $M ($WHY)"
+
+      - name: Build record watch data
+        env:
+          RW_DUMP: ${{ github.event_name == 'push' && 'KISP,KDEN,KORD,KPHX,PANC,KMIA' || '' }}
+        run: python3 scripts/build_record_watch.py --mode "${{ steps.mode.outputs.mode }}"
+
+      - name: Save record cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .rw-cache
+          key: record-watch-por-${{ github.run_id }}
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/record-watch-data.json
+          if [ -d scripts/_rw_samples ]; then git add scripts/_rw_samples; fi
+          if git diff --cached --quiet; then
+            echo "No change in the data file — nothing to commit."
+            exit 0
+          fi
+          git commit -m "Record watch data (${{ steps.mode.outputs.mode }} build, $(date -u +%Y-%m-%d))"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "${{ github.ref_name }}" && git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying."
+            sleep 6
+          done
+          echo "Could not push after 3 attempts."
+          exit 1
