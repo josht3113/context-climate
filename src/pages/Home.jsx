@@ -140,8 +140,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Any City'],
         title:      'Daily Temperature Climatology',
-        description:'Every day of the year’s normal and record high/low temperature for any U.S. city, threaded across a station’s full period of record — with peak-of-summer, peak-of-winter, and all-time record chips.',
-        footerTags: ['Normals 1991–2020', 'Record Highs/Lows', 'Any City'],
+        description:'Normals, typical ranges and records for every day of the year at 400+ ThreadEx stations, with any year’s daily highs and lows laid over them and a decade-by-decade count of standing records.',
+        footerTags: ['Normals 1991–2020', 'Records', 'Any Year'],
         to:         '/temperature-climatology',
         thumb:      '/TemperatureClimatology_thumbnail.png',
       },
