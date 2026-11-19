@@ -91,6 +91,14 @@ const SECTIONS = [
       },
       {
         tags:       ['US Cities', 'Updates Daily'],
+        title:      'Record Watch',
+        description:'Every long-term US station on one map, lit up wherever a high, low, rain or snow total, or streak ranks in the top 3 of its own record. Step through the last 30 days and open any value in the Record Explorer or Streak Tracker.',
+        footerTags: ['Records', 'Map', 'Streaks', 'Animation'],
+        to:         '/record-watch',
+        thumb:      '/RecordWatch_thumbnail.png',
+      },
+      {
+        tags:       ['US Cities', 'Updates Daily'],
         title:      'Meteorological Seasons',
         description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
         footerTags: ['Seasons', 'Trends', 'Calendars'],

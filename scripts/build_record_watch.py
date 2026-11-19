@@ -261,6 +261,22 @@ def tol_for(L):
     return int(math.floor(L / 31 + 0.5))
 
 
+SPIKE_F = 30
+
+def suspect_temp(R, A, i):
+    """Preliminary reports can be partial or garbled: a temperature counts only when the day
+    has both a high and a low with high >= low, and it is not a lone spike more than SPIKE_F
+    away from both neighbouring days in the same direction."""
+    h, l = R.hi[i], R.lo[i]
+    if h is None or l is None or h < l:
+        return True
+    a = A[i - 1] if i > 0 else None
+    b = A[i + 1] if i + 1 < R.n else None
+    if a is not None and b is not None:
+        if (A[i] - a > SPIKE_F and A[i] - b > SPIKE_F) or (a - A[i] > SPIKE_F and b - A[i] > SPIKE_F):
+            return True
+    return False
+
 # single-day variables: key → (array name, desc, family)
 SINGLE = {
     'hi_hi': ('hi', True), 'hi_lo': ('hi', False), 'lo_hi': ('lo', True), 'lo_lo': ('lo', False),
@@ -296,6 +312,8 @@ def single_day_flags(R, win):
             if v is None:
                 continue
             if key in FLOOR_KEY and v < FLOOR[FLOOR_KEY[key]]:
+                continue
+            if arr in ('hi', 'lo') and suspect_temp(R, A, i):
                 continue
             d = R.date[i]
             s = {}
@@ -703,6 +721,14 @@ def selftest():
     assert f32(0.1) != 0.1 and f32(45.5 - f32(45.4)) < f32(0.1)          # the tracker's float32 edge
     assert p_strict('0.50A') is None and p_total('0.50A') == 0.5 and p_strict('T') == 'T' and p_total('T') == 0.0
     assert p_strict('M') is None and p_total('S') is None
+    # a garbled preliminary report (no high, an 18° low after lows in the 50s) is never a record
+    rows = synth_rows(9)
+    rows[-1][1], rows[-1][2] = 'M', '-20'
+    R = Rec(rows)
+    win = [(WINDOW - 1, R.n - 1)]
+    assert not [f for f in single_day_flags(R, win) if f['k'] in ('lo_lo', 'hi_lo')]
+    rows[-1][1] = '-30'                                   # high below low
+    assert suspect_temp(Rec(rows), [num(x) for x in Rec(rows).lo], len(rows) - 1)
     for seed in (1, 2, 3):
         R = Rec(synth_rows(seed))
         end = R.date[-1]
@@ -712,8 +738,12 @@ def selftest():
         checked = 0
         for k, i in win:
             for key in SINGLE:
-                v = num(getattr(R, SINGLE[key][0])[i])
+                arr = SINGLE[key][0]
+                v = num(getattr(R, arr)[i])
                 if v is None or (key in FLOOR_KEY and v < FLOOR[FLOOR_KEY[key]]):
+                    continue
+                if arr in ('hi', 'lo') and suspect_temp(R, [num(x) for x in getattr(R, arr)], i):
+                    assert (k, key) not in got, (seed, k, key)
                     continue
                 b = brute_single(R, i, key)
                 g = got.get((k, key))
