@@ -30,7 +30,7 @@
   const RATE_RETRIES = 6;     // 429, per span (never split: the span isn't the problem)
   const RATE_WAIT_MS = 2000;  // 2, 4, 8, 15, 15, 15 s
   const RATE_WAIT_MAX = 15000;
-  const CACHE_VERSION = 1;
+  const CACHE_VERSION = 2;   // v2: requests now include Dec 31 (Nov 2026); drops v1 aggregates that lack it
   const CACHE_TTL_MS = 30 * 24 * 3600 * 1000;
   const DB_NAME = 'contextclimate-climo', STORE = 'climo';
 
