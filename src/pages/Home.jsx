@@ -165,8 +165,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Any City'],
         title:      'Daily Dewpoint Climatology',
-        description:'Every day of the year’s record and average dewpoint for any U.S. city, threaded across a station’s full ASOS record — with most-humid-day, driest-day, and all-time record chips.',
-        footerTags: ['Record Highs/Lows', 'Daily Averages', 'Any City'],
+        description:'Average, typical-range and record daily max and min dewpoints for every day of the year at 370+ U.S. airports, with any year laid over them and a decade-by-decade count of standing records.',
+        footerTags: ['ASOS Hourly', 'Records', 'Any Year'],
         to:         '/dewpoint-climatology',
         thumb:      '/DewpointClimatology_thumbnail.png',
       },
