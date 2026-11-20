@@ -595,13 +595,97 @@ def analyse(R, end):
     win = [(k, R.idx(end - dt.timedelta(days=WINDOW - 1 - k))) for k in range(WINDOW)]
     return single_day_flags(R, win) + totals_flags(R, win) + streak_flags(R, win), win
 
-def analyse_station(args):
-    """Worker: one record from the cache → the station's entry (or None)."""
+# ── quality control of the window's highs and lows ──────────────────
+# Preliminary daily values can be garbled (Burbank, Nov 18 2026: high 130°, low 18°).
+# A value is held back — treated as missing everywhere, ranks, totals and streaks — when
+#   * it departs from the station's own 30-day median more than QC_SPATIAL_F differently from
+#     the median departure of at least 3 reporting records within QC_NEIGHBOR_MI, or
+#   * it beats the record's own all-time extreme by more than QC_RECORD_F (Portland's 2021 jump was 9°F), or
+#   * the day's high minus low exceeds QC_RANGE_F (both values).
+# Measured on Oct 20–Nov 18 2026: of 17,210 station-days with neighbours only Burbank's two values
+# were more than 25°F out of line; the largest genuine ones were 23.5°F (Great Falls behind an arctic
+# front) and 21.8°F (Duluth off the lake).
+QC_NEIGHBOR_MI = 150
+QC_MIN_NEIGHBORS = 3
+QC_SPATIAL_F = 25
+QC_RECORD_F = 12
+QC_RANGE_F = 75
+
+def window_temps(args):
+    """Worker, pass 1: the window's highs and lows and the record's extremes before the window."""
     s, end_iso = args
     c = load_cached(s['sid'])
     if not c or not c.get('rows'):
         return None
-    R = Rec(c['rows'])
+    end = dt.date.fromisoformat(end_iso)
+    start_iso = (end - dt.timedelta(days=WINDOW - 1)).isoformat()
+    hi, lo = [None] * WINDOW, [None] * WINDOW
+    phi = plo = None
+    for r in c['rows']:
+        h, l = p_strict(r[1]), p_strict(r[2])
+        h = h if isinstance(h, float) else None
+        l = l if isinstance(l, float) else None
+        if r[0] < start_iso:
+            if h is not None and (phi is None or h > phi):
+                phi = h
+            if l is not None and (plo is None or l < plo):
+                plo = l
+        elif r[0] <= end_iso:
+            k = (dt.date.fromisoformat(r[0]) - end).days + WINDOW - 1
+            hi[k], lo[k] = h, l
+    return dict(sid=s['sid'], lat=s['lat'], lon=s['lon'], hi=hi, lo=lo, phi=phi, plo=plo)
+
+def qc_suspects(temps):
+    """temps: list of window_temps() results. Returns {sid: [[k, 'hi'|'lo', value, reason], ...]}."""
+    out = {}
+    def add(t, k, el, why):
+        lst = out.setdefault(t['sid'], [])
+        if not any(x[0] == k and x[1] == el for x in lst):
+            lst.append([k, el, t[el][k], why])
+    for t in temps:
+        for k in range(WINDOW):
+            h, l = t['hi'][k], t['lo'][k]
+            if h is not None and l is not None and h - l > QC_RANGE_F:
+                add(t, k, 'hi', 'range'); add(t, k, 'lo', 'range')
+            if h is not None and t['phi'] is not None and h > t['phi'] + QC_RECORD_F:
+                add(t, k, 'hi', 'record')
+            if l is not None and t['plo'] is not None and l < t['plo'] - QC_RECORD_F:
+                add(t, k, 'lo', 'record')
+    nb = [[j for j, u in enumerate(temps) if j != i and haversine(t['lat'], t['lon'], u['lat'], u['lon']) <= QC_NEIGHBOR_MI]
+          for i, t in enumerate(temps)]
+    def median(v):
+        v = sorted(v); n = len(v)
+        return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
+    for el in ('hi', 'lo'):
+        dep = []
+        for t in temps:
+            v = [x for x in t[el] if x is not None]
+            m = median(v) if len(v) >= 10 else None
+            dep.append([None if x is None or m is None else x - m for x in t[el]])
+        for i, t in enumerate(temps):
+            for k in range(WINDOW):
+                if dep[i][k] is None:
+                    continue
+                around = [dep[j][k] for j in nb[i] if dep[j][k] is not None]
+                if len(around) >= QC_MIN_NEIGHBORS and abs(dep[i][k] - median(around)) > QC_SPATIAL_F:
+                    add(t, k, el, 'neighbours')
+    return out
+
+def analyse_station(args):
+    """Worker: one record from the cache → the station's entry (or None)."""
+    s, end_iso, sus = args
+    c = load_cached(s['sid'])
+    if not c or not c.get('rows'):
+        return None
+    rows = c['rows']
+    if sus:
+        end = dt.date.fromisoformat(end_iso)
+        drop = {}
+        for k, el, _, _ in sus:
+            drop.setdefault((end - dt.timedelta(days=WINDOW - 1 - k)).isoformat(), set()).add(el)
+        rows = [([r[0], 'M' if 'hi' in drop[r[0]] else r[1], 'M' if 'lo' in drop[r[0]] else r[2]] + list(r[3:]))
+                if r[0] in drop else r for r in rows]
+    R = Rec(rows)
     end = dt.date.fromisoformat(end_iso)
     y0, ny = record_years(R)
     if y0 is None:
@@ -612,7 +696,8 @@ def analyse_station(args):
         flags, win = [], [(k, R.idx(end - dt.timedelta(days=WINDOW - 1 - k))) for k in range(WINDOW)]
     return dict(id=s['id'], name=s['name'], st=s['st'], lat=s['lat'], lon=s['lon'],
                 sid=s['sid'], thread=s['thread'], tname=s['tname'], tst=s['tst'], dist=s['dist'],
-                y0=y0, ny=ny, vals=window_vals(R, win), flags=flags)
+                y0=y0, ny=ny, vals=window_vals(R, win), flags=flags,
+                **({'qc': [[k, el, v, why] for k, el, v, why in sus]} if sus else {}))
 
 def build(mode, workers):
     roster, threads = read_rosters()
@@ -639,6 +724,13 @@ def build(mode, workers):
         sys.exit('No recent data at all — not writing.')
     t0 = time.time()
     todo = [(s, end.isoformat()) for s in recs_meta if s['sid'] in recent]
+    with cf.ProcessPoolExecutor(max(1, os.cpu_count() or 1)) as ex:
+        temps = [r for r in ex.map(window_temps, todo, chunksize=8) if r]
+    sus = qc_suspects(temps)
+    for sid, lst in sorted(sus.items()):
+        for k, el, v, why in lst:
+            print(f'  held back: {sid} {(end - dt.timedelta(days=WINDOW - 1 - k)).isoformat()} {el} {v:g} ({why})')
+    todo = [(s, e, sus.get(s['sid'])) for s, e in todo]
     with cf.ProcessPoolExecutor(max(1, os.cpu_count() or 1)) as ex:
         out = [r for r in ex.map(analyse_station, todo, chunksize=4) if r]
     print(f'Analysed {len(out)} records in {time.time() - t0:.0f}s')
@@ -727,6 +819,23 @@ def selftest():
     R = Rec(rows)
     win = [(WINDOW - 1, R.n - 1)]
     assert not [f for f in single_day_flags(R, win) if f['k'] in ('lo_lo', 'hi_lo')]
+    # neighbour check: one garbled station among five calm ones; a shared heat wave is left alone
+    rnd = random.Random(5)
+    def stn(i, base, spike=None):
+        hi = [base + rnd.gauss(0, 3) for _ in range(WINDOW)]
+        lo = [x - 18 for x in hi]
+        if spike:
+            hi[-1], lo[-1] = spike
+        return dict(sid=f'S{i}', lat=34 + i * 0.3, lon=-118 + i * 0.2, hi=hi, lo=lo, phi=114.0, plo=22.0)
+    ts = [stn(i, 70) for i in range(5)] + [stn(9, 70, (130.0, 18.0))]
+    sus = qc_suspects(ts)
+    assert {(x[0], x[1]) for x in sus.get('S9', [])} == {(WINDOW - 1, 'hi'), (WINDOW - 1, 'lo')} and len(sus) == 1, sus
+    ts = [stn(i, 70) for i in range(6)]
+    for t in ts:
+        t['hi'][-1] += 22; t['lo'][-1] += 22                 # regional heat wave
+    assert not qc_suspects(ts)
+    lone = [dict(sid='A', lat=61, lon=-150, hi=[40.0] * (WINDOW - 1) + [99.0], lo=[30.0] * WINDOW, phi=86.0, plo=-38.0)]
+    assert {(x[1], x[3]) for x in qc_suspects(lone)['A']} == {('hi', 'record')}
     rows[-1][1] = '-30'                                   # high below low
     assert suspect_temp(Rec(rows), [num(x) for x in Rec(rows).lo], len(rows) - 1)
     for seed in (1, 2, 3):
