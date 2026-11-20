@@ -13,6 +13,8 @@
      p01i = routine ob's hourly precipitation (no group = 0, trace flagged);
      wx = weather-code bits of every ob in the clock hour
           (rain 1, snow 2, fzra 4, sleet 8, thunder 16, fog 32, smoke 64, haze 128).
+   Every decade file passes through HourlyQC.clean (hourly-qc.js, loaded here
+   if the page hasn't already) before any tool sees it.
    ════════════════════════════════════════════════════════════════════ */
 (function () {
   'use strict';
@@ -24,6 +26,21 @@
 
   let indexP = null;
   const decadeP = new Map();     // "ICAO|decade" -> Promise<{fy, ny, planes}>
+
+  // Shared quality control: use the page's copy of hourly-qc.js, else load it from beside this file
+  const SELF = document.currentScript && document.currentScript.src;
+  let qcP = null;
+  function qc() {
+    if (window.HourlyQC) return Promise.resolve(window.HourlyQC);
+    if (!qcP) qcP = new Promise((res, rej) => {
+      const el = document.createElement('script');
+      el.src = new URL('hourly-qc.js', SELF || location.href).href;
+      el.onload = () => (window.HourlyQC ? res(window.HourlyQC) : rej(new Error('hourly-qc.js')));
+      el.onerror = () => { qcP = null; rej(new Error('hourly-qc.js failed to load')); };
+      document.head.appendChild(el);
+    });
+    return qcP;
+  }
 
   async function retry(fn, tries) {
     let err;
@@ -66,12 +83,14 @@
     const key = id + '|' + D;
     if (!decadeP.has(key)) decadeP.set(key, (async () => {
       const idx = await index();
-      const buf = await retry(async () => {
+      const [buf, QC] = await Promise.all([retry(async () => {
         const r = await fetch(`${BASE}hourly/${id}/${D}.bin.gz`);
         if (!r.ok) throw new Error('archive HTTP ' + r.status);
         return r.arrayBuffer();
-      });
-      return decode(await gunzip(buf), idx.vars);
+      }), qc()]);
+      const dec = decode(await gunzip(buf), idx.vars);
+      QC.clean(dec.planes);
+      return dec;
     })().catch(e => { decadeP.delete(key); throw e; }));
     return decadeP.get(key);
   }

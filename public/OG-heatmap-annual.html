@@ -6,6 +6,7 @@
 <title>Annual Temperature Heatmap | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
+<script src="hourly-qc.js"></script>
 <script src="hourly-archive.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -398,7 +399,7 @@ const TREND_BASE   = { temp_trend:'temp', td_trend:'td' };
 const DAILY_ONLY_FIELDS = ['dtr'];
 // Wind gusts are stored alongside the base fields but kept out of
 // BASE_FIELDS: they are never averaged into a Multi-Year Avg (a mean of
-// only the gusty hours is not a climatology), and never despiked.
+// only the gusty hours is not a climatology).
 const GUST_FIELD   = 'gust';
 const GRID_FIELDS  = [...BASE_FIELDS, GUST_FIELD];
 const ALL_FIELDS   = [...BASE_FIELDS, GUST_FIELD, ...ANOM_FIELDS, ...TREND_FIELDS, ...DAILY_ONLY_FIELDS];
@@ -564,6 +565,7 @@ function makeSingleData() {
   const d = {};
   for (const f of GRID_FIELDS) d[f] = new Float32Array(GRID_SIZE).fill(NaN);
   d.gustSeen = new Uint8Array(GRID_SIZE);   // 1 = wind reported for that hour's gust window
+  d.wx = new Int32Array(GRID_SIZE);         // present-weather bits (IEM years only), for QC
   return d;
 }
 
@@ -595,7 +597,7 @@ function makeClimoAccum() {
 }
 
 // Adds one observation per cell for `yr`: the mean of that cell's
-// ±TREND_POOL_DAYS window at the SAME hour, from this year's own despiked
+// ±TREND_POOL_DAYS window at the SAME hour, from this year's own quality-controlled
 // grid. The window clamps at the ends of the year rather than wrapping.
 function accumulateTrendYear(a, arr, yr) {
   for (let h = 0; h < 24; h++) {
@@ -701,7 +703,7 @@ function buildURL(stId, tz, y1, y2) {
   //    extra day's obs correctly (everything but that one rolled-forward
   //    ob gets discarded) -- no change needed there.
   return `https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py?` +
-    `station=${stId}&data=tmpf,dwpf,sknt,gust,skyc1,skyc2,skyc3,skyc4,peak_wind_gust,peak_wind_time` +
+    `station=${stId}&data=tmpf,dwpf,sknt,gust,skyc1,skyc2,skyc3,skyc4,peak_wind_gust,peak_wind_time,wxcodes` +
     `&year1=${y1-1}&month1=12&day1=31&year2=${y2+1}&month2=1&day2=1` +
     `&tz=${encodeURIComponent(tz)}&format=comma&latlon=no&missing=M&trace=T&direct=no` +
     // Routine and special reports only (no 5-minute data), matching the hourly archive.
@@ -816,42 +818,20 @@ function skyToNum(s) {
   return SKY_NUM[s] ?? null;
 }
 
-// -- Spike QC ---------------------------------------------------------
-// A handful of raw ASOS readings in the archive are single-hour sensor/
-// telemetry glitches: temp or dewpoint jumps >=12F from BOTH neighboring
-// hours and then jumps straight back, all inside one hour. Confirmed by
-// pulling the raw IEM feed directly (e.g. KISP 2011-12-15 14:56 local:
-// 71.6F between two 54F readings; KISP 2012-12-17 15:56: 60.8F between
-// 43F and 44F) -- a coastal station's air temp does not round-trip that
-// far in an hour, so this is a bad reading, not real weather. Wind is left
-// alone since a real gust can legitimately spike and calm within an hour;
-// clouds is a categorical code, not a continuous quantity a spike test
-// applies to.
-const SPIKE_FIELDS    = ['temp', 'td'];
-const SPIKE_THRESHOLD = 12; // degF
-
-function isSpike(prev, cur, next) {
-  const d1 = cur - prev, d2 = cur - next;
-  return (d1 >= SPIKE_THRESHOLD && d2 >= SPIKE_THRESHOLD) ||
-         (d1 <= -SPIKE_THRESHOLD && d2 <= -SPIKE_THRESHOLD);
-}
-
-function despikeGrid(grid) {
-  for (const f of SPIKE_FIELDS) {
-    const arr = grid[f];
-    for (let i = 1; i < GRID_SIZE - 1; i++) {
-      const prev = arr[i-1], cur = arr[i], next = arr[i+1];
-      if (!isNaN(cur) && !isNaN(prev) && !isNaN(next) && isSpike(prev, cur, next)) {
-        arr[i] = NaN;
-      }
-    }
-  }
+// -- Quality control -------------------------------------------------
+// IEM-parsed years go through the shared hourly QC (hourly-qc.js): hard
+// limits, temp/dewpoint spikes, dewpoint vs temperature, wind and gust
+// spikes, with thunder/precip in the hour exempting real convective spikes.
+// Archived years were already cleaned by hourly-archive.js when loaded.
+function qcGrid(grid) {
+  HourlyQC.cleanFloat({ tmpf: grid.temp, dwpf: grid.td, wind: grid.wind, gust: grid.gust, wx: grid.wx });
 }
 
 function makeYearGrid() {
   const g = {};
   for (const f of GRID_FIELDS) g[f] = new Float32Array(GRID_SIZE).fill(NaN);
   g.gustSeen = new Uint8Array(GRID_SIZE);
+  g.wx = new Int32Array(GRID_SIZE);
   return g;
 }
 
@@ -897,7 +877,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   //             keeping each year's own grid instead of folding them all
   //             into a running mean.
   const lines = text.split('\n');
-  let tmpfI=2, dwpfI=3, skntI=4, gustI=99, skyc1I=5, skyc2I=6, skyc3I=7, skyc4I=99, pkI=99, pktI=99;
+  let tmpfI=2, dwpfI=3, skntI=4, gustI=99, skyc1I=5, skyc2I=6, skyc3I=7, skyc4I=99, pkI=99, pktI=99, wxI=99;
 
   // ── Pass 1: observation-minute histogram per year ──
   const histByYear = new Map();
@@ -939,10 +919,10 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   const singleDist = single ? makeDist() : null;
 
   // Climatology folds many years into one running sum, so a per-year
-  // scratch buffer is despiked BEFORE it's added in -- otherwise a single
+  // scratch buffer is quality-controlled BEFORE it's added in -- otherwise a single
   // bad hour would still bias the mean, and would hit the std-dev even
   // harder (sum2 squares it). Compare mode reuses the same per-year
-  // scratch buffer, just to keep each year's despiked grid instead of
+  // scratch buffer, just to keep each year's quality-controlled grid instead of
   // accumulating it.
   let yearBuf = null, yearBufYr = null, yearDist = null;
   // A gust window can end in the next calendar year (a special at 23:30 on
@@ -951,7 +931,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
   let gustCarry = [];
   function flushYearBuf() {
     if (!yearBuf) return;
-    despikeGrid(yearBuf);
+    qcGrid(yearBuf);
     if (accum) {
       const yr = yearBufYr;
       for (const f of BASE_FIELDS) {
@@ -993,7 +973,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
       const fi = f => { const i = h.indexOf(f); return i < 0 ? 99 : i; };
       tmpfI=fi('tmpf'); dwpfI=fi('dwpf'); skntI=fi('sknt'); gustI=fi('gust');
       skyc1I=fi('skyc1'); skyc2I=fi('skyc2'); skyc3I=fi('skyc3'); skyc4I=fi('skyc4');
-      pkI=fi('peak_wind_gust'); pktI=fi('peak_wind_time');
+      pkI=fi('peak_wind_gust'); pktI=fi('peak_wind_time'); wxI=fi('wxcodes');
       inData = true;
       continue;
     }
@@ -1029,6 +1009,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     const clouds = [c1,c2,c3,c4].reduce((m,v) => v!=null ? (m==null?v:Math.max(m,v)) : m, null);
 
     const vals = { temp, td, wind, clouds };
+    const wxb = HourlyQC.wxBits(parts[wxI]);   // present weather, for the QC thunder/precip exemptions
 
     // ── Base fields: the cell this ob sits in ──
     // Routine ASOS/AWOS obs are issued a few minutes before the top of the
@@ -1046,6 +1027,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
       const doy = getDOY(byr, bmo, bdy);
       if (doy >= 0 && doy <= 365) {
         const idx = doy * 24 + bh;
+        if (single && wxb) single.wx[idx] |= wxb;
         if (single) {
           for (const f of BASE_FIELDS) {
             const v = vals[f];
@@ -1054,6 +1036,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
         }
         if (accum || compareOut) {
           if (yearBufYr !== byr) openYearBuf(byr);
+          if (wxb) yearBuf.wx[idx] |= wxb;
           for (const f of BASE_FIELDS) {
             const v = vals[f];
             if (v != null && dist <= yearDist[f][idx]) { yearBuf[f][idx] = v; yearDist[f][idx] = dist; }
@@ -1094,7 +1077,7 @@ function parseCSVInto(text, y1, y2, single, accum, compareOut) {
     }
   }
   flushYearBuf();
-  if (single) despikeGrid(single);
+  if (single) qcGrid(single);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1125,10 +1108,9 @@ async function archiveGrid(year, grid) {
     const g = i ? cy.gust[i - 1] : cy.gustBefore;
     if (g === g) { grid.gustSeen[idx] = 1; if (g > 0 && !(grid.gust[idx] >= g)) grid.gust[idx] = g; }
   }
-  despikeGrid(grid);
   return true;
 }
-// Adds one despiked year grid to a climatology accumulator (as flushYearBuf does).
+// Adds one quality-controlled year grid to a climatology accumulator (as flushYearBuf does).
 function accumulateGrid(accum, grid, yr) {
   for (const f of BASE_FIELDS) {
     const arr = grid[f], a = accum[f];

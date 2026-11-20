@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
 <script src="threadex-roster.js"></script>
+<script src="hourly-qc.js"></script>
 <style>
 :root { --tool-accent: var(--accent-live); --cc-card-width: 372px; }
 [hidden] { display: none !important; }
@@ -639,9 +640,21 @@ function buildHourly(obs){
       tmpf:pick('tmpf'),dwpf:pick('dwpf'),wind:pick('wind'),drct:pick('drct'),
       gust:(g1==null&&g2==null)?null:Math.max(g1||0,g2||0),
       p01i:mx('p01i'),mslp:pick('mslp'),alti:pick('alti'),vsby:pick('vsby'),feel:pick('feel'),
-      layers,cover:coverOf(layers),wx,wxRaw:rep.wx,partial:!b.obs.some(o=>o.t===b.t)});
+      layers,cover:coverOf(layers),wx,wxRaw:rep.wx,partial:!b.obs.some(o=>o.t===b.t),
+      wxb:b.obs.reduce((m,o)=>m|HourlyQC.wxBits(o.wx||o.metar),0)});
   }
+  qcRecs(recs);
   return{recs,modeMin:mm};
+}
+// Shared hourly QC (hourly-qc.js) on the hourly records; values that fail become null.
+const QC_FIELDS=['tmpf','dwpf','feel','wind','gust','p01i'];
+function qcRecs(recs){
+  if(!recs.length)return;
+  const t0=recs[0].t,n=Math.round((recs[recs.length-1].t-t0)/HOUR)+1,A={wx:new Int32Array(n)},at=recs.map(r=>Math.round((r.t-t0)/HOUR));
+  for(const k of QC_FIELDS)A[k]=new Float32Array(n).fill(NaN);
+  recs.forEach((r,j)=>{const i=at[j];for(const k of QC_FIELDS)if(r[k]!=null)A[k][i]=r[k];A.wx[i]|=r.wxb;});
+  HourlyQC.cleanFloat(A);
+  recs.forEach((r,j)=>{const i=at[j];for(const k of QC_FIELDS)if(r[k]!=null&&Number.isNaN(A[k][i]))r[k]=null;});
 }
 function nearestRec(recs,t,tol){
   let best=null,bd=Infinity;
@@ -2108,7 +2121,7 @@ function decodeCCHR(u,vars){
   let pos=10+2*nv;const out={};
   for(let i=0;i<nv;i++){
     const name=vars[u[10+2*i]],tr=u[11+2*i];
-    if(ARCH_WANT.includes(name)){
+    if(ARCH_WANT.includes(name)||name==='wx'){
       const a=new Int16Array(n);
       for(let j=0;j<n;j++)a[j]=(u[pos+j]|(u[pos+n+j]<<8))<<16>>16;
       if(tr===1){let prev=0;for(let j=0;j<n;j++)if(a[j]!==ARCH_MISS){prev+=a[j];a[j]=prev;}}
@@ -2117,6 +2130,7 @@ function decodeCCHR(u,vars){
     }
     pos+=2*n;
   }
+  HourlyQC.clean(out);                                           // shared hourly QC (hourly-qc.js)
   return{fy,ny,planes:out};
 }
 async function loadArchive(icao){
