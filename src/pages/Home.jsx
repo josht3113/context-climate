@@ -36,7 +36,7 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Updates Continuously'],
         title:      'Current Conditions in Context',
-        description:'Live observations for any US station set against its own climate record: how unusual this hour, this day and this season are, with recent weather, the forecast, and the sky.',
+        description:'Live observations for any US station, mapped with its neighbours and decoded from the raw METAR into a station model, set against its own climate record: how unusual this hour, this day and this season are, with recent weather, the forecast, and the sky.',
         footerTags: ['Now', 'Context', 'Recent', 'Forecast', 'Sun & Moon'],
         to:         '/current-conditions',
         thumb:      '/current-conditions_thumbnail.png',
