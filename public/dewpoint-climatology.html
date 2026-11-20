@@ -6,6 +6,7 @@
 <title>Daily Dewpoint Climatology | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
+<script src="hourly-qc.js"></script>
 <script src="hourly-archive.js"></script>
 <style>
   :root { --tool-accent: var(--accent-climate); --cc-card-width: 330px; }
@@ -368,11 +369,11 @@ async function loadArchive(id, stats) {
 async function loadRecent(stn, fromYear, stats) {
   const now = new Date(), toYear = now.getFullYear();
   if (fromYear > toYear) return new Map();
-  const key = `y:${stn.id}:${fromYear}`, c = await idbGet(key);
+  const key = `y2:${stn.id}:${fromYear}`, c = await idbGet(key);
   if (c && Date.now() - c.t < 3 * 3600e3) return new Map(c.rows.map(([y, hi, lo]) => [y, { hi: Float32Array.from(hi, v => v == null ? NaN : v), lo: Float32Array.from(lo, v => v == null ? NaN : v) }]));
   const s = new Date(Date.UTC(fromYear - 1, 11, 31)), e = new Date(now.getTime() + 864e5);
   const p = (k, d) => `year${k}=${d.getUTCFullYear()}&month${k}=${d.getUTCMonth() + 1}&day${k}=${d.getUTCDate()}`;
-  const url = `${IEM_URL}?station=${stn.id}&data=tmpf&data=dwpf&${p(1, s)}&${p(2, e)}&tz=UTC&format=onlycomma&latlon=no&missing=empty&direct=no&report_type=3&report_type=4`;
+  const url = `${IEM_URL}?station=${stn.id}&data=tmpf&data=dwpf&data=wxcodes&${p(1, s)}&${p(2, e)}&tz=UTC&format=onlycomma&latlon=no&missing=empty&direct=no&report_type=3&report_type=4`;
   let text = null, err;
   for (let k = 0; k < 3 && text == null; k++) {
     if (k) await new Promise(r => setTimeout(r, 6000 * k));
@@ -386,19 +387,21 @@ async function loadRecent(stn, fromYear, stats) {
     if (!H || parts[0] === 'station') { H = parts; ix = {}; H.forEach((h, i) => { ix[h] = i; }); continue; }
     const t = Date.parse(parts[ix.valid].replace(' ', 'T') + ':00Z'); if (Number.isNaN(t)) continue;
     const dw = parseFloat(parts[ix.dwpf]), tm = parseFloat(parts[ix.tmpf]);
-    obs.push({ t, dw: Number.isFinite(dw) ? dw : NaN, tm: Number.isFinite(tm) ? tm : NaN });
+    obs.push({ t, dw: Number.isFinite(dw) ? dw : NaN, tm: Number.isFinite(tm) ? tm : NaN, wx: HourlyQC.wxBits(parts[ix.wxcodes]) });
   }
   const cnt = new Array(60).fill(0); obs.forEach(o => cnt[new Date(o.t).getUTCMinutes()]++);
   let mm = 0; for (let i = 1; i < 60; i++) if (cnt[i] > cnt[mm]) mm = i;
   const out = new Map();
   for (let y = fromYear; y <= toYear; y++) {
     const std = HourlyArchive.stdOffsetMin(stn.iana, y), t0 = Date.UTC(y, 0, 1) - std * 60000;
-    const n = (isLeap(y) ? 366 : 365) * 24, dw = new Float32Array(n).fill(NaN), tm = new Float32Array(n).fill(NaN), pri = new Int8Array(n);
+    const n = (isLeap(y) ? 366 : 365) * 24, dw = new Float32Array(n).fill(NaN), tm = new Float32Array(n).fill(NaN), pri = new Int8Array(n), wx = new Int32Array(n);
     for (const o of obs) {
       const h = Math.floor((o.t - t0 + 15 * 60000) / 3600e3); if (h < 0 || h >= n) continue;
+      wx[h] |= o.wx;
       const routine = new Date(o.t).getUTCMinutes() === mm ? 2 : 1;
       if (ok(o.dw) && routine >= pri[h]) { dw[h] = o.dw; tm[h] = o.tm; pri[h] = routine; }
     }
+    HourlyQC.cleanFloat({ tmpf: tm, dwpf: dw, wx });
     out.set(y, dailyFromHours(y, dw, tm, n, stats));
   }
   idbPut(key, { t: Date.now(), rows: [...out].map(([y, o]) => [y, Array.from(o.hi, v => ok(v) ? v : null), Array.from(o.lo, v => ok(v) ? v : null)]) });

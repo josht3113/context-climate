@@ -6,6 +6,7 @@
 <title>Streak Tracker | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <script src="station-roster.js"></script>
+<script src="hourly-qc.js"></script>
 <style>
 :root { --tool-accent: var(--accent-hourly); --cc-card-width: 400px; }
 [hidden] { display: none !important; }
@@ -1507,9 +1508,15 @@ function decodeArchive(buf, vars) {
     else if (tr === 2) { const t = planes.tmpf; for (let h = 0; h < n; h++) if (a[h] !== -32768) a[h] += t[h]; }
     planes[vars[vid]] = a;
   }
+  HourlyQC.clean(planes);
   return { fy, ny, planes };
 }
 const HVARS = ['tmpf', 'dwpf', 'feel', 'vsby', 'sky', 'wind', 'gust', 'p01i', 'wx'];
+// Shared hourly QC (hourly-qc.js) on the IEM-fed span that starts at hour `off`
+function qcLive(vals, off) {
+  const sl = k => (vals[k] ? vals[k].subarray(off) : null);
+  HourlyQC.cleanFloat({ tmpf: sl('tmpf'), dwpf: sl('dwpf'), feel: sl('feel'), wind: sl('wind'), gust: sl('gust'), p01i: sl('p01i'), wx: sl('wx') });
+}
 // Archive int16 -> the units the engine uses (same Float32 values the previous tool parsed from IEM).
 function placePlane(dst, off, src, v, scale) {
   for (let h = 0; h < src.length; h++) {
@@ -1585,6 +1592,7 @@ async function loadHourly(s) {
           for (const o of GROUPS[g].outs) if (out[o]) vals[o].set(out[o], off);
         }
       }
+      qcLive(vals, (Date.UTC(through + 1, 0, 1) - startMs) / HOUR);
       h.live = 'ok';
     } catch (e) { h.live = 'fail'; h.liveError = e.message; }
   } else h.live = 'ok';
@@ -2621,6 +2629,7 @@ async function refreshLive() {
       if (!out) continue; const off = (Date.UTC(Y, 0, 1) - h.startMs) / HOUR;
       for (const o of GROUPS[g].outs) if (out[o] && off + out[o].length <= h.vals[o].length) h.vals[o].set(out[o], off);
     }
+    qcLive(h.vals, (Date.UTC(y1, 0, 1) - h.startMs) / HOUR);
     s.cache = {}; render();
   } catch (e) {}
 }
