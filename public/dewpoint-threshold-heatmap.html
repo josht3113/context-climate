@@ -322,7 +322,7 @@
       </div>
       <div class="cc-card-src">
         <span id="footer-tz">Eastern Local Time</span><br>
-        Data: IEM ASOS
+        Data: IEM ASOS hourly
       </div>
     </div>
 
@@ -336,6 +336,8 @@
 </div>
 
 <script src="iem-climo.js"></script>
+<script src="hourly-qc.js"></script>
+<script src="hourly-archive.js"></script>
 <script>
 'use strict';
 // ═══════════════════════════════════════════════════════════════
@@ -633,6 +635,35 @@ function parseIEM(text) {
     byYear.get(yr).push({ doy, hour, dwpf });
   }
   return byYear;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// HOURLY ARCHIVE (hourly-archive.js) — every year this tool shows is archived.
+// One reading per clock hour, on this tool's hour convention: the routine ob
+// taken during hour h (e.g. 13:56 → 1 PM), which the archive files at h+1.
+// Gusts: highest gust or peak wind within hour h. Quality-controlled on load.
+// Returns obs in parseIEM's shape, or null when the archive can't supply the year
+// (the IEM path below is then used instead).
+// ═══════════════════════════════════════════════════════════════
+async function archiveObs(year, id = activeStationId) {
+  try {
+    if (!(await HourlyArchive.covers(id, year))) return null;
+    const tz = STATIONS[id].tz;
+    const cy = await HourlyArchive.clockYear(id, tz, year);
+    if (!cy) return null;
+    let nx = null;
+    try { if (await HourlyArchive.covers(id, year + 1)) nx = await HourlyArchive.clockYear(id, tz, year + 1); } catch (e) {}
+    const out = [], t0 = Date.UTC(year, 0, 1);
+    for (let i = 0; i < cy.n; i++) {
+      const x = i + 1 < cy.n ? cy.dwpf[i + 1] : (nx ? nx.dwpf[0] : NaN);
+      if (x !== x) continue;
+      const d = new Date(t0 + i * 3600000);
+      const doy = getDOY0(year, d.getUTCMonth() + 1, d.getUTCDate()), hour = d.getUTCHours();
+      out.push({ doy, hour, dwpf: x });
+    }
+    return out;
+  } catch (e) { return null; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1031,6 +1062,22 @@ async function loadClimatology() {
   document.getElementById('title-period').textContent  = `${CLIMO_START}–${CLIMO_END}`;
   document.getElementById('footer-tz').textContent     = `${st.tzLabel} Local Time`;
 
+  if (!climoCache.has(requestStationId) && await HourlyArchive.station(requestStationId).catch(() => null)) {
+    const g = initGrids();
+    showLoading(`Loading ${CLIMO_START}–${CLIMO_END}…`);
+    let ok = true;
+    for (let y = CLIMO_START; y <= CLIMO_END && ok; y++) {
+      const obs = await archiveObs(y, requestStationId);
+      if (myToken !== loadToken) return;
+      if (obs) processYear(obs, g); else ok = await HourlyArchive.covers(requestStationId, y).then(c => !c).catch(() => false);
+      setProgress(Math.round(100 * (y - CLIMO_START + 1) / TOTAL_YEARS), `Loading ${CLIMO_START}–${CLIMO_END}… ${y - CLIMO_START + 1} of ${TOTAL_YEARS} years`);
+    }
+    if (ok) {
+      const c = {}; for (const k in g) c[k] = g[k];
+      climoCache.set(requestStationId, c);
+      hideLoading();
+    }
+  }
   if (!climoCache.has(requestStationId)) {
     const saved = await IEMClimo.cacheGet(CLIMO_TOOL, requestStationId, CLIMO_START, CLIMO_END);
     if (myToken !== loadToken) return;
@@ -1097,9 +1144,12 @@ async function loadSingleYear(year) {
   showLoading(`Loading ${year} data…`);
 
   try {
-    const csv = await IEMClimo.fetchRangeChunked(fetchRangeCSV, year, year);
-    const byYear = parseIEM(csv);
-    const obs = byYear.get(year) || [];
+    let obs = await archiveObs(year);
+    if (!obs) {
+      const csv = await IEMClimo.fetchRangeChunked(fetchRangeCSV, year, year);
+      const byYear = parseIEM(csv);
+      obs = byYear.get(year) || [];
+    }
 
     const INF = Infinity;
     singleMaxGrid = new Float32Array(366 * 24).fill(-INF);
@@ -1263,7 +1313,7 @@ function downloadPNG() {
 
   oc.fillStyle = '#948F82';
   oc.font = '12px "Courier Prime", monospace';
-  oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS (dwpf)  ·  contextclimate.io`, PAD, HDR + MONTH_H + ch + 18);
+  oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS hourly  ·  contextclimate.io`, PAD, HDR + MONTH_H + ch + 18);
 
   oc.fillStyle = THRESH_GLOW[dpDir][dpIdx];
   oc.fillRect(0, oh - 2, ow, 2);
