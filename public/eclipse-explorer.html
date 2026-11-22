@@ -472,12 +472,20 @@ function minimize(fn, a, b, it = 80) {     // golden section
 /* ── observer: latitude φ, Earth spinning about the ecliptic pole ── */
 const OMEGA_SID = 360 / SID_DAY;
 function satClamp(x, t1, t2) { const a = Math.abs(x); return Math.sign(x) * (a <= t1 ? a : t1 + t2 * Math.tanh((a - t1) / t2)); }
-function obsVecAt(phi, alpha) { return [R_EARTH_ * cosd(phi) * cosd(alpha), R_EARTH_ * cosd(phi) * sind(alpha), R_EARTH_ * sind(phi)]; }
+/* Earth's spin axis is tilted 23.44° from the ecliptic pole (toward ecliptic longitude 270°).
+   Observers are placed in equatorial coordinates: φ = latitude, θ = right ascension of the meridian. */
+const OBLQ = 23.44;
+const eqToEcl = v => [v[0], v[1] * cosd(OBLQ) + v[2] * sind(OBLQ), -v[1] * sind(OBLQ) + v[2] * cosd(OBLQ)];
+const eclToEq = v => [v[0], v[1] * cosd(OBLQ) - v[2] * sind(OBLQ), v[1] * sind(OBLQ) + v[2] * cosd(OBLQ)];
+const SPIN = eqToEcl([0, 0, 1]);
+const raOf = v => { const q = eclToEq(v); return Math.atan2(q[1], q[0]) * DEGm; };
+const decOf = v => { const q = eclToEq(v); return Math.asin(Math.max(-1, Math.min(1, q[2] / len3(q)))) * DEGm; };
+function obsVecAt(phi, theta) { return eqToEcl([R_EARTH_ * cosd(phi) * cosd(theta), R_EARTH_ * cosd(phi) * sind(theta), R_EARTH_ * sind(phi)]); }
 // local sky basis for an observer at O
-function skyBasis(O) { const up = nrm3(O); let east = cross3([0, 0, 1], up); const el = len3(east); east = el < 1e-9 ? [0, 1, 0] : mul3(east, 1 / el); const north = cross3(up, east); return { up, east, north }; }
+function skyBasis(O) { const up = nrm3(O); let east = cross3(SPIN, up); const el = len3(east); east = el < 1e-9 ? [0, 1, 0] : mul3(east, 1 / el); const north = cross3(up, east); return { up, east, north }; }
 function altAz(v, B) { const n = nrm3(v); return { alt: Math.asin(Math.max(-1, Math.min(1, dot3(n, B.up)))) * DEGm, az: Math.atan2(dot3(n, B.east), dot3(n, B.north)) * DEGm }; }
 
-// node: module.exports = { sunVec, moonVec, sunDistAt, moonDistAt, moonArgLat, elong, solarGeom, solarType, lunarGeom, lunarType, findSyzygies, minimize, satClamp, obsVecAt, skyBasis, altAz, OMEGA, E1, T_ECL1, nSun, nMoon, OMEGA_SID, R_SUN_, R_MOON_, R_EARTH_, wrap180, dot3, sub3, add3, mul3, len3, nrm3, cross3, lonOf, sunLonAt, cosd, sind, INCL_ };
+// node: module.exports = { OBLQ, eqToEcl, eclToEq, SPIN, raOf, decOf, sunVec, moonVec, sunDistAt, moonDistAt, moonArgLat, elong, solarGeom, solarType, lunarGeom, lunarType, findSyzygies, minimize, satClamp, obsVecAt, skyBasis, altAz, OMEGA, E1, T_ECL1, nSun, nMoon, OMEGA_SID, R_SUN_, R_MOON_, R_EARTH_, wrap180, dot3, sub3, add3, mul3, len3, nrm3, cross3, lonOf, sunLonAt, cosd, sind, INCL_ };
 
 /* ══════════════════════════ EVENTS + LOCAL CIRCUMSTANCES ══════════════════════════ */
 const TAB_DEF = {
@@ -486,13 +494,14 @@ const TAB_DEF = {
 };
 const H_RATE = { solar: OMEGA_SID - nSun, lunar: OMEGA_SID - nMoon };
 const arcm = (r, d) => Math.asin(Math.min(1, r / d)) * DEGm * 60;
-const targetLon = (kind, T) => lonOf(kind === 'solar' ? sunVec(T) : moonVec(T));
+const targetVec = (kind, T) => kind === 'solar' ? sunVec(T) : moonVec(T);
+const targetRA = (kind, T) => raOf(targetVec(kind, T));
 function axisHit(T) {
   const g = solarGeom(T), b = dot3(g.M, g.u), c = dot3(g.M, g.M) - R_EARTH_ * R_EARTH_, disc = b * b - c;
   if (disc < 0) return null; return add3(g.M, mul3(g.u, -b - Math.sqrt(disc)));
 }
-const latOfV = P => Math.asin(P[2] / len3(P)) * DEGm;
-const hOfV = (P, T) => wrap180(lonOf(P) - lonOf(sunVec(T)));
+const latOfV = P => decOf(P);
+const hOfV = (P, T) => wrap180(raOf(P) - raOf(sunVec(T)));
 const angSepArcmin = (a, b) => Math.acos(Math.max(-1, Math.min(1, dot3(nrm3(a), nrm3(b))))) * DEGm * 60;
 function solarLocal(ob, T) {
   const O = obsAtEv('solar', ob, T), S = sub3(sunVec(T), O), M = sub3(moonVec(T), O);
@@ -500,13 +509,15 @@ function solarLocal(ob, T) {
 }
 /* hour angle of the tracked body: Earth turns at its real rate through each event,
    then eases to a fixed daytime (or night-time) position between events */
-const HOLD = { solar: [0.13, 0.36], lunar: [0.15, 0.40] }, CRUISE_ALT = { solar: 26, lunar: 24 };
-function cruiseH(kind, phi) { return -Math.acos(Math.min(1, sind(CRUISE_ALT[kind]) / Math.max(1e-6, cosd(phi)))) * DEGm; }
+const HOLD = { solar: [0.2, 0.42], lunar: [0.15, 0.40] }, CRUISE_ALT = { solar: 26, lunar: 24 };
+// hour angle (morning side) at which a body at declination dec stands at altitude alt
+function haForAlt(phi, dec, alt) { const c = (sind(alt) - sind(phi) * sind(dec)) / Math.max(1e-6, cosd(phi) * cosd(dec)); return -Math.acos(clamp(c, -1, 1)) * DEGm; }
+function cruiseH(kind, phi, T) { return haForAlt(phi, decOf(targetVec(kind, T)), CRUISE_ALT[kind]); }
 function hourAngle(kind, ob, T) {
   const x = T - ob.Tc, w = smooth(HOLD[kind][0], HOLD[kind][1], Math.abs(x));
-  return lerp(ob.Hc + H_RATE[kind] * x, ob.Hcr ?? cruiseH(kind, ob.phi), w);
+  return lerp(ob.Hc + H_RATE[kind] * x, ob.Hcr, w);
 }
-function obsAtEv(kind, ob, T) { return obsVecAt(ob.phi, targetLon(kind, T) + hourAngle(kind, ob, T)); }
+function obsAtEv(kind, ob, T) { return obsVecAt(ob.phi, targetRA(kind, T) + hourAngle(kind, ob, T)); }
 function crossings(f, Tm, span, steps = 600) {
   const out = [];
   for (const dir of [-1, 1]) {
@@ -522,7 +533,7 @@ function crossings(f, Tm, span, steps = 600) {
 }
 function chooseSolarObserver(Tg, type) {
   if (type === 'total' || type === 'annular') {
-    const P0 = axisHit(Tg), phi0 = latOfV(P0), Ht = -Math.acos(Math.min(1, sind(26) / cosd(phi0))) * DEGm;
+    const P0 = axisHit(Tg), phi0 = latOfV(P0), Ht = haForAlt(phi0, decOf(sunVec(Tg)), 26);
     let lo = Tg - 0.2, hi = Tg + 0.2;
     for (let i = 0; i < 60; i++) {
       const mid = (lo + hi) / 2, P = axisHit(mid);
@@ -530,14 +541,24 @@ function chooseSolarObserver(Tg, type) {
       if (hOfV(P, mid) < Ht) lo = mid; else hi = mid;
     }
     const Tc = (lo + hi) / 2, P = axisHit(Tc);
-    return { phi: latOfV(P), Hc: hOfV(P, Tc), Tc };
+    const phi = latOfV(P); return { phi, Hc: hOfV(P, Tc), Tc, Hcr: cruiseH('solar', phi, Tc) };
   }
-  const g = solarGeom(Tg);
-  const ob = { phi: type === 'partial' ? g.zSign * 64 : 30, Hc: type === 'partial' ? 0 : -50, Tc: Tg };
-  if (type === 'partial') for (let i = 0; i < 4; i++) ob.Tc = minimize(t => solarLocal(ob, t).sep, ob.Tc - 0.2, ob.Tc + 0.2);
+  if (type === 'partial') {     // where on the day side the most Sun is covered, with the Sun at least 18° up
+    let best = null; const dS = decOf(sunVec(Tg));
+    for (let phi = -80; phi <= 80; phi += 4) for (let H = -80; H <= 80; H += 8) {
+      const alt = Math.asin(clamp(sind(phi) * sind(dS) + cosd(phi) * cosd(dS) * cosd(H), -1, 1)) * DEGm; if (alt < 18) continue;
+      const q = solarLocal({ phi, Hc: H, Tc: Tg, Hcr: H }, Tg), m = q.rs + q.rm - q.sep; if (!best || m > best.m) best = { phi, H, m };
+    }
+    const ob = { phi: best.phi, Hc: best.H, Tc: Tg, Hcr: best.H };
+    for (let i = 0; i < 4; i++) { const Tm = minimize(t => solarLocal(ob, t).sep, ob.Tc - 0.2, ob.Tc + 0.2); ob.Hc += H_RATE.solar * (Tm - ob.Tc); ob.Tc = Tm; }
+    return ob;
+  }
+  const phi = 30, ob = { phi, Hc: 0, Tc: Tg, Hcr: 0 };
+  for (let i = 0; i < 3; i++) { ob.Hc = ob.Hcr = haForAlt(phi, decOf(sunVec(ob.Tc)), 30); ob.Tc = minimize(t => solarLocal(ob, t).sep, ob.Tc - 0.2, ob.Tc + 0.2); }
+  ob.Hc = ob.Hcr = haForAlt(phi, decOf(sunVec(ob.Tc)), 30);
   return ob;
 }
-const LUNAR_OB = { phi: 38, Hc: -56 };
+const LUNAR_OB = { phi: 38, alt: 25 };
 
 /* playback speed (sim hours per real second), slowed around each syzygy */
 const CRUISE = 600;                          // 25 days per second
@@ -588,7 +609,7 @@ function buildEvents(tabKey) {
     } else {
       ev.Tg = minimize(t => lunarGeom(t).rho, Ts - 0.3, Ts + 0.3);
       const G = lunarGeom(ev.Tg); ev.type = lunarType(G); ev.Tm = ev.Tg;
-      ev.ob = { phi: LUNAR_OB.phi, Hc: LUNAR_OB.Hc, Tc: ev.Tg };
+      { const H = haForAlt(LUNAR_OB.phi, decOf(moonVec(ev.Tg)), LUNAR_OB.alt); ev.ob = { phi: LUNAR_OB.phi, Hc: H, Tc: ev.Tg, Hcr: cruiseH('lunar', LUNAR_OB.phi, ev.Tg) }; }
       const fP = t => { const q = lunarGeom(t); return q.rho - q.rp - R_MOON_; }, fU = t => { const q = lunarGeom(t); return q.rho - q.ru - R_MOON_; }, fT = t => { const q = lunarGeom(t); return q.rho - q.ru + R_MOON_; };
       if (fP(ev.Tm) < 0) [ev.p1, ev.p4] = crossings(fP, ev.Tm, 0.3);
       if (fU(ev.Tm) < 0) [ev.u1, ev.u4] = crossings(fU, ev.Tm, 0.25);
@@ -754,6 +775,7 @@ function loadMoon() {
 let TEX = null;
 async function buildTextures() {
   TEX = { sunF: buildPhotosphere('filter'), sunW: buildPhotosphere('white'), corona: buildCorona(), chromo: buildChromosphere(), moon: await loadMoon() };
+  await loadLand();
 }
 
 /* ══════════════════════════ STATE ══════════════════════════ */
@@ -793,17 +815,41 @@ function obsParams(T, evs) {
   let i = 0; while (i < evs.length - 1 && evs[i + 1].Tm <= T) i++;
   const kind = evs[0].kind, Hof = e => hourAngle(kind, e.ob, T);
   const a = evs[i], b = evs[Math.min(evs.length - 1, i + 1)];
-  if (a === b || T <= a.Tm) return { phi: a.ob.phi, H: Hof(a), ev: a };
-  const mid = (a.Tm + b.Tm) / 2, w = smooth(mid - 2.5, mid + 2.5, T);
-  return { phi: lerp(a.ob.phi, b.ob.phi, w), H: lerp(Hof(a), Hof(b), w), ev: w < 0.5 ? a : b };
+  if (a === b || T <= a.Tm) return { phi: a.ob.phi, H: Hof(a), ev: a, lon: a.geoLon ?? 0 };
+  const mid = (a.Tm + b.Tm) / 2, w = smooth(mid - 2.5, mid + 2.5, T), la = a.geoLon ?? 0, lb = b.geoLon ?? 0;
+  return { phi: lerp(a.ob.phi, b.ob.phi, w), H: lerp(Hof(a), Hof(b), w), ev: w < 0.5 ? a : b, lon: la + wrap180(lb - la) * w };
+}
+/* one fixed placement of the continents: Earth turns uniformly; each solar event's observer gets a
+   geographic longitude, chosen so the January total eclipse crosses central Australia */
+const SID_RATE = 360.98564736629, TOTAL_LON = 134;
+let GEO = null;
+const thetaTrue = T => GEO.theta0 + SID_RATE * T;
+function geoSetup() {
+  if (GEO) return GEO;
+  const D = tabData('solar'), tot = D.inWin.find(e => e.type === 'total');
+  GEO = { theta0: raOf(sunVec(tot.ob.Tc)) + tot.ob.Hc - TOTAL_LON - SID_RATE * tot.ob.Tc };
+  for (const e of D.evs) {
+    e.geoLon = wrap180(raOf(sunVec(e.ob.Tc)) + e.ob.Hc - thetaTrue(e.ob.Tc));
+    if (e.type === 'total' || e.type === 'annular') {     // the central path, fixed on the ground
+      const pts = [];
+      for (let T = e.Tg - 0.2; T <= e.Tg + 0.2; T += 1 / 1440) {
+        const P = axisHit(T); if (!P) continue;
+        const g = solarGeom(T), sP = dot3(sub3(P, g.M), g.u);
+        const ru = Math.abs(R_MOON_ - sP * (R_SUN_ - R_MOON_) / g.dSM);
+        pts.push({ T, lat: decOf(P), lon: wrap180(raOf(P) - thetaTrue(T)), ru });
+      }
+      e.path = pts;
+    }
+  }
+  return GEO;
 }
 function nearestEvent(T, evs) { let b = evs[0]; for (const e of evs) if (Math.abs(e.Tm - T) < Math.abs(b.Tm - T)) b = e; return b; }
 
 /* everything the sky view and readout need at time T */
 function skyState(T, tabKey = S.tab) {
-  const D = tabData(tabKey), kind = D.tab.kind, op = obsParams(T, D.evs);
-  const Sg = sunVec(T), Mg = moonVec(T), lonT = lonOf(kind === 'solar' ? Sg : Mg);
-  const O = obsVecAt(op.phi, lonT + op.H), B = skyBasis(O);
+  const D = tabData(tabKey), kind = D.tab.kind; if (kind === 'solar') geoSetup(); const op = obsParams(T, D.evs);
+  const Sg = sunVec(T), Mg = moonVec(T), raT = raOf(kind === 'solar' ? Sg : Mg);
+  const O = obsVecAt(op.phi, raT + op.H), B = skyBasis(O), spin = raT + op.H - op.lon;
   const St = sub3(Sg, O), Mt = sub3(Mg, O);
   const rs = arcm(R_SUN_, len3(St)), rm = arcm(R_MOON_, len3(Mt));
   const sunAA = altAz(St, B), moonAA = altAz(Mt, B);
@@ -813,8 +859,8 @@ function skyState(T, tabKey = S.tab) {
   const proj = v => { const n = nrm3(v), z = dot3(n, tgt); return z <= 0 ? null : [dot3(n, rgt) / z * DEG * 60, dot3(n, up) / z * DEG * 60]; };   // arcmin, y up
   const dirXY = v => { const n = nrm3(v); return Math.atan2(dot3(n, up), dot3(n, rgt)); };
   const sep = angSepArcmin(St, Mt);
-  const sunHA = wrap180(lonOf(O) - lonOf(Sg));
-  const st = { T, kind, tabKey, phi: op.phi, ev: op.ev, O, B, St, Mt, Sg, Mg, rs, rm, sep, sunAA, moonAA, tgt, rgt, up, proj, dirXY,
+  const sunHA = wrap180(raOf(O) - raOf(Sg));
+  const st = { T, kind, tabKey, phi: op.phi, ev: op.ev, spin, obsLon: op.lon, O, B, St, Mt, Sg, Mg, rs, rm, sep, sunAA, moonAA, tgt, rgt, up, proj, dirXY,
     clock: 12 + sunHA / 15, near: nearestEvent(T, D.evs), dist: len3(Mg) };
   // Moon's lit side, seen from the observer
   const toSun = sub3(Sg, Mg), toObs = mul3(Mt, -1);
@@ -882,7 +928,8 @@ const closeCenter = (W, H) => [W / 2, (H - EVBAR_H) / 2 + 4];
 
 function drawSky(c, W, H, st, o = {}) {
   c.save();
-  if (S.sky === 'wide') drawWide(c, W, H, st, o);
+  if (S.sky === 'space' && st.kind === 'solar') drawSpace(c, W, H, st);
+  else if (S.sky === 'wide') drawWide(c, W, H, st, o);
   else if (st.kind === 'solar') drawCloseSolar(c, W, H, st, o);
   else drawCloseLunar(c, W, H, st, o);
   c.restore();
@@ -1302,6 +1349,114 @@ function drawShadow(c, P, px, E, Mw, kind, alpha) {
   c.restore();
 }
 
+/* ══════════════════════════ FROM SPACE (Solar tab) ══════════════════════════
+   Earth seen from near the Sun's direction (8° off, like DSCOVR at L1), with the Moon's
+   shadow worked out pixel by pixel from the same geometry as the sky view.            */
+const LAND_SRC = 'data:image/png;base64,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';
+let LAND = null;
+function loadLand() {
+  return new Promise(res => { const im = new Image();
+    im.onload = () => { const c = mkCanvas(2048, 1024), x = c.getContext('2d'); x.drawImage(im, 0, 0, 2048, 1024);
+      const d = x.getImageData(0, 0, 2048, 1024).data, m = new Uint8Array(2048 * 1024); for (let i = 0; i < m.length; i++) m[i] = d[i * 4]; LAND = m; res(); };
+    im.onerror = () => res(); im.src = LAND_SRC; });
+}
+const SPACE_OFF = 8;
+const SPACE_STARS = (() => { const R = rng(77), a = []; for (let i = 0; i < 160; i++) a.push([R(), R(), Math.pow(R(), 3)]); return a; })();
+function spaceBasis(st) {
+  const s = nrm3(st.Sg), off = SPACE_OFF * RAD, c = [s[0] * Math.cos(off) - s[1] * Math.sin(off), s[0] * Math.sin(off) + s[1] * Math.cos(off), s[2]];
+  let up = sub3(SPIN, mul3(c, dot3(SPIN, c))); up = nrm3(up);
+  return { c, up, right: cross3(up, c), sun: s };
+}
+const spaceGeom = (W, H) => { const R = Math.min(W, H - EVBAR_H) * 0.41; return { R, cx: W / 2, cy: (H - EVBAR_H) / 2 + 4 }; };
+function landColor(lat, lon) {
+  const a = Math.abs(lat);
+  if (lat < -62 || (lat > 59 && lon > -74 && lon < -12)) return [232, 236, 240];
+  const n = noise3(cosd(lat) * cosd(lon) * 5.2, cosd(lat) * sind(lon) * 5.2, sind(lat) * 5.2 + 3.3) - 0.5;
+  const dry = clamp(1 - Math.abs(a - 24) / 12 + n * 0.8, 0, 1), cold = smooth(52, 68, a);
+  let col = mixc([62, 94, 48], [192, 165, 116], dry);
+  col = mixc(col, [118, 116, 98], cold * 0.8);
+  return col;
+}
+/* colour map of Earth (1024×512, equirectangular), built once from the land mask */
+let EARTH_TEX = null;
+function earthTex() {
+  if (EARTH_TEX || !LAND) return EARTH_TEX;
+  const W = 1024, H = 512, t = new Uint8ClampedArray(W * H * 3);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const lat = 90 - (j + 0.5) / H * 180, lon = (i + 0.5) / W * 360 - 180;
+    const m = (LAND[(2 * j) * 2048 + 2 * i] + LAND[(2 * j) * 2048 + 2 * i + 1] + LAND[(2 * j + 1) * 2048 + 2 * i] + LAND[(2 * j + 1) * 2048 + 2 * i + 1]) / 1020;
+    const ocean = mixc([10, 38, 84], [20, 60, 112], noise3(cosd(lat) * cosd(lon) * 2.9, cosd(lat) * sind(lon) * 2.9, sind(lat) * 2.9 + 1.1));
+    const col = m > 0 ? mixc(ocean, landColor(lat, lon), m) : ocean, k = (j * W + i) * 3;
+    t[k] = col[0]; t[k + 1] = col[1]; t[k + 2] = col[2];
+  }
+  return (EARTH_TEX = t);
+}
+const GRID = {};
+function discGrid(n) {
+  if (GRID.n === n) return GRID;
+  const N = n * n; GRID.n = n; GRID.x = new Float32Array(N); GRID.y = new Float32Array(N); GRID.z = new Float32Array(N); GRID.a = new Uint8ClampedArray(N); GRID.idx = [];
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) { const x = (i + 0.5) / n * 2 - 1, y = 1 - (j + 0.5) / n * 2, r2 = x * x + y * y, p = j * n + i; if (r2 > 1) continue;
+    GRID.x[p] = x; GRID.y[p] = y; GRID.z[p] = Math.sqrt(1 - r2); GRID.a[p] = 255 * clamp((1 - Math.sqrt(r2)) * n / 2 + 0.5, 0, 1); GRID.idx.push(p); }
+  GRID.idx = Int32Array.from(GRID.idx);
+  return GRID;
+}
+function drawSpace(c, W, H, st) {
+  const { R, cx, cy } = spaceGeom(W, H), dpr = pxr(c), sc = dpr > 1.6 ? 1.25 : 1;
+  c.fillStyle = '#020306'; c.fillRect(0, 0, W, H);
+  for (const [x, y, m] of SPACE_STARS) { c.fillStyle = `rgba(220,228,255,${0.15 + 0.5 * m})`; c.fillRect(x * W, y * (H - EVBAR_H), 1 + m, 1 + m); }
+  const B = spaceBasis(st), n = Math.ceil(R * 2 * sc), G = discGrid(n), { b, c: bc } = buf('globe', n, n), img = bc.createImageData(n, n), d = img.data, tex = earthTex();
+  const g = solarGeom(st.T), M = g.M, u = g.u, dSM = g.dSM;
+  const sx = dot3(B.sun, B.right), sy = dot3(B.sun, B.up), sz = dot3(B.sun, B.c);
+  const eR = eclToEq(B.right), eU = eclToEq(B.up), eC = eclToEq(B.c), spin = st.spin;
+  const rp0 = R_MOON_ + (g.s + R_EARTH_) * (R_SUN_ + R_MOON_) / dSM, near = g.s > 0 && g.rho < R_EARTH_ + rp0 + 200;
+  const Rr = B.right, Ru = B.up, Rc = B.c;
+  for (let t = 0; t < G.idx.length; t++) {
+    const p = G.idx[t], x = G.x[p], y = G.y[p], z = G.z[p], k = p * 4;
+    const qx = eR[0] * x + eU[0] * y + eC[0] * z, qy = eR[1] * x + eU[1] * y + eC[1] * z, qz = eR[2] * x + eU[2] * y + eC[2] * z;
+    let r = 12, gg = 40, bb = 90;
+    if (tex) { const lat = Math.asin(qz < -1 ? -1 : qz > 1 ? 1 : qz) * DEG; let lon = Math.atan2(qy, qx) * DEG - spin; lon = ((lon + 180) % 360 + 360) % 360;
+      const ti = ((((90 - lat) / 180 * 512) | 0) * 1024 + ((lon / 360 * 1024) | 0) % 1024) * 3; r = tex[ti]; gg = tex[ti + 1]; bb = tex[ti + 2]; }
+    const cosI = x * sx + y * sy + z * sz;
+    let L = cosI <= 0 ? 0.03 : 0.06 + 0.94 * Math.pow(cosI, 0.7);
+    if (near) {
+      const px0 = (Rr[0] * x + Ru[0] * y + Rc[0] * z) * R_EARTH_ - M[0], py0 = (Rr[1] * x + Ru[1] * y + Rc[1] * z) * R_EARTH_ - M[1], pz0 = (Rr[2] * x + Ru[2] * y + Rc[2] * z) * R_EARTH_ - M[2];
+      const s = px0 * u[0] + py0 * u[1] + pz0 * u[2];
+      if (s > 0) {
+        const ex = px0 - s * u[0], ey = py0 - s * u[1], ez = pz0 - s * u[2], sep = Math.sqrt(ex * ex + ey * ey + ez * ez) / s, rs = R_SUN_ / (dSM + s), rm = R_MOON_ / s;
+        if (sep < rs + rm) { const left = 1 - circleOverlap(rs, rm, sep) / (Math.PI * rs * rs); L *= left <= 0 ? 0.02 : 0.04 + 0.96 * Math.pow(left, 1.35); }
+      }
+    }
+    const h = (1 - z) * (1 - z) * (1 - z) * 0.55;
+    d[k] = (r + (120 - r) * h) * L; d[k + 1] = (gg + (165 - gg) * h) * L; d[k + 2] = (bb + (230 - bb) * h) * L; d[k + 3] = G.a[p];
+  }
+  bc.putImageData(img, 0, 0);
+  // thin atmosphere glow on the lit limb
+  const ag = c.createRadialGradient(cx, cy, R * 0.98, cx, cy, R * 1.06);
+  ag.addColorStop(0, 'rgba(110,160,240,0.35)'); ag.addColorStop(1, 'rgba(110,160,240,0)');
+  c.fillStyle = ag; c.beginPath(); c.arc(cx, cy, R * 1.06, 0, TAU); c.fill();
+  c.drawImage(b, cx - R, cy - R, R * 2, R * 2);
+  // geographic point → screen
+  const geoXY = (lat, lon) => { const th = lon + spin, q = eqToEcl([cosd(lat) * cosd(th), cosd(lat) * sind(th), sind(lat)]);
+    return { x: cx + dot3(q, B.right) * R, y: cy - dot3(q, B.up) * R, z: dot3(q, B.c) }; };
+  // the central path: faint ahead of the shadow, solid where it has passed
+  const e = st.near;
+  if (e.path && e.path.length > 1 && Math.abs(st.T - e.Tm) < 0.6) {
+    const col = typeColor(e.type), w = Math.max(2, e.path.reduce((a, p) => a + p.ru, 0) / e.path.length * 2 / R_EARTH_ * R);
+    for (const done of [false, true]) {
+      c.beginPath(); let pen = false;
+      for (const p of e.path) { if (done && p.T > st.T) break; const q = geoXY(p.lat, p.lon); if (q.z < 0.02) { pen = false; continue; } pen ? c.lineTo(q.x, q.y) : c.moveTo(q.x, q.y); pen = true; }
+      c.strokeStyle = rgba(col, done ? 0.85 : 0.32); c.lineWidth = w; c.lineCap = 'round'; c.lineJoin = 'round'; if (!done) c.setLineDash([w * 1.2, w * 1.4]); c.stroke(); c.setLineDash([]);
+    }
+  }
+  // the sky view's observer
+  { const q = geoXY(st.phi, st.obsLon);
+    if (q.z > 0.05) { c.strokeStyle = '#F4F1E8'; c.lineWidth = 2; c.beginPath(); c.arc(q.x, q.y, 6, 0, TAU); c.stroke();
+      c.fillStyle = '#F4F1E8'; c.beginPath(); c.arc(q.x, q.y, 1.8, 0, TAU); c.fill();
+      label(c, 'Observer', q.x + 10, q.y - 12, { align: 'left', font: `600 13px ${FB}` }); } }
+  tags(c, W, ['VIEW FROM THE SUN', 'Earth and shadow to scale']);
+  label(c, 'Coastlines: Natural Earth', W - 14, H - EVBAR_H - 12, { align: 'right', font: `500 13px ${FM}`, color: 'rgba(232,228,217,0.55)', halo: false });
+}
+
 /* ══════════════════════════ UI ══════════════════════════ */
 const mk = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
 function seg(opts, active, on) {
@@ -1383,7 +1538,9 @@ function setView(v) { S.view = v; const p = VIEWS[v]; S.cam = { az: p.az * RAD, 
 function renderChips() {
   oChips.innerHTML = ''; kChips.innerHTML = '';
   oChips.appendChild(seg(Object.keys(VIEWS).map(k => [k, VIEWS[k].l]), S.view, setView));
-  kChips.appendChild(seg([['close', 'Close-up'], ['wide', 'Sky']], S.sky, v => { S.sky = v; renderChips(); dirty = true; }));
+  const kinds = [['close', 'Close-up'], ['wide', 'Sky']]; if (S.tab === 'solar') kinds.push(['space', 'From space']);
+  if (S.tab !== 'solar' && S.sky === 'space') S.sky = 'close';
+  kChips.appendChild(seg(kinds, S.sky, v => { S.sky = v; renderChips(); dirty = true; }));
   const t = mk('button', 'cc-btn tgl' + (S.outlines ? ' is-active' : ''), 'Outlines');
   t.onclick = () => { S.outlines = !S.outlines; renderChips(); dirty = true; };
   if (S.sky === 'close') kChips.appendChild(t);
@@ -1446,7 +1603,7 @@ function drawEvbar(c, w, h, st) {
   // labels for the central phase (too short to hold its own text)
   if (solar && e.c2 != null) { const xm = X(e.Tm); label(c, `${TYPE[e.type].label} · ${fmtDur(e.c3 - e.c2)}`, xm, y0 - 0.5 + (y1 - y0) / 2 + 1, { font: `700 13px ${FM}`, color: '#F4EBD8', halo: 'rgba(14,16,15,0.85)', hw: 4 }); }
   // clock times at each end
-  const ck = T => fmtClock(12 + wrap180(lonOf(obsAtEv(e.kind, e.ob, T)) - lonOf(sunVec(T))) / 15);
+  const ck = T => fmtClock(12 + wrap180(raOf(obsAtEv(e.kind, e.ob, T)) - raOf(sunVec(T))) / 15);
   label(c, ck(a0), X(a0) - 6, h / 2 + 1, { align: 'right', font: `600 13px ${FM}`, color: 'rgba(232,228,217,0.8)', halo: false });
   label(c, ck(a1), X(a1) + 6, h / 2 + 1, { align: 'left', font: `600 13px ${FM}`, color: 'rgba(232,228,217,0.8)', halo: false });
   // now
@@ -1607,7 +1764,7 @@ function selectFamily(key, year) {
 
 /* ══════════════════════════ EXPORT ══════════════════════════ */
 const EW = 1280, EH = 720;
-const FOOT = 'Idealized year: the Moon’s orbit keeps one orientation in space; Earth’s axis untilted · Moon image: NASA SVS';
+const FOOT = 'Idealized year: the Moon’s orbit keeps one orientation in space; Earth’s axis tilted 23.5° · Moon image: NASA SVS · Coastlines: Natural Earth';
 function stampText(st) {
   const m = readoutModel(st);
   return `${TABS.find(t => t[0] === S.tab)[1]} · ${fmtDay(st.T)}, ${fmtClock(st.clock)} · ${m.ph}`;
