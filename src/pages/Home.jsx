@@ -548,8 +548,8 @@ const SECTIONS = [
       {
         tags:       ['Surface Obs', 'Updates Hourly'],
         title:      'Surface Map',
-        description:'Live station observations. Temperature, dewpoint, pressure, wind barbs, and sky cover — updated each hour.',
-        footerTags: ['Station Model', 'Local', 'Live Obs'],
+        description:'Live station observations for the Tri-State, nine regions or the nation: station models, temperature, dewpoint, pressure and gusts as points or contoured maps, with 3- to 24-hour changes, radar and the last 12 hours.',
+        footerTags: ['Station Model', 'Isotherms', 'Live Obs'],
         to:         '/surface-map',
         thumb:      '/SurfaceMap_thumbnail.png',
       },
