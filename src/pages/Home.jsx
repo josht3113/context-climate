@@ -556,8 +556,8 @@ const SECTIONS = [
       {
         tags:       ['Surface Maps', 'Updates Hourly'],
         title:      'Surface Analysis Builder',
-        description:'Draw your own surface analysis on a live CONUS station map. Plot cold fronts, warm fronts, troughs, and pressure centers over real-time observations, with isobars, isotherms, radar, satellite, and zoom.',
-        footerTags: ['Fronts', 'Isobars', 'Isotherms', 'Radar', 'Satellite', 'Zoom'],
+        description:'Draw your own fronts and pressure centers over moving HRRR winds, with switchable temperature, dewpoint, pressure and wind backgrounds, the NWS surface analysis, stations, radar, and 18 forecast hours.',
+        footerTags: ['Fronts', 'Wind', 'HRRR', 'NWS Fronts', 'Forecast'],
         to:         '/surface-analysis',
         thumb:      '/SurfaceAnalysis_thumbnail.png',
       },
