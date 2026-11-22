@@ -23,8 +23,9 @@ const AD_AFTER_SECTION = 'climatology'
 // `slow: true` marks a card whose tool does a long live data fetch (~30 s);
 // the card shows a small load-time marker.
 //
-// Station climatology (Climatology & Records / Precipitation / Maps) shares
-// one accent.
+// Station climatology (Climatology & Records / Precipitation) shares one
+// accent. `pulse: true` puts the green live dot on a section heading — Live
+// and Maps, the two sections whose tools all update continuously.
 
 const SECTIONS = [
   {
@@ -32,6 +33,7 @@ const SECTIONS = [
     label:     'Live  ·  Updates Continuously',
     navLabel:  'Live',
     accentVar: '--accent-live',
+    pulse:     true,
     cards: [
       {
         tags:       ['US Cities', 'Updates Continuously'],
@@ -74,6 +76,47 @@ const SECTIONS = [
         thumb:      '/precip_heatmap_annual_thumbnail.png',
       },
       {
+        tags:       ['US Cities', 'Updates Daily'],
+        title:      'Meteorological Seasons',
+        description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
+        footerTags: ['Seasons', 'Trends', 'Calendars'],
+        to:         '/seasons',
+        thumb:      '/Seasons_thumbnail.png',
+      },
+      {
+        tags:       ['Cape May–Boston', 'Updates Continuously'],
+        title:      'Tide Watch',
+        description:'Live water levels and storm surge at 15 tide gauges from Cape May to Boston, with every major coastal flood ranked against each gauge\'s full record.',
+        footerTags: ['Water Level', 'Storm Surge', 'Flood Stages', 'Records'],
+        to:         '/tide-watch',
+        thumb:      '/TideWatch_thumbnail.png',
+      },
+    ],
+  },
+  {
+    id:        'maps',
+    label:     'Maps',
+    navLabel:  'Maps',
+    accentVar: '--accent-live',
+    pulse:     true,
+    cards: [
+      {
+        tags:       ['Surface Obs', 'Updates Hourly'],
+        title:      'Surface Map',
+        description:'Live station observations for the Tri-State, nine regions or the nation: station models, temperature, dewpoint, pressure and gusts as points or contoured maps, with 3- to 24-hour changes, radar and the last 12 hours.',
+        footerTags: ['Station Model', 'Isotherms', 'Live Obs'],
+        to:         '/surface-map',
+        thumb:      '/SurfaceMap_thumbnail.png',
+      },
+      {
+        tags:       ['Surface Maps', 'Updates Hourly'],
+        title:      'Surface Analysis Builder',
+        description:'Draw your own fronts and pressure centers over moving HRRR winds, with switchable temperature, dewpoint, pressure and wind backgrounds, the NWS surface analysis, stations, radar, and 18 forecast hours.',
+        footerTags: ['Fronts', 'Wind', 'HRRR', 'NWS Fronts', 'Forecast'],
+        to:         '/surface-analysis',
+        thumb:      '/SurfaceAnalysis_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'Updates Every 6 Hours'],
         title:      'Back Trajectories',
         description:'Where the air arriving at about 290 U.S. cities came from: 24- to 120-hour back trajectories at three heights, with ensemble uncertainty, for every 3 hours of the past week plus tomorrow.',
@@ -96,22 +139,6 @@ const SECTIONS = [
         footerTags: ['Records', 'Map', 'Streaks', 'Animation'],
         to:         '/record-watch',
         thumb:      '/RecordWatch_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'Updates Daily'],
-        title:      'Meteorological Seasons',
-        description:'Meteorological seasons explores the stochastic way in which the seasons unfold each year at various US locations. Updates daily.',
-        footerTags: ['Seasons', 'Trends', 'Calendars'],
-        to:         '/seasons',
-        thumb:      '/Seasons_thumbnail.png',
-      },
-      {
-        tags:       ['Cape May–Boston', 'Updates Continuously'],
-        title:      'Tide Watch',
-        description:'Live water levels and storm surge at 15 tide gauges from Cape May to Boston, with every major coastal flood ranked against each gauge\'s full record.',
-        footerTags: ['Water Level', 'Storm Surge', 'Flood Stages', 'Records'],
-        to:         '/tide-watch',
-        thumb:      '/TideWatch_thumbnail.png',
       },
     ],
   },
@@ -539,30 +566,6 @@ const SECTIONS = [
       },
     ],
   },
-  {
-    id:        'maps',
-    label:     'Maps',
-    navLabel:  'Maps',
-    accentVar: '--accent-hourly',
-    cards: [
-      {
-        tags:       ['Surface Obs', 'Updates Hourly'],
-        title:      'Surface Map',
-        description:'Live station observations for the Tri-State, nine regions or the nation: station models, temperature, dewpoint, pressure and gusts as points or contoured maps, with 3- to 24-hour changes, radar and the last 12 hours.',
-        footerTags: ['Station Model', 'Isotherms', 'Live Obs'],
-        to:         '/surface-map',
-        thumb:      '/SurfaceMap_thumbnail.png',
-      },
-      {
-        tags:       ['Surface Maps', 'Updates Hourly'],
-        title:      'Surface Analysis Builder',
-        description:'Draw your own fronts and pressure centers over moving HRRR winds, with switchable temperature, dewpoint, pressure and wind backgrounds, the NWS surface analysis, stations, radar, and 18 forecast hours.',
-        footerTags: ['Fronts', 'Wind', 'HRRR', 'NWS Fronts', 'Forecast'],
-        to:         '/surface-analysis',
-        thumb:      '/SurfaceAnalysis_thumbnail.png',
-      },
-    ],
-  },
 ]
 
 // Section list for the jump nav — accent comes from the section itself, the
@@ -683,7 +686,7 @@ export default function Home() {
           >
             <span className={styles.sectionLabelBar} />
             {section.label}
-            {section.id === 'live' && (
+            {section.pulse && (
               <span className={styles.livePulse} aria-hidden="true" />
             )}
           </p>
