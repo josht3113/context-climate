@@ -217,7 +217,7 @@
   .today-strip { padding: 5px 14px; } .nm-head { padding-top: 6px; padding-bottom: 6px; min-height: 0; }
   .nm-bar { min-height: 46px; padding-top: 6px; padding-bottom: 6px; }
 }
-@media (max-width: 1440px) { .finder-group .search-input { width: 150px; } .cc-app-top { column-gap: 10px; } .ts-label { display: none; } .cc-app-title { font-size: 21px; } .cc-tab { padding: 8px 10px; } }
+@media (max-width: 1440px) { .nm-head .cc-segmented-btn { padding: 6px 5px; letter-spacing: 0; } .finder-group .search-input { width: 150px; } .cc-app-top { column-gap: 10px; } .ts-label { display: none; } .cc-app-title { font-size: 21px; } .cc-tab { padding: 8px 10px; } }
 @media (max-width: 1180px) { :root { --cc-card-width: 320px; } .td-r { grid-template-columns: 52px 62px 1fr; } .td-r em { grid-column: 1 / -1; } .finder-group .search-input { width: 170px; } #pane-now { --cc-card-width: 330px; } .nm-head .cc-segmented-btn { padding: 6px 7px; } }
 @media (max-width: 760px) {
   .cc-app-title { font-size: 21px; }
@@ -276,7 +276,7 @@
       <div class="today-strip"><b>Today so far</b><span id="today-strip"></span></div>
       <div class="cc-scene-head nm-head">
         <div class="cc-segmented" id="nm-view"></div>
-        <div class="cc-segmented" id="nm-pres" hidden><button class="cc-segmented-btn is-active" data-m="model">Model</button><button class="cc-segmented-btn" data-m="full">Full</button></div>
+        <div class="cc-segmented" id="nm-pres" hidden><button class="cc-segmented-btn is-active" data-m="model" title="As written in the station model">Coded</button><button class="cc-segmented-btn" data-m="full">Full</button></div>
         <button class="pchip" id="nm-radar">Radar</button>
       </div>
       <div class="cc-scene-stage" id="nm-stage">
@@ -1770,7 +1770,8 @@ const NBV={
   vis:{label:'Visibility',name:'Visibility',pos:'l',scale:'vis',unit:'mi',get:e=>e.ob.visSM!=null?Math.min(e.ob.visSM,10):null,fmt:v=>SM.formatVis(v),hi:'Clearest',lo:'Lowest',step:1,min0:true},
   chg:{label:'24-h change',name:'Temperature change since this time yesterday',pos:'ul',scale:'temp_anom',unit:'°F',get:e=>e.chg,fmt:v=>(Math.round(v)>0?'+':Math.round(v)<0?'−':'')+Math.abs(Math.round(v)),hi:'Warmed most',lo:'Cooled most',step:5,sym:true}
 };
-const NB_ORDER=['temp','dew','wind','gust','slp','tend','sky','wx','vis','chg'];
+NBV.model={label:'Model',name:'Station model',pos:'model',cats:'model',get:e=>e.ob?1:null};
+const NB_ORDER=['temp','dew','wind','gust','slp','tend','sky','wx','vis','chg','model'];
 
 // ── Data ────────────────────────────────────────────────────────
 function nbUrl(ids){
@@ -1974,6 +1975,20 @@ function drawNearMap(ctx,W,H,fi,o={}){
   if(o.base)MAP.renderBase(ctx,o.base,G.project,{CW:W,CH:H},G.B);
   if(NB.radar&&o.radar)nbDrawRadar(ctx,G,o.radar);
   const items=nbItems(ctx,G,fi,v),r=7.5;
+  if(v==='model'){
+    const obOf=it=>Object.assign({},it.e.ob,{tend:it.e.tend,id:it.c.id});
+    const live=items.filter(it=>it.e);
+    const th=SM.thin(ctx,live,{clip:{x0:2,y0:2,x1:W-2,y1:H-2},reserved:o.reserved||[],layoutFn:it=>SM.layout(ctx,obOf(it),{showId:true})});
+    for(const it of items)if(!it.e)nbHollow(ctx,it.x,it.y,3.5);
+    for(const it of th.dropped){ctx.beginPath();ctx.arc(it.x,it.y,3.4,0,Math.PI*2);ctx.fillStyle='rgba(232,228,217,.5)';ctx.fill();}
+    for(const it of th.kept)SM.draw(ctx,it.x,it.y,obOf(it),{lay:it.lay,showId:true});
+    const mk=(id,col,lw)=>{const it=items.find(q=>q.c.id===id);if(!it)return;const R=SM.GEOM.R+4;ctx.beginPath();ctx.arc(it.x,it.y,R,0,Math.PI*2);ctx.lineWidth=lw+2.5;ctx.strokeStyle=NB_EDGE;ctx.stroke();ctx.lineWidth=lw;ctx.strokeStyle=col;ctx.stroke();};
+    if(NB.sel&&NB.sel!==curStation[0])mk(NB.sel,NB_INK,1.6);
+    mk(curStation[0],C_ACC,2.2);
+    if(o.scaleBar!==false)nbScaleBar(ctx,G,W,H);
+    ctx.restore();
+    return{G,items};
+  }
   // thin the labels; every station keeps its dot
   const withVal=items.filter(it=>it.val!=null&&!(v==='gust'&&!it.val)&&!(v==='wx'&&!it.val));
   const th=SM.thin(ctx,withVal,{clip:{x0:2,y0:2,x1:W-2,y1:H-2},reserved:o.reserved||[],layoutFn:it=>{
@@ -2038,6 +2053,7 @@ function nbLegendSpec(fi){
   const v=NB.view,V=NBV[v];if(fi<0)return null;
   const vals=[],frames=V.cats?[fi]:NB.frames.map((_,k)=>k);       // numeric scales hold still across the 12 hours
   for(const k of frames)for(const e of nbFrame(k).values()){const x=nbVal(e,v);if(x!=null)vals.push(x);}
+  if(V.cats==='model'){const C=SM.COLORS;return{cats:[['Temp °F',C.temp],['Dewpoint °F',C.dew],['Pressure mb (coded)',C.ink],['Wind kt',C.ink]]};}
   if(V.cats==='sky'){const have=new Set(vals);return{cats:SKY_ORDER.filter(c=>have.has(c)||c!=='VV').map(c=>[SM.SKY_LABEL[c],SKY_COL[c]])};}
   if(V.cats==='wx'){const have=new Set(vals.filter(Boolean).map(w=>SM.wxClass(w)));return{cats:have.size?WX_ORDER.filter(c=>have.has(c)).map(c=>[WX_NAME[c],SM.WX_COLORS[c]]):[['None reported',NB_QUIET]]};}
   let lo=vals.length?Math.min(...vals):0,hi=vals.length?Math.max(...vals):1;
@@ -2109,6 +2125,7 @@ function drawNearHover(){
   let val='No report this hour';
   if(e){
     if(it.val==null)val=V.name+' not reported';
+    else if(V.cats==='model'){const t=tF(e.ob),d=dF(e.ob),w=e.ob.wind;val=[t!=null?Math.round(t)+'°F':null,d!=null?'dewpoint '+Math.round(d)+'°F':null,w?windText({wind:w.kt*KT,drct:w.dir}):null].filter(Boolean).join(' · ')||'Report has no values';}
     else if(V.cats==='sky')val=SM.SKY_LABEL[it.val];
     else if(V.cats==='wx')val=it.val?wxWords(e.ob.wx.join(' '))||'Weather reported':'No weather';
     else if(NB.view==='gust')val=it.val?'Gusts to '+Math.round(it.val)+' mph':'No gusts';
@@ -2197,7 +2214,7 @@ function renderNow2(){
 // ── Nearby ranking (rail) ───────────────────────────────────────
 function renderNearRank(){
   const el=$('rank');if(!el)return;
-  const v=NB.view,V=NBV[v];
+  const v=NB.view==='model'?'temp':NB.view,V=NBV[v];
   setText('rank-t','Nearby · '+V.label.toLowerCase());
   if(NB.state!=='ready'||NB.fi<0){el.innerHTML=`<div class="rk-empty">${NB.state==='loading'?'Loading…':NB.state==='error'?'Unavailable':'No reports'}</div>`;setText('rank-sub','');return;}
   const F=nbFrame(NB.fi),G=NB.geom;
