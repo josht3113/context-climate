@@ -92,15 +92,19 @@ body { padding: 0; overflow: hidden; min-height: 0; }
 .saros .sbody canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
 @media (max-width: 1440px) { .top .sub { display: none; } .top { gap: 12px; } }
-@media (max-width: 1366px) {
-  .readout .ph { min-width: 170px; padding: 6px 12px; }
-  .readout .st { padding: 5px 11px; }
-  .readout .v { font-size: 19px; }
+@media (max-width: 1680px) {
+  .readout .ph { min-width: 0; padding: 6px 12px; }
+  .readout .st { padding: 5px 10px; }
+  .readout .l { white-space: normal; font-size: 11px; letter-spacing: .05em; line-height: 1.15; }
+  .readout .v { font-size: 18px; }
+  .readout .v .u { font-size: 13px; margin-left: 3px; }
 }
 @media (max-width: 1280px) {
   .snap { padding: 6px 9px; }
-  .readout .ph span { font-size: 19px; }
-  .readout .st.opt { display: none; }
+  .readout .ph span { font-size: 17px; white-space: normal; }
+  .readout .ph { padding: 6px 10px; gap: 8px; }
+  .readout .st { padding: 4px 8px; }
+  .readout .v { font-size: 16px; }
 }
 @media (max-width: 1180px) {
   .tabs .cc-segmented-btn { padding: 11px 14px; }
@@ -109,7 +113,8 @@ body { padding: 0; overflow: hidden; min-height: 0; }
   .slider .sv { min-width: 0; }
   .go { min-width: 0; padding: 9px 12px; }
   .controls { gap: 6px; }
-  .readout .ph { min-width: 150px; }
+  .readout .ph { min-width: 0; }
+  .readout .v { white-space: normal; line-height: 1.05; }
 }
 @media (max-height: 680px) {
   .readout { min-height: 50px; }
@@ -1009,9 +1014,9 @@ function tags(c, W, lines) {
   lines.forEach((t, i) => label(c, t, W - 14, 22 + i * 21, { align: 'right', font: i ? `500 13px ${FM}` : `700 13px ${FM}`, color: i ? 'rgba(232,228,217,0.72)' : 'rgba(232,228,217,0.86)' }));
 }
 function scaleBar(c, W, H, k) {
-  const L = 10 * k, x = 16, y = H - EVBAR_H - 12;
+  const L = 12 * k, x = 16, y = H - EVBAR_H - 12;
   c.strokeStyle = 'rgba(232,228,217,0.7)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(x, y); c.lineTo(x + L, y); c.moveTo(x, y - 4); c.lineTo(x, y + 4); c.moveTo(x + L, y - 4); c.lineTo(x + L, y + 4); c.stroke();
-  label(c, "10′", x + L / 2, y - 12, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.8)' });
+  label(c, "0.2°", x + L / 2, y - 12, { font: `700 13px ${FM}`, color: 'rgba(232,228,217,0.8)' });
 }
 
 /* ── the Moon with its phase and Earth's shadow on it ── */
@@ -1495,8 +1500,8 @@ function stepTime(dt) {
   }
   if (!S.playing) return false;
   let np = S.p + dt;
-  if (S.stopAt) {      // pause at the next eclipse's maximum
-    for (const sn of D.snaps) if (sn.ev.type !== 'none' && sn.p > S.p + 1e-6 && sn.p <= np) { np = sn.p; S.playing = false; break; }
+  if (S.stopAt) {      // pause at every new moon (solar) or full moon (lunar), eclipse or not
+    for (const e of D.inWin) { const ep = D.W.pOf(e.Tm); if (ep > S.p + 1e-6 && ep <= np) { np = ep; S.playing = false; break; } }
   }
   setP(np);
   if (S.ended) S.playing = false;
@@ -1509,7 +1514,7 @@ const ctl = document.getElementById('controls');
 function renderControls() {
   const D = tabData(); ctl.innerHTML = '';
   const pb = mk('button', 'cc-btn primary go'); pb.id = 'bPlay'; pb.onclick = play; ctl.appendChild(pb);
-  const tg = mk('button', 'cc-btn tgl' + (S.stopAt ? ' is-active' : ''), 'Stop at eclipses'); tg.id = 'bStop';
+  const tg = mk('button', 'cc-btn tgl' + (S.stopAt ? ' is-active' : ''), D.tab.full ? 'Stop at full moons' : 'Stop at new moons'); tg.id = 'bStop';
   tg.onclick = () => { S.stopAt = !S.stopAt; tg.classList.toggle('is-active', S.stopAt); }; ctl.appendChild(tg);
   ctl.appendChild(mk('div', 'sep'));
   const g = mk('div', 'grp'); g.id = 'snaps';
@@ -1552,12 +1557,15 @@ function readoutModel(st) {
   const solar = st.kind === 'solar', lt = st.local;
   const ph = lt === 'none' ? 'No eclipse' : solar ? (lt === 'partial' ? 'Partial eclipse' : lt === 'total' ? 'Totality' : 'Annular eclipse') : (lt === 'total' ? 'Total eclipse' : lt === 'partial' ? 'Partial eclipse' : 'Penumbral eclipse');
   const rows = [{ l: 'Local time', v: fmtClock(st.clock), u: fmtDay(st.T) }];
+  const lat = Math.asin(st.Mg[2] / len3(st.Mg)) * DEGm, latR = Math.round(Math.abs(lat) * 10) / 10;
+  rows.push({ l: 'Moon vs. ecliptic', v: latR.toFixed(1) + '°', u: latR === 0 ? 'on it' : lat > 0 ? 'above' : 'below' });
+  const dia = a => (a / 30).toFixed(2) + '°';      // angular radius (′) → angular diameter (°)
   if (solar) {
     rows.push({ l: 'Sun covered', v: Math.round(st.obsc * 100) + '%' });
-    rows.push({ l: 'Moon / Sun size', v: st.rm.toFixed(1) + '′ / ' + st.rs.toFixed(1) + '′' });
+    rows.push({ l: 'Moon / Sun size', v: dia(st.rm) + ' / ' + dia(st.rs) });
   } else {
     rows.push({ l: 'Moon in umbra', v: Math.round(st.inUmbra * 100) + '%' });
-    rows.push({ l: 'Moon size', v: st.rm.toFixed(1) + '′' });
+    rows.push({ l: 'Moon size', v: dia(st.rm) });
   }
   rows.push({ l: 'Moon distance', v: (Math.round(st.dist / 100) * 100).toLocaleString('en-US'), u: 'km', opt: true });
   return { ph, col: typeColor(lt), rows };
@@ -1581,7 +1589,8 @@ function drawEvbar(c, w, h, st) {
     // between events: when the next one comes
     const D = tabData(), nx = D.evs.find(v => v.Tm > st.T + 1e-4);
     let t;
-    if (!win && Math.abs(st.T - e.Tm) < 1.2) t = solar ? `New moon ${fmtDay(e.Tm)} · Moon passes ${(e.minSep / 60).toFixed(1)}° from the Sun` : `Full moon ${fmtDay(e.Tm)} · Moon misses Earth's shadow`;
+    if (!win && Math.abs(st.T - e.Tm) < 1.2) { const up = moonVec(e.Tm)[2] > 0 ? 'above' : 'below';
+        t = solar ? `New moon ${fmtDay(e.Tm)} · Moon passes ${up} the Sun` : `Full moon ${fmtDay(e.Tm)} · Moon passes ${up} Earth's shadow`; }
     else t = nx ? `Next ${solar ? 'new' : 'full'} moon · ${fmtDay(nx.Tm)}` : '';
     label(c, t, w / 2, h / 2 + 1, { font: `600 14px ${FB}`, color: 'rgba(232,228,217,0.82)', halo: false });
     return null;
