@@ -1,14 +1,15 @@
+import { useLocation } from 'react-router-dom'
+
 export default function SurfaceAnalysis() {
+  // pass ?region=…&bg=…&layers=… through to the tool
+  const search = useLocation().search
   return (
-    <iframe
-      src={`${import.meta.env.BASE_URL}surface-analysis.html`}
-      style={{
-        width:   '100%',
-        height:  'calc(100vh - 56px)',
-        border:  'none',
-        display: 'block',
-      }}
-      title="Surface Analysis Builder"
-    />
+    <div style={{ position: 'fixed', top: '56px', left: 0, right: 0, bottom: 0 }}>
+      <iframe
+        src={`${import.meta.env.BASE_URL}surface-analysis.html${search}`}
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        title="Surface Analysis Builder"
+      />
+    </div>
   )
 }
