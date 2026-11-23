@@ -24,24 +24,6 @@ const ACCENT = {
 // ── Section data ──────────────────────────────────────────────────────────────
 const SECTIONS = [
 
-  // ── Review ───────────────────────────────────────────────────────────────────────
-  {
-    key:    'review',
-    label:  'Review',
-    accent: ACCENT.review,
-    cards: [
-      {
-        tags:        ['Review', 'Interactive'],
-        title:       'Vocabulary',
-        description: 'Study each chapter\'s vocabulary with spaced-repetition flashcards, Regents-style fill-in-the-blank, and quick sorting rounds for the words students mix up.',
-        footerTags:  ['Flashcards', 'Best Word', 'Which One?'],
-        to:          '/earthandspace/vocab',
-        thumb:       '/vocab_thumbnail.png',
-        status:      'live',
-      },
-    ],
-  },
-
   // ── ESSRT Pages ──────────────────────────────────────────────────────────────────
   {
     key:    'essrt',
@@ -923,6 +905,23 @@ const SECTIONS = [
     ],
   },
 
+  // ── Review ───────────────────────────────────────────────────────────────────────
+  {
+    key:    'review',
+    label:  'Review',
+    accent: ACCENT.review,
+    cards: [
+      {
+        tags:        ['Review', 'Interactive'],
+        title:       'Vocabulary',
+        description: 'Study each chapter\'s vocabulary with spaced-repetition flashcards, Regents-style fill-in-the-blank, and quick sorting rounds for the words students mix up.',
+        footerTags:  ['Flashcards', 'Best Word', 'Which One?'],
+        to:          '/earthandspace/vocab',
+        thumb:       '/vocab_thumbnail.png',
+        status:      'live',
+      },
+    ],
+  },
 ]
 
 // Section list for the jump nav — derived from SECTIONS so it can never
