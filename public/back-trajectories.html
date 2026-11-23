@@ -915,6 +915,14 @@ const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
 
 function screenOf(v, w, h) { return { s: v.k * Math.min(w, h), tx: w / 2 + v.x * w, ty: h / 2 + v.y * h }; }
 function fromScreen(k, tx, ty, w, h) { return { k, x: (tx - w / 2) / w, y: (ty - h / 2) / h }; }
+// carry a view to a canvas of another shape: same centre, and everything visible at
+// (fromW × fromH) stays visible at (toW × toH). {k,x,y} alone only holds across sizes of one aspect.
+function viewForSize(v, fromW, fromH, toW, toH) {
+  const sv = v.k * Math.min(fromW, fromH);
+  const cx = -v.x * fromW / sv, cy = -v.y * fromH / sv;
+  const s = sv * Math.min(toW / fromW, toH / fromH);
+  return { k: s / Math.min(toW, toH), x: -cx * s / toW, y: -cy * s / toH };
+}
 const P1 = d3.geoConicConformal().parallels([30, 62]).rotate([100, 0]).scale(1).translate([0, 0]);
 function clampView(v, w, h) {
   // never tighter than the automatic framing allows: a long trajectory may need to zoom out further
@@ -1282,9 +1290,12 @@ async function exportPNG() {
   heightLegend(ctx, W - PAD, 80, '700 15px "Courier Prime", monospace');
   // map
   const mw = W - 2 * PAD;
+  const view = S.manual ? viewForSize(S.view, G.w, G.mapH, mw, MAPH) : fitView(framePoints([S.ai]), mw, MAPH);
+  const keepView = S.view;
   ctx.save(); ctx.translate(PAD, HEAD);
   ctx.beginPath(); ctx.rect(0, 0, mw, MAPH); ctx.clip();
-  renderMap(ctx, mw, MAPH, EXPORT_SCALE, { exporting: true });
+  S.view = view;
+  try { renderMap(ctx, mw, MAPH, EXPORT_SCALE, { exporting: true }); } finally { S.view = keepView; }
   ctx.restore();
   ctx.strokeStyle = 'rgba(232,228,217,0.26)'; ctx.lineWidth = 1; ctx.strokeRect(PAD + 0.5, HEAD + 0.5, mw - 1, MAPH - 1);
   // strip
@@ -1321,7 +1332,8 @@ function expArrivals() {
 }
 function makeAnim(list) {
   // fixed framing for the whole export: the user's view if they moved the map, else every frame fitted
-  const view = S.manual ? { ...S.view } : fitView(framePoints(list), ANIM_W - 2 * AF.PAD, AF.MAPH);
+  const view = S.manual ? viewForSize(S.view, G.w, G.mapH, ANIM_W - 2 * AF.PAD, AF.MAPH)
+                        : fitView(framePoints(list), ANIM_W - 2 * AF.PAD, AF.MAPH);
   const snap = { city: S.city, dur: S.dur, hv: S.hv.slice(), unc: S.unc };
   expBase = null;
   return {
