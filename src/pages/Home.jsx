@@ -398,7 +398,7 @@ const SECTIONS = [
       {
         tags:       ['Global', 'Updates Daily'],
         title:      'Global Temperature in Context',
-        description:'Every day of the ERA5 record, 1940 to present, layered on one calendar — see exactly how today compares against 86 years of history, colored by El Niño / La Niña phase.',
+        description:'Every day of the ERA5 record, 1940 to present, layered on one calendar with daily warming stripes and an annual view — see exactly how today compares against 86 years of history, colorable by El Niño / La Niña phase.',
         footerTags: ['ERA5 Reanalysis', 'ENSO Phase', '1940–Present'],
         to:         '/global-temperature-context',
         thumb:      '/GlobalTemperatureContext_thumbnail.png',

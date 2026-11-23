@@ -2,27 +2,39 @@
 """
 update_global_temp.py
 
-Self-hosted data pipeline for the "Global Temperature in Context" tool
+Data pipeline for "Global Temperature in Context"
 (public/global-temperature-context.html).
 
-Fetches the ERA5 daily 2-meter world air temperature series published by
-Climate Reanalyzer (University of Maine) — same reanalysis and update
-cadence as Copernicus C3S's own "Climate Pulse" dashboard, but exposed as
-a plain JSON file with no auth wall:
+Source: ERA5 daily 2-metre world air temperature as published by Climate
+Reanalyzer (University of Maine) — same reanalysis and cadence as C3S's
+Climate Pulse, exposed as plain JSON:
 
     https://climatereanalyzer.org/clim/t2_daily/json/era5_world_t2_day.json
 
-Record: 1 Jan 1940 – present. Updates once daily, ERA5 final data lagging
-today by ~6 days.
+Record 1 Jan 1940 - present, ERA5 lagging today by a few days.
 
-Output: public/data/global-temp-daily.json — consumed by the standalone
-HTML tool via a same-origin fetch(), same self-hosted-JSON pattern as the
-sea-ice / sunspot pipelines.
+CALENDAR. The source arrays are 366 slots indexed from 1 Jan (slot i =
+1 Jan + i); non-leap years hold 365 values and a null in the last slot.
+Indexing by slot therefore compares 1 Mar of a non-leap year with 29 Feb
+of a leap year, and every later date is a day out. This script re-lays
+every year onto one 366-day calendar (slot 59 = 29 Feb, null in non-leap
+years) before anything is computed, so a slot is the same calendar date
+in every year.
 
-Run: python scripts/update_global_temp.py
-Requires: requests, numpy  (pip install requests numpy)
+ENSO. Each year is classed by the ONI of the winter it opens on (DJF:
+Dec of the previous year through Feb). Global temperature lags Nino 3.4 by
+roughly 3-4 months, so the calendar year after a winter El Nino peak is
+the warm one (1998, 2016, 2024). ONI comes from NOAA CPC's oni.ascii.txt
+on every run; if that fetch fails the static table below is used.
+
+Output: public/data/global-temp-daily.json
+
+Run:  python scripts/update_global_temp.py
+      python scripts/update_global_temp.py --source-file era5_world_t2_day.json
+Requires: numpy
 """
 
+import argparse
 import json
 import re
 import sys
@@ -33,34 +45,29 @@ from pathlib import Path
 import numpy as np
 
 SOURCE_URL = "https://climatereanalyzer.org/clim/t2_daily/json/era5_world_t2_day.json"
+ONI_URL = "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "public" / "data" / "global-temp-daily.json"
 
-N_DAYS = 366  # fixed day-of-year template; Climate Reanalyzer's own JSON is
-              # already emitted on this 366-slot grid (Feb 29 synthesized in
-              # non-leap years) so every year's array lines up by calendar
-              # date without extra leap-year bookkeeping here.
+N_DAYS = 366
+FEB29 = 59  # slot of 29 Feb on the 366-day calendar
 
 BASELINE_YEARS = range(1991, 2021)  # WMO 1991-2020 normal period
 PREINDUSTRIAL_OFFSET_C = 0.88
-# Copernicus C3S's published estimate: the ERA5 1991-2020 global mean is
-# 0.88C above the 1850-1900 (IPCC AR6) preindustrial baseline. Applied as a
-# flat shift to the whole seasonal cycle — the same simplification C3S uses
-# in its own monthly bulletins and Climate Pulse tool.
+# C3S's published estimate: the ERA5 1991-2020 global mean is 0.88 C above
+# the 1850-1900 (IPCC AR6) preindustrial baseline. Applied as a flat shift,
+# as C3S does in its own bulletins and Climate Pulse.
 # https://climate.copernicus.eu/why-do-we-keep-talking-about-15degc-and-2degc-above-pre-industrial-era
 
-MIN_YEARS_FOR_PERCENTILE = 15
+EL_NINO_THRESHOLD = 0.5
+LA_NINA_THRESHOLD = -0.5
+SEASONS = ["DJF", "JFM", "FMA", "MAM", "AMJ", "MJJ", "JJA", "JAS", "ASO", "SON", "OND", "NDJ"]
 
-# --- ONI (Oceanic Nino Index) snapshot, NOAA CPC -----------------------------
-# Static snapshot, refreshed occasionally by hand — same pattern as the
-# ThreadEx station roster (rather than scraping CPC's HTML on every run,
-# which is fragile and unnecessary since ENSO state only needs to be
-# "roughly current," not real-time).
-#
-# Source: https://www.cpc.ncep.noaa.gov/products/analysis_monitoring/ensostuff/ONI_v5.php
-# Row = year, columns = [DJF, JFM, FMA, MAM, AMJ, MJJ, JJA, JAS, ASO, SON, OND, NDJ]
-# Snapshot pulled: 2026-07-27 (through MAM 2026; NOAA updates by the 5th of
-# each month). TO REFRESH: revisit the URL above and paste the new rows in.
-ONI_TABLE = {
+YEAR_NAME_RE = re.compile(r"^(19[4-9]\d|20\d\d)$")
+
+# --- ONI fallback (NOAA CPC) -------------------------------------------------
+# Used only if the live fetch of oni.ascii.txt fails. Row = year, columns =
+# [DJF, JFM, ..., NDJ]. Snapshot 2026-07-27.
+ONI_FALLBACK = {
     1950: [-1.5,-1.3,-1.2,-1.2,-1.1,-0.9,-0.5,-0.4,-0.4,-0.4,-0.6,-0.8],
     1951: [-0.8,-0.5,-0.2,0.2,0.4,0.6,0.7,0.9,1.0,1.2,1.0,0.8],
     1952: [0.5,0.4,0.3,0.3,0.2,0.0,-0.1,0.0,0.2,0.1,0.0,0.1],
@@ -139,200 +146,161 @@ ONI_TABLE = {
     2025: [-0.4,-0.2,-0.1,0.0,0.0,0.0,-0.1,-0.3,-0.4,-0.5,-0.6,-0.5],
     2026: [-0.4,-0.1,0.1,0.5],  # partial year — through MAM as of snapshot date
 }
-EL_NINO_THRESHOLD = 0.5
-LA_NINA_THRESHOLD = -0.5
-
-# Curated fallback in case the live fetch or JSON shape ever changes
-# unexpectedly — script still exits 0 with the previous good file untouched
-# rather than clobbering it with garbage.
-YEAR_NAME_RE = re.compile(r"^(19[4-9]\d|20\d\d)$")
 
 
-def fetch_source_json():
-    req = urllib.request.Request(SOURCE_URL, headers={"User-Agent": "contextclimate.io data pipeline"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        raw = resp.read()
-    return json.loads(raw)
+def http_get(url, timeout=60):
+    req = urllib.request.Request(url, headers={"User-Agent": "contextclimate.io data pipeline"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def is_leap(y):
+    return (y % 4 == 0 and y % 100 != 0) or y % 400 == 0
 
 
 def parse_series(raw):
-    """
-    Normalize Climate Reanalyzer's JSON into {year: [366 floats-or-None]}.
-    The feed's rows are typically {"name": <year or label>, "data": <366
-    comma-joined values as a string, OR already a list>}. Trailing rows are
-    summary series (e.g. "1991-2020 mean", "maximum", "minimum") — filtered
-    out by requiring name to be a bare 4-digit year rather than assuming a
-    fixed number of trailing rows (robust to Climate Reanalyzer adding or
-    removing summary rows).
-    """
+    """Climate Reanalyzer rows {"name": year|label, "data": [...] or "a,b,..."}
+    -> {year: [366 floats-or-None]} on the 366-day calendar. Summary rows
+    ("1991-2020 mean", ...) are dropped by requiring a bare 4-digit name."""
     years = {}
     for row in raw:
         name = str(row.get("name", "")).strip()
         if not YEAR_NAME_RE.match(name):
             continue
         data = row.get("data")
-        if isinstance(data, str):
-            parts = data.split(",")
-        elif isinstance(data, list):
-            parts = data
-        else:
+        parts = data.split(",") if isinstance(data, str) else data if isinstance(data, list) else None
+        if parts is None:
             continue
         vals = []
         for p in parts:
-            if p is None:
-                vals.append(None)
-                continue
-            s = str(p).strip()
-            if s == "" or s.lower() in ("null", "nan"):
-                vals.append(None)
-                continue
+            s = "" if p is None else str(p).strip()
             try:
-                v = float(s)
+                v = float(s) if s and s.lower() not in ("null", "nan") else None
             except ValueError:
-                vals.append(None)
-                continue
-            # sanity bound — global daily mean 2m temp is never outside this
-            vals.append(v if -40.0 < v < 40.0 else None)
-        # pad/truncate to the fixed 366-slot template
-        if len(vals) < N_DAYS:
-            vals = vals + [None] * (N_DAYS - len(vals))
-        elif len(vals) > N_DAYS:
-            vals = vals[:N_DAYS]
-        years[int(name)] = vals
+                v = None
+            vals.append(v if v is not None and -40.0 < v < 40.0 else None)
+        vals = (vals + [None] * N_DAYS)[:N_DAYS]
+        y = int(name)
+        if not is_leap(y):
+            # slot i is 1 Jan + i; open a gap at 29 Feb, drop the empty tail
+            vals = vals[:FEB29] + [None] + vals[FEB29:N_DAYS - 1]
+        years[y] = vals
     return years
 
 
-def classify_enso(year):
-    vals = ONI_TABLE.get(year)
-    if not vals:
+def fetch_oni():
+    """{year: [12 seasonal ONI values]} from CPC, or None on failure."""
+    try:
+        text = http_get(ONI_URL, timeout=30).decode("utf-8", "replace")
+    except Exception as e:
+        print(f"  ONI fetch failed ({e}); using fallback table")
+        return None
+    table = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 4 or parts[0] not in SEASONS:
+            continue
+        try:
+            yr, anom = int(parts[1]), float(parts[3])
+        except ValueError:
+            continue
+        table.setdefault(yr, [None] * 12)[SEASONS.index(parts[0])] = anom
+    if len(table) < 50:
+        print("  ONI parse looked wrong; using fallback table")
+        return None
+    return table
+
+
+def classify(djf):
+    if djf is None:
         return "unclassified"
-    mean = sum(vals) / len(vals)
-    if mean >= EL_NINO_THRESHOLD:
+    if djf >= EL_NINO_THRESHOLD:
         return "el_nino"
-    if mean <= LA_NINA_THRESHOLD:
+    if djf <= LA_NINA_THRESHOLD:
         return "la_nina"
     return "neutral"
 
 
-def day_of_year_dates():
-    """366 ISO date strings on a fixed leap-year template (2024) so Plotly
-    can treat the x-axis as real dates and auto-format month ticks, while
-    the underlying series is just day-of-year indexed."""
-    d = date(2024, 1, 1)
-    out = []
-    for _ in range(N_DAYS):
-        out.append(d.isoformat())
-        d += timedelta(days=1)
-    return out
+def r3(a):
+    return [None if np.isnan(v) else round(float(v), 3) for v in a]
 
 
-def build_output(years):
-    all_year_nums = sorted(years.keys())
-    if not all_year_nums:
+def build_output(years, oni, oni_source):
+    ys = sorted(years)
+    if not ys:
         raise RuntimeError("No valid year rows parsed from source JSON")
+    arr = {y: np.array([np.nan if v is None else v for v in years[y]]) for y in ys}
 
-    arr = {y: np.array([np.nan if v is None else v for v in years[y]]) for y in all_year_nums}
-
-    # Per-day percentiles / median across full record
-    p10 = np.full(N_DAYS, np.nan)
-    p50 = np.full(N_DAYS, np.nan)
-    p90 = np.full(N_DAYS, np.nan)
-    for day_idx in range(N_DAYS):
-        col = np.array([arr[y][day_idx] for y in all_year_nums])
+    base = np.full(N_DAYS, np.nan)
+    present = [y for y in BASELINE_YEARS if y in arr]
+    for i in range(N_DAYS):
+        col = np.array([arr[y][i] for y in present])
         col = col[~np.isnan(col)]
-        if len(col) >= MIN_YEARS_FOR_PERCENTILE:
-            p10[day_idx] = np.percentile(col, 10)
-            p50[day_idx] = np.percentile(col, 50)
-            p90[day_idx] = np.percentile(col, 90)
+        if len(col):
+            base[i] = col.mean()
+    # 29 Feb has only the leap years of the period behind it; take it as the
+    # midpoint of 28 Feb and 1 Mar instead of a noisier 7-year mean.
+    base[FEB29] = (base[FEB29 - 1] + base[FEB29 + 1]) / 2
 
-    # 1991-2020 baseline
-    baseline_9120 = np.full(N_DAYS, np.nan)
-    baseline_years_present = [y for y in BASELINE_YEARS if y in arr]
-    for day_idx in range(N_DAYS):
-        col = np.array([arr[y][day_idx] for y in baseline_years_present])
-        col = col[~np.isnan(col)]
-        if len(col) > 0:
-            baseline_9120[day_idx] = np.mean(col)
-
-    baseline_1850 = baseline_9120 - PREINDUSTRIAL_OFFSET_C
-
-    # current (most recent) year + completeness
-    current_year = all_year_nums[-1]
-    valid_days_current = int(np.sum(~np.isnan(arr[current_year])))
-    is_partial = valid_days_current < 360
-
-    last_valid_idx = None
-    for i in range(N_DAYS - 1, -1, -1):
-        if not np.isnan(arr[current_year][i]):
-            last_valid_idx = i
-            break
-    dates_template = day_of_year_dates()
-    data_through = dates_template[last_valid_idx].replace("2024", str(current_year)) if last_valid_idx is not None else None
-    lag_days = None
-    if data_through:
-        lag_days = (datetime.now(timezone.utc).date() - date.fromisoformat(data_through)).days
-
-    # annual means for ranking "notable years" (exclude the in-progress year)
-    annual_means = {}
-    for y in all_year_nums:
-        col = arr[y][~np.isnan(arr[y])]
-        if len(col) >= 300:
-            annual_means[y] = float(np.mean(col))
-    ranked = sorted(annual_means.items(), key=lambda kv: kv[1], reverse=True)
-    notable_years = [str(y) for y, _ in ranked[:6]]
-    if str(current_year) not in notable_years:
-        notable_years.append(str(current_year))
+    cy = ys[-1]
+    filled = np.where(~np.isnan(arr[cy]))[0]
+    last = int(filled[-1]) if len(filled) else None
+    data_through = None
+    if last is not None:
+        d = date(2024, 1, 1) + timedelta(days=last)  # 366-day calendar
+        data_through = date(cy, d.month, d.day).isoformat()
 
     out_years = {}
-    for y in all_year_nums:
-        rounded = [None if np.isnan(v) else round(float(v), 2) for v in arr[y]]
-        entry = {"t": rounded, "enso": classify_enso(y)}
-        if y == current_year and is_partial:
-            entry["partial"] = True
+    for y in ys:
+        djf = (oni.get(y) or [None])[0]
+        entry = {
+            "t": [None if np.isnan(v) else round(float(v), 2) for v in arr[y]],
+            "enso": classify(djf),
+            "oni_djf": djf,
+        }
         out_years[str(y)] = entry
 
-    output = {
+    return {
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": "ECMWF ERA5 (Copernicus C3S) via Climate Reanalyzer, University of Maine",
         "source_url": "https://climatereanalyzer.org/clim/t2_daily/?dm_id=world",
-        "period_of_record": f"{all_year_nums[0]}-{current_year}",
+        "calendar": "366 slots from 1 Jan; slot 59 = 29 Feb, null in non-leap years",
+        "period_of_record": f"{ys[0]}-{cy}",
         "data_through": data_through,
-        "lag_days": lag_days,
         "units": "C",
-        "x_dates": dates_template,
-        "baseline_1991_2020": [None if np.isnan(v) else round(float(v), 3) for v in baseline_9120],
-        "baseline_1850_1900": [None if np.isnan(v) else round(float(v), 3) for v in baseline_1850],
+        "baseline_1991_2020": r3(base),
+        "baseline_1850_1900": r3(base - PREINDUSTRIAL_OFFSET_C),
         "preindustrial_offset_c": PREINDUSTRIAL_OFFSET_C,
-        "percentile_10": [None if np.isnan(v) else round(float(v), 3) for v in p10],
-        "median": [None if np.isnan(v) else round(float(v), 3) for v in p50],
-        "percentile_90": [None if np.isnan(v) else round(float(v), 3) for v in p90],
-        "notable_years": notable_years,
-        "current_year": str(current_year),
+        "current_year": str(cy),
+        "enso_source": oni_source,
+        "enso_method": "DJF ONI opening the year: El Nino >= +0.5 C, La Nina <= -0.5 C, else neutral; before 1950 unclassified",
         "years": out_years,
-        "enso_methodology": (
-            "Calendar-year mean of NOAA CPC's Oceanic Nino Index (ONI) across "
-            "available 3-month seasons. El Nino >= +0.5C, La Nina <= -0.5C, "
-            "else Neutral. Years before 1950 predate the ONI record and are "
-            "shown unclassified."
-        ),
     }
-    return output
 
 
 def main():
-    print(f"Fetching {SOURCE_URL} ...")
-    raw = fetch_source_json()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--source-file", help="read the Climate Reanalyzer JSON from disk instead of fetching it")
+    args = ap.parse_args()
+
+    if args.source_file:
+        raw = json.loads(Path(args.source_file).read_text())
+    else:
+        print(f"Fetching {SOURCE_URL} ...")
+        raw = json.loads(http_get(SOURCE_URL))
     years = parse_series(raw)
     print(f"Parsed {len(years)} year rows ({min(years)}-{max(years)})")
-    output = build_output(years)
 
+    oni = fetch_oni()
+    oni_source = "NOAA CPC ONI (oni.ascii.txt)"
+    if oni is None:
+        oni, oni_source = ONI_FALLBACK, "NOAA CPC ONI (static snapshot 2026-07-27)"
+
+    output = build_output(years, oni, oni_source)
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_PATH, "w") as f:
-        json.dump(output, f, separators=(",", ":"))
-    size_kb = OUTPUT_PATH.stat().st_size / 1024
-    print(f"Wrote {OUTPUT_PATH} ({size_kb:.1f} KB)")
-    print(f"  data_through={output['data_through']}  lag_days={output['lag_days']}")
-    print(f"  notable_years={output['notable_years']}")
+    OUTPUT_PATH.write_text(json.dumps(output, separators=(",", ":")))
+    print(f"Wrote {OUTPUT_PATH} ({OUTPUT_PATH.stat().st_size / 1024:.1f} KB)")
+    print(f"  data_through={output['data_through']}  enso_source={oni_source}")
 
 
 if __name__ == "__main__":
