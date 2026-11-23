@@ -18,10 +18,29 @@ const ACCENT = {
   geology:  'var(--accent-geology)', // moss green
   meteor:   '#4F9FBB',          // deep sky-cyan
   astro:    '#998FC2',          // deep indigo-purple
+  review:   '#D67E60',          // rust — matches --accent-seasons used by the tool
 }
 
 // ── Section data ──────────────────────────────────────────────────────────────
 const SECTIONS = [
+
+  // ── Review ───────────────────────────────────────────────────────────────────────
+  {
+    key:    'review',
+    label:  'Review',
+    accent: ACCENT.review,
+    cards: [
+      {
+        tags:        ['Review', 'Interactive'],
+        title:       'Vocabulary',
+        description: 'Study each chapter\'s vocabulary with spaced-repetition flashcards, Regents-style fill-in-the-blank, and quick sorting rounds for the words students mix up.',
+        footerTags:  ['Flashcards', 'Best Word', 'Which One?'],
+        to:          '/earthandspace/vocab',
+        thumb:       '/vocab_thumbnail.png',
+        status:      'live',
+      },
+    ],
+  },
 
   // ── ESSRT Pages ──────────────────────────────────────────────────────────────────
   {

@@ -143,6 +143,7 @@ import SnowSleetFreezingRain       from './pages/SnowSleetFreezingRain'
 import RadiationalCooling          from './pages/RadiationalCooling'
 import MineralPropertiesLab        from './pages/MineralPropertiesLab'
 import Contrails                   from './pages/Contrails'
+import Vocab                       from './pages/Vocab'
 
 // Email kept out of the markup/bundle as plaintext (base64, decoded only on
 // click) so basic scrapers can't harvest it straight from the source.
@@ -324,6 +325,7 @@ export default function App() {
           <Route path="/earthandspace/gravity-orbits"              element={<GravityOrbits />}              />
           <Route path="/earthandspace/mineral-properties-lab"      element={<MineralPropertiesLab />}       />
           <Route path="/earthandspace/contrails"                   element={<Contrails />}                  />
+          <Route path="/earthandspace/vocab"                       element={<Vocab />}                    />
         </Routes>
       </main>
       <footer style={{
