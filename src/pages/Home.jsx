@@ -309,8 +309,8 @@ const SECTIONS = [
       {
         tags:       ['US Cities', 'Snowfall'],
         title:      'Snow Frequency',
-        description:'Monthly snow day frequency for Northeast cities — how often measurable snowfall occurs by month and how that pattern has evolved over time.',
-        footerTags: ['Snow Days', 'Monthly Frequency', 'Trends'],
+        description:'The daily chance of snowfall and snow on the ground for 370+ US stations — compare periods or cities, and see how each decade\'s snow season has shifted.',
+        footerTags: ['Daily Chance', 'Compare', 'By Decade', 'Snow Cover'],
         to:         '/snow-frequency',
         thumb:      '/snowfall_frequency_thumbnail.png',
       },
