@@ -7,6 +7,7 @@ import ENSO                        from './pages/ENSO'
 import Seasons                     from './pages/Seasons'
 import SeasonMap                   from './pages/SeasonMap'
 import RecordWatch                 from './pages/RecordWatch'
+import SnowMap                     from './pages/SnowMap'
 import IspLive                     from './pages/IspLive'
 import CurrentConditions           from './pages/CurrentConditions'
 import CloudCoverExplorer          from './pages/CloudCoverExplorer'
@@ -189,6 +190,7 @@ export default function App() {
           <Route path="/seasons"                             element={<Seasons />}                 />
           <Route path="/season-map"                          element={<SeasonMap />}               />
           <Route path="/record-watch"                        element={<RecordWatch />}             />
+          <Route path="/snow-map"                            element={<SnowMap />}                 />
           <Route path="/monthly"                             element={<HourlyData />}              />
           <Route path="/annual"                             element={<Climate />}                 />
           <Route path="/enso"                                element={<ENSO />}                    />

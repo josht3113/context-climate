@@ -140,6 +140,14 @@ const SECTIONS = [
         to:         '/record-watch',
         thumb:      '/RecordWatch_thumbnail.png',
       },
+      {
+        tags:       ['US Cities', 'Updates Daily'],
+        title:      'US Snow Map',
+        description:'The 1991–2020 chance of snowfall or snow on the ground for every day from September to June at US stations, and this season\'s snow day by day. Play the season and click a city for its full snow frequency.',
+        footerTags: ['Snow', 'Map', 'Normals', 'Animation'],
+        to:         '/snow-map',
+        thumb:      '/SnowMap_thumbnail.png',
+      },
     ],
   },
   {
