@@ -57,7 +57,7 @@
   .legend-key.fill b { display:none; }
   .legend-key.fill .legend-swatch { display:inline-block; }
   .fc-swatch { display:inline-block; width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--color-border);
-    background:repeating-linear-gradient(-45deg, rgba(255,255,255,0.38) 0 1px, #4E5850 1px 5px); }
+    border:1.5px dashed rgba(245,240,230,0.85); background:#3E4A41; }
   #legend-canvas { border-radius:var(--radius-sm); border:1px solid var(--color-border); display:block; width:240px; height:14px; }
 
   /* ── Heatmap stage ── */
@@ -513,12 +513,12 @@ const LIVE_INTERVAL = 10 * 60 * 1000;  // 10 min
 // ── NWS forecast fill (Single Year, year in progress) ──
 // The 48 hours after the last observed cell come from the NWS gridpoint
 // forecast (api.weather.gov, the 2.5 km grid cell holding the station).
-// Forecast cells are drawn faded and hatched, and never enter the Avg
+// Forecast cells are drawn faded inside a dashed outline, and never enter the Avg
 // column, footer rows, stats, side panel or CSV.
 const FC_HOURS     = 48;
-const FC_FADE      = 0.5;                       // blend toward the page background
-const FC_HATCH     = 'rgba(255,255,255,0.30)';
-const FC_HATCH_GAP = 6;                         // px between hatch lines
+const FC_FADE      = 0.4;                       // blend toward the page background
+const FC_EDGE      = 'rgba(245,240,230,0.85)';  // dashed outline of the forecast block
+const FC_DASH      = [4, 3];
 const FC_MAX_AGE   = 10 * 60 * 1000;            // refetch after this
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -1962,27 +1962,40 @@ function fcFadedRGB(v, scale) {
   return getColorRGB(v, scale).map((c, i) => Math.round(c + (BG[i] - c) * FC_FADE));
 }
 
-// Diagonal hatch over the forecast cells ([x, y, w, h] in CSS px).
-function drawForecastHatch(rects, c = ctx) {
-  if (!rects.length) return;
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+// Dashed outline around the forecast block. cells = [day, hour] pairs on a
+// grid of cw × ch cells offset by (ox, oy); only edges that face a
+// non-forecast cell are drawn, merged into runs so the dash flows.
+function drawForecastOutline(cells, cw, ch, c = ctx, ox = 0, oy = 0) {
+  if (!cells.length) return;
+  const on = new Set(cells.map(([d, h]) => d + '_' + h));
+  const has = (d, h) => on.has(d + '_' + h);
+  const hRuns = new Map(), vRuns = new Map();   // line index -> [start indices]
+  const add = (m, k, i) => { if (!m.has(k)) m.set(k, []); m.get(k).push(i); };
+  for (const [d, h] of cells) {
+    if (!has(d, h - 1)) add(hRuns, h,     d);
+    if (!has(d, h + 1)) add(hRuns, h + 1, d);
+    if (!has(d - 1, h)) add(vRuns, d,     h);
+    if (!has(d + 1, h)) add(vRuns, d + 1, h);
+  }
   c.save();
+  c.strokeStyle = FC_EDGE;
+  c.lineWidth = 1.5;
+  c.setLineDash(FC_DASH);
   c.beginPath();
-  for (const [x, y, w, h] of rects) {
-    c.rect(x, y, w, h);
-    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h);
-  }
-  c.clip();
-  c.strokeStyle = FC_HATCH;
-  c.lineWidth = 1;
-  c.beginPath();
-  const span = y1 - y0;
-  // A "/" line keeps x + y constant; stepping that constant by the gap
-  // keeps every cell on one continuous pattern.
-  for (let k = Math.floor((x0 - span + y1) / FC_HATCH_GAP); k * FC_HATCH_GAP - y1 < x1; k++) {
-    const a = k * FC_HATCH_GAP - y1;
-    c.moveTo(a, y1); c.lineTo(a + span, y0);
-  }
+  const runs = (m, horiz) => {
+    for (const [k, list] of m) {
+      list.sort((a, b) => a - b);
+      for (let i = 0; i < list.length; ) {
+        let j = i;
+        while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+        if (horiz) { const y = oy + k * ch; c.moveTo(ox + list[i] * cw, y); c.lineTo(ox + (list[j] + 1) * cw, y); }
+        else       { const x = ox + k * cw; c.moveTo(x, oy + list[i] * ch); c.lineTo(x, oy + (list[j] + 1) * ch); }
+        i = j + 1;
+      }
+    }
+  };
+  runs(hRuns, true);
+  runs(vRuns, false);
   c.stroke();
   c.restore();
 }
@@ -2142,7 +2155,7 @@ function renderHeatmap() {
   }
 
   // Main grid (cols 0-30, rows 0-23)
-  const fcRects = [];
+  const fcCells = [];
   for (let d = 0; d < 31; d++) {
     const x0 = Math.round(d * cw * dpr), x1 = Math.round((d+1) * cw * dpr);
     for (let h = 0; h < 24; h++) {
@@ -2150,7 +2163,7 @@ function renderHeatmap() {
       const c  = (d < mDays) ? cells[d][h] : null;
       const isFc = !!c && c.st === 'f';
       const [r,g,b] = isFc ? fcFadedRGB(c.v, scale) : getColorRGB(c ? c.v : null, scale);
-      if (isFc) fcRects.push([d * cw, h * ch, cw, ch]);
+      if (isFc) fcCells.push([d, h]);
       fillRect(x0, y0, x1, y1, r, g, b);
     }
   }
@@ -2184,10 +2197,9 @@ function renderHeatmap() {
   }
 
   ctx.putImageData(img, 0, 0);
-  drawForecastHatch(fcRects);
-  fcDrawn = fcRects.length;
+  fcDrawn = fcCells.length;
   const fcKey = document.getElementById('legend-fc');
-  if (fcKey && !exportCells) fcKey.style.display = fcRects.length ? '' : 'none';
+  if (fcKey && !exportCells) fcKey.style.display = fcCells.length ? '' : 'none';
 
   // ── Borders ──
   // Main grid internal lines
@@ -2257,6 +2269,8 @@ function renderHeatmap() {
   ctx.strokeStyle = 'rgba(255,255,255,0.85)';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(AVG_X + 0.75, 0.75, cw - 1.5, CANVAS_HEIGHT - 1.5);
+
+  drawForecastOutline(fcCells, cw, ch);
 
   // Outer border of footer block (all 3 rows + avg col)
   const footerY0 = CANVAS_HEIGHT + FOOTER_GAP;
@@ -4207,9 +4221,9 @@ function downloadPNG() {
     oc.textAlign = 'right';
     oc.fillText('Forecast', ow - PAD, oh - 8);
     const sx = ow - PAD - oc.measureText('Forecast').width - 16, sy = oh - 18;
-    oc.fillStyle = '#4E5850';
+    oc.fillStyle = '#3E4A41';
     oc.fillRect(sx, sy, 11, 11);
-    drawForecastHatch([[sx, sy, 11, 11]], oc);
+    drawForecastOutline([[0, 0]], 11, 11, oc, sx, sy);
     oc.textAlign = 'left';
   }
 
