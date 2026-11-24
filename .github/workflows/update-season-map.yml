@@ -1,6 +1,11 @@
 name: Update Season Map Data
 
 # Daily: refresh every roster station's current season year (Dec 1 → latest).
+# Runs several times each morning, because GitHub starts scheduled runs hours
+# late: an external scheduler (cron-job.org) dispatches it with auto=true at
+# about 5:15–8:15 AM ET, and the schedules below are the backstop. A run skips
+# as soon as the data reach yesterday; the 19:17 UTC sweep always rebuilds to
+# pick up late stations (Alaska, Hawaii) and ACIS revisions.
 # Monthly (2nd of the month) or when no data file exists: full period-of-record
 # rebuild — thresholds for both normal periods and the season odds by week.
 # A failed fetch or validation never overwrites the committed file.
@@ -8,11 +13,19 @@ name: Update Season Map Data
 
 on:
   schedule:
-    - cron: '23 15 * * *'
+    - cron: '17 10 * * *'
+    - cron: '47 11 * * *'
+    - cron: '17 13 * * *'
+    - cron: '47 15 * * *'
+    - cron: '17 19 * * *'
   workflow_dispatch:
     inputs:
       full:
         description: 'Full period-of-record rebuild'
+        type: boolean
+        default: false
+      auto:
+        description: 'Skip if the data already reach yesterday (set by the external scheduler)'
         type: boolean
         default: false
 
@@ -22,6 +35,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -34,41 +48,43 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Plan this run
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          FULL: ${{ inputs.full }}
+          AUTO: ${{ inputs.auto }}
+        run: |
+          python3 scripts/data_run.py plan --file public/season-map-data.json --full-day 2 --sweep '17 19 * * *' \
+            --event "$EVENT" --schedule "$SCHEDULE" --full "${FULL:-false}" --auto "${AUTO:-false}" >> "$GITHUB_OUTPUT"
+
       - name: Self-test
+        if: steps.plan.outputs.mode != 'skip'
         run: python3 scripts/build_season_map.py --selftest
 
-      - name: Choose build mode
-        id: mode
-        run: |
-          if [ "${{ inputs.full }}" = "true" ]; then
-            M=full; WHY="manually requested"
-          elif [ ! -f public/season-map-data.json ]; then
-            M=full; WHY="no committed data yet"
-          elif [ "$(date -u +%d)" = "02" ]; then
-            M=full; WHY="monthly rebuild"
-          else
-            M=daily; WHY="daily refresh"
-          fi
-          echo "mode=$M" >> "$GITHUB_OUTPUT"
-          echo "Mode: $M ($WHY)"
-
       - name: Build season map data
-        run: python3 scripts/build_season_map.py --mode "${{ steps.mode.outputs.mode }}"
+        if: steps.plan.outputs.mode != 'skip'
+        run: python3 scripts/build_season_map.py --mode "${{ steps.plan.outputs.mode }}"
 
       - name: Commit and push
+        id: commit
+        if: steps.plan.outputs.mode != 'skip'
         run: |
           set -euo pipefail
+          if ! python3 scripts/data_run.py changed public/season-map-data.json; then
+            echo "No change in the data beyond the timestamp — nothing to commit."
+            git checkout -- public/season-map-data.json
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/season-map-data.json
-          if git diff --cached --quiet; then
-            echo "No change in the data file — nothing to commit."
-            exit 0
-          fi
-          git commit -m "Season map data (${{ steps.mode.outputs.mode }} build, $(date -u +%Y-%m-%d))"
+          git commit -m "Season map data (${{ steps.plan.outputs.mode }} build, $(date -u +%Y-%m-%d))"
           for attempt in 1 2 3; do
             if git pull --rebase --autostash origin "${{ github.ref_name }}" && git push; then
               echo "Pushed on attempt $attempt."
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Push attempt $attempt failed; retrying."
@@ -76,3 +92,12 @@ jobs:
           done
           echo "Could not push after 3 attempts."
           exit 1
+
+      # A push made with GITHUB_TOKEN doesn't start other workflows, but a
+      # workflow_dispatch does. Deploy only when new data were committed, so
+      # the morning's no-op runs don't redeploy the site.
+      - name: Deploy the site
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"

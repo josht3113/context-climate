@@ -2,6 +2,11 @@ name: Update Record Watch Data
 
 # Daily: refresh the last 60 days of every cached daily record and rebuild
 # public/record-watch-data.json (records and near-records for the last 30 days).
+# Runs several times each morning, because GitHub starts scheduled runs hours
+# late: an external scheduler (cron-job.org) dispatches it with auto=true at
+# about 5:25–8:25 AM ET, and the schedules below are the backstop. A run skips
+# as soon as the data reach yesterday; the 19:27 UTC sweep always rebuilds to
+# pick up late stations and ACIS revisions.
 # Monthly (3rd of the month), on request, or when the cache or data file is
 # missing: full period-of-record fetch for every record.
 # A failed fetch or validation never overwrites the committed file.
@@ -9,11 +14,19 @@ name: Update Record Watch Data
 
 on:
   schedule:
-    - cron: '41 16 * * *'
+    - cron: '27 10 * * *'
+    - cron: '57 11 * * *'
+    - cron: '27 13 * * *'
+    - cron: '57 15 * * *'
+    - cron: '27 19 * * *'
   workflow_dispatch:
     inputs:
       full:
         description: 'Full period-of-record rebuild'
+        type: boolean
+        default: false
+      auto:
+        description: 'Skip if the data already reach yesterday (set by the external scheduler)'
         type: boolean
         default: false
 
@@ -23,6 +36,7 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -35,10 +49,23 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Plan this run
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          FULL: ${{ inputs.full }}
+          AUTO: ${{ inputs.auto }}
+        run: |
+          python3 scripts/data_run.py plan --file public/record-watch-data.json --full-day 3 --sweep '27 19 * * *' \
+            --event "$EVENT" --schedule "$SCHEDULE" --full "${FULL:-false}" --auto "${AUTO:-false}" >> "$GITHUB_OUTPUT"
+
       - name: Self-test
+        if: steps.plan.outputs.mode != 'skip'
         run: python3 scripts/build_record_watch.py --selftest
 
       - name: Restore record cache
+        if: steps.plan.outputs.mode != 'skip'
         uses: actions/cache/restore@v4
         with:
           path: .rw-cache
@@ -47,43 +74,44 @@ jobs:
 
       - name: Choose build mode
         id: mode
+        if: steps.plan.outputs.mode != 'skip'
         run: |
-          if [ "${{ inputs.full }}" = "true" ]; then
-            M=full; WHY="manually requested"
-          elif [ ! -f public/record-watch-data.json ] || [ ! -d .rw-cache ]; then
-            M=full; WHY="no committed data or cache yet"
-          elif [ "$(date -u +%d)" = "03" ]; then
-            M=full; WHY="monthly rebuild"
-          else
-            M=daily; WHY="daily refresh"
+          M="${{ steps.plan.outputs.mode }}"
+          if [ ! -d .rw-cache ]; then
+            M=full; echo "No record cache — full rebuild."
           fi
           echo "mode=$M" >> "$GITHUB_OUTPUT"
-          echo "Mode: $M ($WHY)"
+          echo "Mode: $M"
 
       - name: Build record watch data
+        if: steps.plan.outputs.mode != 'skip'
         run: python3 scripts/build_record_watch.py --mode "${{ steps.mode.outputs.mode }}"
 
       - name: Save record cache
-        if: always()
+        if: always() && steps.plan.outputs.mode != 'skip'
         uses: actions/cache/save@v4
         with:
           path: .rw-cache
           key: record-watch-por-${{ github.run_id }}
 
       - name: Commit and push
+        id: commit
+        if: steps.plan.outputs.mode != 'skip'
         run: |
           set -euo pipefail
+          if ! python3 scripts/data_run.py changed public/record-watch-data.json; then
+            echo "No change in the data beyond the timestamp — nothing to commit."
+            git checkout -- public/record-watch-data.json
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/record-watch-data.json
-          if git diff --cached --quiet; then
-            echo "No change in the data file — nothing to commit."
-            exit 0
-          fi
           git commit -m "Record watch data (${{ steps.mode.outputs.mode }} build, $(date -u +%Y-%m-%d))"
           for attempt in 1 2 3; do
             if git pull --rebase --autostash origin "${{ github.ref_name }}" && git push; then
               echo "Pushed on attempt $attempt."
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             echo "Push attempt $attempt failed; retrying."
@@ -91,3 +119,12 @@ jobs:
           done
           echo "Could not push after 3 attempts."
           exit 1
+
+      # A push made with GITHUB_TOKEN doesn't start other workflows, but a
+      # workflow_dispatch does. Deploy only when new data were committed, so
+      # the morning's no-op runs don't redeploy the site.
+      - name: Deploy the site
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
