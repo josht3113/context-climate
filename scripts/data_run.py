@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run planning for the daily station-data workflows (Season Map, Record Watch).
+"""Run planning for the daily station-data workflows (Season Map, Record Watch, Snow Map).
 
 Those workflows fire several times each morning (GitHub schedules plus an
 external trigger, because GitHub starts scheduled runs hours late). This
