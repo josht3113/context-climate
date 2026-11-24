@@ -244,12 +244,13 @@ def obs_for(rows, sy, end):
     return ''.join(enc_snow(x) for x in v), ''.join(enc_depth(x) for x in d)
 
 def pick_end(rows_by_id, sy, today):
-    """Latest day with a min temperature from >= 80% of the stations active that week."""
+    """Latest day with a snowfall report from >= 80% of the stations that reported
+    snowfall that week (airport snowfall arrives later in the morning than temperature)."""
     start = dt.date(sy, 7, 1)
     have = {}
     for sid, rows in rows_by_id.items():
         for r in rows:
-            if math.isnan(parse_temp(r[2])):
+            if math.isnan(parse_val(r[1])):
                 continue
             day = dt.date.fromisoformat(r[0])
             if start <= day <= today:
