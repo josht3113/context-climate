@@ -56,6 +56,8 @@
   .legend-swatch { display:none; width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--color-border); background:#58544D; }
   .legend-key.fill b { display:none; }
   .legend-key.fill .legend-swatch { display:inline-block; }
+  .fc-swatch { display:inline-block; width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--color-border);
+    background:repeating-linear-gradient(-45deg, rgba(255,255,255,0.38) 0 1px, #4E5850 1px 5px); }
   #legend-canvas { border-radius:var(--radius-sm); border:1px solid var(--color-border); display:block; width:240px; height:14px; }
 
   /* ── Heatmap stage ── */
@@ -257,6 +259,7 @@
           <canvas id="legend-canvas" height="14" width="240"></canvas>
           <span class="legend-end" id="legend-hi"></span>
           <span class="legend-key" id="legend-missing"><b>M</b><span class="legend-swatch"></span>Missing</span>
+          <span class="legend-key" id="legend-fc" style="display:none"><span class="fc-swatch"></span>Forecast</span>
         </div>
       </div>
       <div class="cc-scene-stage">
@@ -366,7 +369,7 @@
       <div class="ro"><div class="cc-stat-label" id="sl-max">Period Max</div><div class="cc-stat-value" id="sv-max">—</div></div>
       <div class="ro"><div class="cc-stat-label" id="sl-min">Period Min</div><div class="cc-stat-value" id="sv-min">—</div><div class="cc-stat-note" id="sv-min-sub" style="visibility:hidden"></div></div>
       <div class="cc-card-grp" id="range-grp">
-        <div class="card-row"><button class="cc-btn" style="flex:1" id="range-row-btn" onclick="toggleRangeRow()">Range Row</button></div>
+        <div class="card-row"><button class="cc-btn" style="flex:1" id="range-row-btn" onclick="toggleRangeRow()">Range Row</button><button class="cc-btn" style="flex:1;display:none" id="fc-btn" onclick="toggleForecast()" title="NWS forecast, next 48 hours">Forecast</button></div>
       </div>
 
       <div class="cc-card-grp ctx" id="ctx-grp" style="display:none">
@@ -379,7 +382,7 @@
 
       <div class="cc-card-src">
         <span id="footer-tz">Local Time</span><br>
-        Data: IEM ASOS &middot; NOAA ACIS (daily high / low)
+        Data: IEM ASOS &middot; NOAA ACIS (daily high / low)<span id="src-fc"></span>
       </div>
     </div>
 
@@ -506,6 +509,17 @@ const DEFAULT_CLIMO_TO   = 2020;
 const FIRST_YEAR    = 1973;
 const CURRENT_YEAR  = new Date().getFullYear();
 const LIVE_INTERVAL = 10 * 60 * 1000;  // 10 min
+
+// ── NWS forecast fill (Single Year, year in progress) ──
+// The 48 hours after the last observed cell come from the NWS gridpoint
+// forecast (api.weather.gov, the 2.5 km grid cell holding the station).
+// Forecast cells are drawn faded and hatched, and never enter the Avg
+// column, footer rows, stats, side panel or CSV.
+const FC_HOURS     = 48;
+const FC_FADE      = 0.5;                       // blend toward the page background
+const FC_HATCH     = 'rgba(255,255,255,0.30)';
+const FC_HATCH_GAP = 6;                         // px between hatch lines
+const FC_MAX_AGE   = 10 * 60 * 1000;            // refetch after this
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_FULL  = ['January','February','March','April','May','June',
@@ -693,6 +707,14 @@ function invalidateCompareAnomCache() {
 }
 
 let liveTimer  = null;
+let showForecast = false;
+// { stationId, st:'ok'|'err', office, issued (ms), recs: [...sorted by time], fetchedAt }
+let fcState  = null;
+let fcLoading = null;                  // in-flight promise, keyed by fcLoadingFor
+let fcLoadingFor = null;
+const fcGridURL = new Map();           // stationId -> forecastGridData URL
+let fcWinCache = null;                 // { data, fc, map }
+let fcDrawn = 0;                       // forecast cells in the last single-year render
 let fakeTimer  = null;
 
 // ═══════════════════════════════════════════════════════════
@@ -1649,6 +1671,7 @@ const EMPTY_STATE = { v: null, st: 'empty' };
 function singleCellState(doy, h) {
   const v = getGridValue(doy, h);
   if (v != null) return { v, st: 'v' };
+  if (mode === 'single') { const fc = forecastCellState(doy, h); if (fc) return fc; }
   const idx = doy * 24 + h;
   if (mode === 'climatology') {
     if (!climoData) return EMPTY_STATE;
@@ -1717,6 +1740,251 @@ function drawMissingMarks(points) {
   ctx.font = cellFont(9, null, '600');
   for (const [x, y] of points) ctx.fillText('M', x, y);
   ctx.restore();
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// NWS FORECAST
+// ═══════════════════════════════════════════════════════════
+function fcAvailableHere() { return mode === 'single' && currentYear === CURRENT_YEAR; }
+
+// ISO-8601 duration ("PT1H", "PT6H", "P1DT3H") -> whole hours, at least 1.
+function isoDurHours(d) {
+  const m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?$/.exec(d || '');
+  if (!m) return 1;
+  return Math.max(1, (+(m[1] || 0)) * 24 + (+(m[2] || 0)));
+}
+const fcToF   = (v, u) => /degF/.test(u) ? v : v * 9 / 5 + 32;
+const fcToMph = (v, u) => /km_h/.test(u) ? v / 1.609344
+                        : /m_s/.test(u)  ? v * 2.2369363
+                        : /kt|knot/.test(u) ? v * KT_TO_MPH : v;
+const fcPct   = v => v;
+
+// One gridpoint layer -> Map(UTC hour start ms -> value). Each entry covers
+// validTime's whole interval, so a 3-hour block fills three hours.
+function fcSeries(layer, conv) {
+  const out = new Map();
+  if (!layer || !Array.isArray(layer.values)) return out;
+  const uom = layer.uom || '';
+  for (const e of layer.values) {
+    if (e == null || e.value == null) continue;
+    const [ts, dur] = String(e.validTime || '').split('/');
+    const t0 = Date.parse(ts);
+    if (isNaN(t0)) continue;
+    const base = Math.floor(t0 / 3600000) * 3600000;
+    const v = conv(e.value, uom);
+    for (let k = 0, n = isoDurHours(dur); k < n; k++) out.set(base + k * 3600000, v);
+  }
+  return out;
+}
+
+const fcFmt = new Map();
+function fcLocalCell(ms, tz) {
+  let f = fcFmt.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23',
+          year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric' });
+    fcFmt.set(tz, f);
+  }
+  const p = f.formatToParts(new Date(ms));
+  const g = t => parseInt(p.find(x => x.type === t).value, 10);
+  const year = g('year');
+  return { year, idx: getDOY(year, g('month'), g('day')) * 24 + (g('hour') % 24) };
+}
+
+// Sky cover % -> the tool's 1-5 sky categories via oktas (FEW 1-2/8,
+// SCT 3-4/8, BKN 5-7/8, OVC 8/8), matching how observed cells are binned.
+function fcSkyNum(pct) {
+  const o = Math.round(pct / 12.5);
+  return o <= 0 ? 1 : o <= 2 ? 2 : o <= 4 ? 3 : o <= 7 ? 4 : 5;
+}
+
+// Gridpoint properties -> one record per local cell, in time order. A cell
+// holds the value valid at the top of its hour, like the routine ob that
+// fills an observed cell; the gust cell holds the hour that ends there.
+function buildForecastRecs(props, tz) {
+  const T = fcSeries(props.temperature, fcToF), D = fcSeries(props.dewpoint, fcToF),
+        S = fcSeries(props.skyCover, fcPct),    W = fcSeries(props.windSpeed, fcToMph),
+        G = fcSeries(props.windGust, fcToMph);
+  const times = [...new Set([...T.keys(), ...D.keys(), ...S.keys(), ...W.keys()])].sort((a, b) => a - b);
+  const seen = new Set(), recs = [];
+  for (const t of times) {
+    const c = fcLocalCell(t, tz);
+    const key = c.year + '_' + c.idx;
+    if (seen.has(key)) continue;          // fall-back hour: keep the first
+    seen.add(key);
+    const sky = S.get(t);
+    recs.push({ t, year: c.year, idx: c.idx,
+      temp: T.get(t) ?? null, td: D.get(t) ?? null,
+      skyPct: sky ?? null, clouds: sky != null ? fcSkyNum(sky) : null,
+      wind: W.get(t) ?? null, gust: G.get(t - 3600000) ?? null });
+  }
+  return recs;
+}
+
+async function fcFetchJSON(url, label) {
+  return fetchWithRetry(label, async () => {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const err = new Error(`${label} HTTP ${resp.status}`);
+      err.transient = isTransientStatus(resp.status);
+      throw err;
+    }
+    return resp.json();
+  });
+}
+
+// Fetches (or refreshes) the forecast for the active station, then redraws.
+async function ensureForecast(force) {
+  if (!showForecast || !fcAvailableHere()) return;
+  const stId = activeStationId;
+  const fresh = fcState && fcState.stationId === stId && Date.now() - fcState.fetchedAt < FC_MAX_AGE;
+  if (fresh && !force) return;
+  if (fcLoading && fcLoadingFor === stId) return fcLoading;
+  fcLoadingFor = stId;
+  fcLoading = (async () => {
+    const st = STATIONS[stId];
+    let next;
+    try {
+      let gridURL = fcGridURL.get(stId);
+      if (!gridURL) {
+        const pt = await fcFetchJSON(`https://api.weather.gov/points/${st.lat.toFixed(4)},${st.lon.toFixed(4)}`, 'NWS points');
+        gridURL = pt && pt.properties && pt.properties.forecastGridData;
+        if (!gridURL) throw new Error('No NWS grid for this station');
+        fcGridURL.set(stId, gridURL);
+      }
+      const grid = await fcFetchJSON(gridURL, 'NWS gridpoint');
+      const props = grid && grid.properties;
+      if (!props) throw new Error('Empty NWS gridpoint response');
+      next = { stationId: stId, st: 'ok', office: props.gridId || '',
+               issued: Date.parse(props.updateTime), recs: buildForecastRecs(props, st.tz),
+               fetchedAt: Date.now() };
+    } catch (e) {
+      console.warn('NWS forecast unavailable:', e);
+      next = { stationId: stId, st: 'err', fetchedAt: Date.now() };
+    }
+    if (stId === activeStationId) fcState = next;
+  })();
+  try { await fcLoading; } finally { fcLoading = null; fcLoadingFor = null; }
+  updateForecastUI();
+  if (stId === activeStationId && mode === 'single' && singleData) renderHeatmap();
+}
+
+// Index of the last observed cell in the year in progress, or -1.
+function lastObsIdx() {
+  if (!singleData) return -1;
+  refreshNow();
+  const top = nowStamp.year === currentYear ? Math.min(GRID_SIZE - 1, nowStamp.doy * 24 + nowStamp.h) : GRID_SIZE - 1;
+  for (let i = top; i >= 0; i--) {
+    for (const f of BASE_FIELDS) if (!isNaN(singleData[f][i])) return i;
+  }
+  return -1;
+}
+
+// The FC_HOURS forecast cells after the last observation: Map("year_idx" -> rec).
+function forecastWindow() {
+  if (!showForecast || !fcAvailableHere() || !singleData) return null;
+  if (!fcState || fcState.st !== 'ok' || fcState.stationId !== activeStationId) return null;
+  if (fcWinCache && fcWinCache.data === singleData && fcWinCache.fc === fcState) return fcWinCache.map;
+  const last = lastObsIdx();
+  const map = new Map();
+  if (last >= 0) {
+    for (const r of fcState.recs) {
+      if (r.year < currentYear || (r.year === currentYear && r.idx <= last)) continue;
+      map.set(r.year + '_' + r.idx, r);
+      if (map.size >= FC_HOURS) break;
+    }
+  }
+  fcWinCache = { data: singleData, fc: fcState, map };
+  return map;
+}
+
+// Forecast state for a Single Year cell with no observation, or null.
+function forecastCellState(doy, h) {
+  const win = forecastWindow();
+  if (!win) return null;
+  const idx = doy * 24 + h;
+  const r = win.get(currentYear + '_' + idx);
+  if (!r) return null;
+  const f = activeField;
+  let v = null;
+  if (f === 'temp' || f === 'td' || f === 'clouds' || f === 'wind' || f === 'gust') v = r[f];
+  else if (ANOM_FIELDS.includes(f) && climoData) {
+    const bf = baseFieldOf(f), act = r[bf], mn = climoData.mean[bf][idx];
+    if (act != null && !isNaN(mn)) {
+      if (f.endsWith('_anom')) v = act - mn;
+      else { const sd = climoData.sd[bf][idx]; if (!isNaN(sd) && sd >= 0.001) v = (act - mn) / sd; }
+    }
+  }
+  return v == null ? null : { v, st: 'f', rec: r };
+}
+
+function fcIssuedText() {
+  if (!fcState || fcState.st !== 'ok' || isNaN(fcState.issued)) return '';
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: STATIONS[activeStationId].tz,
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(fcState.issued));
+  } catch (e) { return ''; }
+}
+
+function updateForecastUI() {
+  const btn = document.getElementById('fc-btn');
+  if (btn) {
+    btn.style.display = fcAvailableHere() ? '' : 'none';
+    btn.classList.toggle('active', showForecast);
+    const err = showForecast && fcState && fcState.stationId === activeStationId && fcState.st === 'err';
+    btn.title = err ? 'NWS forecast unavailable for this station' : 'NWS forecast, next 48 hours';
+  }
+  const key = document.getElementById('legend-fc');
+  if (key && !fcAvailableHere()) key.style.display = 'none';
+  const src = document.getElementById('src-fc');
+  if (src) {
+    let t = '';
+    if (showForecast && fcAvailableHere() && fcState && fcState.stationId === activeStationId) {
+      if (fcState.st === 'ok') t = ` · NWS forecast${fcState.office ? ' (' + fcState.office + ')' : ''}, issued ${fcIssuedText()}`;
+      else t = ' · NWS forecast unavailable';
+    }
+    src.textContent = t;
+  }
+}
+
+function toggleForecast() {
+  showForecast = !showForecast;
+  updateForecastUI();
+  syncURL();
+  if (mode === 'single' && singleData) renderHeatmap();
+  ensureForecast();
+}
+
+// A forecast cell's colour: the scale colour blended toward the background.
+function fcFadedRGB(v, scale) {
+  const BG = [30, 35, 32];
+  return getColorRGB(v, scale).map((c, i) => Math.round(c + (BG[i] - c) * FC_FADE));
+}
+
+// Diagonal hatch over the forecast cells ([x, y, w, h] in CSS px).
+function drawForecastHatch(rects, c = ctx) {
+  if (!rects.length) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  c.save();
+  c.beginPath();
+  for (const [x, y, w, h] of rects) {
+    c.rect(x, y, w, h);
+    x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h);
+  }
+  c.clip();
+  c.strokeStyle = FC_HATCH;
+  c.lineWidth = 1;
+  c.beginPath();
+  const span = y1 - y0;
+  // A "/" line keeps x + y constant; stepping that constant by the gap
+  // keeps every cell on one continuous pattern.
+  for (let k = Math.floor((x0 - span + y1) / FC_HATCH_GAP); k * FC_HATCH_GAP - y1 < x1; k++) {
+    const a = k * FC_HATCH_GAP - y1;
+    c.moveTo(a, y1); c.lineTo(a + span, y0);
+  }
+  c.stroke();
+  c.restore();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1874,12 +2142,15 @@ function renderHeatmap() {
   }
 
   // Main grid (cols 0-30, rows 0-23)
+  const fcRects = [];
   for (let d = 0; d < 31; d++) {
     const x0 = Math.round(d * cw * dpr), x1 = Math.round((d+1) * cw * dpr);
     for (let h = 0; h < 24; h++) {
       const y0 = Math.round(h * ch * dpr), y1 = Math.round((h+1) * ch * dpr);
-      const v  = (d < mDays) ? cells[d][h].v : null;
-      const [r,g,b] = getColorRGB(v, scale);
+      const c  = (d < mDays) ? cells[d][h] : null;
+      const isFc = !!c && c.st === 'f';
+      const [r,g,b] = isFc ? fcFadedRGB(c.v, scale) : getColorRGB(c ? c.v : null, scale);
+      if (isFc) fcRects.push([d * cw, h * ch, cw, ch]);
       fillRect(x0, y0, x1, y1, r, g, b);
     }
   }
@@ -1913,6 +2184,10 @@ function renderHeatmap() {
   }
 
   ctx.putImageData(img, 0, 0);
+  drawForecastHatch(fcRects);
+  fcDrawn = fcRects.length;
+  const fcKey = document.getElementById('legend-fc');
+  if (fcKey && !exportCells) fcKey.style.display = fcRects.length ? '' : 'none';
 
   // ── Borders ──
   // Main grid internal lines
@@ -2279,6 +2554,7 @@ function renderCompareStrips() {
 }
 
 function renderActiveHeatmap() {
+  if (mode !== 'single') { fcDrawn = 0; const k = document.getElementById('legend-fc'); if (k) k.style.display = 'none'; }
   if (mode === 'compare') renderCompareHeatmap();
   else renderHeatmap();
 }
@@ -2845,9 +3121,21 @@ function renderCellValues(cw, ch, mDays, cells, avgCol, footer, AVG_X) {
       const { v, st } = cells[d][h];
       const cy = (h + 0.5) * ch;
       if (st === 'M') { marks.push([cx, cy]); continue; }
-      if (st !== 'v') continue;
+      if (st !== 'v' && st !== 'f') continue;
       const text = String(formatCellValue(v));
       if (!text) continue;
+      if (st === 'f') {
+        // Faded cells run dark, so the text colour follows the cell.
+        const [r, g, b] = fcFadedRGB(v, SCALES[activeField]);
+        const dark = (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.33;
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle   = dark ? '#E8E4D9' : '#000000';
+        ctx.shadowColor = dark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.45)';
+        ctx.fillText(text, cx, cy);
+        ctx.restore();
+        continue;
+      }
       ctx.fillText(text, cx, cy);
     }
   }
@@ -3118,6 +3406,7 @@ function startLiveRefresh() {
       renderDayLabels();
       renderHeatmap();
       updateStats();
+      ensureForecast();
     } catch(e) { console.warn('Live refresh failed:', e); }
   }, LIVE_INTERVAL);
 }
@@ -3157,6 +3446,8 @@ async function loadSingleYear(year) {
     renderLegend();
     updateStats();
     startLiveRefresh();
+    updateForecastUI();
+    ensureForecast();
   } catch(e) {
     stopFakeProgress();
     showError(e.message);
@@ -3340,6 +3631,7 @@ function setMode(m) {
   document.getElementById('month-select-compare').style.display = m === 'compare' ? '' : 'none';
   document.getElementById('year-select').style.display          = m === 'single' ? '' : 'none';
   document.getElementById('range-grp').style.display            = m === 'compare' ? 'none' : '';
+  updateForecastUI();
 
   updateFieldButtons();
   // Sidebar layout depends on mode -- Compare mode stacks a label+24-hour
@@ -3441,6 +3733,7 @@ function onMonthChangeCompare() {
 function onYearChange() {
   currentYear = parseInt(document.getElementById('year-select').value);
   singleData = null;
+  updateForecastUI();
   stopLiveRefresh();
   loadSingleYear(currentYear);
 }
@@ -3676,6 +3969,11 @@ canvas.addEventListener('mousemove', e => {
                (isTrendSignificant(doy, h) ? 'significant' : 'not significant');
     }
   }
+  if (cst.st === 'f') {
+    if (activeField === 'clouds' && cst.rec.skyPct != null)
+      valStr = `${['','Clear','Few','Scattered','Broken','Overcast'][Math.round(v)] || ''} · ${Math.round(cst.rec.skyPct)}%`;
+    detail = `Forecast · NWS${fcState.office ? ' ' + fcState.office : ''} · issued ${fcIssuedText()}`;
+  }
   const modeStr = mode==='climatology' ? `${fromYear}–${toYear} avg` : (mode==='single'?String(currentYear):'');
   document.getElementById('tt-value').textContent  = valStr;
   document.getElementById('tt-detail').textContent = detail || modeStr;
@@ -3735,6 +4033,7 @@ function downloadPNG() {
   setupCanvas();
   renderActiveHeatmap();
 
+  const exportFc = mode === 'single' && fcDrawn > 0;
   const cw2 = canvas.width / dpr, ch2 = canvas.height / dpr;
   const PAD=24, HDR=72, DBAR=22, FTR=36; // FTR bumped 26->36: the bottom legend
   // bar (drawn at chart-bottom+8..+14) was overlapping the footer attribution
@@ -3901,7 +4200,18 @@ function downloadPNG() {
 
   oc.fillStyle = '#948F82';
   oc.font = '11px "Barlow Condensed", sans-serif';
-  oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS  ·  contextclimate.io`, PAD, oh-8);
+  const fcCredit = exportFc
+    ? `  ·  Forecast: NWS${fcState.office ? ' ' + fcState.office : ''}, issued ${fcIssuedText()}` : '';
+  oc.fillText(`${st.tzLabel} Local Time  ·  Data: IEM ASOS${fcCredit}  ·  contextclimate.io`, PAD, oh-8);
+  if (exportFc) {
+    oc.textAlign = 'right';
+    oc.fillText('Forecast', ow - PAD, oh - 8);
+    const sx = ow - PAD - oc.measureText('Forecast').width - 16, sy = oh - 18;
+    oc.fillStyle = '#4E5850';
+    oc.fillRect(sx, sy, 11, 11);
+    drawForecastHatch([[sx, sy, 11, 11]], oc);
+    oc.textAlign = 'left';
+  }
 
   // Bottom accent bar
   oc.fillStyle = grad;
@@ -3946,6 +4256,7 @@ function syncURL() {
     p.set('cv', compareShowValues ? '1' : '0');
   }
   if (showRangeRow) p.set('rr', '1');
+  if (showForecast) p.set('fc', '1');
   const qs = p.toString();
   history.replaceState(null, '', qs ? `?${qs}` : location.pathname);
 }
@@ -3981,6 +4292,7 @@ function applyURL() {
   if (cd === 'daily' || cd === 'hourly') compareDetail = cd;
   if (p.get('cv') === '0') compareShowValues = false;
   if (p.get('rr') === '1') showRangeRow = true;
+  if (p.get('fc') === '1') showForecast = true;
 
   const m = p.get('m');
   if (m === 'single' || m === 'climatology' || m === 'compare') mode = m;
@@ -4584,6 +4896,7 @@ function init() {
   document.getElementById('cmp-detail-daily').classList.toggle('active',  compareDetail === 'daily');
   document.getElementById('cmp-detail-hourly').classList.toggle('active', compareDetail === 'hourly');
   document.getElementById('range-row-btn').classList.toggle('active', showRangeRow);
+  updateForecastUI();
 
   requestAnimationFrame(() => {
     setupCanvas();
