@@ -174,14 +174,6 @@ const SECTIONS = [
       },
       {
         tags:       ['US Cities', 'Any City'],
-        title:      'Climographs',
-        description:'The classic monthly climograph for any U.S. city — average temperature and precipitation side by side, with two-city compare mode, °F/°C and in/mm toggles, and full data tables.',
-        footerTags: ['Normals 1991–2020', 'Compare Cities', 'Any City'],
-        to:         '/climographs',
-        thumb:      '/climographs_thumbnail.png',
-      },
-      {
-        tags:       ['US Cities', 'Any City'],
         title:      'Daily Temperature Climatology',
         description:'Normals, typical ranges and records for every day of the year at 400+ ThreadEx stations, with any year’s daily highs and lows laid over them and a decade-by-decade count of standing records.',
         footerTags: ['Normals 1991–2020', 'Records', 'Any Year'],

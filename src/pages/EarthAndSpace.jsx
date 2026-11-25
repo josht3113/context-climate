@@ -697,6 +697,21 @@ const SECTIONS = [
           },
         ],
       },
+      {
+        key:   'climate',
+        label: 'Climate',
+        cards: [
+          {
+            tags:        ['Climographs', 'Real Data', 'Interactive'],
+            title:       'Climographs',
+            description: 'Monthly temperature and precipitation normals for 300+ U.S. cities. Compare two climates on the same axes, explore Köppen types and temperature ranges on a map, load contrast pairs for each climate factor, or guess a mystery city from its climograph.',
+            footerTags:  ['Factors Affecting Climate', 'Köppen Types', 'Mystery City'],
+            to:          '/earthandspace/climographs',
+            thumb:       '/climographs_thumbnail.png',
+            status:      'live',
+          },
+        ],
+      },
     ],
   },
 
