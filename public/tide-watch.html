@@ -42,6 +42,19 @@ html { color-scheme: dark; }
 .lg i.dash { background: repeating-linear-gradient(90deg, #A6A499 0 5px, transparent 5px 8px) !important; }
 .lg i.sq { width: 12px; height: 12px; border-radius: 3px; }
 .lg i.dot { width: 10px; height: 10px; border-radius: 50%; }
+.lg i.fc { background: #ECE6D6; }
+.pill.alert { text-decoration: none; cursor: pointer; }
+.pill.alert:hover { filter: brightness(1.12); }
+.pill.alert::after { content: ' \2197'; }
+.alert-card .alert + .alert { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--color-border); }
+.alert-card .ah { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.alert-card .ah i { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
+.alert-card .an { font-weight: 700; font-size: 16px; color: var(--color-text-primary); }
+.alert-card .aw { font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); margin: 2px 0 0 19px; }
+.alert-card p { margin: 6px 0 0; font-size: 15px; line-height: 1.42; color: var(--color-text-primary); }
+.alert-card a { display: inline-block; margin-top: 7px; font-family: var(--font-mono); font-size: 14px; color: var(--click-text); }
+.tile .val.fcv { font-size: 30px; }
+#mapmode-seg { margin: 2px 0 6px; }
 .notice { font-family: var(--font-mono); font-size: 14px; color: var(--c-minor); padding: 7px 14px; border-bottom: 1px solid var(--color-border);
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
@@ -208,6 +221,7 @@ html { color-scheme: dark; }
         <span class="hd-name" id="hd-name">—</span>
         <span class="hd-sub" id="hd-sub"></span>
         <span class="pill" id="hd-pill" hidden></span>
+        <a class="pill alert" id="hd-alert" hidden target="_blank" rel="noopener"></a>
         <div class="cc-segmented" id="mode-seg" hidden>
           <button class="cc-segmented-btn is-active" data-mode="storms">Storms at one gauge</button>
           <button class="cc-segmented-btn" data-mode="coast">One storm along the coast</button>
@@ -271,12 +285,17 @@ html { color-scheme: dark; }
     <aside class="cc-card" id="rail">
       <div id="map-grp">
         <div class="cc-card-eb">Gauges · Cape May to Boston</div>
+        <div class="cc-segmented" id="mapmode-seg" hidden>
+          <button class="cc-segmented-btn" data-mm="now">Now</button>
+          <button class="cc-segmented-btn" data-mm="fcst">NWS forecast peak</button>
+        </div>
         <div class="map-box" id="map-box"><canvas id="map-cv"></canvas></div>
         <div class="map-key" id="map-key"></div>
       </div>
 
       <div id="rail-live">
         <div class="cc-card-grp"><div class="tiles" id="live-tiles"></div></div>
+        <div class="cc-card-grp alert-card" id="alert-card" hidden></div>
       </div>
 
       <div id="rail-records" hidden>
@@ -333,7 +352,7 @@ html { color-scheme: dark; }
         <div class="hint" id="datum-hint">MHHW: average height of the higher high tide each day.</div>
       </div>
 
-      <div class="cc-card-src" id="src">Data: NOAA CO-OPS Tides &amp; Currents (verified hourly heights, tide-cycle highs, 6-minute preliminary water levels, predictions); flood stages NOAA/NWS; sea-level trends NOAA; storm names IBTrACS v04r01. Times Eastern.</div>
+      <div class="cc-card-src" id="src">Data: NOAA CO-OPS Tides &amp; Currents (verified hourly heights, tide-cycle highs, 6-minute preliminary water levels, predictions); flood stages NOAA/NWS; sea-level trends NOAA; storm names IBTrACS v04r01; water-level forecasts NWS National Water Prediction Service; coastal flood alerts NWS (api.weather.gov). Times Eastern.</div>
     </aside>
   </div>
 </div>
@@ -367,6 +386,25 @@ const STATIONS = [
 const ST_BY = Object.fromEntries(STATIONS.map(s => [s.id, s]));
 const HARBOR = new Set(['8531680', '8519483', '8518750', '8516945']);
 
+/* NWS: official gauge forecasts (National Water Prediction Service, ft MLLW) and coastal flood alerts */
+const NWPS_API = 'https://api.water.noaa.gov/nwps/v1/gauges/';
+const ALERTS_API = 'https://api.weather.gov/alerts/active';
+const NWS_LID = {   // Cape May (Delaware Bay gauge) has no NWS forecast
+  '8536110': null, '8534720': 'ACYN4', '8531680': 'SDHN4', '8519483': 'BGNN6', '8518750': 'BATN6', '8516945': 'KPTN6',
+  '8467150': 'BRHC3', '8465705': 'NWHC3', '8461490': 'NLHC3', '8510560': 'MTKN6', '8452660': 'NWPR1', '8454000': 'FOXR1',
+  '8447930': 'BZBM3', '8449130': 'NTKM3', '8443970': 'BHBM3',
+};
+const NWS_ZONE = {  // public forecast zone at each gauge's shore
+  '8536110': 'NJZ024', '8534720': 'NJZ025', '8531680': 'NJZ014', '8519483': 'NJZ006', '8518750': 'NYZ072', '8516945': 'NYZ177',
+  '8467150': 'CTZ009', '8465705': 'CTZ010', '8461490': 'CTZ012', '8510560': 'NYZ081', '8452660': 'RIZ007', '8454000': 'RIZ002',
+  '8447930': 'MAZ022', '8449130': 'MAZ024', '8443970': 'MAZ015',
+};
+const FC_COLOR = '#ECE6D6';
+const ALERT_RANK = { 'Coastal Flood Warning': 4, 'Coastal Flood Watch': 3, 'Coastal Flood Advisory': 2, 'Coastal Flood Statement': 1 };
+// NWS hazard map colours
+const ALERT_COLOR = { 'Coastal Flood Warning': '#228B22', 'Coastal Flood Watch': '#66CDAA', 'Coastal Flood Advisory': '#7CFC00', 'Coastal Flood Statement': '#6B8E23' };
+const ALERT_INK = { 'Coastal Flood Warning': '#F2EEE3', 'Coastal Flood Watch': '#12261D', 'Coastal Flood Advisory': '#12261D', 'Coastal Flood Statement': '#F2EEE3' };
+
 const METRICS = {
   wl:    { label: 'Peak water level', short: 'Peak', datum: true },
   surge: { label: 'Peak surge', short: 'Surge', datum: false },
@@ -392,6 +430,7 @@ const S = {
   sel: null, mode: 'storms', slots: [],
   coast: { origin: null, anchor: null, stations: [], field: 'wl', k: 48, speed: 'med' },
   hover: { live: null, cmp: null, rpc: null, map: null, rpm: null },
+  mapMode: null,       // null = automatic (forecast when any gauge is forecast to reach minor flood)
 };
 let CAT = null, CAT_ERR = null;
 const CAT_BY = {};
@@ -399,6 +438,9 @@ const LIVE = {};       // station -> {obs, pred, hilo, from, to, now, at} | {err
 const STRIP = {};      // station -> {t, v, surge} | {err}
 const CMP = {};        // station|anchor -> Promise<record>, record also cached on .rec
 const LAYOUT = {};
+const FCST = {};       // station -> {pts:[[ms, ft MHHW]], issued, end, lid} | {none:'nolid'|'stale'} | {err}
+let FCST_AT = 0, FCST_PENDING = null;
+let ALERTS = null, ALERTS_AT = 0, ALERTS_PENDING = null, ALERTS_ERR = null;   // station -> [alert]
 let dpr = window.devicePixelRatio || 1;
 
 /* ═══════════════════════════════════════════════════════════ helpers */
@@ -605,7 +647,7 @@ function drawChart(ctx, W, H, o) {
     ctx.strokeStyle = h.color; ctx.lineWidth = h.width || 1.25; ctx.setLineDash(h.dash || []);
     ctx.beginPath(); ctx.moveTo(pl, y); ctx.lineTo(pl + pw, y); ctx.stroke(); ctx.setLineDash([]);
   }
-  if (o.between) drawBetween(ctx, o.between, px, py);
+  for (const b of [].concat(o.between || [])) drawBetween(ctx, b, px, py);
   for (const s of o.series) {
     const P = s.pts; if (!P || !P.length) continue;
     ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
@@ -627,8 +669,15 @@ function drawChart(ctx, W, H, o) {
     ctx.beginPath(); ctx.moveTo(x, pt); ctx.lineTo(x, pt + ph); ctx.stroke(); ctx.setLineDash([]);
   }
   for (const m of o.markers || []) {
+    if (m.x < o.x0 || m.x > o.x1) continue;
     ctx.beginPath(); ctx.arc(px(m.x), py(m.y), m.r || 5, 0, Math.PI * 2);
     ctx.fillStyle = m.color; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = SURFACE; ctx.stroke();
+    if (m.label) {
+      ctx.font = 'bold 13px "Courier Prime", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      const ly = Math.max(pt + 16, py(m.y) - (m.r || 5) - 5), lx = clamp(px(m.x), pl + 30, pl + pw - 30);
+      ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.strokeStyle = SURFACE; ctx.strokeText(m.label, lx, ly);
+      ctx.fillStyle = m.labelColor || m.color; ctx.fillText(m.label, lx, ly);
+    }
   }
   if (o.hoverX != null && o.hoverX >= o.x0 && o.hoverX <= o.x1) {
     const x = Math.round(px(o.hoverX)) + .5;
@@ -885,9 +934,20 @@ function mapHit(lay, mx, my, rad = 14) {
 }
 
 /* rail map: content depends on tab */
+function mapMode() {
+  if (S.mapMode) return S.mapMode;
+  return STATIONS.some(s => { const F = fcstFor(s.id), p = F && futurePeak(F); const c = p && floodCat(s.id, p[1]); return c && c !== 'action'; }) ? 'fcst' : 'now';
+}
 function railMapItems() {
   const items = {};
-  if (S.tab === 'live') {
+  if (S.tab === 'live' && mapMode() === 'fcst') {
+    for (const s of STATIONS) {
+      const F = fcstFor(s.id), p = F && futurePeak(F), FS = FCST[s.id];
+      if (!p) { items[s.id] = { hollow: true, val: !FS ? '…' : FS.none === 'nolid' ? 'no fcst' : FS.err ? 'n/a' : 'none', valColor: '#948F82' }; continue; }
+      const c = floodCat(s.id, p[1]);
+      items[s.id] = { color: catColor(c), val: f2(dv(s.id, p[1])), valColor: c ? FLOOD_COLORS[c] : '#E8E4D9' };
+    }
+  } else if (S.tab === 'live') {
     for (const s of STATIONS) {
       const L = STRIP[s.id];
       if (!L || L.v == null) { items[s.id] = { hollow: !L || !!L.err, val: L && L.err ? 'n/a' : '…', valColor: '#948F82' }; continue; }
@@ -916,19 +976,28 @@ function drawRailMap() {
   cv.style.height = h + 'px'; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   LAYOUT.map = drawMapOn(ctx, w, h, { items: railMapItems(), sel: S.st, hover: S.hover.map });
+  const mm = mapMode();
+  for (const b of document.querySelectorAll('#mapmode-seg .cc-segmented-btn')) b.classList.toggle('is-active', b.dataset.mm === mm);
   renderMapKey();
 }
 function renderMapKey() {
   const k = $('map-key');
   if (S.tab === 'compare') { k.innerHTML = '<span class="lg">Click a gauge to switch stations</span>'; return; }
-  const lead = S.tab === 'live' ? 'Now:' : 'Reached:';
+  const lead = S.tab === 'live' ? (mapMode() === 'fcst' ? 'Forecast peak:' : 'Now:') : 'Reached:';
   k.innerHTML = `<span class="lg" style="color:var(--color-text-muted)">${lead}</span><span class="lg"><i class="dot" style="background:${CALM}"></i>Below flood</span>` +
     ['action', 'minor', 'moderate', 'major'].map(c => `<span class="lg"><i class="dot" style="background:${FLOOD_COLORS[c]}"></i>${FLOOD_NAMES[c]}</span>`).join('');
 }
 function railMapTip(st, mx, my) {
   const s = ST_BY[st], box = $('map-box');
   let html = `<div class="t">${esc(s.name)}, ${s.state}</div>`;
-  if (S.tab === 'live') {
+  if (S.tab === 'live' && mapMode() === 'fcst') {
+    const F = fcstFor(st), p = F && futurePeak(F), FS = FCST[st];
+    if (p) {
+      const c = floodCat(st, p[1]);
+      html += `<div>NWS forecast peak ${f2(dv(st, p[1]))} ${DATUM_LABEL[effDatum(st)]}</div><div>${fDT(p[0])} ET</div>` +
+        `<div>${c ? (c === 'action' ? 'Action stage' : FLOOD_NAMES[c] + ' flood') : 'Below flood stage'}</div>`;
+    } else html += `<div>${!FS ? 'Loading…' : FS.none === 'nolid' ? 'NWS issues no forecast for this gauge' : FS.err ? 'Forecast unavailable' : 'No current NWS forecast'}</div>`;
+  } else if (S.tab === 'live') {
     const L = STRIP[st];
     if (L && L.v != null) {
       const c = floodCat(st, L.v);
@@ -945,6 +1014,106 @@ function railMapTip(st, mx, my) {
     }
   }
   showTip(box, html, mx, my);
+}
+
+/* ═══════════════════════════════════════════════════════════ NWS forecasts + alerts */
+async function getJSON(url, headers) {
+  const r = await fetch(url, headers ? { headers } : undefined);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+function loadForecasts(force) {
+  if (FCST_PENDING) return FCST_PENDING;
+  if (!force && FCST_AT && Date.now() - FCST_AT < 20 * 60e3) return Promise.resolve();
+  FCST_PENDING = (async () => {
+    await Promise.all(STATIONS.map(async (s, i) => {
+      const lid = NWS_LID[s.id];
+      if (!lid) { FCST[s.id] = { none: 'nolid' }; return; }
+      await sleep(i * 70);
+      try {
+        const j = await getJSON(NWPS_API + lid + '/stageflow/forecast');
+        const c = CAT_BY[s.id], m = c && c.mhhw_above ? c.mhhw_above.MLLW : null;
+        if (m == null) throw new Error('no MLLW datum');
+        if (j.primaryUnits && j.primaryUnits !== 'ft') throw new Error('unexpected units ' + j.primaryUnits);
+        const pts = (j.data || []).map(d => [Date.parse(d.validTime), +d.primary])
+          .filter(p => isFinite(p[0]) && isFinite(p[1]) && p[1] > -900)
+          .map(p => [p[0], p[1] - m]).sort((a, b) => a[0] - b[0]);
+        if (!pts.length || pts[pts.length - 1][0] <= Date.now()) { FCST[s.id] = { none: 'stale' }; return; }
+        FCST[s.id] = { pts, issued: Date.parse(j.issuedTime), end: pts[pts.length - 1][0], lid };
+      } catch (e) { FCST[s.id] = { err: e.message }; }
+    }));
+    FCST_AT = Date.now(); FCST_PENDING = null;
+  })();
+  return FCST_PENDING;
+}
+function fcstFor(st) { const F = FCST[st]; return F && F.pts && F.end > Date.now() ? F : null; }
+function futurePeak(F, from = Date.now() - 30 * 60e3) {
+  let pk = null; for (const p of F.pts) if (p[0] >= from && (!pk || p[1] > pk[1])) pk = p;
+  return pk;
+}
+function fcstAround(F, t, halfH = 1.5) {   // forecast high near a predicted high tide (forecast is hourly)
+  let pk = null; for (const p of F.pts) if (Math.abs(p[0] - t) <= halfH * HOUR && (!pk || p[1] > pk[1])) pk = p;
+  return pk;
+}
+function loadAlerts(force) {
+  if (ALERTS_PENDING) return ALERTS_PENDING;
+  if (!force && ALERTS_AT && Date.now() - ALERTS_AT < 5 * 60e3) return Promise.resolve();
+  ALERTS_PENDING = (async () => {
+    try {
+      const zones = [...new Set(Object.values(NWS_ZONE))].join(',');
+      const j = await getJSON(`${ALERTS_API}?status=actual&zone=${zones}`, { Accept: 'application/geo+json' });
+      const by = {}; for (const s of STATIONS) by[s.id] = [];
+      const now = Date.now();
+      for (const f of j.features || []) {
+        const p = f.properties || {};
+        if (!ALERT_RANK[p.event] || p.messageType === 'Cancel') continue;
+        const ends = Date.parse(p.ends || p.expires);
+        if (isFinite(ends) && ends < now) continue;
+        const prm = p.parameters || {}, ugc = (p.geocode && p.geocode.UGC) || [];
+        const a = { id: p.id, event: p.event, onset: Date.parse(p.onset || p.effective), ends, sender: p.senderName || '',
+          awips: (prm.AWIPSidentifier || [''])[0] || '', desc: p.description || '' };
+        for (const s of STATIONS) if (ugc.includes(NWS_ZONE[s.id])) by[s.id].push(a);
+      }
+      for (const k in by) by[k].sort((a, b) => ALERT_RANK[b.event] - ALERT_RANK[a.event] || a.onset - b.onset);
+      ALERTS = by; ALERTS_ERR = null;
+    } catch (e) { ALERTS_ERR = e.message; }
+    ALERTS_AT = Date.now(); ALERTS_PENDING = null;
+  })();
+  return ALERTS_PENDING;
+}
+const fWH = ms => fmtParts(ms, { weekday: 'short', hour: 'numeric' }).replace(',', '');
+function alertWindow(a) {
+  const now = Date.now();
+  if (isFinite(a.onset) && a.onset > now) return `${fWH(a.onset)} – ${isFinite(a.ends) ? fWH(a.ends) : '?'}`;
+  return isFinite(a.ends) ? `until ${fWH(a.ends)}` : 'in effect';
+}
+function alertPart(desc, key) {
+  const m = desc.match(new RegExp('\\*\\s*' + key + '\\.\\.\\.([\\s\\S]*?)(?=\\n\\s*\\n|\\n\\s*\\*|$)'));
+  return m ? m[1].replace(/\s+/g, ' ').trim() : '';
+}
+function alertLink(a) {
+  const id = a.awips || '';
+  return id.length === 6 ? `https://forecast.weather.gov/product.php?site=NWS&issuedby=${id.slice(3)}&product=${id.slice(0, 3)}&format=txt&version=1&glossary=0`
+    : 'https://www.weather.gov/';
+}
+function renderAlerts(st) {
+  const pill = $('hd-alert'), card = $('alert-card'), list = (ALERTS && ALERTS[st]) || [];
+  if (!list.length) { pill.hidden = true; card.hidden = true; return; }
+  const a0 = list[0];
+  pill.hidden = false; pill.textContent = a0.event; pill.href = alertLink(a0);
+  pill.style.background = ALERT_COLOR[a0.event]; pill.style.color = ALERT_INK[a0.event];
+  pill.title = `${a0.event} · ${alertWindow(a0)} · ${a0.sender}`;
+  // alerts issued together share one description; show it once
+  const groups = [];
+  for (const a of list) { const g = groups.find(x => x.desc === a.desc); if (g) g.items.push(a); else groups.push({ desc: a.desc, items: [a] }); }
+  card.hidden = false;
+  card.innerHTML = `<div class="cc-card-l">NWS alert <span class="cc-dim">${esc(ST_BY[st].name)} shoreline</span></div>` + groups.map(g => {
+    const what = alertPart(g.desc, 'WHAT');
+    return `<div class="alert">` + g.items.map(a => `<div class="ah"><i style="background:${ALERT_COLOR[a.event]}"></i><span class="an">${esc(a.event)}</span></div>` +
+      `<div class="aw">${esc(alertWindow(a))}</div>`).join('') +
+      (what ? `<p>${esc(what)}</p>` : '') +
+      `<a href="${alertLink(g.items[0])}" target="_blank" rel="noopener">Full NWS statement &#x2197;</a></div>`;
+  }).join('');
 }
 
 /* ═══════════════════════════════════════════════════════════ LIVE: data */
@@ -968,7 +1137,7 @@ const LIVE_PENDING = {};
 function loadLive(st, force) {
   if (LIVE[st] && !force && Date.now() - LIVE[st].at < 5 * 60e3) return Promise.resolve(LIVE[st]);
   if (LIVE_PENDING[st]) return LIVE_PENDING[st];
-  const now = Date.now(), b = now - 72 * HOUR, e = now + 48 * HOUR;
+  const now = Date.now(), b = now - 72 * HOUR, e = now + 96 * HOUR;   // predictions reach past the end of an NWS forecast
   const p = (async () => {
     try {
       const [obs, pred, hiloRaw] = await Promise.all([
@@ -999,22 +1168,44 @@ function liveRank(st, peakV, peakT) {
 }
 
 /* ═══════════════════════════════════════════════════════════ LIVE: staff + chart */
+// with an NWS forecast: 2 days observed + the whole forecast; otherwise 3 days observed + 2 days predicted
+function liveWin(st, L) {
+  const F = fcstFor(st);
+  if (F) return { from: L.now - 48 * HOUR, to: clamp(Math.ceil(F.end / HOUR) * HOUR, L.now + 48 * HOUR, L.to), F };
+  return { from: L.now - 72 * HOUR, to: Math.min(L.now + 48 * HOUR, L.to), F: null };
+}
 function liveSpec(st, L, hoverX) {
   const off = datumOffset(st) ?? 0, so = offNow(st);
   const f = (CAT_BY[st] && CAT_BY[st].flood) || {};
-  const obs = L.obs.map(p => [p[0], p[1] + off]);
-  const exp = L.pred.map(p => [p[0], p[1] + so + off]);
+  const w = liveWin(st, L), inW = p => p[0] >= w.from - HOUR && p[0] <= w.to + HOUR;
+  const obs = L.obs.filter(inW).map(p => [p[0], p[1] + off]);
+  const exp = L.pred.filter(inW).map(p => [p[0], p[1] + so + off]);
   const vals = obs.map(p => p[1]).concat(exp.map(p => p[1]));
   if (f.minor != null) vals.push(f.minor + off + 0.25);
+  let fc = [], fcPast = [], fcFut = [], pk = null;
+  if (w.F) {
+    fc = w.F.pts.filter(inW).map(p => [p[0], p[1] + off]);
+    let k = -1; for (let i = 0; i < fc.length; i++) if (fc[i][0] <= L.now) k = i;
+    fcPast = k >= 0 ? fc.slice(0, k + 2) : [];
+    fcFut = fc.slice(Math.max(0, k));
+    for (const p of fc) vals.push(p[1]);
+    const fp = futurePeak(w.F, L.now);
+    if (fp) pk = [fp[0], fp[1] + off, floodCat(st, fp[1])];
+  }
   const [y0, y1] = yRange(vals, 0.06, 2);
+  const lastObsT = obs.length ? obs[obs.length - 1][0] : L.now;
+  const between = [{ a: obs, b: exp, pos: 'rgba(224,138,60,0.42)', neg: 'rgba(63,146,210,0.30)', gap: HOUR }];
+  if (fcFut.length) between.push({ a: fcFut.filter(p => p[0] >= lastObsT), b: exp, pos: 'rgba(224,138,60,0.22)', neg: 'rgba(63,146,210,0.15)', gap: 2 * HOUR });
+  const series = [{ pts: exp, color: '#A6A499', width: 1.5, dash: [5, 4], gap: HOUR }, { pts: obs, color: WATER, width: 2.4, gap: HOUR }];
+  if (fc.length) series.push({ pts: fcPast, color: 'rgba(236,230,214,0.42)', width: 1.6, gap: 3 * HOUR, noHover: true },
+    { pts: fcFut, color: FC_COLOR, width: 2.3, gap: 3 * HOUR });
   return {
-    x0: L.from, x1: L.to, y0, y1, yUnit: DATUM_LABEL[effDatum(st)], xTicks: dayTicks(L.from, L.to), pad: { l: 52, r: 12, t: 22 },
-    bands: floodBands(f, off), shadeFrom: L.now,
-    between: { a: obs, b: exp, pos: 'rgba(224,138,60,0.42)', neg: 'rgba(63,146,210,0.30)', gap: HOUR },
-    series: [{ pts: exp, color: '#A6A499', width: 1.5, dash: [5, 4], gap: HOUR }, { pts: obs, color: WATER, width: 2.4, gap: HOUR }],
+    x0: w.from, x1: w.to, y0, y1, yUnit: DATUM_LABEL[effDatum(st)], xTicks: dayTicks(w.from, w.to), pad: { l: 52, r: 12, t: 22 },
+    bands: floodBands(f, off), shadeFrom: L.now, between, series,
+    markers: pk ? [{ x: pk[0], y: pk[1], r: 5.5, color: pk[2] ? FLOOD_COLORS[pk[2]] : FC_COLOR, label: f2(pk[1]), labelColor: pk[2] ? FLOOD_COLORS[pk[2]] : FC_COLOR }] : [],
     vlines: [{ x: L.now, color: 'rgba(232,228,217,0.55)' }],
-    texts: [{ x: L.now, text: 'Observed', align: 'right', dx: -6 }, { x: L.now, text: 'Predicted', align: 'left', dx: 6 }],
-    hoverX, obs, exp, off,
+    texts: [{ x: L.now, text: 'Observed', align: 'right', dx: -6 }, { x: L.now, text: w.F ? 'NWS forecast' : 'Predicted', align: 'left', dx: 6 }],
+    hoverX, obs, exp, fc, off, win: w, pk,
   };
 }
 function floodBands(f, off) {
@@ -1033,7 +1224,10 @@ function staffSpec(st, L) {
   let lo = mllw - 0.8, hi = Math.max(top.length ? top[0].wl : 3, f.major != null ? f.major : 3) + 0.6;
   const last = L && L.obs && L.obs.length ? L.obs[L.obs.length - 1] : null;
   if (L && L.obs) for (const p of L.obs) { if (p[1] < lo) lo = p[1] - 0.3; if (p[1] > hi) hi = p[1] + 0.4; }
-  return { lo: lo + off, hi: hi + off, off, f, top, mllw: mllw + off, mhhw: off, now: last ? [last[0], last[1] + off] : null };
+  const F = fcstFor(st), fp = F ? futurePeak(F, L ? L.now : Date.now()) : null;
+  if (fp && fp[1] > hi) hi = fp[1] + 0.4;
+  return { lo: lo + off, hi: hi + off, off, f, top, mllw: mllw + off, mhhw: off, now: last ? [last[0], last[1] + off] : null,
+    fc: fp ? [fp[0], fp[1] + off] : null };
 }
 function drawLiveOn(ctx, W, H, st, L, hoverX) {
   ctx.fillStyle = SURFACE; ctx.fillRect(0, 0, W, H);
@@ -1104,6 +1298,13 @@ function drawLiveOn(ctx, W, H, st, L, hoverX) {
     ctx.fillStyle = '#F2EEE3'; ctx.beginPath(); ctx.moveTo(tx - 1, y); ctx.lineTo(tx - 7, y - 5); ctx.lineTo(tx - 7, y + 5); ctx.closePath(); ctx.fill();
     labs.push([y, `Now ${f2(sf.now[1])}`, cat ? FLOOD_COLORS[cat] : '#9CCBF0', true, 4]);
   }
+  if (sf.fc) {
+    const y = sy(clamp(sf.fc[1], sf.lo, sf.hi)), cat = floodCat(st, sf.fc[1] - sf.off);
+    ctx.strokeStyle = FC_COLOR; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(tx - 1, y); ctx.lineTo(tx - 7, y - 5); ctx.lineTo(tx - 7, y + 5); ctx.closePath(); ctx.stroke();
+    ctx.fillStyle = FC_COLOR; ctx.fillRect(tx, Math.round(y) - 0.5, tw, 1.5);
+    labs.push([y, `${narrow ? 'Fcst' : 'NWS fcst'} ${f2(sf.fc[1])}`, cat ? FLOOD_COLORS[cat] : FC_COLOR, true, 3.5]);
+  }
   // place labels without overlap (priority first)
   const lx = sx + sw + 12, maxW = SW - lx - 6, placed = [];
   labs.sort((a, b) => b[4] - a[4]);
@@ -1127,7 +1328,9 @@ function drawLiveOn(ctx, W, H, st, L, hoverX) {
 /* ═══════════════════════════════════════════════════════════ LIVE: render */
 function renderLive() {
   const st = S.st, s = ST_BY[st], L = LIVE[st], c = CAT_BY[st];
-  setHead(`${s.name}, ${s.state}`, `NOAA ${st} · 3 days observed, 2 days predicted · ${DATUM_LABEL[effDatum(st)]}`);
+  const W0 = L && L.obs ? liveWin(st, L) : { F: fcstFor(st) };
+  setHead(`${s.name}, ${s.state}`, `NOAA ${st} · ` + (W0.F ? `2 days observed, NWS forecast to ${fWH(W0.F.end)}` : '3 days observed, 2 days predicted') + ` · ${DATUM_LABEL[effDatum(st)]}`);
+  renderAlerts(st);
   const notes = [];
   if (datumOffset(st) === null) notes.push(`${S.datum} isn't published for this gauge — showing MHHW.`);
   if (L && L.err) notes.push(`Live data unavailable (${esc(L.err)}). <button class="cc-btn" id="retry-live">Retry</button>`);
@@ -1135,25 +1338,42 @@ function renderLive() {
   setNotice(notes.join(' '));
   const rb = $('retry-live'); if (rb) rb.onclick = () => { delete LIVE[st]; showLive(); };
   $('hd-legend').innerHTML = `<span class="lg"><i style="background:${WATER}"></i>Observed</span>` +
+    (W0.F ? `<span class="lg"><i class="fc"></i>NWS forecast</span>` : '') +
     `<span class="lg"><i class="dash"></i>Predicted tide${offNow(st) ? ` (${sign(offNow(st))} ft, current sea level)` : ''}</span>` +
     `<span class="lg"><i class="sq" style="background:rgba(224,138,60,0.6)"></i>Surge above</span><span class="lg"><i class="sq" style="background:rgba(63,146,210,0.5)"></i>below</span>`;
   const pill = $('hd-pill');
-  if (!L || L.err || !L.obs.length) { pill.hidden = true; $('live-tiles').innerHTML = tilesPlaceholder(L); drawLive(); return; }
+  if (!L || L.err || !L.obs.length) { pill.hidden = true; $('live-tiles').innerHTML = fcstTile(st, null) + tilesPlaceholder(L); drawLive(); return; }
   const off = datumOffset(st) ?? 0;
   const last = L.obs[L.obs.length - 1], cat = floodCat(st, last[1]);
   pill.hidden = false; pill.className = 'pill' + (cat ? '' : ' quiet'); pill.style.background = cat ? FLOOD_COLORS[cat] : '';
   pill.textContent = cat ? (cat === 'action' ? 'Action stage' : FLOOD_NAMES[cat] + ' flooding') : 'Below flood stage';
   const sg = liveSurge(st, L), lastSg = sg[sg.length - 1];
-  let pk = null; for (const p of L.obs) if (!pk || p[1] > pk[1]) pk = p;
+  const w = liveWin(st, L), days = Math.round((L.now - w.from) / DAY);
+  let pk = null; for (const p of L.obs) if (p[0] >= w.from && (!pk || p[1] > pk[1])) pk = p;
   const rk = pk ? liveRank(st, pk[1], pk[0]) : null, pkCat = pk ? floodCat(st, pk[1]) : null;
   const so = offNow(st), nextHi = (L.hilo || []).find(p => p[0] > Date.now()) || null;
-  const t = [];
+  const nextFc = nextHi && w.F ? fcstAround(w.F, nextHi[0]) : null;
+  const t = [fcstTile(st, L)];
   t.push(`<div class="tile"><div class="l">Now</div><div class="val">${f2(last[1] + off)}<small>ft</small></div><div class="nt">${fTime(last[0])} ET</div></div>`);
   t.push(`<div class="tile"><div class="l">Surge now</div><div class="val">${lastSg ? sign(lastSg[1]) : '—'}<small>ft</small></div><div class="nt">vs. predicted tide</div></div>`);
-  t.push(`<div class="tile"><div class="l">Next high</div><div class="val">${nextHi ? f2(nextHi[1] + so + off) : '—'}<small>ft</small></div><div class="nt">${nextHi ? fDT(nextHi[0]) : ''}</div></div>`);
-  t.push(`<div class="tile"><div class="l">3-day peak</div><div class="val">${pk ? f2(pk[1] + off) : '—'}<small>ft</small></div><div class="nt">${pk ? fDT(pk[0]) : ''}${rk ? '<br>' + (rk.rank ? `#${rk.rank} since ${c.record.start}` : `below top ${rk.of}`) : ''}</div></div>`);
+  t.push(`<div class="tile"><div class="l">Next high</div><div class="val">${nextHi ? f2(nextHi[1] + so + off) : '—'}<small>ft</small></div><div class="nt">${nextHi ? fDT(nextHi[0]) + ' · tide' : ''}${nextFc ? `<br>NWS forecast ${f2(nextFc[1] + off)}` : ''}</div></div>`);
+  t.push(`<div class="tile"><div class="l">${days}-day peak</div><div class="val">${pk ? f2(pk[1] + off) : '—'}<small>ft</small></div><div class="nt">${pk ? fDT(pk[0]) : ''}${rk ? '<br>' + (rk.rank ? `#${rk.rank} since ${c.record.start}` : `below top ${rk.of}`) : ''}</div></div>`);
   $('live-tiles').innerHTML = t.join('');
   drawLive();
+}
+function fcstTile(st, L) {
+  const F = fcstFor(st), FS = FCST[st], c = CAT_BY[st], off = datumOffset(st) ?? 0;
+  const fp = F ? futurePeak(F, L ? L.now : Date.now()) : null;
+  if (!fp) {
+    const why = FS && FS.none === 'nolid' ? 'NWS issues no forecast for this gauge' : FS && FS.err ? 'Forecast unavailable' : FS ? 'No current NWS forecast' : 'Loading…';
+    return `<div class="tile wide"><div class="grow"><div class="l">NWS forecast peak</div><div class="val">—</div></div><div class="nt">${why}</div></div>`;
+  }
+  const cat = floodCat(st, fp[1]), rk = liveRank(st, fp[1], fp[0]);
+  const stage = cat ? (cat === 'action' ? 'Action stage' : FLOOD_NAMES[cat] + ' flood') : 'Below flood stage';
+  const rkTxt = rk ? (rk.rank ? `#${rk.rank} since ${c.record.start}` : `below top ${rk.of}`) : '';
+  return `<div class="tile wide"><div class="grow"><div class="l">NWS forecast peak</div>` +
+    `<div class="val fcv"${cat ? ` style="color:${FLOOD_COLORS[cat]}"` : ''}>${f2(fp[1] + off)}<small>ft</small></div></div>` +
+    `<div class="nt">${fDT(fp[0])} · ${stage}${rkTxt ? '<br>' + rkTxt : ''}<br>Issued ${fDT(F.issued)}</div></div>`;
 }
 function tilesPlaceholder(L) {
   return `<div class="tile"><div class="l">Now</div><div class="val">—</div><div class="nt">${L && L.err ? 'unavailable' : 'Loading…'}</div></div>`;
@@ -1176,9 +1396,12 @@ function liveHover(ev) {
   const x = lay.inv(mx - lay.SW); S.hover.live = x; drawLive();
   const sp = LAYOUT.live.sp, L = LIVE[S.st];
   const o = nearest(sp.obs, x, HOUR / 2), e = nearest(sp.exp, x, HOUR / 2), p = nearest(L.pred, x, HOUR / 2);
-  const t = (o || e || [x])[0];
+  const fcp = !o && sp.fc.length ? nearest(sp.fc, x, HOUR / 2) : null, fe = fcp ? nearest(sp.exp, fcp[0], 4 * 60e3) : null;
+  const t = (o || fcp || e || [x])[0];
   showTip(box, `<div class="t">${fDT(t)} ET</div>` +
     (o ? `<div><span class="sw" style="background:${WATER}"></span>Observed ${f2(o[1])} ft</div>` : '') +
+    (fcp ? `<div><span class="sw" style="background:${FC_COLOR}"></span>NWS forecast ${f2(fcp[1])} ft</div>` : '') +
+    (fcp && fe ? `<div><span class="sw" style="background:#E08A3C"></span>Forecast surge ${sign(fcp[1] - fe[1])} ft</div>` : '') +
     (e ? `<div><span class="sw" style="background:#A6A499"></span>Predicted ${f2(e[1])} ft</div>` : '') +
     (o && e ? `<div><span class="sw" style="background:#E08A3C"></span>Surge ${sign(o[1] - e[1])} ft</div>` : '') +
     (p && offNow(S.st) ? `<div style="color:#948F82">NOAA prediction ${f2(p[1] + sp.off)} ft</div>` : ''), mx, my);
@@ -1793,16 +2016,34 @@ function exportPNG() {
     const L = LIVE[st]; if (!L || L.err || !L.obs.length) return;
     const off = datumOffset(st) ?? 0, last = L.obs[L.obs.length - 1], cat = floodCat(st, last[1]);
     const sg = liveSurge(st, L), lastSg = sg[sg.length - 1];
-    H = 168 + 440 + 44; name = `tide-watch-live-${slug(s.name)}`;
+    const w = liveWin(st, L), F = w.F, fp = F ? futurePeak(F, L.now) : null, fcat = fp ? floodCat(st, fp[1]) : null;
+    const al = ALERTS && ALERTS[st] && ALERTS[st][0], top = fp || al ? 192 : 168;
+    H = top + 440 + 44; name = `tide-watch-live-${slug(s.name)}`;
     draw = ctx => {
-      pngHeader(ctx, W, `${s.name}, ${s.state} — water level`, `${fDTY(last[0])} ET · ${DATUM_LABEL[effDatum(st)]} · 3 days observed, 2 days predicted`);
+      pngHeader(ctx, W, `${s.name}, ${s.state} — water level`, `${fDTY(last[0])} ET · ${DATUM_LABEL[effDatum(st)]} · ` +
+        (F ? `2 days observed, NWS forecast issued ${fDT(F.issued)} ET` : '3 days observed, 2 days predicted'));
       ctx.font = 'bold 16px "Public Sans", sans-serif'; ctx.fillStyle = cat ? FLOOD_COLORS[cat] : '#E8E4D9'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       const line = `Now ${f2(last[1] + off)} ft · ${cat ? FLOOD_NAMES[cat] + (cat === 'action' ? ' stage' : ' flooding') : 'below flood stage'}` + (lastSg ? ` · surge ${sign(lastSg[1])} ft` : '');
       ctx.fillText(line, 40, 118);
-      legendRow(ctx, 40, 146, [{ color: WATER, label: 'Observed' }, { color: '#A6A499', label: 'Predicted tide (current sea level)', dash: 1 },
-        { color: 'rgba(224,138,60,0.7)', label: 'Surge above', sq: 1 }, { color: 'rgba(63,146,210,0.6)', label: 'below', sq: 1 }]);
-      ctx.save(); ctx.translate(pad, 168); drawLiveOn(ctx, cw, 440, st, L, null); ctx.restore();
-      pngFooter(ctx, W, H, 'observed values preliminary · flood stages NWS');
+      if (fp || al) {
+        let x = 40;
+        if (fp) {
+          const t2 = `NWS forecast peak ${f2(fp[1] + off)} ft ${fDT(fp[0])} ET · ${fcat ? (fcat === 'action' ? 'action stage' : FLOOD_NAMES[fcat].toLowerCase() + ' flooding') : 'below flood stage'}`;
+          ctx.fillStyle = fcat ? FLOOD_COLORS[fcat] : FC_COLOR; ctx.fillText(t2, x, 142); x += ctx.measureText(t2).width + 14;
+        }
+        if (al) {
+          ctx.font = 'bold 13px "Courier Prime", monospace'; const tw = ctx.measureText(al.event.toUpperCase()).width;
+          ctx.fillStyle = ALERT_COLOR[al.event]; roundRect(ctx, x, 131, tw + 18, 22, 4); ctx.fill();
+          ctx.fillStyle = ALERT_INK[al.event]; ctx.fillText(al.event.toUpperCase(), x + 9, 142.5);
+        }
+      }
+      const lg = [{ color: WATER, label: 'Observed' }];
+      if (F) lg.push({ color: FC_COLOR, label: 'NWS forecast' });
+      lg.push({ color: '#A6A499', label: 'Predicted tide (current sea level)', dash: 1 },
+        { color: 'rgba(224,138,60,0.7)', label: 'Surge above', sq: 1 }, { color: 'rgba(63,146,210,0.6)', label: 'below', sq: 1 });
+      legendRow(ctx, 40, top - 22, lg);
+      ctx.save(); ctx.translate(pad, top); drawLiveOn(ctx, cw, 440, st, L, null); ctx.restore();
+      pngFooter(ctx, W, H, 'observed values preliminary · flood stages NWS' + (F ? ' · forecast NWS National Water Prediction Service' : ''));
     };
   } else if (S.tab === 'records') {
     const c = CAT_BY[st]; if (!c) return;
@@ -2396,6 +2637,7 @@ function layoutFor() {
   $('rail-live').hidden = t !== 'live'; $('rail-records').hidden = t !== 'records'; $('rail-compare').hidden = t !== 'compare';
   $('storms-grp').hidden = coast; $('coast-grp').hidden = !coast;
   $('map-grp').hidden = coast;
+  $('mapmode-seg').hidden = t !== 'live';
   $('mode-seg').hidden = t !== 'compare';
   for (const b of document.querySelectorAll('#mode-seg .cc-segmented-btn')) b.classList.toggle('is-active', b.dataset.mode === S.mode);
   $('coast-bar').hidden = !coast;
@@ -2445,6 +2687,7 @@ function redraw() {
 function syncURL() {
   try {
     const q = new URLSearchParams({ st: S.st, tab: S.tab, d: S.datum });
+    if (S.tab === 'live' && S.mapMode) q.set('mm', S.mapMode);
     if (S.tab === 'records') { q.set('m', S.metric); q.set('n', S.topN); q.set('rv', S.rv); if (S.sel) q.set('ev', S.sel); }
     if (S.tab === 'compare') {
       q.set('cm', S.mode);
@@ -2459,6 +2702,7 @@ function applyURL() {
   if (ST_BY[q.get('st')]) S.st = q.get('st');
   if (['live', 'records', 'compare'].includes(q.get('tab'))) S.tab = q.get('tab');
   if (DATUM_LABEL[q.get('d')]) S.datum = q.get('d');
+  if (['now', 'fcst'].includes(q.get('mm'))) S.mapMode = q.get('mm');
   if (METRICS[q.get('m')]) S.metric = q.get('m');
   if (['10', '25'].includes(q.get('n'))) S.topN = +q.get('n');
   if (['year', 'coast'].includes(q.get('rv'))) S.rv = q.get('rv');
@@ -2475,6 +2719,7 @@ function applyURL() {
 /* ═══════════════════════════════════════════════════════════ wiring */
 for (const b of document.querySelectorAll('.cc-tab')) b.onclick = () => setTab(b.dataset.tab);
 for (const b of document.querySelectorAll('#datum-seg .cc-segmented-btn')) b.onclick = () => { if (!b.disabled) setDatum(b.dataset.datum); };
+for (const b of document.querySelectorAll('#mapmode-seg .cc-segmented-btn')) b.onclick = () => { S.mapMode = b.dataset.mm; hideTip($('map-box')); drawRailMap(); syncURL(); };
 for (const b of document.querySelectorAll('#metric-list .opt')) b.onclick = () => { S.metric = b.dataset.metric; S.sel = null; renderRecords(); syncURL(); };
 for (const b of document.querySelectorAll('#topn-seg .cc-segmented-btn')) b.onclick = () => { S.topN = +b.dataset.n; renderRecords(); syncURL(); };
 for (const b of document.querySelectorAll('#rv-seg .cc-segmented-btn')) b.onclick = () => { S.rv = b.dataset.rv; hideTip($('rec-box')); renderRecords(); syncURL(); };
@@ -2561,7 +2806,10 @@ const ro = new ResizeObserver(() => {
   cancelAnimationFrame(rzRaf); rzRaf = requestAnimationFrame(redraw);
 });
 ro.observe($('stage')); ro.observe($('map-box')); for (const b of document.querySelectorAll('.cv-box')) ro.observe(b);
-setInterval(() => { if (S.tab === 'live' && !document.hidden) { showLive(true); loadStrip(); } }, 6 * 60e3);
+function loadNWS() {
+  return Promise.all([loadForecasts(), loadAlerts()]).then(() => { if (S.tab === 'live') { renderLive(); drawRailMap(); } });
+}
+setInterval(() => { if (S.tab === 'live' && !document.hidden) { showLive(true); loadStrip(); loadNWS(); } }, 6 * 60e3);
 
 (async function init() {
   applyURL();
@@ -2574,6 +2822,7 @@ setInterval(() => { if (S.tab === 'live' && !document.hidden) { showLive(true); 
   setTab(S.tab);
   if (S.tab === 'live') await sleep(50);
   loadStrip();
+  loadNWS();
   detectVideoPath();
 })();
 </script>
