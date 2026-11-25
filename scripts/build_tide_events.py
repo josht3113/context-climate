@@ -11,8 +11,10 @@ Per station:
   * hourly astronomical predictions (product=predictions, interval=h)
   * preliminary 6-minute water levels (product=water_level) for the stretch
     after the verified record ends, 31 days per request
-  * datums, flood thresholds and the NOAA sea-level trend from the metadata /
-    derived-product APIs
+  * datums and the NOAA sea-level trend from the metadata / derived-product
+    APIs; flood thresholds from the NWS National Water Prediction Service gauge
+    (the categories NWS forecasts and warns against), CO-OPS floodlevels as
+    fallback
 
 Derived:
   surge      = observed − predicted − centred 365-day mean of (observed − predicted)
@@ -59,6 +61,17 @@ DPAPI = "https://api.tidesandcurrents.noaa.gov/dpapi/prod/webapi/product"
 IBTRACS_URL = ("https://www.ncei.noaa.gov/data/international-best-track-archive-"
                "for-climate-stewardship-ibtracs/v04r01/access/csv/ibtracs.NA.list.v04r01.csv")
 APP = "contextclimate.io"
+NWPS = "https://api.water.noaa.gov/nwps/v1/gauges"
+
+# NWS (NWPS) gauge for each CO-OPS station: its flood categories are NWS's
+# current thresholds, in ft MLLW. CO-OPS floodlevels.json lags them at some
+# gauges (e.g. the Battery, Boston, Bridgeport, Montauk in Nov 2026).
+NWS_LID = {
+    "8536110": "CMAN4", "8534720": "ACYN4", "8531680": "SDHN4", "8519483": "BGNN6",
+    "8518750": "BATN6", "8516945": "KPTN6", "8467150": "BRHC3", "8465705": "NWHC3",
+    "8461490": "NLHC3", "8510560": "MTKN6", "8452660": "NWPR1", "8454000": "FOXR1",
+    "8447930": "BZBM3", "8449130": "NTKM3", "8443970": "BHBM3",
+}
 
 # South → north along the coast.
 STATIONS = [
@@ -332,6 +345,23 @@ def fetch_metadata(fetcher, sid):
                              ("nws_minor", "nws_moderate", "nws_major",
                               "nos_minor", "nos_moderate", "nos_major", "action")}
 
+    lid = NWS_LID.get(sid)
+    ng = safe(f"{NWPS}/{lid}") if lid else None
+    if ng:
+        cats = (ng.get("flood") or {}).get("categories") or {}
+        dv = {}
+        for d in ((ng.get("datums") or {}).get("vertical") or {}).get("value") or []:
+            ab = (d.get("abbrev") or "").rstrip("*")
+            if d.get("value") is not None:
+                dv[ab] = float(d["value"])
+        meta["nwps_flood"] = {
+            "lid": lid,
+            "units": (ng.get("flood") or {}).get("stageUnits"),
+            "mllw_ref": dv.get("MLLW"),                                   # 0 when stages are in MLLW
+            "mhhw_mllw": None if dv.get("MHHW") is None else abs(dv["MHHW"]),
+            **{k: (cats.get(k) or {}).get("stage") for k in ("action", "minor", "moderate", "major")},
+        }
+
     tr = safe(f"{DPAPI}/sealvltrends.json?station={sid}")
     if tr:
         rows = tr.get("SeaLvlTrends") or tr.get("sealvltrends") or []
@@ -359,9 +389,31 @@ def _num(x):
         return None
 
 
+def _nwps_thresholds(meta):
+    """NWS categories from the NWPS gauge (ft MLLW) → ft above MHHW, using the
+    CO-OPS MHHW−MLLW offset. Skipped unless NWPS's own MHHW datum agrees with it."""
+    n = meta.get("nwps_flood") or {}
+    off = (meta.get("mhhw_above") or {}).get("MLLW")
+    ok = (n.get("units") == "ft" and n.get("mllw_ref") == 0 and off is not None
+          and n.get("mhhw_mllw") is not None and abs(n["mhhw_mllw"] - off) <= 0.1)
+    vals = [n.get(k) for k in ("minor", "moderate", "major")]
+    if not ok or any(v is None or v <= -900 for v in vals):
+        return {}
+    out = {k: round(float(v) - off, 2) for k, v in zip(("minor", "moderate", "major"), vals)}
+    a = n.get("action")
+    if a is not None and a > -900 and float(a) - off < out["minor"] - 0.01:
+        out["action"] = round(float(a) - off, 2)
+    out["source"] = "NWS"
+    out["nwps"] = n.get("lid")
+    return out
+
+
 def flood_thresholds(meta):
-    """Minor/moderate/major in ft above MHHW. NWS first, NOS derived as fallback.
-    floodlevels.json values are relative to station datum (STND)."""
+    """Minor/moderate/major in ft above MHHW. NWS's current categories from NWPS
+    first; then CO-OPS floodlevels (NWS, else NOS-derived) relative to station datum (STND)."""
+    nw = _nwps_thresholds(meta)
+    if nw:
+        return nw
     raw = meta.get("flood_raw") or {}
     base = meta.get("mhhw_stnd")
     out = {}
