@@ -2,10 +2,11 @@ name: Cache Sunspot Data
 
 on:
   schedule:
-    - cron: '0 8 3 * *'   # 3rd of every month at 8 AM UTC — SILSO usually
-                          # publishes its monthly update in the first days
-                          # of the month, and this runs a couple days after
-                          # the 1st-of-month ENSO job to stagger the two.
+    - cron: '17 9 * * *'  # daily at 09:17 UTC. SILSO publishes the monthly
+                          # and daily files in the first days of each month;
+                          # the daily estimate (EISN) used by Solar Cycle
+                          # Progression's recent-days strip changes every day.
+                          # Commits happen only when a file actually changed.
   workflow_dispatch:
 
 jobs:
@@ -55,11 +56,43 @@ jobs:
       - name: Merge into public/sunspot-monthly.csv
         run: python3 scripts/update_sunspot_data.py
 
+      - name: Download daily, yearly, group-number and 14C files
+        continue-on-error: true
+        run: |
+          UA="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+          get() { curl -4 -sS -L --retry 3 --retry-delay 8 --connect-timeout 20 --max-time 120 \
+                    -H "User-Agent: $UA" -o "/tmp/$2" "$1" && echo "OK $2 $(wc -c < /tmp/$2)" || echo "FAIL $2"; }
+          S=https://www.sidc.be/SILSO/DATA
+          get $S/SN_d_tot_V2.0.csv SN_d_tot_V2.0.csv
+          get $S/SN_y_tot_V2.0.csv SN_y_tot_V2.0.csv
+          get $S/EISN/EISN_current.csv EISN_current.csv
+          get $S/GroupNumber/GNbb2_y.txt GNbb2_y.txt
+          get $S/GroupNumber/GNhs_y.txt GNhs_y.txt
+          # 14C reconstructions (static; fetched so a newly published segment
+          # is picked up). CDS Strasbourg first, the NAOJ mirror as fallback.
+          for host in https://vizier.cds.unistra.fr http://vizier.nao.ac.jp; do
+            tag=$(echo $host | sed -E 's#https?://vizier\.##; s#\..*##')
+            for src in 649/A141/osn 649/A141/table1 698/A182/sn1000bc 698/A182/cycles 708/A333/sn1000ce 708/A333/cycles; do
+              get "$host/viz-bin/asu-tsv?-source=J/A%2BA/$src&-out.max=unlimited&-out.all" "vz_${tag}_$(echo $src | tr '/' '_').tsv"
+            done
+          done
+
+      - name: Build public/solar-cycle-daily.json + public/solar-deep-history.json
+        run: python3 scripts/build_solar_cycle_data.py
+
       - name: Commit if data changed
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/sunspot-monthly.csv
+          git add public/sunspot-monthly.csv public/solar-cycle-daily.json public/solar-deep-history.json
+          # 'generated' timestamps alone are not a change worth deploying
+          for f in public/solar-cycle-daily.json public/solar-deep-history.json; do
+            if git diff --staged --quiet HEAD -- "$f" 2>/dev/null; then continue; fi
+            if git cat-file -e HEAD:"$f" 2>/dev/null && \
+               diff <(git show HEAD:"$f" | sed -E 's/"generated":"[^"]*",?//') <(sed -E 's/"generated":"[^"]*",?//' "$f") >/dev/null; then
+              git restore --staged "$f"; git checkout -- "$f"
+            fi
+          done
           git diff --staged --quiet \
             && echo "Data unchanged — no commit needed" \
             || (git commit -m "chore: update sunspot data [automated]" && git push)
