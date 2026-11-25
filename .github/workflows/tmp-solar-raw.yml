@@ -1,0 +1,37 @@
+name: TMP solar raw fetch
+on:
+  push:
+    branches: [solar-raw-tmp]
+    paths: ['.github/workflows/tmp-solar-raw.yml']
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch raw files
+        run: |
+          mkdir -p tmp-raw
+          UA="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0"
+          get() { curl -4 -sS -L --retry 3 --retry-delay 8 --connect-timeout 20 --max-time 120 -H "User-Agent: $UA" -o "tmp-raw/$2" "$1" && echo "OK $2 $(wc -c < tmp-raw/$2)" || echo "FAIL $2"; }
+          S=https://www.sidc.be/SILSO/DATA
+          get $S/SN_d_tot_V2.0.csv SN_d_tot_V2.0.csv
+          get $S/SN_y_tot_V2.0.csv SN_y_tot_V2.0.csv
+          get $S/SN_m_tot_V2.0.csv SN_m_tot_V2.0.csv
+          get $S/SN_ms_tot_V2.0.csv SN_ms_tot_V2.0.csv
+          get $S/EISN/EISN_current.csv EISN_current.csv
+          for f in GNbb2_y.txt GNiu_y2.txt GNec_y.txt GNhs_y.txt; do get $S/GroupNumber/$f $f; done
+          for host in https://vizier.cds.unistra.fr http://vizier.nao.ac.jp; do
+            tag=$(echo $host | sed -E 's#https?://vizier\.##; s#\..*##')
+            for src in 649/A141/osn 649/A141/table1 698/A182/sn1000bc 698/A182/cycles 708/A333/sn1000ce 708/A333/cycles; do
+              name=$(echo $src | tr '/' '_')
+              get "$host/viz-bin/asu-tsv?-source=J/A%2BA/$src&-out.max=unlimited&-out.all" "vz_${tag}_${name}.tsv"
+            done
+          done
+          ls -la tmp-raw
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tmp-raw && git commit -m "tmp: raw solar files" && git push
