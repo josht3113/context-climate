@@ -510,8 +510,8 @@ const SECTIONS = [
       {
         tags:       ['Solar Cycle', 'Interactive'],
         title:      'Solar Cycle Progression',
-        description:'The traditional sunspot-number time series, plus a cycle-comparison view that restacks any set of solar cycles on a shared "years since minimum" axis so you can see exactly how Cycle 25 stacks up against its predecessors.',
-        footerTags: ['Solar Cycle', 'Cycle Comparison', 'SILSO Data'],
+        description:'The sunspot record with a projection of Cycle 25\'s decline, Cycle 25 against every cycle since 1755, spotless days heading toward the next minimum, and a thousand years of solar cycles from tree-ring radiocarbon.',
+        footerTags: ['Solar Cycle', 'Spotless Days', 'SILSO + Radiocarbon'],
         to:         '/solar-cycle-progression',
         thumb:      '/SolarCycleProgression_thumbnail.png',
       },

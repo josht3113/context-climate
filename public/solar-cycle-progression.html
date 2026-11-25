@@ -3,790 +3,1498 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Solar Cycle Progression — ContextClimate</title>
+<title>Solar Cycle Progression | ContextClimate</title>
 <link rel="stylesheet" href="core-sample-tools.css">
 <style>
-  /* Tool-specific layout only — shared chrome lives in core-sample-tools.css.
-     --tool-accent is gold, matching sunspot-heatmap.html (same content-driven
-     Sun-colored precedent as the-suns-path.html). This tool and the heatmap
-     are companion tools sharing sunspot-monthly.csv and
-     solar-cycle-reference.json, so keep changes to either data file's
-     schema in sync across both tools. */
-  :root { --tool-accent: #F5A340; }
+  /* Companion of sunspot-heatmap.html: both read sunspot-monthly.csv and
+     solar-cycle-reference.json — keep their schemas in sync. */
+  :root { --tool-accent: #F5A340; --cc-card-width: 330px; }
+  [hidden] { display: none !important; }
 
-  body{display:flex;flex-direction:column;align-items:center;padding:0 20px 72px}
-  header{text-align:center;padding:22px 0 16px;max-width:860px;width:100%}
-  header .cc-eyebrow{margin-bottom:10px}
-  header .cc-title{margin-bottom:10px}
-  .stage{width:100%;max-width:1200px}
+  .cc-app { max-width: 1760px; margin: 0 auto; }
+  .cc-scene-head, .lg-strip, .note-strip, .cc-scene-bar { flex-shrink: 0; }
 
-  .controls-row{display:flex;gap:28px;flex-wrap:wrap;justify-content:center;align-items:flex-end;margin-bottom:18px}
-  .tgroup{display:flex;flex-direction:column;align-items:center;gap:7px}
-  .tlabel{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--color-text-muted)}
+  /* ── Top row ── */
+  .cc-tab { font-size: 16px; color: var(--color-text-secondary); padding: 7px 16px; }
+  .exp { display: flex; gap: 6px; }
+  .exp .cc-btn { padding: 8px 12px; font-size: 14px; font-weight: 700; white-space: nowrap; }
+  .cc-btn.is-error { border-color: #C05050; color: #E07070; }
+  .cc-btn.is-ok { border-color: #3A9E50; color: #5CC070; }
 
-  #predictionToggleGroup{display:none} /* revealed only if prediction data actually loads */
+  /* ── Scene head ── */
+  .cc-scene-head { gap: 6px 22px; padding: 8px 14px 7px; align-items: flex-end; }
+  .hd-id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .hm-heading { font-family: var(--font-display); font-weight: 700; font-size: 22px; line-height: 1.15; color: var(--color-text-primary); white-space: nowrap; }
+  .hm-period { font-family: var(--font-mono); font-size: 14px; color: var(--color-text-secondary); white-space: nowrap; }
+  .ro-row { display: flex; align-items: flex-end; gap: 4px 22px; flex-wrap: wrap; margin-left: auto; }
+  .ro { display: flex; flex-direction: column; min-width: 0; }
+  .ro-l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--color-text-secondary); white-space: nowrap; }
+  .ro-v { font-family: var(--font-display); font-weight: 700; font-size: 26px; line-height: 1.1; color: var(--color-text-primary); white-space: nowrap; }
+  .ro-v small { font-size: 16px; color: var(--color-text-secondary); font-weight: 400; margin-left: 3px; }
+  .ro-n { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
 
-  .cycle-picker{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:640px}
+  /* ── Legend + note ── */
+  .lg-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; padding: 6px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 13px; color: var(--color-text-secondary); min-height: 32px; }
+  .lg-item { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+  .sw-line { width: 22px; height: 0; border-top: 2px solid; flex-shrink: 0; }
+  .sw-line.thin { border-top-width: 1px; }
+  .sw-line.thick { border-top-width: 3px; }
+  .sw-line.dash { border-top-style: dashed; }
+  .sw-line.dot { border-top-style: dotted; }
+  .sw-band { width: 22px; height: 12px; flex-shrink: 0; }
+  .sw-grad { width: 120px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .sw-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .sw-ring { width: 9px; height: 9px; border-radius: 50%; border: 1.6px solid; flex-shrink: 0; }
+  .note-strip { padding: 5px 14px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 13px; color: #D9A441; line-height: 1.5; }
 
-  .canvas-frame{
-    width:100%;background:var(--color-surface);border:1px solid var(--color-border);
-    border-radius:var(--radius-lg);padding:14px 10px;position:relative;
+  /* ── Stage ── */
+  .cc-scene-stage { overflow: hidden; }
+  #cv, #ov { position: absolute; left: 0; top: 0; display: block; }
+  #ov { cursor: crosshair; outline: none; touch-action: pan-y; }
+  .state-overlay { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px;
+    background: #262B27; color: var(--color-text-secondary); font-family: var(--font-mono); font-size: 14px; text-align: center; }
+  .state-overlay .err { color: #E07070; }
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--color-border); border-top-color: var(--tool-accent); border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Control bar ── */
+  .cc-scene-bar { flex-wrap: wrap; gap: 8px 10px; min-height: 0; padding: 7px 12px; }
+  .grp { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .grp-l { font-family: var(--font-mono); font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--color-text-secondary); margin-right: 3px; white-space: nowrap; }
+  .grp .cc-btn { font-size: 14px; padding: 6px 11px; color: var(--color-text-secondary); }
+  .grp .cc-btn.is-active { color: #F2EEE3; }
+  .grp .cc-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .grp .cc-select { font-size: 14px; font-weight: 600; padding: 6px 8px; }
+
+  /* ── Rail card ── */
+  .cc-card { gap: 0; padding: 10px 14px; overflow-x: hidden; }
+  .rd-head { display: flex; align-items: baseline; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--color-border); flex-shrink: 0; }
+  .rd-date { font-family: var(--font-display); font-weight: 700; font-size: 24px; color: var(--color-text-primary); line-height: 1.1; }
+  .rd-tag { font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--tool-accent); font-weight: 700; }
+  table.rd-t { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 14px; margin: 4px 0 2px; flex-shrink: 0; }
+  .rd-t td { padding: 3px 0; color: var(--color-text-primary); text-align: right; white-space: nowrap; border-top: 1px solid rgba(232,228,217,.06); }
+  .rd-t tr:first-child td { border-top: none; }
+  .rd-t td:first-child { text-align: left; color: var(--color-text-secondary); font-size: 13px; padding-right: 8px; }
+  .rd-t td b { font-family: var(--font-display); font-size: 18px; }
+  .rd-t .sub { display: block; color: var(--color-text-muted); font-size: 12px; line-height: 1.25; }
+  .rd-t td:last-child { white-space: normal; }
+  .rd-t i.k { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .now-head { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-bottom: 5px; border-bottom: 1px solid var(--color-border); font-family: var(--font-mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--tool-accent); font-weight: 700; flex-shrink: 0; }
+  .sp-wrap { position: relative; height: 92px; margin-top: 6px; flex-shrink: 0; }
+  #sp { position: absolute; left: 0; top: 0; display: block; }
+  .sp-cap { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); padding-top: 3px; display: flex; justify-content: space-between; flex-shrink: 0; }
+  .cc-card-src { padding-top: 8px; flex-shrink: 0; }
+
+  /* ── Narrower windows ── */
+  @media (max-width: 1500px) {
+    .cc-app-title { display: none; }
+    .ro-row { gap: 4px 16px; }
+    .grp .cc-btn { padding: 6px 8px; }
   }
-  #chart{display:block;cursor:crosshair;width:100%;height:auto}
-
-  .legend-row{display:flex;justify-content:center;margin-top:12px}
-
-  .tooltip{
-    position:fixed;pointer-events:none;z-index:50;
-    background:var(--color-surface-2);border:1px solid var(--color-border-hover);
-    border-radius:var(--radius-md);padding:9px 13px;
-    font-family:var(--font-body);font-size:13px;color:var(--color-text-secondary);
-    box-shadow:0 6px 20px rgba(0,0,0,0.35);
-    opacity:0;transition:opacity 0.1s ease;max-width:240px;
+  @media (max-width: 1400px) { :root { --cc-card-width: 300px; } .ro-row { gap: 4px 14px; } .ro-l { letter-spacing: .03em; } .cc-tab { padding: 7px 11px; } }
+  @media (max-width: 1280px) {
+    .grp .cc-btn { padding: 6px 7px; font-size: 13px; }
+    .exp .cc-btn { padding: 8px 8px; font-size: 13px; }
+    .ro-v { font-size: 24px; }
+    .ro-n { display: none; }
   }
-  .tooltip.visible{opacity:1}
-  .tt-period{font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--color-text-muted);margin-bottom:4px}
-  .tt-row{display:flex;justify-content:space-between;gap:14px;font-size:13px;margin-top:2px}
-  .tt-row .tt-label{color:var(--color-text-muted)}
-  .tt-row .tt-val{color:var(--color-text-primary);font-weight:600;font-family:var(--font-mono)}
-
-  .stat-block{margin-top:22px}
-  .cc-stat-row{justify-content:center}
-  .cc-stat-chip{min-width:140px;text-align:center;align-items:center}
-
-  .table-toggle-row{display:flex;justify-content:center;margin-top:22px}
-  #cycleTablePanel{margin-top:12px;overflow-x:auto;display:none}
-  #cycleTablePanel.is-visible{display:block}
-  .cycle-table{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
-  .cycle-table th{
-    font-family:var(--font-mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;
-    color:var(--color-text-muted);text-align:left;padding:6px 10px;border-bottom:1px solid var(--color-border-hover);
-    white-space:nowrap;
+  @media (max-height: 700px) and (min-width: 761px) {
+    .cc-app { padding-top: 6px; padding-bottom: 8px; gap: 6px; }
+    .cc-app-top { min-height: 0; }
+    .exp .cc-btn, .cc-tab { padding-top: 5px; padding-bottom: 5px; }
+    .cc-scene-head { padding-top: 4px; padding-bottom: 4px; }
+    .ro-n { display: none; }
+    .lg-strip { padding-top: 3px; padding-bottom: 3px; min-height: 0; }
+    .cc-scene-bar { padding-top: 4px; padding-bottom: 4px; }
+    .grp .cc-btn, .grp .cc-select { padding-top: 4px; padding-bottom: 4px; }
+    .sp-wrap { height: 70px; }
   }
-  .cycle-table td{padding:6px 10px;border-bottom:1px solid var(--color-border);color:var(--color-text-secondary);white-space:nowrap}
-  .cycle-table tr.current-cycle td{color:var(--color-text-primary);font-weight:600;background:rgba(245,163,64,0.08)}
-  .cycle-table td.num{font-family:var(--font-mono);text-align:right}
-
-  .action-row{display:flex;justify-content:center;gap:10px;margin-top:20px}
-  .foot-note{margin-top:22px;font-size:13px;color:var(--color-text-muted);text-align:center;font-style:italic;max-width:720px;line-height:1.6}
-  .foot-note a{color:var(--color-text-secondary)}
-  .load-msg{padding:60px 20px;text-align:center;color:var(--color-text-muted);font-family:var(--font-mono);font-size:13px}
+  @media (max-width: 760px) {
+    .cc-app-title { display: block; width: 100%; font-size: 20px; }
+    .cc-app-spacer { display: none; }
+    .cc-tab-bar { order: 2; width: 100%; } .cc-tab { flex: 1; padding: 8px 4px; font-size: 14px; }
+    .exp { order: 3; }
+    .hm-heading { white-space: normal; font-size: 19px; }
+    .hm-period { white-space: normal; }
+    .lg-item { white-space: normal; }
+    .ro-row { margin-left: 0; }
+    .cc-scene-head { display: contents; }
+    .hd-id { order: 0; padding: 8px 14px; border-bottom: 1px solid var(--color-border); }
+    .cc-scene-stage { order: 1; }
+    .lg-strip { order: 2; border-top: 1px solid var(--color-border); }
+    .ro-row { order: 3; padding: 8px 14px; border-bottom: 1px solid var(--color-border); gap: 8px 20px; }
+    .note-strip { order: 4; }
+    .cc-scene-bar { order: 5; }
+  }
 </style>
 </head>
-<body>
-  <header>
-    <p class="cc-eyebrow">Solar Activity &middot; Astronomy</p>
-    <h1 class="cc-title">Solar Cycle Progression</h1>
-    <p class="cc-subtitle">Monthly sunspot numbers since 1749, and how each ~11-year cycle stacks up against the others.</p>
-  </header>
+<body class="cc-app-body">
+<div class="cc-app">
 
-  <div class="stage">
-    <div class="controls-row">
-      <div class="tgroup">
-        <span class="tlabel">View</span>
-        <div class="cc-segmented" id="viewToggle">
-          <button class="cc-segmented-btn is-active" data-view="history">Full History</button>
-          <button class="cc-segmented-btn" data-view="compare">Compare Cycles</button>
-        </div>
-      </div>
-      <div class="tgroup" id="rangeGroup">
-        <span class="tlabel">Range</span>
-        <div class="cc-tab-bar" id="rangeToggle">
-          <button class="cc-tab" data-range="full">1749&ndash;Present</button>
-          <button class="cc-tab" data-range="100y">Last 100 Years</button>
-          <button class="cc-tab is-active" data-range="50y">Last 50 Years</button>
-          <button class="cc-tab" data-range="current">Current Cycle</button>
-        </div>
-      </div>
-      <div class="tgroup" id="predictionToggleGroup">
-        <span class="tlabel">Overlay</span>
-        <button class="cc-btn cc-btn-sm" id="predictionToggle">Show NOAA Prediction</button>
-      </div>
+  <div class="cc-app-top">
+    <h1 class="cc-app-title">Solar Cycle Progression</h1>
+    <div class="cc-tab-bar" id="tabs" role="tablist">
+      <button class="cc-tab" data-tab="record" role="tab">Record</button>
+      <button class="cc-tab" data-tab="c25" role="tab">Cycle 25</button>
+      <button class="cc-tab" data-tab="spotless" role="tab">Spotless Days</button>
+      <button class="cc-tab" data-tab="deep" role="tab">Deep History</button>
     </div>
-
-    <div class="controls-row" id="cyclePickerRow" style="display:none">
-      <div class="tgroup" style="align-items:center">
-        <span class="tlabel">Cycles to compare</span>
-        <div class="cycle-picker" id="cyclePicker"></div>
-      </div>
+    <div class="cc-app-spacer"></div>
+    <div class="exp">
+      <button class="cc-btn" id="copy-btn" title="Copy the chart image">&#x29C9; Copy</button>
+      <button class="cc-btn" id="png-btn" title="Download the chart as PNG">&#x2193; PNG</button>
+      <button class="cc-btn" id="csv-btn" title="Download the data shown as CSV">&#x2193; CSV</button>
     </div>
-
-    <div class="canvas-frame">
-      <div class="load-msg" id="loadMsg">Loading sunspot record&hellip;</div>
-      <canvas id="chart" width="1120" height="460" style="display:none"></canvas>
-    </div>
-
-    <div class="legend-row">
-      <div class="cc-legend-row" id="legendRow"></div>
-    </div>
-
-    <div class="stat-block">
-      <div class="cc-stat-row" id="statRow"></div>
-    </div>
-
-    <div class="table-toggle-row">
-      <button class="cc-btn cc-btn-sm" id="tableToggle">Solar Cycle Reference Table &#9662;</button>
-    </div>
-    <div class="cc-panel" id="cycleTablePanel">
-      <table class="cycle-table">
-        <thead>
-          <tr><th>Cycle</th><th>Start (min)</th><th>Max</th><th class="num">Peak SSN</th><th>Duration</th></tr>
-        </thead>
-        <tbody id="cycleTableBody"></tbody>
-      </table>
-    </div>
-
-    <div class="action-row">
-      <button class="cc-btn cc-btn-sm" id="pngBtn">&#8595; PNG</button>
-    </div>
-
-    <p class="foot-note">
-      Data: Monthly mean total sunspot number, WDC-SILSO, Royal Observatory of Belgium, Brussels
-      (<a href="https://www.sidc.be/SILSO/datafiles" target="_blank" rel="noopener">CC BY-NC 4.0</a>).
-      Solar cycle boundaries from the historical SILSO compilation.
-      <span id="predictionCredit" style="display:none">NOAA/NASA/ISES Solar Cycle 25 Prediction Panel data via NOAA/SWPC.</span>
-    </p>
   </div>
 
-<div class="tooltip" id="tooltip">
-  <div class="tt-period" id="ttPeriod">Month Year</div>
-  <div id="ttRows"></div>
+  <div class="cc-app-main">
+    <div class="cc-scene">
+      <div class="cc-scene-head">
+        <div class="hd-id">
+          <div class="hm-heading" id="hd">&nbsp;</div>
+          <div class="hm-period" id="hd-sub">&nbsp;</div>
+        </div>
+        <div class="ro-row" id="readouts"></div>
+      </div>
+      <div class="lg-strip" id="legend"></div>
+      <div class="note-strip" id="note" hidden></div>
+      <div class="cc-scene-stage" id="stage">
+        <canvas id="cv"></canvas>
+        <canvas id="ov" tabindex="0" aria-label="Solar cycle chart. Hover or use the arrow keys to read values."></canvas>
+        <div class="state-overlay" id="state"><div class="spinner"></div><div>Loading the sunspot record…</div></div>
+      </div>
+      <div class="cc-scene-bar" id="bar"></div>
+    </div>
+
+    <div class="cc-card" id="card">
+      <div class="rd-head"><span class="rd-date" id="rd-date">&nbsp;</span><span class="rd-tag" id="rd-tag"></span></div>
+      <table class="rd-t" id="rd-t"></table>
+      <div class="now-head">Now</div>
+      <table class="rd-t" id="now-t"></table>
+      <div class="sp-wrap" id="sp-wrap"><canvas id="sp" aria-label="Daily sunspot number, recent days"></canvas></div>
+      <div class="sp-cap"><span id="sp-l"></span><span id="sp-r"></span></div>
+      <div class="cc-card-src" id="src"></div>
+    </div>
+  </div>
 </div>
 
 <script>
-// ════════════════════════════════════════════════════════════════
-// CONFIG
-// ════════════════════════════════════════════════════════════════
-
-const DATA_URLS = ['./sunspot-monthly.csv'];
-const CYCLE_URL = './solar-cycle-reference.json';
-// Optional — only produced once the update Action starts pulling NOAA's
-// Solar Cycle 25 prediction feed. Tool degrades gracefully if absent:
-// the checkbox and legend entry simply never appear.
-const PREDICTION_URL = './solar-cycle25-prediction.json';
-
-const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const MON_FULL  = ['January','February','March','April','May','June',
-                   'July','August','September','October','November','December'];
-
-const CANVAS_W = 1120, CANVAS_H = 460;
-const MARGIN = { left: 50, right: 20, top: 34, bottom: 40 };
-const PLOT_W = CANVAS_W - MARGIN.left - MARGIN.right;
-const PLOT_H = CANVAS_H - MARGIN.top - MARGIN.bottom;
-
-// Distinct line colors for Compare Cycles mode (cycle number -> color),
-// applied cyclically if more cycles are selected than swatches.
-const COMPARE_PALETTE = ['#F5A340', '#6D96D8', '#D67E60', '#A08CC6', '#2AA87E', '#D08425', '#948F82'];
-
-let viewMode = 'history';        // 'history' | 'compare'
-let rangePreset = '50y';
-let showPrediction = false;
-let monthlyData = [], dataMap = new Map(), cycles = [], predictionData = null;
-let selectedCycles = new Set();
-let minYear, maxYear;
-
+'use strict';
 const $ = id => document.getElementById(id);
-const monthIdx = (y, m) => y * 12 + m;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// ════════════════════════════════════════════════════════════════
-// DATA LOADING
-// ════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════
+   Constants
+   ════════════════════════════════════════════════════════════════════ */
+const ACC = '#F5A340';
+const C_TXT = '#E8E4D9', C_SEC = '#A6A499', C_MUT = '#948F82';
+const C_GRID = 'rgba(232,228,217,0.08)', C_AXIS = 'rgba(232,228,217,0.22)';
+const C_MEAN = 'rgba(232,228,217,0.40)';
+const C_BLUE = '#6D96D8', C_PURPLE = '#A08CC6', C_LIGHT = '#E8E4D9';
+const FONT_MONO = "'Courier Prime', monospace", FONT_DISP = "'Zilla Slab', serif", FONT_BODY = "'Public Sans', sans-serif";
+const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MON_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Analog projection settings (validated by hindcast on Cycles 2–24; see project notes)
+const PROJ = { K: 7, L: 36, W: 0.25, SHIFT: 12, HOR: 180 };
+
+// Named prolonged minima — intervals from Hayakawa et al. 2021 (SWSC 11, 1), Table 1
+const GRAND_MINIMA = [
+  { n: 'Oort',    a: 1010, b: 1050 },
+  { n: 'Wolf',    a: 1280, b: 1350 },
+  { n: 'Spörer',  a: 1390, b: 1550 },
+  { n: 'Maunder', a: 1645, b: 1715 },
+  { n: 'Dalton',  a: 1797, b: 1827 },
+];
+
+// Sunspot-number colour ramp (stripes, deep history)
+const SN_RAMP = [[0,'#0E1220'],[15,'#211D38'],[40,'#4A2738'],[75,'#8A3A2C'],[110,'#C25F25'],[145,'#E88A2C'],[180,'#F5A340'],[220,'#FAD283'],[280,'#FFF3D6']];
+
+/* ════════════════════════════════════════════════════════════════════
+   Small helpers
+   ════════════════════════════════════════════════════════════════════ */
+const hex2rgb = h => [1,3,5].map(i => parseInt(h.slice(i, i + 2), 16));
+const RAMP_RGB = SN_RAMP.map(([v, c]) => [v, hex2rgb(c)]);
+function rampColor(v) {
+  if (!(v > 0)) v = 0;
+  for (let i = 1; i < RAMP_RGB.length; i++) {
+    const [v1, c1] = RAMP_RGB[i];
+    if (v <= v1) {
+      const [v0, c0] = RAMP_RGB[i - 1], t = (v - v0) / (v1 - v0);
+      return `rgb(${c0.map((x, j) => Math.round(x + (c1[j] - x) * t)).join(',')})`;
+    }
+  }
+  return `rgb(${RAMP_RGB[RAMP_RGB.length - 1][1].join(',')})`;
+}
+const fmt1 = v => (v == null || !isFinite(v)) ? '—' : v.toFixed(1);
+const fmt0 = v => (v == null || !isFinite(v)) ? '—' : Math.round(v).toLocaleString('en-US');
+const ymLabel = (y, m) => `${MON[m - 1]} ${y}`;
+function ageLabel(mo) {
+  const s = mo < 0 ? '−' : ''; mo = Math.abs(Math.round(mo));
+  const y = Math.floor(mo / 12), m = mo % 12;
+  return `${s}${y}y ${m}m`;
+}
+const yearLabel = y => y <= 0 ? `${1 - y} BC` : String(y);
+function quantile(sorted, p) {           // type-7
+  if (!sorted.length) return NaN;
+  const h = (sorted.length - 1) * p, lo = Math.floor(h), hi = Math.ceil(h);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (h - lo);
+}
+function median(a) { const s = a.slice().sort((x, y) => x - y); return quantile(s, 0.5); }
+function niceStep(range, target) {
+  const raw = range / Math.max(1, target), p = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (raw <= m * p) return m * p;
+  return 10 * p;
+}
+function dayOfYear(d) { return Math.round((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 1)) / 864e5) + 1; }
+const isoDate = s => new Date(s + 'T00:00:00Z');
+function addDays(d, n) { return new Date(d.getTime() + n * 864e5); }
+const dLabel = d => `${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+
+/* ════════════════════════════════════════════════════════════════════
+   Data
+   ════════════════════════════════════════════════════════════════════ */
+const M = { n: 0, y: [], m: [], X: [], S: [], prov: [], ym0: 0 };   // monthly record
+let CYC = [];          // cycles with startI / maxI / endI
+let CUR = null;        // ongoing cycle
+let P = null;          // analog projection
+let DAILY = null, DEEP = null;
+let SPOT = null;       // derived spotless-day structures
+let DP = null;         // derived deep-history structures
+
+const mIdx = (y, m) => y * 12 + (m - 1) - M.ym0;
+const mYM = i => { const t = M.ym0 + i; return [Math.floor(t / 12), (t % 12) + 1]; };
 
 function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim().length);
-  const out = [];
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  const rows = [];
   for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i].split(',');
-    if (parts.length < 7) continue;
-    const [year, month, dec, mean, meanDef, smoothed, smoothedDef] = parts;
-    out.push({
-      year: +year, month: +month, dec: +dec,
-      mean: +mean, meanDef: +meanDef === 1,
-      smoothed: smoothed.trim() === '' ? null : +smoothed,
-      smoothedDef: +smoothedDef === 1,
-    });
+    const p = lines[i].split(',');
+    if (p.length < 7) continue;
+    rows.push({ y: +p[0], m: +p[1], mean: p[3].trim() === '' ? NaN : +p[3], mdef: +p[4] === 1,
+                sm: p[5].trim() === '' ? NaN : +p[5] });
   }
-  return out;
+  rows.sort((a, b) => (a.y - b.y) || (a.m - b.m));
+  M.ym0 = rows[0].y * 12 + rows[0].m - 1;
+  for (const r of rows) {
+    const i = r.y * 12 + r.m - 1 - M.ym0;
+    M.y[i] = r.y; M.m[i] = r.m;
+    M.X[i] = r.mean < 0 ? NaN : r.mean; M.S[i] = r.sm < 0 ? NaN : r.sm; M.prov[i] = !r.mdef;
+  }
+  M.n = M.y.length;
+  for (let i = 0; i < M.n; i++) if (M.y[i] === undefined) { const [y, m] = mYM(i); M.y[i] = y; M.m[i] = m; M.X[i] = NaN; M.S[i] = NaN; M.prov[i] = true; }
+  M.lastX = M.n - 1; while (M.lastX > 0 && !isFinite(M.X[M.lastX])) M.lastX--;
+  M.lastS = M.n - 1; while (M.lastS > 0 && !isFinite(M.S[M.lastS])) M.lastS--;
+  M.firstProv = M.prov.findIndex(p => p); if (M.firstProv < 0) M.firstProv = M.n;
 }
 
-async function loadData() {
-  let text = null;
-  for (const url of DATA_URLS) {
-    try { const res = await fetch(url); if (res.ok) { text = await res.text(); break; } }
-    catch (e) { /* try next */ }
-  }
-  if (!text) {
-    $('loadMsg').innerHTML =
-      `Couldn't load the sunspot data file.<br>Make sure <code>sunspot-monthly.csv</code> is in your <code>public/</code> folder.`;
-    return false;
-  }
-  monthlyData = parseCSV(text).sort((a, b) => (a.year - b.year) || (a.month - b.month));
-  monthlyData.forEach(r => dataMap.set(`${r.year}-${r.month}`, r));
-  minYear = monthlyData[0].year;
-  maxYear = monthlyData[monthlyData.length - 1].year;
-
-  try {
-    const res = await fetch(CYCLE_URL);
-    cycles = (await res.json()).cycles;
-  } catch (e) { cycles = []; }
-
-  try {
-    const res = await fetch(PREDICTION_URL);
-    if (res.ok) predictionData = await res.json();
-  } catch (e) { predictionData = null; }
-  if (predictionData && predictionData.points && predictionData.points.length) {
-    $('predictionToggleGroup').style.display = '';
-  }
-
-  // Default cycle-compare selection: current cycle plus the 3 before it
-  const last = monthlyData[monthlyData.length - 1];
-  const activeCycle = currentCycleForDate(last.year, last.month);
-  if (activeCycle) {
-    for (let c = activeCycle.cycle; c >= Math.max(1, activeCycle.cycle - 3); c--) selectedCycles.add(c);
-  }
-
-  return true;
-}
-
-function currentCycleForDate(y, m) {
-  if (!cycles.length) return null;
-  let match = cycles[0];
-  for (const c of cycles) {
-    if (c.startYear * 12 + c.startMonth <= y * 12 + m) match = c;
-    else break;
-  }
-  return match;
-}
-
-// ════════════════════════════════════════════════════════════════
-// SCALES
-// ════════════════════════════════════════════════════════════════
-
-function niceMax(v) {
-  if (v <= 0) return 10;
-  const steps = [10, 20, 25, 50, 100, 150, 200, 250, 300, 350, 400];
-  for (const s of steps) if (v <= s * 0.92) return s;
-  return Math.ceil(v / 50) * 50;
-}
-
-function makeXScale(minIdx, maxIdx) {
-  const span = Math.max(1, maxIdx - minIdx);
-  return idx => MARGIN.left + ((idx - minIdx) / span) * PLOT_W;
-}
-function makeYScale(yMax) {
-  return v => MARGIN.top + PLOT_H - (Math.max(0, v) / yMax) * PLOT_H;
-}
-
-function domainForPreset(preset) {
-  const last = monthlyData[monthlyData.length - 1];
-  if (preset === 'full') return { minYear, minMonth: 1, maxYear, maxMonth: last.month };
-  if (preset === '100y') return { minYear: Math.max(minYear, last.year - 100), minMonth: last.month, maxYear, maxMonth: last.month };
-  if (preset === '50y') return { minYear: Math.max(minYear, last.year - 50), minMonth: last.month, maxYear, maxMonth: last.month };
-  if (preset === 'current') {
-    const cyc = currentCycleForDate(last.year, last.month);
-    if (!cyc) return { minYear, minMonth: 1, maxYear, maxMonth: last.month };
-    return { minYear: cyc.startYear, minMonth: cyc.startMonth, maxYear, maxMonth: last.month };
-  }
-  return { minYear, minMonth: 1, maxYear, maxMonth: last.month };
-}
-
-// ════════════════════════════════════════════════════════════════
-// SHARED AXIS DRAWING
-// ════════════════════════════════════════════════════════════════
-
-function clearCanvas(ctx) {
-  ctx.fillStyle = '#262B27';
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-}
-
-function drawYAxis(ctx, yMax, yLabel) {
-  ctx.strokeStyle = 'rgba(232,228,217,0.10)';
-  ctx.fillStyle = '#948F82';
-  ctx.font = "11px 'Courier Prime', monospace";
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  const yScale = makeYScale(yMax);
-  const step = niceMax(yMax) / 5;
-  for (let v = 0; v <= yMax + 0.01; v += step) {
-    const y = yScale(v);
-    ctx.beginPath(); ctx.moveTo(MARGIN.left, y); ctx.lineTo(CANVAS_W - MARGIN.right, y); ctx.stroke();
-    ctx.fillText(Math.round(v), MARGIN.left - 8, y);
-  }
-  ctx.save();
-  ctx.translate(14, MARGIN.top + PLOT_H / 2);
-  ctx.rotate(-Math.PI / 2);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#8A8578';
-  ctx.font = "10px 'Courier Prime', monospace";
-  ctx.fillText(yLabel, 0, 0);
-  ctx.restore();
-}
-
-// ════════════════════════════════════════════════════════════════
-// RENDER — FULL HISTORY
-// ════════════════════════════════════════════════════════════════
-
-let currentXScale = null, currentDomain = null, currentMode = 'history';
-
-function renderHistory() {
-  currentMode = 'history';
-  const canvas = $('chart');
-  const ctx = canvas.getContext('2d');
-  clearCanvas(ctx);
-
-  const domain = domainForPreset(rangePreset);
-  currentDomain = domain;
-  const minIdx = monthIdx(domain.minYear, domain.minMonth);
-  const maxIdx = monthIdx(domain.maxYear, domain.maxMonth);
-  const xScale = makeXScale(minIdx, maxIdx);
-  currentXScale = xScale;
-
-  // Visible slice
-  const visible = monthlyData.filter(r => {
-    const idx = monthIdx(r.year, r.month);
-    return idx >= minIdx && idx <= maxIdx;
-  });
-  let yMax = 10;
-  visible.forEach(r => {
-    yMax = Math.max(yMax, r.mean || 0, r.smoothed || 0);
-  });
-  if (showPrediction && predictionData) {
-    predictionData.points.forEach(p => {
-      const idx = monthIdx(p.year, p.month);
-      if (idx >= minIdx && idx <= maxIdx) yMax = Math.max(yMax, p.high || p.predicted || 0);
-    });
-  }
-  yMax = niceMax(yMax) * 1.0;
-
-  drawYAxis(ctx, yMax, 'Sunspot Number');
-  const yScale = makeYScale(yMax);
-
-  // X-axis year ticks — aim for ~8 labels regardless of span
-  const spanYears = domain.maxYear - domain.minYear;
-  const tickStep = spanYears <= 12 ? 1 : spanYears <= 30 ? 5 : spanYears <= 80 ? 10 : 25;
-  ctx.fillStyle = '#948F82';
-  ctx.font = "11px 'Courier Prime', monospace";
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  for (let yr = Math.ceil(domain.minYear / tickStep) * tickStep; yr <= domain.maxYear; yr += tickStep) {
-    const x = xScale(monthIdx(yr, 6));
-    ctx.fillText(yr, x, CANVAS_H - MARGIN.bottom + 8);
-  }
-
-  // Cycle boundary lines + numbers
-  cycles.forEach(c => {
-    const idx = monthIdx(c.startYear, c.startMonth);
-    if (idx < minIdx || idx > maxIdx) return;
-    const x = xScale(idx);
-    ctx.strokeStyle = 'rgba(232,228,217,0.16)';
-    ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(x, MARGIN.top); ctx.lineTo(x, MARGIN.top + PLOT_H); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = '#E8E4D9';
-    ctx.font = "600 10px 'Courier Prime', monospace";
-    ctx.textAlign = 'left';
-    ctx.fillText('SC' + c.cycle, x + 3, MARGIN.top - 16);
-  });
-
-  // NOAA prediction band + line
-  if (showPrediction && predictionData) {
-    const pts = predictionData.points.filter(p => {
-      const idx = monthIdx(p.year, p.month);
-      return idx >= minIdx && idx <= maxIdx;
-    });
-    if (pts.length) {
-      ctx.beginPath();
-      pts.forEach((p, i) => {
-        const x = xScale(monthIdx(p.year, p.month)), y = yScale(p.high);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      for (let i = pts.length - 1; i >= 0; i--) {
-        const p = pts[i];
-        ctx.lineTo(xScale(monthIdx(p.year, p.month)), yScale(p.low));
-      }
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(214,126,230,0.12)';
-      ctx.fill();
-
-      ctx.strokeStyle = '#D67EE6';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([5, 3]);
-      ctx.beginPath();
-      pts.forEach((p, i) => {
-        const x = xScale(monthIdx(p.year, p.month)), y = yScale(p.predicted);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-      ctx.setLineDash([]);
+function buildCycles(ref) {
+  CYC = ref.map(c => ({ cycle: c.cycle, startI: mIdx(c.startYear, c.startMonth), maxI: mIdx(c.maxYear, c.maxMonth),
+                        minSSN: c.minSSN, ongoing: !!c.ongoing }));
+  // A new minimum is declared once the smoothed series has turned up clearly after
+  // the ongoing cycle's decline (≥ 8 years in, rising ≥ 6 months, ≥ 5 above the low).
+  let last = CYC[CYC.length - 1];
+  if (M.lastS - last.startI > 96) {
+    let lo = -1, lov = Infinity;
+    for (let i = last.startI + 96; i <= M.lastS; i++) if (M.S[i] < lov) { lov = M.S[i]; lo = i; }
+    if (lo > 0 && M.lastS - lo >= 6 && M.S[M.lastS] - lov >= 5) {
+      CYC.push({ cycle: last.cycle + 1, startI: lo, maxI: lo, minSSN: lov, ongoing: true, provisional: true });
+      last.ongoing = false;
     }
   }
-
-  // Monthly mean (thin, muted)
-  ctx.strokeStyle = 'rgba(166,164,153,0.55)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  visible.forEach((r, i) => {
-    const x = xScale(monthIdx(r.year, r.month)), y = yScale(r.mean);
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  CYC.forEach((c, k) => {
+    c.endI = k + 1 < CYC.length ? CYC[k + 1].startI : null;
+    const hi = c.endI == null ? M.lastS : c.endI;
+    let mi = c.startI, mv = -1;
+    for (let i = c.startI; i <= hi; i++) if (M.S[i] > mv) { mv = M.S[i]; mi = i; }
+    if (c.ongoing || c.provisional) c.maxI = mi;
+    c.maxS = M.S[c.maxI];
   });
-  ctx.stroke();
+  CUR = CYC[CYC.length - 1];
+}
+const cycleAt = i => { let c = null; for (const q of CYC) { if (q.startI <= i) c = q; else break; } return c; };
 
-  // 13-month smoothed (bold, accent)
-  ctx.strokeStyle = '#F5A340';
-  ctx.lineWidth = 2.25;
+/* ── Analog projection ─────────────────────────────────────────────────
+   The ongoing cycle's last 36 months of 13-month smoothed SN (plus the
+   monthly means since, at ¼ weight) are matched against every complete
+   earlier cycle, each scaled by least squares and shifted ±12 months.
+   The 7 best cycles carry the projection; the provisional smoothed values
+   for the last 6 months are the 13-month filter run over observed months
+   with each analog filling the months not yet observed. */
+function taper(x, t) {
+  if (t - 6 < 0 || t + 6 >= x.length) return NaN;
+  let s = 0.5 * x[t - 6] + 0.5 * x[t + 6];
+  if (!isFinite(s)) return NaN;
+  for (let j = t - 5; j <= t + 5; j++) { if (!isFinite(x[j])) return NaN; s += x[j]; }
+  return s / 12;
+}
+function project(cur, opt = PROJ) {
+  const s0 = cur.startI, age = M.lastS - s0, nobs = M.lastX - M.lastS;
+  if (age < opt.L + 1) return null;
+  const tS = [], tX = [];
+  for (let t = Math.max(0, age - opt.L); t <= age; t++) tS.push(t);
+  for (let t = age + 1; t <= age + nobs; t++) tX.push(t);
+  const yS = tS.map(t => M.S[s0 + t]), yX = tX.map(t => M.X[s0 + t]);
+  const best = new Map();
+  for (const k of CYC) {
+    if (k.cycle >= cur.cycle || k.endI == null) continue;
+    const sk = k.startI;
+    for (let tau = -opt.SHIFT; tau <= opt.SHIFT; tau++) {
+      if (sk + tS[0] + tau < 0 || sk + age + tau + opt.HOR >= M.n) continue;
+      const aS = tS.map(t => M.S[sk + t + tau]), aX = tX.map(t => M.S[sk + t + tau]);
+      if (aS.some(v => !isFinite(v)) || aX.some(v => !isFinite(v))) continue;
+      let num = 0, den = 0;
+      for (let j = 0; j < aS.length; j++) { num += yS[j] * aS[j]; den += aS[j] * aS[j]; }
+      for (let j = 0; j < aX.length; j++) { num += opt.W * yX[j] * aX[j]; den += opt.W * aX[j] * aX[j]; }
+      const a = num / den;
+      let err = 0;
+      for (let j = 0; j < aS.length; j++) err += (yS[j] - a * aS[j]) ** 2;
+      for (let j = 0; j < aX.length; j++) err += opt.W * (yX[j] - a * aX[j]) ** 2;
+      const rmse = Math.sqrt(err / (aS.length + opt.W * aX.length));
+      const b = best.get(k.cycle);
+      if (!b || rmse < b.rmse) best.set(k.cycle, { k, tau, a, rmse });
+    }
+  }
+  const sel = [...best.values()].sort((p, q) => p.rmse - q.rmse).slice(0, opt.K);
+  if (sel.length < 3) return null;
+  const N = age + opt.HOR;
+  for (const o of sel) {
+    const P_ = new Float64Array(N);
+    for (let t = 0; t < N; t++) P_[t] = o.a * M.S[o.k.startI + t + o.tau];
+    const off = M.S[s0 + age] - P_[age];
+    for (let t = 0; t < N; t++) P_[t] += off * Math.exp(-Math.max(0, t - age) / 12);
+    const hyb = new Float64Array(N);
+    for (let t = 0; t < N; t++) hyb[t] = t <= age + nobs ? M.X[s0 + t] : P_[t];
+    o.sm = new Float64Array(N);
+    for (let t = 0; t < N; t++) {
+      let v = t <= age ? M.S[s0 + t] : taper(hyb, t);
+      o.sm[t] = isFinite(v) ? v : P_[t];
+    }
+    o.minT = o.k.endI - o.k.startI - o.tau;          // this analog's next minimum, in the ongoing cycle's months
+    o.minV = o.sm[o.minT];
+  }
+  // past its own next minimum, an analog holds its minimum value (the next cycle's rise is not projected)
+  const mins = sel.map(o => o.minT).sort((p, q) => p - q);
+  const end = Math.min(N - 1, mins[mins.length - 1]);
+  const med = new Float64Array(N).fill(NaN), lo = new Float64Array(N).fill(NaN), hi = new Float64Array(N).fill(NaN);
+  for (let t = 0; t <= end; t++) {
+    const v = sel.map(o => o.sm[Math.min(t, o.minT)]).sort((p, q) => p - q);
+    med[t] = quantile(v, 0.5); lo[t] = v[0]; hi[t] = v[v.length - 1];
+  }
+  return { s0, age, nobs, sel, med, lo, hi, N, end,
+           minMed: Math.round(quantile(mins, 0.5)), minLo: mins[0], minHi: mins[mins.length - 1] };
+}
+
+/* ── Spotless days ─────────────────────────────────────────────────── */
+function buildSpotless() {
+  if (!DAILY) return null;
+  const [y0, m0] = DAILY.monthly.start.split('-').map(Number);
+  const ym0 = y0 * 12 + m0 - 1;
+  const days = DAILY.monthly.days.slice(), spot = DAILY.monthly.spotless.slice();
+  const last = isoDate(DAILY.lastDay);
+  // recent daily values, then EISN days past the end of the daily file
+  const rec = []; let d = isoDate(DAILY.recent.start);
+  DAILY.recent.sn.forEach((v, j) => { rec.push({ d, v, prov: j >= DAILY.recent.firstProvisional, est: false }); d = addDays(d, 1); });
+  let lastAll = last;
+  if (DAILY.eisn) {
+    let e = isoDate(DAILY.eisn.start);
+    DAILY.eisn.sn.forEach(v => {
+      rec.push({ d: e, v, prov: true, est: true });
+      const k = e.getUTCFullYear() * 12 + e.getUTCMonth() - ym0;
+      while (days.length <= k) { days.push(0); spot.push(0); }
+      days[k]++; if (v === 0) spot[k]++;
+      lastAll = e; e = addDays(e, 1);
+    });
+  }
+  const mDays = days.length;
+  // years
+  const years = [];
+  for (let k = 0; k < mDays; k++) {
+    const y = Math.floor((ym0 + k) / 12);
+    let Y = years[years.length - 1];
+    if (!Y || Y.y !== y) { Y = { y, obs: 0, spot: 0 }; years.push(Y); }
+    Y.obs += days[k]; Y.spot += spot[k];
+  }
+  for (const Y of years) {
+    const full = (Y.y % 4 === 0 && (Y.y % 100 !== 0 || Y.y % 400 === 0)) ? 366 : 365;
+    Y.len = Y.y === lastAll.getUTCFullYear() ? dayOfYear(lastAll) : full;
+    Y.cov = Y.obs / Y.len; Y.partial = Y.y === lastAll.getUTCFullYear() && Y.len < full;
+  }
+  // cumulative spotless days from each cycle's maximum (good daily coverage from Cycle 9)
+  const runs = [];
+  for (const c of CYC) {
+    const [cy, cm] = mYM(c.maxI), k0 = cy * 12 + cm - 1 - ym0;
+    if (k0 < 0 || cy < 1848) continue;
+    const endK = c.endI != null && CYC.find(q => q.startI === c.endI)
+      ? (() => { const [ey, em] = mYM(c.endI); return ey * 12 + em - 1 - ym0 + 24; })() : mDays - 1;
+    const cum = []; let s = 0;
+    for (let k = k0; k <= Math.min(endK, mDays - 1); k++) { s += spot[k]; cum.push(s); }
+    let minK = null;
+    if (c.endI != null) { const [ey, em] = mYM(c.endI); minK = ey * 12 + em - 1 - ym0 - k0; }
+    runs.push({ c, k0, cum, minK, current: c === CUR || (c.endI == null) });
+  }
+  let lastSpotless = null;
+  for (let j = rec.length - 1; j >= 0; j--) if (rec[j].v === 0) { lastSpotless = rec[j].d; break; }
+  if (!lastSpotless && DAILY.lastSpotless) lastSpotless = isoDate(DAILY.lastSpotless);
+  return { ym0, days, spot, years, runs, rec, last, lastAll, lastSpotless };
+}
+
+/* ── Deep history ──────────────────────────────────────────────────── */
+function buildDeep() {
+  if (!DEEP) return null;
+  const segs = {}; (DEEP.c14 || []).forEach(s => segs[s.id] = s);
+  // Show the BC series only when the first-millennium-CE series closes the gap
+  const c14 = ['bc', 'ce1', 'ce2'].map(id => segs[id]).filter(Boolean)
+    .filter(s => s.id !== 'bc' || segs.ce1);
+  if (!c14.length) return null;
+  const val = (s, y) => (s && y >= s.start && y < s.start + s.v.length) ? s.v[y - s.start] : null;
+  const c14At = y => { for (const s of c14) if (y >= s.start && y < s.start + s.sn.length) { const j = y - s.start; return { sn: s.sn[j], e: s.e[j], sm: s.sm[j], seg: s }; } return null; };
+  const snY = DEEP.snYearly, bb = DEEP.gn && DEEP.gn.backbone, hs = DEEP.gn && DEEP.gn.hoyt;
+  const y0 = c14[0].start, y1 = snY.start + snY.v.length - 1;
+  // composite annual series for the stripes: observed SN (1700–), backbone group number (1610–1699), 14C before
+  const comp = [];
+  for (let y = y0; y <= y1; y++) {
+    let v = val(snY, y), src = 'sn';
+    if (v == null && y >= 1610) { v = val(bb, y); src = 'gn'; }
+    if (v == null) { const c = c14At(y); v = c ? c.sn : null; src = c ? 'c14' : null; }
+    comp.push({ y, v, src });
+  }
+  // 14C cycle lookup
+  const cyc = [];
+  for (const s of c14) (s.cycles || []).forEach((r, j) => cyc.push({ seg: s, n: j + 1, ymin: r[0], ymax: r[1], mean: r[2], e: r[3], T: r[4], q: r[5] }));
+  cyc.sort((a, b) => a.ymin - b.ymin);
+  // modern 22-yr mean of observed yearly SN vs the 14C 22-yr curve
+  const lastY = y1, mod = []; for (let y = lastY - 21; y <= lastY; y++) mod.push(val(snY, y));
+  const modern = mod.reduce((a, b) => a + b, 0) / mod.length;
+  let lo = { v: Infinity }, hi = { v: -Infinity };
+  for (const s of c14) s.sm.forEach((v, j) => { if (v < lo.v) lo = { v, y: s.start + j }; if (v > hi.v) hi = { v, y: s.start + j }; });
+  let above = 0, tot = 0;
+  for (const s of c14) s.sm.forEach(v => { tot++; if (v >= modern) above++; });
+  const has3k = !!segs.ce1 && !!segs.bc;
+  return { c14, snY, bb, hs, y0, y1, comp, cyc, modern, lo, hi, pctBelow: 1 - above / tot, has3k, val, c14At };
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   State
+   ════════════════════════════════════════════════════════════════════ */
+const S = {
+  tab: 'record',
+  range: 'cycle',            // record: full | 100y | 50y | cycle
+  showProj: true,
+  align: 'min',              // c25: min | max
+  c25Show: { band: true, all: false, analogs: true, proj: true },
+  pick: null,                // c25: highlighted cycle number
+  spotMode: 'run',           // run | year
+  deepRange: 'mill',         // mill | tele | all
+  deepShow: { unc: true, gn: true, minima: true },
+  hover: null,
+};
+const TABS = ['record', 'c25', 'spotless', 'deep'];
+
+/* ════════════════════════════════════════════════════════════════════
+   Canvas plumbing
+   ════════════════════════════════════════════════════════════════════ */
+let dpr = window.devicePixelRatio || 1;
+let W = 0, H = 0, G = null;      // G = geometry of the last on-screen draw (for hover)
+const cv = $('cv'), ov = $('ov');
+
+function sizeStage() {
+  const st = $('stage');
+  W = st.offsetWidth; H = st.offsetHeight;
+  for (const c of [cv, ov]) {
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    c.style.width = W + 'px'; c.style.height = H + 'px';
+  }
+}
+function render() {
+  if (!M.n || !W || !H) return;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#262B27'; ctx.fillRect(0, 0, W, H);
+  G = VIEWS[S.tab].draw(ctx, W, H, false);
+  drawHover();
+}
+function drawHover() {
+  const ctx = ov.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  if (G && S.hover && VIEWS[S.tab].hoverDraw) VIEWS[S.tab].hoverDraw(ctx, G, S.hover);
+  updateCard();
+}
+
+function setFont(ctx, px, fam = FONT_MONO, weight = '') { ctx.font = `${weight}${weight ? ' ' : ''}${px}px ${fam}`; }
+function frame(w, h, padL = 56, padR = 22, padT = 22, padB = 36) {
+  return { x0: padL, x1: w - padR, y0: padT, y1: h - padB };
+}
+function yAxis(ctx, F, yMax, label, yMin = 0, ticks = 6) {
+  const step = niceStep(yMax - yMin, ticks);
+  const ys = v => F.y1 - (v - yMin) / (yMax - yMin) * (F.y1 - F.y0);
+  setFont(ctx, 12); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (let v = Math.ceil(yMin / step) * step; v <= yMax + 1e-9; v += step) {
+    const y = ys(v);
+    ctx.strokeStyle = v === 0 ? C_AXIS : C_GRID; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(F.x0, Math.round(y) + .5); ctx.lineTo(F.x1, Math.round(y) + .5); ctx.stroke();
+    ctx.fillStyle = C_MUT; ctx.fillText(Math.round(v).toLocaleString('en-US'), F.x0 - 7, y);
+  }
+  if (label) {
+    ctx.save(); ctx.translate(14, (F.y0 + F.y1) / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center'; ctx.fillStyle = C_SEC; setFont(ctx, 12); ctx.fillText(label, 0, 0); ctx.restore();
+  }
+  return ys;
+}
+function xTicksYears(ctx, F, xs, a, b, target = 10, fmt = yearLabel) {
+  const span = b - a, cands = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500];
+  let step = cands.find(s => span / s <= target) || 1000;
+  setFont(ctx, 12); ctx.fillStyle = C_MUT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let v = Math.ceil(a / step) * step; v <= b; v += step) {
+    const x = xs(v);
+    ctx.strokeStyle = C_GRID; ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke();
+    ctx.fillText(fmt(v), x, F.y1 + 7);
+  }
+}
+function polyline(ctx, pts) {
+  let pen = false;
+  ctx.beginPath();
+  for (const p of pts) {
+    if (!p || !isFinite(p[1])) { pen = false; continue; }
+    if (!pen) { ctx.moveTo(p[0], p[1]); pen = true; } else ctx.lineTo(p[0], p[1]);
+  }
+  ctx.stroke();
+}
+function band(ctx, xsArr, loArr, hiArr) {
   ctx.beginPath();
   let started = false;
-  visible.forEach(r => {
-    if (r.smoothed === null) { started = false; return; }
-    const x = xScale(monthIdx(r.year, r.month)), y = yScale(r.smoothed);
-    if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Current-date marker
-  const last = monthlyData[monthlyData.length - 1];
-  const lastIdx = monthIdx(last.year, last.month);
-  if (lastIdx >= minIdx && lastIdx <= maxIdx) {
-    const x = xScale(lastIdx);
-    ctx.fillStyle = '#F5A340';
-    ctx.beginPath();
-    ctx.arc(x, yScale(last.mean), 3.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  canvas.style.display = 'block';
-  $('loadMsg').style.display = 'none';
-  renderLegend();
+  for (let j = 0; j < xsArr.length; j++) { if (!isFinite(hiArr[j])) continue; if (!started) { ctx.moveTo(xsArr[j], hiArr[j]); started = true; } else ctx.lineTo(xsArr[j], hiArr[j]); }
+  for (let j = xsArr.length - 1; j >= 0; j--) { if (!isFinite(loArr[j])) continue; ctx.lineTo(xsArr[j], loArr[j]); }
+  ctx.closePath(); ctx.fill();
+}
+function clip(ctx, F) { ctx.save(); ctx.beginPath(); ctx.rect(F.x0, F.y0 - 2, F.x1 - F.x0, F.y1 - F.y0 + 4); ctx.clip(); }
+function crossV(ctx, F, x) {
+  ctx.strokeStyle = 'rgba(232,228,217,0.45)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke(); ctx.setLineDash([]);
+}
+function dot(ctx, x, y, r, fill, ring = '#262B27') {
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = fill; ctx.fill();
+  if (ring) { ctx.lineWidth = 1.5; ctx.strokeStyle = ring; ctx.stroke(); }
 }
 
-// ════════════════════════════════════════════════════════════════
-// RENDER — COMPARE CYCLES
-// ════════════════════════════════════════════════════════════════
-
-function cycleSeries(cycle) {
-  const next = cycles.find(c => c.cycle === cycle.cycle + 1);
-  const startIdx = monthIdx(cycle.startYear, cycle.startMonth);
-  const endIdx = next ? monthIdx(next.startYear, next.startMonth) - 1 : monthIdx(maxYear, 12);
-  return monthlyData
-    .filter(r => { const idx = monthIdx(r.year, r.month); return idx >= startIdx && idx <= endIdx; })
-    .map(r => ({ m: monthIdx(r.year, r.month) - startIdx, v: r.smoothed, year: r.year, month: r.month }));
+/* ════════════════════════════════════════════════════════════════════
+   VIEW: Record
+   ════════════════════════════════════════════════════════════════════ */
+function recordDomain() {
+  const end = (S.showProj && P) ? Math.max(M.lastX, P.s0 + P.end) : M.lastX;
+  let a;
+  if (S.range === 'full') a = 0;
+  else if (S.range === '100y') a = Math.max(0, M.lastX - 1200);
+  else if (S.range === '50y') a = Math.max(0, M.lastX - 600);
+  else a = Math.max(0, CUR.startI - 18);
+  return { a, b: end + (S.range === 'cycle' ? 4 : 0) };
 }
-
-function renderCompare() {
-  currentMode = 'compare';
-  const canvas = $('chart');
-  const ctx = canvas.getContext('2d');
-  clearCanvas(ctx);
-
-  const active = cycles.filter(c => selectedCycles.has(c.cycle));
-  let maxMonths = 12, yMax = 10;
-  const series = active.map(c => {
-    const s = cycleSeries(c).filter(p => p.v !== null);
-    if (s.length) maxMonths = Math.max(maxMonths, s[s.length - 1].m);
-    s.forEach(p => { if (p.v !== null) yMax = Math.max(yMax, p.v); });
-    return { cycle: c.cycle, points: s };
-  });
-  yMax = niceMax(yMax);
-  const xScale = makeXScale(0, maxMonths);
-  currentXScale = xScale;
-  currentDomain = { compareMonths: maxMonths };
-
-  drawYAxis(ctx, yMax, '13-Mo. Smoothed SSN');
-
-  // X-axis: years since minimum
-  ctx.fillStyle = '#948F82';
-  ctx.font = "11px 'Courier Prime', monospace";
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  const yearStep = maxMonths > 180 ? 24 : 12;
-  for (let m = 0; m <= maxMonths; m += yearStep) {
-    ctx.fillText((m / 12).toFixed(0) + 'y', xScale(m), CANVAS_H - MARGIN.bottom + 8);
-  }
-
-  series.forEach((s, i) => {
-    const color = COMPARE_PALETTE[i % COMPARE_PALETTE.length];
-    ctx.strokeStyle = color;
-    ctx.lineWidth = s.cycle === (cycles.length ? cycles[cycles.length - 1].cycle : -1) ? 2.5 : 1.75;
-    ctx.beginPath();
-    s.points.forEach((p, j) => {
-      const x = xScale(p.m), y = makeYScale(yMax)(p.v);
-      j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    });
-    ctx.stroke();
-  });
-
-  canvas.style.display = 'block';
-  $('loadMsg').style.display = 'none';
-  renderCompareLegend(series);
-}
-
-// ════════════════════════════════════════════════════════════════
-// LEGEND
-// ════════════════════════════════════════════════════════════════
-
-function renderLegend() {
-  const items = [
-    { color: 'rgba(166,164,153,0.8)', label: 'Monthly Mean' },
-    { color: '#F5A340', label: '13-Month Smoothed' },
-  ];
-  if (showPrediction && predictionData) items.push({ color: '#D67EE6', label: 'NOAA Prediction (Cycle 25)' });
-  $('legendRow').innerHTML = items.map(it => `
-    <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:${it.color}"></span>${it.label}</div>
-  `).join('');
-  $('predictionCredit').style.display = (showPrediction && predictionData) ? '' : 'none';
-}
-
-function renderCompareLegend(series) {
-  $('legendRow').innerHTML = series.map((s, i) => `
-    <div class="cc-legend-chip"><span class="cc-legend-dot" style="background:${COMPARE_PALETTE[i % COMPARE_PALETTE.length]}"></span>Cycle ${s.cycle}</div>
-  `).join('');
-}
-
-// ════════════════════════════════════════════════════════════════
-// CYCLE PICKER (Compare mode)
-// ════════════════════════════════════════════════════════════════
-
-function renderCyclePicker() {
-  $('cyclePicker').innerHTML = cycles.map(c => `
-    <button class="cc-btn cc-btn-sm ${selectedCycles.has(c.cycle) ? 'is-active' : ''}" data-cycle="${c.cycle}">${c.cycle}</button>
-  `).join('');
-}
-
-// ════════════════════════════════════════════════════════════════
-// TOOLTIP
-// ════════════════════════════════════════════════════════════════
-
-function setupTooltip() {
-  const canvas = $('chart');
-  const tooltip = $('tooltip');
-
-  canvas.addEventListener('mousemove', e => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = CANVAS_W / rect.width;
-    const cx = (e.clientX - rect.left) * scaleX;
-
-    if (cx < MARGIN.left || cx > CANVAS_W - MARGIN.right) { tooltip.classList.remove('visible'); return; }
-
-    if (currentMode === 'history') {
-      const minIdx = monthIdx(currentDomain.minYear, currentDomain.minMonth);
-      const maxIdx = monthIdx(currentDomain.maxYear, currentDomain.maxMonth);
-      const idx = Math.round(minIdx + ((cx - MARGIN.left) / PLOT_W) * (maxIdx - minIdx));
-      const y = Math.floor(idx / 12), m = idx - y * 12 || 12;
-      const year = m === 12 && idx % 12 === 0 ? y - 1 : y;
-      const rec = dataMap.get(`${year}-${m}`);
-      if (!rec) { tooltip.classList.remove('visible'); return; }
-      $('ttPeriod').textContent = `${MON_FULL[m - 1]} ${year}`;
-      let rows = `
-        <div class="tt-row"><span class="tt-label">Monthly Mean</span><span class="tt-val">${rec.mean.toFixed(1)}</span></div>
-        <div class="tt-row"><span class="tt-label">Smoothed</span><span class="tt-val">${rec.smoothed !== null ? rec.smoothed.toFixed(1) : '\u2014'}</span></div>
-      `;
-      if (showPrediction && predictionData) {
-        const p = predictionData.points.find(pt => pt.year === year && pt.month === m);
-        if (p) rows += `<div class="tt-row"><span class="tt-label">NOAA Predicted</span><span class="tt-val">${p.predicted.toFixed(0)} (${p.low.toFixed(0)}&ndash;${p.high.toFixed(0)})</span></div>`;
+const VR = {
+  title: () => 'The sunspot record',
+  sub: () => `Monthly sunspot number, ${M.y[0]} – ${ymLabel(M.y[M.lastX], M.m[M.lastX])}`,
+  draw(ctx, w, h, exp) {
+    const F = frame(w, h, 58, 24, 30, 36);
+    const { a, b } = recordDomain();
+    const xs = i => F.x0 + (i - a) / Math.max(1, b - a) * (F.x1 - F.x0);
+    let ymax = 0;
+    for (let i = a; i <= Math.min(b, M.n - 1); i++) ymax = Math.max(ymax, M.X[i] || 0, M.S[i] || 0);
+    if (S.showProj && P) for (let t = P.age; t <= P.end; t++) ymax = Math.max(ymax, P.hi[t]);
+    ymax = Math.ceil(ymax * 1.06 / 20) * 20;
+    const ys = yAxis(ctx, F, ymax, 'Sunspot number');
+    const ya = M.y[0] * 12 + M.m[0] - 1 + a, yb = ya + (b - a);
+    xTicksYears(ctx, F, v => xs((v * 12) - (M.y[0] * 12 + M.m[0] - 1)), Math.ceil(ya / 12), Math.floor(yb / 12), Math.max(4, Math.floor((F.x1 - F.x0) / 90)));
+    clip(ctx, F);
+    // cycle boundaries + labels
+    setFont(ctx, 12, FONT_MONO, 'bold'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    const pxPerCycle = (F.x1 - F.x0) / Math.max(1, (b - a) / 132);
+    for (const c of CYC) {
+      if (c.startI >= a && c.startI <= b) {
+        const x = xs(c.startI);
+        ctx.strokeStyle = 'rgba(232,228,217,0.12)'; ctx.setLineDash([2, 4]);
+        ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke(); ctx.setLineDash([]);
       }
-      $('ttRows').innerHTML = rows;
-    } else {
-      const maxMonths = currentDomain.compareMonths;
-      const m = Math.round(((cx - MARGIN.left) / PLOT_W) * maxMonths);
-      $('ttPeriod').textContent = `${(m / 12).toFixed(1)} years since minimum`;
-      let rows = '';
-      cycles.filter(c => selectedCycles.has(c.cycle)).forEach((c, i) => {
-        const s = cycleSeries(c);
-        const pt = s.find(p => p.m === m) || s.reduce((best, p) => (Math.abs(p.m - m) < Math.abs((best?.m ?? 1e9) - m) ? p : best), null);
-        if (pt && pt.v !== null && Math.abs(pt.m - m) <= 1) {
-          rows += `<div class="tt-row"><span class="tt-label" style="color:${COMPARE_PALETTE[i % COMPARE_PALETTE.length]}">Cycle ${c.cycle}</span><span class="tt-val">${pt.v.toFixed(1)}</span></div>`;
-        }
-      });
-      $('ttRows').innerHTML = rows || '<div class="tt-row"><span class="tt-label">No data</span></div>';
     }
+    ctx.restore();
+    for (const c of CYC) {
+      if (c.maxI < a || c.maxI > b) continue;
+      if (pxPerCycle < 26 && c.cycle % 2 && c !== CUR) continue;
+      const x = xs(c.maxI);
+      ctx.fillStyle = c === CUR ? ACC : C_SEC; setFont(ctx, 12, FONT_MONO, 'bold'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillText(pxPerCycle < 60 ? String(c.cycle) : `SC${c.cycle}`, x, F.y0 - 6);
+    }
+    clip(ctx, F);
+    // projection band
+    if (S.showProj && P) {
+      const T = []; for (let t = P.age; t <= P.end; t++) T.push(t);
+      ctx.fillStyle = 'rgba(245,163,64,0.16)';
+      band(ctx, T.map(t => xs(P.s0 + t)), T.map(t => ys(P.lo[t])), T.map(t => ys(P.hi[t])));
+    }
+    // monthly mean
+    const lw = (b - a) > 1500 ? 0.8 : 1.1;
+    ctx.lineWidth = lw; ctx.strokeStyle = C_MEAN;
+    const defEnd = Math.min(M.firstProv, M.lastX);
+    const pts = []; for (let i = a; i <= Math.min(defEnd, b); i++) pts.push([xs(i), ys(M.X[i])]);
+    polyline(ctx, pts);
+    if (M.firstProv <= M.lastX) {
+      ctx.setLineDash([2, 3]); ctx.strokeStyle = 'rgba(232,228,217,0.6)';
+      const pp = []; for (let i = Math.max(a, M.firstProv - 1); i <= M.lastX; i++) pp.push([xs(i), ys(M.X[i])]);
+      polyline(ctx, pp); ctx.setLineDash([]);
+      if (b - a < 700) for (let i = Math.max(a, M.firstProv); i <= M.lastX; i++) { ctx.beginPath(); ctx.arc(xs(i), ys(M.X[i]), 2.6, 0, 7); ctx.strokeStyle = 'rgba(232,228,217,0.75)'; ctx.lineWidth = 1.2; ctx.stroke(); }
+    }
+    // smoothed
+    ctx.lineWidth = (b - a) > 1500 ? 1.8 : 2.4; ctx.strokeStyle = ACC; ctx.lineJoin = 'round';
+    const sp = []; for (let i = a; i <= Math.min(b, M.n - 1); i++) sp.push([xs(i), ys(M.S[i])]);
+    polyline(ctx, sp);
+    // projection median
+    if (S.showProj && P) {
+      ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeStyle = '#F8C27A';
+      const mp = []; for (let t = P.age; t <= P.end; t++) mp.push([xs(P.s0 + t), ys(P.med[t])]);
+      polyline(ctx, mp); ctx.setLineDash([]);
+    }
+    ctx.restore();
+    // next-minimum bracket
+    if (S.showProj && P) {
+      const xa = xs(P.s0 + P.minLo), xb = xs(P.s0 + P.minHi), xm = xs(P.s0 + P.minMed), yb_ = F.y1 - 8;
+      if (xb > F.x0 && xa < F.x1) {
+        ctx.strokeStyle = '#F8C27A'; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(xa, yb_ - 4); ctx.lineTo(xa, yb_); ctx.lineTo(xb, yb_); ctx.lineTo(xb, yb_ - 4); ctx.stroke();
+        dot(ctx, xm, yb_, 3.5, '#F8C27A');
+        setFont(ctx, 12); ctx.fillStyle = '#F8C27A'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+        if (xb - xa > 40 || S.range === 'cycle' || S.range === '50y') ctx.fillText('next minimum', (xa + xb) / 2, yb_ - 6);
+      }
+    }
+    // latest point
+    dot(ctx, xs(M.lastX), ys(M.X[M.lastX]), 4, C_LIGHT);
+    return { F, xs, ys, a, b };
+  },
+  hit(Gm, x) {
+    const { F, a, b } = Gm;
+    if (x < F.x0 - 10 || x > F.x1 + 10) return null;
+    let i = Math.round(a + (x - F.x0) / (F.x1 - F.x0) * (b - a));
+    const end = (S.showProj && P) ? Math.max(M.lastX, P.s0 + P.end) : M.lastX;
+    i = Math.max(a, Math.min(end, i));
+    return { i };
+  },
+  hoverDraw(ctx, Gm, h) {
+    const { F, xs, ys } = Gm, x = xs(h.i);
+    crossV(ctx, F, x);
+    if (h.i < M.n && isFinite(M.X[h.i])) dot(ctx, x, ys(M.X[h.i]), 3.5, C_LIGHT);
+    if (h.i < M.n && isFinite(M.S[h.i])) dot(ctx, x, ys(M.S[h.i]), 4.5, ACC);
+    else if (P && S.showProj && h.i - P.s0 > P.age && h.i - P.s0 <= P.end) dot(ctx, x, ys(P.med[h.i - P.s0]), 4.5, '#F8C27A');
+  },
+  card(h) {
+    const i = h ? h.i : M.lastX;
+    const [y, m] = mYM(i);
+    const rows = [];
+    let tag = '';
+    if (i <= M.lastX) {
+      rows.push(['Monthly mean', `<b>${fmt1(M.X[i])}</b>${M.prov[i] ? '<span class="sub">provisional</span>' : ''}`]);
+    }
+    if (i < M.n && isFinite(M.S[i])) rows.push(['13-mo smoothed', `<b>${fmt1(M.S[i])}</b>`]);
+    else if (P && i - P.s0 > P.age && i - P.s0 <= P.end) {
+      const t = i - P.s0;
+      rows.push([i <= M.lastX ? 'Smoothed (provisional)' : 'Smoothed (projected)', `<b>${fmt1(P.med[t])}</b><span class="sub">${fmt0(P.lo[t])}–${fmt0(P.hi[t])}</span>`]);
+      tag = i <= M.lastX ? 'Provisional' : 'Projected';
+    }
+    const c = cycleAt(Math.min(i, M.n - 1));
+    if (c) {
+      rows.push(['Cycle', `<b>${c.cycle}</b><span class="sub">${ageLabel(i - c.startI)} since min</span>`]);
+      if (i >= c.maxI && c.maxI <= M.lastS) rows.push(['From cycle peak', `${ageLabel(i - c.maxI)}<span class="sub">peak ${fmt1(c.maxS)}</span>`]);
+    }
+    if (!h) tag = M.prov[i] ? 'Latest · provisional' : 'Latest';
+    return { date: ymLabel(y, m), tag, rows };
+  },
+  head() {
+    const latest = M.X[M.lastX];
+    const r = [];
+    r.push({ l: 'Latest month', v: fmt1(latest), n: ymLabel(M.y[M.lastX], M.m[M.lastX]) + (M.prov[M.lastX] ? ' · prov.' : '') });
+    r.push({ l: '13-mo smoothed', v: fmt1(M.S[M.lastS]), n: 'as of ' + ymLabel(M.y[M.lastS], M.m[M.lastS]) });
+    if (P) r.push({ l: 'Smoothed now', v: fmt1(P.med[M.lastX - P.s0]), n: `projected · ${fmt0(P.lo[M.lastX - P.s0])}–${fmt0(P.hi[M.lastX - P.s0])}` });
+    r.push({ l: `Cycle ${CUR.cycle} peak`, v: fmt1(CUR.maxS), n: ymLabel(...mYM(CUR.maxI)) });
+    return r;
+  },
+  legend() {
+    const L = [
+      `<span class="lg-item"><span class="sw-line thin" style="border-color:${C_MEAN}"></span>Monthly mean</span>`,
+      `<span class="lg-item"><span class="sw-line dot" style="border-color:rgba(232,228,217,.7)"></span>Provisional</span>`,
+      `<span class="lg-item"><span class="sw-line thick" style="border-color:${ACC}"></span>13-month smoothed</span>`];
+    if (S.showProj && P) L.push(`<span class="lg-item"><span class="sw-line dash" style="border-color:#F8C27A"></span><span class="sw-band" style="background:rgba(245,163,64,.22)"></span>Analog projection (${P.sel.length} cycles)</span>`);
+    return L.join('');
+  },
+  bar() {
+    return `<div class="grp"><span class="grp-l">Range</span>${[['cycle', 'Cycle ' + CUR.cycle], ['50y', '50 yrs'], ['100y', '100 yrs'], ['full', `${M.y[0]}–now`]]
+      .map(([k, l]) => `<button class="cc-btn${S.range === k ? ' is-active' : ''}" data-range="${k}">${l}</button>`).join('')}</div>
+      <div class="cc-scene-bar-sep"></div>
+      <div class="grp"><span class="grp-l">Show</span><button class="cc-btn${S.showProj ? ' is-active' : ''}" data-proj="1"${P ? '' : ' disabled'}>Projection</button></div>`;
+  },
+  csv() {
+    const L = ['year,month,monthly_mean,monthly_provisional,smoothed_13mo,projected_smoothed_median,projected_low,projected_high'];
+    const end = P ? Math.max(M.lastX, P.s0 + P.end) : M.lastX;
+    for (let i = 0; i <= end; i++) {
+      const [y, m] = mYM(i), t = P ? i - P.s0 : -1;
+      const pj = P && t > P.age && t <= P.end;
+      L.push([y, m, i <= M.lastX && isFinite(M.X[i]) ? M.X[i] : '', i <= M.lastX ? (M.prov[i] ? 1 : 0) : '',
+              i < M.n && isFinite(M.S[i]) ? M.S[i] : '', pj ? P.med[t].toFixed(1) : '', pj ? P.lo[t].toFixed(1) : '', pj ? P.hi[t].toFixed(1) : ''].join(','));
+    }
+    return L.join('\n');
+  },
+};
 
-    tooltip.classList.add('visible');
-    const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
-    const tx = e.clientX + 14, ty = e.clientY - 10;
-    tooltip.style.left = (tx + tw > window.innerWidth ? e.clientX - tw - 14 : tx) + 'px';
-    tooltip.style.top  = (ty + th > window.innerHeight ? e.clientY - th - 10 : ty) + 'px';
+/* ════════════════════════════════════════════════════════════════════
+   VIEW: Cycle 25 vs history
+   ════════════════════════════════════════════════════════════════════ */
+function cycleSeries(c) {           // smoothed by months since minimum, until the next minimum
+  const end = c.endI != null ? c.endI : M.lastS;
+  const out = []; for (let i = c.startI; i <= end; i++) out.push(M.S[i]);
+  return out;
+}
+let C25 = null;
+function buildC25() {
+  const past = CYC.filter(c => c !== CUR && c.endI != null);
+  const ser = new Map(past.map(c => [c.cycle, cycleSeries(c)]));
+  const maxLen = Math.max(...[...ser.values()].map(s => s.length));
+  const pct = [];
+  for (let t = 0; t < maxLen; t++) {
+    const v = []; for (const s of ser.values()) if (t < s.length && isFinite(s[t])) v.push(s[t]);
+    v.sort((a, b) => a - b);
+    pct.push(v.length >= 8 ? { n: v.length, p10: quantile(v, .1), p25: quantile(v, .25), p50: quantile(v, .5), p75: quantile(v, .75), p90: quantile(v, .9), v } : null);
+  }
+  const cur = cycleSeries(CUR);
+  // rank at the current age (1 = highest), among cycles that reached this age
+  const age = M.lastS - CUR.startI;
+  const atAge = past.filter(c => ser.get(c.cycle).length > age).map(c => ({ c: c.cycle, v: ser.get(c.cycle)[age] }));
+  const rank = 1 + atAge.filter(o => o.v > cur[age]).length;
+  const peakRank = 1 + past.filter(c => c.maxS > CUR.maxS).length;
+  const rise = CUR.maxI - CUR.startI;
+  const riseRank = 1 + past.filter(c => (c.maxI - c.startI) < rise).length;     // 1 = fastest rise
+  C25 = { past, ser, pct, cur, age, rank, nAtAge: atAge.length + 1, peakRank, rise, riseRank };
+}
+const VC = {
+  title: () => `Cycle ${CUR.cycle} against Cycles 1–${CUR.cycle - 1}`,
+  sub: () => S.align === 'min' ? '13-month smoothed sunspot number by time since each cycle’s minimum' : '13-month smoothed sunspot number by time from each cycle’s peak',
+  off(c) { return S.align === 'min' ? 0 : (c.maxI - c.startI); },
+  draw(ctx, w, h, exp) {
+    const F = frame(w, h, 58, 24, 18, 36);
+    const tA = S.align === 'min' ? 0 : -84, tB = S.align === 'min' ? 168 : 108;
+    const xs = t => F.x0 + (t - tA) / (tB - tA) * (F.x1 - F.x0);
+    let ymax = 0;
+    for (const c of C25.past) ymax = Math.max(ymax, c.maxS);
+    ymax = Math.ceil(ymax * 1.05 / 20) * 20;
+    const ys = yAxis(ctx, F, ymax, 'Smoothed sunspot number');
+    // x ticks in years
+    setFont(ctx, 12); ctx.fillStyle = C_MUT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const ystep = Math.max(1, Math.ceil(44 / ((F.x1 - F.x0) / ((tB - tA) / 12))));
+    for (let yv = Math.ceil(tA / 12); yv <= tB / 12; yv++) {
+      if (yv % ystep) continue;
+      const x = xs(yv * 12);
+      ctx.strokeStyle = yv === 0 ? C_AXIS : C_GRID; ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke();
+      ctx.fillText(yv === 0 ? (S.align === 'min' ? 'min' : 'peak') : (yv > 0 ? `+${yv}y` : `${yv}y`), x, F.y1 + 7);
+    }
+    clip(ctx, F);
+    const off = c => this.off(c);
+    // percentile bands (only meaningful when aligned at the minimum)
+    if (S.c25Show.band && S.align === 'min') {
+      const T = C25.pct.map((p, t) => t).filter(t => C25.pct[t]);
+      ctx.fillStyle = 'rgba(232,228,217,0.07)';
+      band(ctx, T.map(xs), T.map(t => ys(C25.pct[t].p10)), T.map(t => ys(C25.pct[t].p90)));
+      ctx.fillStyle = 'rgba(232,228,217,0.09)';
+      band(ctx, T.map(xs), T.map(t => ys(C25.pct[t].p25)), T.map(t => ys(C25.pct[t].p75)));
+      ctx.strokeStyle = 'rgba(232,228,217,0.45)'; ctx.lineWidth = 1.2; ctx.setLineDash([5, 4]);
+      polyline(ctx, T.map(t => [xs(t), ys(C25.pct[t].p50)])); ctx.setLineDash([]);
+    }
+    // all past cycles
+    if (S.c25Show.all || S.align === 'max') {
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(232,228,217,0.16)';
+      for (const c of C25.past) polyline(ctx, C25.ser.get(c.cycle).map((v, t) => [xs(t - off(c)), ys(v)]));
+    }
+    // analogs, as they map onto the current cycle (scaled + shifted)
+    if (S.c25Show.analogs && P && S.align === 'min') {
+      ctx.lineWidth = 1.3; ctx.strokeStyle = 'rgba(109,150,216,0.75)';
+      for (const o of P.sel) {
+        const pts = []; for (let t = Math.max(0, -o.tau); t <= o.minT; t++) pts.push([xs(t), ys(o.a * M.S[o.k.startI + t + o.tau])]);
+        polyline(ctx, pts);
+      }
+    }
+    // picked cycle
+    if (S.pick) {
+      const c = CYC.find(q => q.cycle === S.pick);
+      if (c && c !== CUR) { ctx.lineWidth = 2.2; ctx.strokeStyle = C_PURPLE; polyline(ctx, cycleSeries(c).map((v, t) => [xs(t - off(c)), ys(v)])); }
+    }
+    // projection
+    if (S.c25Show.proj && P) {
+      const o0 = off(CUR), T = []; for (let t = P.age; t <= P.end; t++) T.push(t);
+      ctx.fillStyle = 'rgba(245,163,64,0.16)';
+      band(ctx, T.map(t => xs(t - o0)), T.map(t => ys(P.lo[t])), T.map(t => ys(P.hi[t])));
+      ctx.setLineDash([6, 4]); ctx.lineWidth = 2; ctx.strokeStyle = '#F8C27A';
+      polyline(ctx, T.map(t => [xs(t - o0), ys(P.med[t])])); ctx.setLineDash([]);
+    }
+    // current cycle: monthly means faint, smoothed bold
+    const o0 = off(CUR);
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(245,163,64,0.35)';
+    const mm = []; for (let i = CUR.startI; i <= M.lastX; i++) mm.push([xs(i - CUR.startI - o0), ys(M.X[i])]);
+    polyline(ctx, mm);
+    ctx.lineWidth = 3; ctx.strokeStyle = ACC; ctx.lineJoin = 'round';
+    polyline(ctx, C25.cur.map((v, t) => [xs(t - o0), ys(v)]));
+    ctx.restore();
+    const ta = M.lastS - CUR.startI;
+    dot(ctx, xs(ta - o0), ys(M.S[M.lastS]), 4.5, ACC);
+    setFont(ctx, 13, FONT_MONO, 'bold'); ctx.fillStyle = ACC; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    const lx = xs(CUR.maxI - CUR.startI - o0);
+    ctx.fillText(`Cycle ${CUR.cycle}`, Math.min(lx + 8, F.x1 - 80), ys(CUR.maxS) - 6);
+    if (S.pick) {
+      const c = CYC.find(q => q.cycle === S.pick);
+      if (c && c !== CUR) { ctx.fillStyle = C_PURPLE; ctx.textAlign = 'left'; ctx.fillText(`Cycle ${c.cycle}`, Math.min(xs(c.maxI - c.startI - off(c)) + 8, F.x1 - 80), ys(c.maxS) - 6); }
+    }
+    return { F, xs, ys, tA, tB, o0 };
+  },
+  hit(Gm, x) {
+    const { F, tA, tB } = Gm;
+    if (x < F.x0 - 10 || x > F.x1 + 10) return null;
+    const t = Math.round(tA + (x - F.x0) / (F.x1 - F.x0) * (tB - tA));
+    return { t: Math.max(tA, Math.min(tB, t)) };
+  },
+  hoverDraw(ctx, Gm, h) {
+    const { F, xs, ys, o0 } = Gm;
+    crossV(ctx, F, xs(h.t));
+    const t = h.t + o0;
+    if (t >= 0 && t < C25.cur.length && isFinite(C25.cur[t])) dot(ctx, xs(h.t), ys(C25.cur[t]), 4.5, ACC);
+    else if (P && S.c25Show.proj && t > P.age && t <= P.end) dot(ctx, xs(h.t), ys(P.med[t]), 4.5, '#F8C27A');
+    if (S.pick) {
+      const c = CYC.find(q => q.cycle === S.pick), s = c && cycleSeries(c), tc = h.t + this.off(c);
+      if (s && tc >= 0 && tc < s.length && isFinite(s[tc])) dot(ctx, xs(h.t), ys(s[tc]), 4, C_PURPLE);
+    }
+  },
+  card(h) {
+    const o0 = this.off(CUR);
+    const t = h ? h.t + o0 : C25.age;
+    const rows = [];
+    let tag = '';
+    const vCur = t >= 0 && t < C25.cur.length ? C25.cur[t] : NaN;
+    if (isFinite(vCur)) rows.push([`<i class="k" style="background:${ACC}"></i>Cycle ${CUR.cycle}`, `<b>${fmt1(vCur)}</b><span class="sub">${ymLabel(...mYM(CUR.startI + t))}</span>`]);
+    else if (P && t > P.age && t <= P.end) { rows.push([`<i class="k" style="background:#F8C27A"></i>Cycle ${CUR.cycle}`, `<b>${fmt1(P.med[t])}</b><span class="sub">${fmt0(P.lo[t])}–${fmt0(P.hi[t])}</span>`]); tag = 'Projected'; }
+    // history at this age (min alignment) or at this offset from the peak
+    const vals = [];
+    for (const c of C25.past) { const s = C25.ser.get(c.cycle), tc = (h ? h.t : t - o0) + this.off(c); if (tc >= 0 && tc < s.length && isFinite(s[tc])) vals.push({ c: c.cycle, v: s[tc] }); }
+    vals.sort((a, b) => b.v - a.v);
+    if (vals.length) {
+      const sv = vals.map(o => o.v).sort((a, b) => a - b);
+      rows.push(['Cycles 1–' + (CUR.cycle - 1) + ' median', `<b>${fmt1(quantile(sv, .5))}</b><span class="sub">${vals.length} cycles</span>`]);
+      rows.push(['10th–90th pct', `${fmt0(quantile(sv, .1))}–${fmt0(quantile(sv, .9))}`]);
+      if (isFinite(vCur)) rows.push(['Rank', `<b>${1 + vals.filter(o => o.v > vCur).length}</b><span class="sub">of ${vals.length + 1}</span>`]);
+      rows.push(['Highest', `${fmt1(vals[0].v)}<span class="sub">Cycle ${vals[0].c}</span>`]);
+      rows.push(['Lowest', `${fmt1(vals[vals.length - 1].v)}<span class="sub">Cycle ${vals[vals.length - 1].c}</span>`]);
+    }
+    if (S.pick) {
+      const c = CYC.find(q => q.cycle === S.pick), s = cycleSeries(c), tc = (h ? h.t : t - o0) + this.off(c);
+      if (tc >= 0 && tc < s.length) rows.push([`<i class="k" style="background:${C_PURPLE}"></i>Cycle ${c.cycle}`, `<b>${fmt1(s[tc])}</b>`]);
+    }
+    const lbl = S.align === 'min' ? `${ageLabel(h ? h.t : t)} after min` : `${ageLabel(h ? h.t : t - o0)} from peak`;
+    if (!h) tag = 'Latest smoothed';
+    return { date: lbl, tag, rows };
+  },
+  head() {
+    return [
+      { l: 'Now', v: fmt1(M.S[M.lastS]), n: `${ageLabel(C25.age)} after min` },
+      { l: 'Rank at this age', v: `${C25.rank}<small>of ${C25.nAtAge}</small>`, n: '1 = most active' },
+      { l: 'Peak', v: fmt1(CUR.maxS), n: `rank ${C25.peakRank} of ${C25.past.length + 1}` },
+      { l: 'Rise to peak', v: ageLabel(C25.rise).replace(' ', ' '), n: `rank ${C25.riseRank} (1 = fastest)` },
+    ];
+  },
+  legend() {
+    const L = [`<span class="lg-item"><span class="sw-line thick" style="border-color:${ACC}"></span>Cycle ${CUR.cycle}</span>`];
+    if (S.c25Show.band && S.align === 'min') L.push(`<span class="lg-item"><span class="sw-band" style="background:rgba(232,228,217,.16)"></span>Cycles 1–${CUR.cycle - 1}: 10–90 / 25–75th pct</span>`,
+      `<span class="lg-item"><span class="sw-line dash" style="border-color:rgba(232,228,217,.5)"></span>Median</span>`);
+    if (S.c25Show.all || S.align === 'max') L.push(`<span class="lg-item"><span class="sw-line thin" style="border-color:rgba(232,228,217,.35)"></span>Each cycle</span>`);
+    if (S.c25Show.analogs && P && S.align === 'min') L.push(`<span class="lg-item"><span class="sw-line" style="border-color:${C_BLUE}"></span>Analogs, scaled (${P.sel.map(o => o.k.cycle).sort((a, b) => a - b).join(', ')})</span>`);
+    if (S.c25Show.proj && P) L.push(`<span class="lg-item"><span class="sw-line dash" style="border-color:#F8C27A"></span>Projection</span>`);
+    if (S.pick) L.push(`<span class="lg-item"><span class="sw-line" style="border-color:${C_PURPLE}"></span>Cycle ${S.pick}</span>`);
+    return L.join('');
+  },
+  bar() {
+    const sh = (k, l, dis) => `<button class="cc-btn${S.c25Show[k] && !dis ? ' is-active' : ''}" data-c25="${k}"${dis ? ' disabled' : ''}>${l}</button>`;
+    const minOnly = S.align !== 'min';
+    return `<div class="grp"><span class="grp-l">Align at</span>${[['min', 'Minimum'], ['max', 'Peak']].map(([k, l]) => `<button class="cc-btn${S.align === k ? ' is-active' : ''}" data-align="${k}">${l}</button>`).join('')}</div>
+      <div class="cc-scene-bar-sep"></div>
+      <div class="grp"><span class="grp-l">Show</span>${sh('band', 'Percentiles', minOnly)}${sh('all', 'All cycles', minOnly)}${sh('analogs', 'Analogs', minOnly || !P)}${sh('proj', 'Projection', !P)}</div>
+      <div class="cc-scene-bar-sep"></div>
+      <div class="grp"><span class="grp-l">Compare</span><select class="cc-select" id="pick-sel" aria-label="Cycle to compare">
+        <option value="">None</option>${C25.past.map(c => `<option value="${c.cycle}"${S.pick === c.cycle ? ' selected' : ''}>Cycle ${c.cycle} (${M.y[c.startI]}–${M.y[c.endI]})</option>`).join('')}</select></div>`;
+  },
+  csv() {
+    const past = C25.past;
+    const L = ['months_since_min,' + past.map(c => 'cycle_' + c.cycle).join(',') + `,cycle_${CUR.cycle},projected_median,projected_low,projected_high,p10,p25,p50,p75,p90`];
+    const N = Math.max(C25.pct.length, P ? P.end + 1 : 0);
+    for (let t = 0; t < N; t++) {
+      const r = [t];
+      for (const c of past) { const s = C25.ser.get(c.cycle); r.push(t < s.length && isFinite(s[t]) ? s[t] : ''); }
+      r.push(t < C25.cur.length && isFinite(C25.cur[t]) ? C25.cur[t] : '');
+      const pj = P && t > P.age && t <= P.end;
+      r.push(pj ? P.med[t].toFixed(1) : '', pj ? P.lo[t].toFixed(1) : '', pj ? P.hi[t].toFixed(1) : '');
+      const p = C25.pct[t]; ['p10', 'p25', 'p50', 'p75', 'p90'].forEach(k => r.push(p ? p[k].toFixed(1) : ''));
+      L.push(r.join(','));
+    }
+    return L.join('\n');
+  },
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   VIEW: Spotless days
+   ════════════════════════════════════════════════════════════════════ */
+const VS = {
+  title: () => S.spotMode === 'run' ? 'Spotless days after each cycle peak' : 'Spotless days per year',
+  sub: () => S.spotMode === 'run' ? `Running total of days without sunspots, Cycles ${SPOT.runs[0].c.cycle}–${CUR.cycle}` : `Days with a daily sunspot number of zero, ${SPOT.years[0].y}–${SPOT.lastAll.getUTCFullYear()}`,
+  draw(ctx, w, h, exp) {
+    return S.spotMode === 'run' ? this.drawRun(ctx, w, h) : this.drawYear(ctx, w, h);
+  },
+  drawRun(ctx, w, h) {
+    const F = frame(w, h, 64, 64, 18, 36);
+    const tB = 132;     // 11 years after the peak
+    const xs = t => F.x0 + t / tB * (F.x1 - F.x0);
+    let ymax = 0;
+    for (const r of SPOT.runs) ymax = Math.max(ymax, r.cum[Math.min(r.cum.length - 1, tB)] || 0);
+    ymax = Math.ceil(ymax * 1.06 / 100) * 100;
+    const ys = yAxis(ctx, F, ymax, 'Spotless days since peak');
+    setFont(ctx, 12); ctx.fillStyle = C_MUT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const ystep = Math.max(1, Math.ceil(44 / ((F.x1 - F.x0) / 11)));
+    for (let yv = 0; yv <= 11; yv++) {
+      if (yv % ystep) continue;
+      const x = xs(yv * 12);
+      ctx.strokeStyle = yv === 0 ? C_AXIS : C_GRID; ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke();
+      ctx.fillText(yv === 0 ? 'peak' : `+${yv}y`, x, F.y1 + 7);
+    }
+    clip(ctx, F);
+    const labels = [];
+    for (const r of SPOT.runs) {
+      if (r.current) continue;
+      const pick = S.pick === r.c.cycle;
+      ctx.lineWidth = pick ? 2.2 : 1.2; ctx.strokeStyle = pick ? C_PURPLE : 'rgba(232,228,217,0.28)';
+      const pts = r.cum.slice(0, tB + 1).map((v, t) => [xs(t), ys(v)]);
+      polyline(ctx, pts);
+      if (r.minK != null && r.minK <= tB && r.minK < r.cum.length) dot(ctx, xs(r.minK), ys(r.cum[r.minK]), 3, pick ? C_PURPLE : 'rgba(232,228,217,0.55)', null);
+      const tl = Math.min(r.cum.length - 1, tB);
+      labels.push({ y: ys(r.cum[tl]), x: xs(tl), c: r.c.cycle, pick });
+    }
+    const cur = SPOT.runs.find(r => r.current);
+    if (cur) {
+      ctx.lineWidth = 3; ctx.strokeStyle = ACC;
+      polyline(ctx, cur.cum.map((v, t) => [xs(t), ys(v)]));
+    }
+    ctx.restore();
+    if (cur) {
+      const t = cur.cum.length - 1;
+      dot(ctx, xs(t), ys(cur.cum[t]), 4.5, ACC);
+      setFont(ctx, 13, FONT_MONO, 'bold'); ctx.fillStyle = ACC; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(`Cycle ${cur.c.cycle}: ${fmt0(cur.cum[t])}`, xs(t) + 8, ys(cur.cum[t]) - 6);
+    }
+    // end labels (de-collided)
+    labels.sort((a, b) => a.y - b.y);
+    let lastY = -Infinity;
+    setFont(ctx, 12, FONT_MONO);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    for (const L of labels) {
+      if (L.y - lastY < 13 && !L.pick) continue;
+      ctx.fillStyle = L.pick ? C_PURPLE : C_MUT; ctx.fillText(String(L.c), Math.min(L.x, F.x1) + 6, L.y); lastY = L.y;
+    }
+    return { F, xs, ys, mode: 'run', tB };
+  },
+  drawYear(ctx, w, h) {
+    const F = frame(w, h, 58, 22, 30, 36);
+    const Y = SPOT.years, a = Y[0].y, b = Y[Y.length - 1].y;
+    const xs = y => F.x0 + (y - a) / (b - a + 1) * (F.x1 - F.x0);
+    const bw = (F.x1 - F.x0) / (b - a + 1);
+    const ymax = 366;
+    const ys = yAxis(ctx, F, ymax, 'Spotless days', 0, 6);
+    xTicksYears(ctx, F, y => xs(y) + bw / 2, a, b, Math.max(4, Math.floor((F.x1 - F.x0) / 80)));
+    for (const r of Y) {
+      const x = xs(r.y), y = ys(r.spot);
+      ctx.fillStyle = r.cov < 0.9 ? 'rgba(166,164,153,0.35)' : (r.partial ? 'rgba(245,163,64,0.55)' : 'rgba(245,163,64,0.85)');
+      ctx.fillRect(x + Math.max(0.5, bw * 0.12), y, Math.max(1, bw * 0.76), F.y1 - y);
+    }
+    // cycle minima markers
+    setFont(ctx, 12, FONT_MONO, 'bold'); ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (const c of CYC) {
+      const yv = M.y[c.startI]; if (yv < a) continue;
+      const x = xs(yv) + bw / 2;
+      ctx.fillStyle = c === CUR ? ACC : C_SEC;
+      if (bw * 11 > 22) ctx.fillText(String(c.cycle), x, F.y0 - 6);
+      ctx.strokeStyle = 'rgba(232,228,217,0.16)'; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, F.y0); ctx.lineTo(Math.round(x) + .5, F.y1); ctx.stroke(); ctx.setLineDash([]);
+    }
+    return { F, xs, ys, mode: 'year', a, b, bw };
+  },
+  hit(Gm, x) {
+    const { F } = Gm;
+    if (x < F.x0 - 10 || x > F.x1 + 10) return null;
+    if (Gm.mode === 'run') return { t: Math.max(0, Math.min(Gm.tB, Math.round((x - F.x0) / (F.x1 - F.x0) * Gm.tB))) };
+    const y = Math.floor(Gm.a + (x - F.x0) / Gm.bw);
+    return { y: Math.max(Gm.a, Math.min(Gm.b, y)) };
+  },
+  hoverDraw(ctx, Gm, h) {
+    if (Gm.mode === 'run') {
+      crossV(ctx, Gm.F, Gm.xs(h.t));
+      for (const r of SPOT.runs) if (h.t < r.cum.length && (r.current || S.pick === r.c.cycle)) dot(ctx, Gm.xs(h.t), Gm.ys(r.cum[h.t]), 4, r.current ? ACC : C_PURPLE);
+    } else {
+      ctx.strokeStyle = 'rgba(232,228,217,0.7)'; ctx.lineWidth = 1.2;
+      ctx.strokeRect(Gm.xs(h.y) + .5, Gm.F.y0, Gm.bw, Gm.F.y1 - Gm.F.y0);
+    }
+  },
+  card(h) {
+    if (S.spotMode === 'run') {
+      const t = h ? h.t : (SPOT.runs.find(r => r.current) || { cum: [0] }).cum.length - 1;
+      const vals = SPOT.runs.filter(r => t < r.cum.length).map(r => ({ c: r.c.cycle, v: r.cum[t], cur: r.current })).sort((a, b) => b.v - a.v);
+      const rows = vals.slice(0, 9).map(o => [`${o.cur ? `<i class="k" style="background:${ACC}"></i>` : ''}Cycle ${o.c}`, o.cur ? `<b>${fmt0(o.v)}</b>` : fmt0(o.v)]);
+      if (vals.length > 9) rows.push(['…', `${vals.length - 9} more`]);
+      return { date: t === 0 ? 'At the peak' : `${ageLabel(t)} after peak`, tag: h ? '' : 'Latest', rows };
+    }
+    const y = h ? h.y : SPOT.years[SPOT.years.length - 1].y;
+    const r = SPOT.years.find(q => q.y === y);
+    const rows = [['Spotless days', `<b>${fmt0(r.spot)}</b>`], ['Days observed', `${fmt0(r.obs)}<span class="sub">of ${r.len}</span>`]];
+    if (r.cov < 0.9) rows.push(['Coverage', `${Math.round(r.cov * 100)}%`]);
+    const c = CYC.find(q => M.y[q.startI] === y);
+    if (c) rows.push(['Cycle minimum', `Cycle ${c.cycle} began ${MON[M.m[c.startI] - 1]}`]);
+    return { date: String(y), tag: r.partial ? 'Year to date' : '', rows };
+  },
+  head() {
+    const Y = SPOT.years, ly = Y[Y.length - 1];
+    const cur = SPOT.runs.find(r => r.current);
+    const prevMin = CYC[CYC.indexOf(CUR) - 1];
+    const prev = SPOT.runs.find(r => r.c === prevMin);
+    const r = [
+      { l: `Spotless days ${ly.y}`, v: fmt0(ly.spot), n: `through ${dLabel(SPOT.lastAll).replace(/, \d+$/, '')}` },
+      { l: `Since Cycle ${CUR.cycle} peak`, v: fmt0(cur ? cur.cum[cur.cum.length - 1] : 0), n: ymLabel(...mYM(CUR.maxI)) + ' →' },
+    ];
+    if (prev) r.push({ l: `Cycle ${prevMin.cycle}, same point`, v: fmt0(prev.cum[Math.min(prev.cum.length - 1, cur ? cur.cum.length - 1 : 0)]), n: 'days since its peak' });
+    r.push({ l: 'Last spotless day', v: SPOT.lastSpotless ? dLabel(SPOT.lastSpotless).replace(/^(\w+ \d+), /, '$1 ') : '—', n: SPOT.lastSpotless ? `${fmt0((SPOT.lastAll - SPOT.lastSpotless) / 864e5)} days ago` : '' });
+    return r;
+  },
+  legend() {
+    if (S.spotMode === 'run') return `<span class="lg-item"><span class="sw-line thick" style="border-color:${ACC}"></span>Cycle ${CUR.cycle}</span>
+      <span class="lg-item"><span class="sw-line thin" style="border-color:rgba(232,228,217,.5)"></span>Cycles ${SPOT.runs[0].c.cycle}–${CUR.cycle - 1}</span>
+      <span class="lg-item"><span class="sw-dot" style="background:rgba(232,228,217,.6)"></span>Next cycle minimum</span>`;
+    return `<span class="lg-item"><span class="sw-band" style="background:rgba(245,163,64,.85)"></span>Spotless days</span>
+      <span class="lg-item"><span class="sw-band" style="background:rgba(245,163,64,.55)"></span>Year to date</span>
+      <span class="lg-item"><span class="sw-band" style="background:rgba(166,164,153,.35)"></span>Under 90% of days observed</span>
+      <span class="lg-item"><span class="sw-line dot" style="border-color:rgba(232,228,217,.5)"></span>Cycle minimum</span>`;
+  },
+  bar() {
+    return `<div class="grp"><span class="grp-l">View</span>${[['run', 'Since cycle peak'], ['year', 'By year']].map(([k, l]) => `<button class="cc-btn${S.spotMode === k ? ' is-active' : ''}" data-spot="${k}">${l}</button>`).join('')}</div>
+      ${S.spotMode === 'run' ? `<div class="cc-scene-bar-sep"></div><div class="grp"><span class="grp-l">Compare</span><select class="cc-select" id="pick-sel" aria-label="Cycle to compare">
+        <option value="">None</option>${SPOT.runs.filter(r => !r.current).map(r => `<option value="${r.c.cycle}"${S.pick === r.c.cycle ? ' selected' : ''}>Cycle ${r.c.cycle}</option>`).join('')}</select></div>` : ''}`;
+  },
+  csv() {
+    if (S.spotMode === 'year') return ['year,spotless_days,days_observed,days_in_period'].concat(SPOT.years.map(r => [r.y, r.spot, r.obs, r.len].join(','))).join('\n');
+    const runs = SPOT.runs, N = Math.max(...runs.map(r => r.cum.length));
+    const L = ['months_after_peak,' + runs.map(r => 'cycle_' + r.c.cycle).join(',')];
+    for (let t = 0; t < N; t++) L.push([t, ...runs.map(r => t < r.cum.length ? r.cum[t] : '')].join(','));
+    return L.join('\n');
+  },
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   VIEW: Deep history
+   ════════════════════════════════════════════════════════════════════ */
+function deepDomain() {
+  if (S.deepRange === 'tele') return [1600, DP.y1 + 1];
+  if (S.deepRange === 'all' && DP.has3k) return [DP.y0, DP.y1 + 1];
+  const ce2 = DP.c14.find(s => s.id === 'ce2');
+  return [ce2 ? ce2.start : DP.y0, DP.y1 + 1];
+}
+const VD = {
+  title: () => S.deepRange === 'tele' ? 'Four centuries of sunspots' : (S.deepRange === 'all' && DP.has3k ? 'Three thousand years of solar cycles' : 'A thousand years of solar cycles'),
+  sub: () => { const [a, b] = deepDomain(); return `Annual sunspot number from tree-ring radiocarbon and telescopes, ${yearLabel(a)}–${b - 1}`; },
+  draw(ctx, w, h, exp) {
+    const [a, b] = deepDomain();
+    const stripeH = Math.max(26, Math.min(46, h * 0.075));
+    const F = frame(w, h, 58, 22, 30 + stripeH + 14, 36);
+    const xs = y => F.x0 + (y - a) / (b - a) * (F.x1 - F.x0);
+    const ymax = S.deepRange === 'tele' ? 280 : 260;
+    const ys = yAxis(ctx, F, ymax, 'Sunspot number', 0, 6);
+    xTicksYears(ctx, F, xs, a, b - 1, Math.max(4, Math.floor((F.x1 - F.x0) / 80)));
+    // stripes
+    const sy0 = 22, sy1 = sy0 + stripeH;
+    for (const r of DP.comp) {
+      if (r.y < a || r.y >= b || r.v == null) continue;
+      ctx.fillStyle = rampColor(r.v);
+      const x0 = xs(r.y), x1 = xs(r.y + 1);
+      ctx.fillRect(Math.floor(x0), sy0, Math.max(1, Math.ceil(x1) - Math.floor(x0)), stripeH);
+    }
+    // grand minima
+    if (S.deepShow.minima) {
+      for (const g of GRAND_MINIMA) {
+        if (g.b < a || g.a > b) continue;
+        const x0 = Math.max(F.x0, xs(g.a)), x1 = Math.min(F.x1, xs(g.b));
+        ctx.fillStyle = 'rgba(109,150,216,0.10)'; ctx.fillRect(x0, F.y0, x1 - x0, F.y1 - F.y0);
+        ctx.strokeStyle = 'rgba(109,150,216,0.55)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x0, sy1 + 4); ctx.lineTo(x0, sy1 + 9); ctx.lineTo(x1, sy1 + 9); ctx.lineTo(x1, sy1 + 4); ctx.stroke();
+        setFont(ctx, 12, FONT_MONO, 'bold'); ctx.fillStyle = '#9DB7E3'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        const lbl = ctx.measureText(g.n).width + 8 < x1 - x0 ? g.n : g.n.slice(0, 1);
+        ctx.fillText(lbl, (x0 + x1) / 2, F.y0 + 4);
+      }
+    }
+    clip(ctx, F);
+    // 14C: uncertainty band, annual line, 22-yr smoothed
+    for (const s of DP.c14) {
+      const yrs = s.sn.map((_, j) => s.start + j);
+      const vis = yrs.map((y, j) => j).filter(j => yrs[j] >= a - 1 && yrs[j] <= b);
+      if (!vis.length) continue;
+      const X = vis.map(j => xs(yrs[j] + 0.5));
+      if (S.deepShow.unc) {
+        ctx.fillStyle = 'rgba(245,163,64,0.08)';
+        band(ctx, X, vis.map(j => ys(Math.max(0, s.sn[j] - s.e[j]))), vis.map(j => ys(Math.max(0, s.sn[j] + s.e[j]))));
+      }
+      ctx.lineWidth = (b - a) > 600 ? 0.8 : 1.2; ctx.strokeStyle = (b - a) > 600 ? 'rgba(245,163,64,0.38)' : 'rgba(245,163,64,0.65)';
+      polyline(ctx, vis.map((j, q) => [X[q], ys(Math.max(0, s.sn[j]))]));
+      ctx.lineWidth = 2.6; ctx.strokeStyle = '#FAD283';
+      polyline(ctx, vis.map((j, q) => [X[q], ys(Math.max(0, s.sm[j]))]));
+    }
+    // group numbers (telescopic, before the yearly SN starts)
+    if (S.deepShow.gn) {
+      for (const [g, col, dash] of [[DP.hs, C_PURPLE, [4, 3]], [DP.bb, C_BLUE, []]]) {
+        if (!g) continue;
+        ctx.lineWidth = 1.6; ctx.strokeStyle = col; ctx.setLineDash(dash);
+        const pts = [];
+        for (let j = 0; j < g.v.length; j++) { const y = g.start + j; if (y > 1750 || y < a) continue; pts.push(g.v[j] == null ? null : [xs(y + 0.5), ys(g.v[j])]); }
+        polyline(ctx, pts); ctx.setLineDash([]);
+      }
+    }
+    // observed yearly SN
+    ctx.lineWidth = 1.8; ctx.strokeStyle = C_LIGHT;
+    polyline(ctx, DP.snY.v.map((v, j) => DP.snY.start + j >= a ? [xs(DP.snY.start + j + 0.5), ys(v)] : null));
+    ctx.restore();
+    // stripe frame + modern mean marker
+    ctx.strokeStyle = 'rgba(232,228,217,0.18)'; ctx.lineWidth = 1; ctx.strokeRect(F.x0 + .5, sy0 + .5, F.x1 - F.x0 - 1, stripeH - 1);
+    return { F, xs, ys, a, b, sy0, sy1 };
+  },
+  hit(Gm, x) {
+    const { F, a, b } = Gm;
+    if (x < F.x0 - 10 || x > F.x1 + 10) return null;
+    const y = Math.floor(a + (x - F.x0) / (F.x1 - F.x0) * (b - a));
+    return { y: Math.max(a, Math.min(b - 1, y)) };
+  },
+  hoverDraw(ctx, Gm, h) {
+    const { F, xs, ys, sy0, sy1 } = Gm, x = xs(h.y + 0.5);
+    crossV(ctx, F, x);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1;
+    ctx.strokeRect(Math.floor(xs(h.y)) - .5, sy0 - 1.5, Math.max(2, xs(h.y + 1) - xs(h.y)) + 1, sy1 - sy0 + 3);
+    const c = DP.c14At(h.y); if (c) dot(ctx, x, ys(Math.max(0, c.sm)), 4, '#FAD283');
+    const s = DP.val(DP.snY, h.y); if (s != null) dot(ctx, x, ys(s), 4, C_LIGHT);
+    if (S.deepShow.gn && h.y <= 1750) { const g = DP.val(DP.bb, h.y); if (g != null) dot(ctx, x, ys(g), 3.5, C_BLUE); }
+  },
+  card(h) {
+    const y = h ? h.y : DP.y1;
+    const rows = [];
+    const s = DP.val(DP.snY, y);
+    if (s != null) rows.push([`<i class="k" style="background:${C_LIGHT}"></i>Observed SN`, `<b>${fmt1(s)}</b>`]);
+    if (y >= 1610) {
+      const g = DP.val(DP.bb, y), hs = DP.val(DP.hs, y);
+      if (g != null) rows.push([`<i class="k" style="background:${C_BLUE}"></i>Group no. (backbone)`, `${s == null ? '<b>' : ''}${fmt1(g)}${s == null ? '</b>' : ''}`]);
+      if (hs != null) rows.push([`<i class="k" style="background:${C_PURPLE}"></i>Group no. (H&S)`, fmt1(hs)]);
+    }
+    const c = DP.c14At(y);
+    if (c) {
+      rows.push([`<i class="k" style="background:${ACC}"></i>Radiocarbon SN`, `<b>${fmt1(c.sn)}</b><span class="sub">± ${fmt1(c.e)}</span>`]);
+      rows.push([`<i class="k" style="background:#FAD283"></i>22-yr smoothed`, fmt1(c.sm)]);
+      const cy = DP.cyc.filter(q => q.ymin <= y && q.seg === c.seg).pop();
+      if (cy && y < (DP.cyc[DP.cyc.indexOf(cy) + 1] || { ymin: Infinity }).ymin) rows.push(['Reconstructed cycle', `#${cy.n}<span class="sub">mean ${fmt0(cy.mean)} · ${fmt0(cy.T)} yr</span>`]);
+    }
+    const tc = CYC.find((q, k) => M.y[q.startI] <= y && (q.endI == null || M.y[q.endI] > y));
+    if (tc && y >= 1755) rows.push(['Numbered cycle', `${tc.cycle}`]);
+    const gm = GRAND_MINIMA.find(g => y >= g.a && y <= g.b);
+    return { date: yearLabel(y), tag: gm ? `${gm.n} Minimum` : (h ? '' : 'Latest full year'), rows };
+  },
+  head() {
+    const n14 = DP.cyc.length;
+    return [
+      { l: 'Cycles', v: `${n14 + CYC.length}`, n: `${n14} radiocarbon · ${CYC.length} numbered` },
+      { l: `Mean ${DP.y1 - 21}–${String(DP.y1).slice(2)}`, v: fmt0(DP.modern), n: `> ${Math.round(DP.pctBelow * 100)}% of ${DP.c14[0].start}–1899` },
+      { l: '22-yr low', v: fmt0(Math.max(0, DP.lo.v)), n: yearLabel(DP.lo.y) },
+      { l: '22-yr high', v: fmt0(DP.hi.v), n: yearLabel(DP.hi.y) },
+    ];
+  },
+  legend() {
+    const grad = `linear-gradient(90deg,${SN_RAMP.map(([v, c]) => `${c} ${Math.round(v / 280 * 100)}%`).join(',')})`;
+    const L = [`<span class="lg-item">0<span class="sw-grad" style="background:${grad}"></span>280</span>`,
+      `<span class="lg-item"><span class="sw-line thin" style="border-color:rgba(245,163,64,.8)"></span>Radiocarbon SN${S.deepShow.unc ? ' ± 1σ' : ''}</span>`,
+      `<span class="lg-item"><span class="sw-line thick" style="border-color:#FAD283"></span>22-yr smoothed</span>`,
+      `<span class="lg-item"><span class="sw-line" style="border-color:${C_LIGHT}"></span>Observed SN</span>`];
+    if (S.deepShow.gn) L.push(`<span class="lg-item"><span class="sw-line" style="border-color:${C_BLUE}"></span>Group no.: backbone</span>`,
+      `<span class="lg-item"><span class="sw-line dash" style="border-color:${C_PURPLE}"></span>Hoyt &amp; Schatten</span>`);
+    if (S.deepShow.minima) L.push(`<span class="lg-item"><span class="sw-band" style="background:rgba(109,150,216,.25)"></span>Grand minima</span>`);
+    return L.join('');
+  },
+  bar() {
+    const R = [['mill', `${DP.c14.find(s => s.id === 'ce2').start}–now`], ['tele', '1600–now']];
+    if (DP.has3k) R.unshift(['all', `${yearLabel(DP.y0)}–now`]);
+    const sh = (k, l) => `<button class="cc-btn${S.deepShow[k] ? ' is-active' : ''}" data-deep="${k}">${l}</button>`;
+    return `<div class="grp"><span class="grp-l">Range</span>${R.map(([k, l]) => `<button class="cc-btn${S.deepRange === k ? ' is-active' : ''}" data-drange="${k}">${l}</button>`).join('')}</div>
+      <div class="cc-scene-bar-sep"></div>
+      <div class="grp"><span class="grp-l">Show</span>${sh('unc', '± 1σ')}${sh('gn', 'Group numbers')}${sh('minima', 'Grand minima')}</div>`;
+  },
+  csv() {
+    const L = ['year,stripe_value,stripe_source,observed_sn,group_backbone_scaled,group_hoyt_schatten_scaled,c14_sn,c14_sn_1sigma,c14_sn_22yr'];
+    for (const r of DP.comp) {
+      const c = DP.c14At(r.y);
+      L.push([r.y, r.v == null ? '' : r.v, r.src || '', DP.val(DP.snY, r.y) ?? '', DP.val(DP.bb, r.y) ?? '', DP.val(DP.hs, r.y) ?? '',
+              c ? c.sn : '', c ? c.e : '', c ? c.sm : ''].join(','));
+    }
+    return L.join('\n');
+  },
+};
+
+const VIEWS = { record: VR, c25: VC, spotless: VS, deep: VD };
+const SOURCES = {
+  record: 'Monthly mean and 13-month smoothed total sunspot number v2.0, WDC-SILSO, Royal Observatory of Belgium (CC BY-NC 4.0). Cycle dates from SILSO.',
+  c25: 'Monthly 13-month smoothed total sunspot number v2.0, WDC-SILSO, Royal Observatory of Belgium (CC BY-NC 4.0). Cycle dates from SILSO.',
+  spotless: 'Daily total sunspot number v2.0 and daily estimated sunspot number (EISN), WDC-SILSO, Royal Observatory of Belgium (CC BY-NC 4.0).',
+  deep: 'Radiocarbon: Usoskin et al. 2021 (A&A 649, A141)$BC. Group numbers: Svalgaard &amp; Schatten 2016; Hoyt &amp; Schatten 1998 (via SILSO), scaled to SN v2. Observed: SILSO yearly SN v2.0. Minima: Hayakawa et al. 2021.',
+};
+const METHODS = 'Projection: the latest 36 months of smoothed SN (and the monthly means since, at ¼ weight) are matched against each earlier complete cycle, scaled by least squares and shifted up to ±12 months; the 7 closest cycles carry the projection (median and range). Provisional smoothed values use the observed monthly means with the analogs filling months not yet observed.';
+
+/* ════════════════════════════════════════════════════════════════════
+   UI
+   ════════════════════════════════════════════════════════════════════ */
+function updateHead() {
+  const V = VIEWS[S.tab];
+  $('hd').textContent = V.title(); $('hd-sub').textContent = V.sub();
+  $('readouts').innerHTML = V.head().map(r => `<div class="ro"><span class="ro-l">${esc(r.l)}</span><span class="ro-v">${r.v}</span>${r.n ? `<span class="ro-n">${esc(r.n)}</span>` : ''}</div>`).join('');
+  $('legend').innerHTML = V.legend();
+  $('bar').innerHTML = V.bar();
+  let note = '';
+  if (S.tab === 'spotless' && S.spotMode === 'year') note = 'Daily observations before 1849 have gaps, so those yearly counts are low.';
+  if (S.tab === 'deep' && S.deepShow.gn && S.deepRange === 'tele') note = 'The two group-number reconstructions disagree on how active the Sun was before 1750.';
+  $('note').hidden = !note; $('note').textContent = note;
+  let src = SOURCES[S.tab];
+  if (S.tab === 'deep') src = src.replace('$BC', DP.has3k ? '; Usoskin et al. 2025 (A&A 698, A182); Usoskin et al. 2026 (A&A 708, A333)' : '');
+  $('src').innerHTML = src + ((S.tab === 'record' || S.tab === 'c25') && P ? ` <span title="${esc(METHODS)}">Projection method</span>` : '');
+  document.querySelectorAll('#tabs .cc-tab').forEach(b => b.classList.toggle('is-active', b.dataset.tab === S.tab));
+}
+function updateCard() {
+  const c = VIEWS[S.tab].card(S.hover);
+  $('rd-date').textContent = c.date;
+  $('rd-tag').textContent = c.tag || '';
+  $('rd-t').innerHTML = c.rows.map(([l, v]) => `<tr><td>${l}</td><td>${v}</td></tr>`).join('');
+}
+function updateNow() {
+  const rows = [];
+  rows.push(['Latest month', `<b>${fmt1(M.X[M.lastX])}</b><span class="sub">${ymLabel(M.y[M.lastX], M.m[M.lastX])}${M.prov[M.lastX] ? ' · prov.' : ''}</span>`]);
+  rows.push(['13-mo smoothed', `<b>${fmt1(M.S[M.lastS])}</b><span class="sub">${ymLabel(M.y[M.lastS], M.m[M.lastS])}</span>`]);
+  if (P) {
+    const t = M.lastX - P.s0;
+    rows.push(['Smoothed now', `<b>${fmt1(P.med[t])}</b><span class="sub">${fmt0(P.lo[t])}–${fmt0(P.hi[t])} projected</span>`]);
+  }
+  rows.push([`Cycle ${CUR.cycle}`, `${ageLabel(M.lastX - CUR.startI)}<span class="sub">since ${ymLabel(...mYM(CUR.startI))}</span>`]);
+  if (P && CUR.maxI < M.lastS) rows.push(['From peak', `${Math.round((1 - P.med[M.lastX - P.s0] / CUR.maxS) * 100)}% lower<span class="sub">peak ${fmt1(CUR.maxS)}</span>`]);
+  if (P) {
+    const lab = t => { const [y, m] = mYM(P.s0 + t); return ymLabel(y, m); };
+    rows.push(['Next minimum', `<b>${mYM(P.s0 + P.minMed)[0]}</b><span class="sub">${lab(P.minLo)} – ${lab(P.minHi)}</span>`]);
+  }
+  if (SPOT) { const ly = SPOT.years[SPOT.years.length - 1]; rows.push([`Spotless days ${ly.y}`, `<b>${fmt0(ly.spot)}</b>`]); }
+  $('now-t').innerHTML = rows.map(([l, v]) => `<tr><td>${l}</td><td>${v}</td></tr>`).join('');
+  drawSpark();
+}
+function drawSpark() {
+  const wrap = $('sp-wrap'), c = $('sp');
+  if (!SPOT) { wrap.hidden = true; $('sp-l').textContent = ''; return; }
+  const w = wrap.offsetWidth, h = wrap.offsetHeight;
+  c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); c.style.width = w + 'px'; c.style.height = h + 'px';
+  const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const rec = SPOT.rec.slice(-120);
+  const vmax = Math.max(50, ...rec.map(r => r.v)) * 1.08;
+  const bw = w / rec.length;
+  rec.forEach((r, j) => {
+    const bh = Math.max(1, r.v / vmax * (h - 14));
+    ctx.fillStyle = r.v === 0 ? '#6D96D8' : rampColor(Math.min(280, r.v * 1.2));
+    ctx.globalAlpha = r.est ? 0.55 : (r.prov ? 0.85 : 1);
+    ctx.fillRect(j * bw + 0.5, h - bh, Math.max(1, bw - 1), bh);
   });
-  canvas.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+  ctx.globalAlpha = 1;
+  setFont(ctx, 12); ctx.fillStyle = C_SEC; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(`daily, max ${Math.max(...rec.map(r => r.v))}`, 0, 0);
+  const lastE = rec[rec.length - 1];
+  $('sp-l').textContent = dLabel(rec[0].d).replace(/, \d+$/, '');
+  $('sp-r').textContent = `${dLabel(lastE.d).replace(/, \d+$/, '')}: ${lastE.v}${lastE.est ? ' est.' : ''}`;
+}
+function refresh() { updateHead(); render(); }
+
+function setTab(t) {
+  if (!TABS.includes(t)) t = 'record';
+  if (t === 'spotless' && !SPOT) t = 'record';
+  if (t === 'deep' && !DP) t = 'record';
+  S.tab = t; S.hover = null; S.pick = null;
+  const u = new URL(location.href); u.searchParams.set('tab', t); history.replaceState(null, '', u);
+  refresh();
 }
 
-// ════════════════════════════════════════════════════════════════
-// STATS (shared with sunspot-heatmap.html)
-// ════════════════════════════════════════════════════════════════
-
-function findLastSmoothed() {
-  for (let i = monthlyData.length - 1; i >= 0; i--) {
-    if (monthlyData[i].smoothed !== null) return monthlyData[i];
-  }
-  return null;
+/* ── Events ── */
+$('tabs').addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) setTab(b.dataset.tab); });
+$('bar').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.range) S.range = b.dataset.range;
+  else if (b.dataset.proj) S.showProj = !S.showProj;
+  else if (b.dataset.align) S.align = b.dataset.align;
+  else if (b.dataset.c25) S.c25Show[b.dataset.c25] = !S.c25Show[b.dataset.c25];
+  else if (b.dataset.spot) { S.spotMode = b.dataset.spot; S.pick = null; }
+  else if (b.dataset.drange) S.deepRange = b.dataset.drange;
+  else if (b.dataset.deep) S.deepShow[b.dataset.deep] = !S.deepShow[b.dataset.deep];
+  else return;
+  S.hover = null; refresh();
+});
+$('bar').addEventListener('change', e => { if (e.target.id === 'pick-sel') { S.pick = e.target.value ? +e.target.value : null; refresh(); } });
+function onMove(e) {
+  if (!G) return;
+  const r = ov.getBoundingClientRect();
+  const h = VIEWS[S.tab].hit(G, e.clientX - r.left, e.clientY - r.top);
+  S.hover = h; drawHover();
 }
+ov.addEventListener('mousemove', onMove);
+ov.addEventListener('mouseleave', () => { S.hover = null; drawHover(); });
+ov.addEventListener('touchstart', e => { if (e.touches[0]) onMove(e.touches[0]); }, { passive: true });
+ov.addEventListener('touchmove', e => { if (e.touches[0]) onMove(e.touches[0]); }, { passive: true });
+ov.addEventListener('keydown', e => {
+  if (!G) return;
+  const step = e.shiftKey ? 12 : 1;
+  const k = e.key === 'ArrowRight' ? step : e.key === 'ArrowLeft' ? -step : 0;
+  if (e.key === 'Escape') { S.hover = null; drawHover(); return; }
+  if (!k) return;
+  e.preventDefault();
+  const V = VIEWS[S.tab];
+  const cur = S.hover || V.hit(G, G.F.x1);
+  if (!cur) return;
+  const key = Object.keys(cur)[0], probe = Object.assign({}, cur);
+  let lo = 0, hi = 0;
+  if (key === 'i') { lo = G.a; hi = (S.showProj && P) ? Math.max(M.lastX, P.s0 + P.end) : M.lastX; }
+  else if (key === 't') { lo = G.tA || 0; hi = G.tB; }
+  else { lo = G.a; hi = S.tab === 'deep' ? G.b - 1 : G.b; }
+  probe[key] = Math.max(lo, Math.min(hi, probe[key] + k));
+  S.hover = probe; drawHover();
+});
 
-function renderStats() {
-  const last = monthlyData[monthlyData.length - 1];
-  const lastSm = findLastSmoothed();
-  const cyc = currentCycleForDate(last.year, last.month);
+let roKey = '';
+const ro = new ResizeObserver(() => {
+  const st = $('stage'), key = st.offsetWidth + 'x' + st.offsetHeight;
+  if (key === roKey) return; roKey = key;
+  sizeStage(); render(); drawSpark();
+});
 
-  let cycleAgeStr = '\u2014';
-  if (cyc) {
-    const totalMonths = monthIdx(last.year, last.month) - monthIdx(cyc.startYear, cyc.startMonth);
-    cycleAgeStr = `${Math.floor(totalMonths / 12)}y ${totalMonths % 12}m since minimum`;
-  }
-
-  const chips = [
-    { label: 'Latest Data', value: `${MON_SHORT[last.month - 1]} ${last.year}` },
-    { label: 'Monthly Mean SSN', value: last.mean.toFixed(1) },
-    { label: '13-Mo. Smoothed', value: lastSm ? lastSm.smoothed.toFixed(1) : '\u2014',
-      note: lastSm && (lastSm.year !== last.year || lastSm.month !== last.month)
-        ? `as of ${MON_SHORT[lastSm.month - 1]} ${lastSm.year}` : null },
-    { label: 'Current Cycle', value: cyc ? `Cycle ${cyc.cycle}` : '\u2014', note: cycleAgeStr },
-    { label: `Cycle ${cyc ? cyc.cycle : ''} Peak (record)`,
-      value: cyc ? cyc.maxSSN.toFixed(0) : '\u2014',
-      note: cyc ? `${MON_SHORT[cyc.maxMonth - 1]} ${cyc.maxYear}${cyc.ongoing ? ' \u00b7 to date' : ''}` : null },
-  ];
-
-  $('statRow').innerHTML = chips.map(c => `
-    <div class="cc-stat-chip">
-      <div class="cc-stat-value">${c.value}</div>
-      <div class="cc-stat-label">${c.label}</div>
-      ${c.note ? `<div class="cc-stat-note" style="font-size:12px">${c.note}</div>` : ''}
-    </div>
-  `).join('');
-}
-
-function renderCycleTable() {
-  const last = monthlyData[monthlyData.length - 1];
-  const activeCycle = currentCycleForDate(last.year, last.month);
-  $('cycleTableBody').innerHTML = cycles.map((c, i) => {
-    const next = cycles[i + 1];
-    let durationStr = '\u2014';
-    if (next) {
-      const totalMonths = monthIdx(next.startYear, next.startMonth) - monthIdx(c.startYear, c.startMonth);
-      durationStr = `${Math.floor(totalMonths / 12)}y ${totalMonths % 12}m`;
-    } else if (c.ongoing) durationStr = 'ongoing';
-    const isCurrent = activeCycle && activeCycle.cycle === c.cycle;
-    return `
-      <tr class="${isCurrent ? 'current-cycle' : ''}">
-        <td>${c.cycle}${isCurrent ? ' (current)' : ''}</td>
-        <td>${MON_SHORT[c.startMonth - 1]} ${c.startYear}</td>
-        <td>${MON_SHORT[c.maxMonth - 1]} ${c.maxYear}</td>
-        <td class="num">${c.maxSSN.toFixed(0)}</td>
-        <td>${durationStr}</td>
-      </tr>`;
-  }).join('');
-}
-
-// ════════════════════════════════════════════════════════════════
-// PNG EXPORT
-// ════════════════════════════════════════════════════════════════
-
-function downloadPNG() {
-  const src = $('chart');
-  const last = monthlyData[monthlyData.length - 1];
-  const PAD = 24, HDR = 82, FTR = 34;
-  const ow = PAD * 2 + src.width;
-  const oh = HDR + src.height + FTR;
-
+/* ── Exports ── */
+const EXPORT_SCALE = 3;
+function composeExport() {
+  const V = VIEWS[S.tab];
+  const w = 1400, chartH = 620, pad = 28;
+  const headH = 116, legH = 34, footH = 54;
+  const h = headH + legH + chartH + footH;
   const off = document.createElement('canvas');
-  off.width = ow * 2; off.height = oh * 2;
-  const oc = off.getContext('2d');
-  oc.scale(2, 2);
-
-  oc.fillStyle = '#1E2320';
-  oc.fillRect(0, 0, ow, oh);
-  oc.fillStyle = '#F5A340';
-  oc.fillRect(0, 0, ow, 3);
-
-  oc.fillStyle = '#E8E4D9';
-  oc.font = 'bold 24px "Zilla Slab", serif';
-  oc.fillText('Solar Cycle Progression', PAD, 36);
-
-  oc.fillStyle = '#A6A499';
-  oc.font = '15px "Public Sans", sans-serif';
-  const viewLabel = viewMode === 'history'
-    ? `Full History \u00b7 ${rangePreset === 'full' ? '1749\u2013Present' : rangePreset}`
-    : `Cycle Comparison \u00b7 ${[...selectedCycles].sort((a,b)=>a-b).join(', ')}`;
-  oc.fillText(`${viewLabel} \u00b7 Latest: ${MON_SHORT[last.month - 1]} ${last.year}, SSN ${last.mean.toFixed(1)}`, PAD, 60);
-
-  oc.fillStyle = '#948F82';
-  oc.font = '12px "Courier Prime", monospace';
-  oc.textAlign = 'right';
-  oc.fillText('contextclimate.io', ow - PAD, 36);
-  oc.textAlign = 'left';
-
-  oc.drawImage(src, PAD, HDR, src.width, src.height);
-
-  oc.fillStyle = '#948F82';
-  oc.font = '11px "Courier Prime", monospace';
-  oc.fillText('Data: WDC-SILSO, Royal Observatory of Belgium (CC BY-NC 4.0)   \u00b7   contextclimate.io', PAD, oh - 12);
-
-  oc.fillStyle = '#F5A340';
-  oc.fillRect(0, oh - 2, ow, 2);
-
-  const link = document.createElement('a');
-  link.download = `solar-cycle-progression-${viewMode}.png`;
-  link.href = off.toDataURL('image/png');
-  link.click();
+  off.width = w * EXPORT_SCALE; off.height = h * EXPORT_SCALE;
+  const ctx = off.getContext('2d'); ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
+  ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#262B27'; ctx.fillRect(pad / 2, pad / 2, w - pad, h - pad);
+  setFont(ctx, 13, FONT_MONO, 'bold'); ctx.fillStyle = ACC; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText('CONTEXTCLIMATE · SOLAR CYCLE PROGRESSION', pad + 8, pad + 6);
+  setFont(ctx, 30, FONT_DISP, 'bold'); ctx.fillStyle = C_TXT; ctx.fillText(V.title(), pad + 8, pad + 26);
+  setFont(ctx, 15, FONT_BODY); ctx.fillStyle = C_SEC; ctx.fillText(V.sub(), pad + 8, pad + 64);
+  // readouts, right-aligned
+  const ro = V.head(); let rx = w - pad - 8;
+  ctx.textAlign = 'right';
+  for (let j = ro.length - 1; j >= 0; j--) {
+    const r = ro[j], vtxt = r.v.replace(/<small>/, ' ').replace(/<[^>]+>/g, '');
+    setFont(ctx, 26, FONT_DISP, 'bold'); const vw = ctx.measureText(vtxt).width;
+    setFont(ctx, 12, FONT_MONO); const lw = ctx.measureText(r.l.toUpperCase()).width, nw = ctx.measureText(r.n || '').width;
+    const colW = Math.max(vw, lw, nw);
+    if (rx - colW < w * 0.5) break;
+    ctx.fillStyle = C_SEC; ctx.fillText(r.l.toUpperCase(), rx, pad + 22);
+    setFont(ctx, 26, FONT_DISP, 'bold'); ctx.fillStyle = C_TXT; ctx.fillText(vtxt, rx, pad + 38);
+    setFont(ctx, 12, FONT_MONO); ctx.fillStyle = C_MUT; ctx.fillText(r.n || '', rx, pad + 70);
+    rx -= colW + 26;
+  }
+  // legend (from the DOM legend items)
+  const tmp = document.createElement('div'); tmp.innerHTML = V.legend();
+  let lx = pad + 8; const ly = headH + 12;
+  setFont(ctx, 13, FONT_MONO); ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const it of tmp.querySelectorAll('.lg-item')) {
+    const sw = it.querySelector('[class^="sw-"]'), txt = it.textContent.trim();
+    if (sw) {
+      const st = sw.getAttribute('style') || '';
+      const col = (st.match(/(?:border-color|background):\s*([^;]+)/) || [])[1] || C_TXT;
+      if (sw.classList.contains('sw-grad')) {
+        const g = ctx.createLinearGradient(lx, 0, lx + 90, 0);
+        SN_RAMP.forEach(([v, c]) => g.addColorStop(v / 280, c));
+        ctx.fillStyle = C_SEC; ctx.fillText('0', lx, ly); lx += 12;
+        ctx.fillStyle = g; ctx.fillRect(lx, ly - 5, 90, 10); lx += 96;
+        ctx.fillStyle = C_SEC; ctx.fillText('280', lx, ly); lx += ctx.measureText('280').width + 22; continue;
+      }
+      if (sw.classList.contains('sw-band') || sw.classList.contains('sw-dot')) { ctx.fillStyle = col; ctx.fillRect(lx, ly - 5, 20, 10); }
+      else { ctx.strokeStyle = col; ctx.lineWidth = sw.classList.contains('thick') ? 3 : (sw.classList.contains('thin') ? 1.2 : 2); ctx.setLineDash(sw.classList.contains('dash') ? [5, 3] : sw.classList.contains('dot') ? [2, 3] : []); ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(lx + 22, ly); ctx.stroke(); ctx.setLineDash([]); }
+      lx += 28;
+    }
+    ctx.fillStyle = C_SEC; ctx.fillText(txt, lx, ly); lx += ctx.measureText(txt).width + 22;
+    if (lx > w - 200) break;
+  }
+  // chart
+  ctx.save(); ctx.translate(pad / 2, headH + legH);
+  V.draw(ctx, w - pad, chartH, true);
+  ctx.restore();
+  // footer
+  const src = $('src').textContent.replace(/\s*Projection method\s*$/, '');
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillStyle = C_MUT;
+  let fs = 12; setFont(ctx, fs, FONT_BODY);
+  while (ctx.measureText(src).width > w - pad * 2 - 170 && fs > 9) setFont(ctx, --fs, FONT_BODY);
+  ctx.fillText(src, pad + 8, h - footH + 6);
+  setFont(ctx, 13, FONT_MONO, 'bold'); ctx.fillStyle = C_SEC; ctx.textAlign = 'right';
+  ctx.fillText('contextclimate.io', w - pad - 8, h - footH + 6);
+  return off;
 }
+function flash(btn, ok) { btn.classList.add(ok ? 'is-ok' : 'is-error'); setTimeout(() => btn.classList.remove('is-ok', 'is-error'), 1400); }
+function fileBase() { const [y, m] = mYM(M.lastX); return `solar-cycle-${S.tab}-${y}-${String(m).padStart(2, '0')}`; }
+$('png-btn').addEventListener('click', () => {
+  const off = composeExport(), a = document.createElement('a');
+  a.download = fileBase() + '.png'; a.href = off.toDataURL('image/png'); a.click();
+});
+$('copy-btn').addEventListener('click', async e => {
+  const btn = e.currentTarget;
+  try {
+    const off = composeExport();
+    const blob = await new Promise(r => off.toBlob(r, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    flash(btn, true);
+  } catch (err) { flash(btn, false); }
+});
+$('csv-btn').addEventListener('click', () => {
+  const blob = new Blob([VIEWS[S.tab].csv() + '\n'], { type: 'text/csv' });
+  const a = document.createElement('a'); a.download = fileBase() + '.csv'; a.href = URL.createObjectURL(blob); a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
 
-// ════════════════════════════════════════════════════════════════
-// INIT / EVENTS
-// ════════════════════════════════════════════════════════════════
-
-function fullRender() {
-  if (viewMode === 'history') renderHistory(); else renderCompare();
-  renderStats();
-  renderCycleTable();
+/* ════════════════════════════════════════════════════════════════════
+   Boot
+   ════════════════════════════════════════════════════════════════════ */
+async function getText(u) { const r = await fetch(u, { cache: 'no-cache' }); if (!r.ok) throw new Error(`${u}: HTTP ${r.status}`); return r.text(); }
+async function getJSON(u) { return JSON.parse(await getText(u)); }
+async function boot() {
+  try {
+    const [csv, ref, daily, deep] = await Promise.all([
+      getText('sunspot-monthly.csv'), getJSON('solar-cycle-reference.json'),
+      getJSON('solar-cycle-daily.json').catch(() => null), getJSON('solar-deep-history.json').catch(() => null)]);
+    parseCSV(csv);
+    buildCycles(ref.cycles);
+    P = project(CUR);
+    buildC25();
+    DAILY = daily; DEEP = deep;
+    try { SPOT = buildSpotless(); } catch (e) { SPOT = null; console.warn('spotless', e); }
+    try { DP = buildDeep(); } catch (e) { DP = null; console.warn('deep', e); }
+    document.querySelector('[data-tab="spotless"]').disabled = !SPOT;
+    document.querySelector('[data-tab="deep"]').disabled = !DP;
+    $('state').hidden = true;
+    sizeStage();
+    const q = new URLSearchParams(location.search);
+    setTab(q.get('tab') || 'record');
+    updateNow();
+    ro.observe($('stage')); ro.observe($('sp-wrap'));
+  } catch (e) {
+    $('state').innerHTML = `<div class="err">Couldn't load the sunspot record (${esc(e.message || e)}).</div>`;
+  }
 }
-
-$('viewToggle').addEventListener('click', e => {
-  const btn = e.target.closest('.cc-segmented-btn');
-  if (!btn) return;
-  document.querySelectorAll('#viewToggle .cc-segmented-btn').forEach(b => b.classList.remove('is-active'));
-  btn.classList.add('is-active');
-  viewMode = btn.dataset.view;
-  $('rangeGroup').style.display = viewMode === 'history' ? '' : 'none';
-  $('cyclePickerRow').style.display = viewMode === 'compare' ? '' : 'none';
-  if (viewMode === 'compare') renderCyclePicker();
-  fullRender();
-});
-
-$('rangeToggle').addEventListener('click', e => {
-  const btn = e.target.closest('.cc-tab');
-  if (!btn) return;
-  document.querySelectorAll('#rangeToggle .cc-tab').forEach(b => b.classList.remove('is-active'));
-  btn.classList.add('is-active');
-  rangePreset = btn.dataset.range;
-  fullRender();
-});
-
-$('predictionToggle').addEventListener('click', () => {
-  showPrediction = !showPrediction;
-  $('predictionToggle').classList.toggle('is-active', showPrediction);
-  $('predictionToggle').textContent = showPrediction ? 'Hide NOAA Prediction' : 'Show NOAA Prediction';
-  fullRender();
-});
-
-$('cyclePicker').addEventListener('click', e => {
-  const btn = e.target.closest('button[data-cycle]');
-  if (!btn) return;
-  const c = +btn.dataset.cycle;
-  if (selectedCycles.has(c)) selectedCycles.delete(c); else selectedCycles.add(c);
-  btn.classList.toggle('is-active');
-  renderCompare();
-});
-
-$('tableToggle').addEventListener('click', () => {
-  const open = $('cycleTablePanel').classList.toggle('is-visible');
-  $('tableToggle').textContent = open ? 'Solar Cycle Reference Table \u25B4' : 'Solar Cycle Reference Table \u25BE';
-});
-
-$('pngBtn').addEventListener('click', downloadPNG);
-
-(async function init() {
-  const ok = await loadData();
-  if (!ok) return;
-  setupTooltip();
-  fullRender();
-})();
+window.__scp = () => ({ M, CYC, CUR, P, C25, SPOT, DP, S });
+document.fonts && document.fonts.ready ? document.fonts.ready.then(boot) : boot();
 </script>
 </body>
 </html>
