@@ -148,12 +148,19 @@ def _http_post(url, json_body, retries=1):
     raise last_err
 
 
-def _num_or_none(v):
-    """Convert an NCEI normals value to float, mapping missing sentinels to None."""
+def _num_or_none(v, trace_as_zero=False):
+    """Convert an NCEI normals value to float, mapping missing sentinels to None.
+
+    NCEI uses -7777 for a non-zero amount that rounds to zero (trace). For
+    precipitation/snow fields (trace_as_zero=True) that is 0.0, not missing —
+    otherwise dry-season months (e.g. San Francisco in July) drop out.
+    """
     if v is None:
         return None
     if isinstance(v, dict):  # defensive: some NCEI API responses nest as {"value": "..."}
         v = v.get("value")
+    if trace_as_zero and str(v).strip() in ("-7777", "-7777.0", "-7777.00"):
+        return 0.0
     if v in NCEI_MISSING_SENTINELS:
         return None
     s = str(v).strip()
@@ -239,9 +246,9 @@ def fetch_normals(ghcn_id):
         months[mi]["tmax"] = _num_or_none(rec.get("MLY-TMAX-NORMAL"))
         months[mi]["tmin"] = _num_or_none(rec.get("MLY-TMIN-NORMAL"))
         months[mi]["tavg"] = _num_or_none(rec.get("MLY-TAVG-NORMAL"))
-        months[mi]["prcp"] = _num_or_none(rec.get("MLY-PRCP-NORMAL"))
-        months[mi]["prcp_med"] = _num_or_none(rec.get("MLY-PRCP-50PCTL"))
-        months[mi]["snow"] = _num_or_none(rec.get("MLY-SNOW-NORMAL"))
+        months[mi]["prcp"] = _num_or_none(rec.get("MLY-PRCP-NORMAL"), trace_as_zero=True)
+        months[mi]["prcp_med"] = _num_or_none(rec.get("MLY-PRCP-50PCTL"), trace_as_zero=True)
+        months[mi]["snow"] = _num_or_none(rec.get("MLY-SNOW-NORMAL"), trace_as_zero=True)
         found_any = True
     if not found_any:
         raise ValueError("no monthly normals records returned")

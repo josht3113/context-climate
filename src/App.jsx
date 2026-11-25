@@ -306,6 +306,7 @@ export default function App() {
           <Route path="/global-temperature-context"                element={<GlobalTemperatureContext />}  />
           <Route path="/greenhouse-gas-tracker"                     element={<GreenhouseGasTracker />}       />
           <Route path="/climographs"                                element={<Climographs />}                />
+          <Route path="/earthandspace/climographs"                 element={<Climographs />}                />
           <Route path="/earthandspace/core-furnace"                element={<CoreFurnace />}                />
           <Route path="/earthandspace/atmospheric-density"         element={<AtmosphericDensity />}         />
           <Route path="/earthandspace/station-model-builder"       element={<Navigate to="/ESSRT_18?step=build" replace />} />
