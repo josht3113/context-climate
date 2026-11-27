@@ -440,8 +440,9 @@ function makeSingleData(){
 }
 function makeClimoAccum(){
   return{
-    p01i:{sum:new Float64Array(GRID_SIZE),sum2:new Float64Array(GRID_SIZE),cnt:new Int32Array(GRID_SIZE)},
-    dayTotal:{sum:new Float64Array(366),cnt:new Int32Array(366)}
+    p01i:{sum:new Float64Array(GRID_SIZE),sum2:new Float64Array(GRID_SIZE),cnt:new Int32Array(GRID_SIZE),wetCnt:new Int32Array(GRID_SIZE)},
+    dayTotal:{sum:new Float64Array(366),cnt:new Int32Array(366)},
+    days:new Map()
   };
 }
 function accumToStats(accum){
@@ -449,8 +450,47 @@ function accumToStats(accum){
   for(let i=0;i<GRID_SIZE;i++)mp[i]=accum.p01i.cnt[i]?accum.p01i.sum[i]/accum.p01i.cnt[i]:NaN;
   const md=new Float32Array(366);
   for(let i=0;i<366;i++)md[i]=accum.dayTotal.cnt[i]?accum.dayTotal.sum[i]/accum.dayTotal.cnt[i]:NaN;
-  return{mean:{p01i:mp,dayTotal:md}};
+  const wf=new Float32Array(GRID_SIZE);
+  for(let i=0;i<GRID_SIZE;i++)wf[i]=accum.p01i.cnt[i]?accum.p01i.wetCnt[i]/accum.p01i.cnt[i]:NaN;
+  return{mean:{p01i:mp,dayTotal:md},wetFrac:wf,days:accum.days};
 }
+// ── Multi-Year Avg: one value per year per hour, and wet-day counts per year ──
+// Hourly: each year's own hourly maximum (as Single Year shows it) is added once,
+// so SPECIs in a rainy hour don't count that year several times.
+function flushClimoYear(accum){
+  const b=accum._yearBuf;if(!b)return;
+  const P=accum.p01i;
+  for(let i=0;i<GRID_SIZE;i++){const v=b[i];if(v===v){P.sum[i]+=v;P.sum2[i]+=v*v;P.cnt[i]++;if(v>0)P.wetCnt[i]++;}}
+  accum._yearBuf=null;accum._bufYear=null;
+}
+function addClimoHour(accum,yr,idx,v){
+  if(accum._bufYear!==yr){flushClimoYear(accum);accum._bufYear=yr;accum._yearBuf=new Float32Array(GRID_SIZE).fill(NaN);}
+  const o=accum._yearBuf[idx];accum._yearBuf[idx]=isNaN(o)?v:Math.max(o,v);
+}
+// Daily: year -> Int8Array(366) of -1 missing / 0 dry / 1 wet (>= 0.01")
+function markClimoDay(accum,yr,doy,v){
+  let a=accum.days.get(yr);
+  if(!a){a=new Int8Array(366).fill(-1);accum.days.set(yr,a);}
+  if(v!=null)a[doy]=v>=MEASURABLE-1e-6?1:0;
+}
+// Mean wet days over the years whose window is complete — site-wide rule: no more
+// than 15% of days missing and no run of missing days longer than 5.
+function climoMeanWetDays(days,y0,y1,month){
+  let sum=0,n=0;
+  for(let yr=y0;yr<=y1;yr++){
+    const a=days&&days.get(yr);
+    const m0=month==null?0:month,m1=month==null?11:month;
+    let nd=0,miss=0,run=0,gap=0,wet=0;
+    for(let t=Date.UTC(yr,m0,1),end=Date.UTC(yr,m1+1,0);t<=end;t+=86400000){
+      const d=new Date(t);const doy=getDOY(yr,d.getUTCMonth()+1,d.getUTCDate());
+      const s=a?a[doy]:-1;nd++;
+      if(s<0){miss++;run++;if(run>gap)gap=run;}else{run=0;if(s===1)wet++;}
+    }
+    if(nd&&miss<=0.15*nd&&gap<=5){sum+=wet;n++;}
+  }
+  return n?{mean:sum/n,n}:null;
+}
+
 
 // ═══════════════════════════════════════════════
 // GRID ACCESSORS
@@ -577,8 +617,9 @@ function parseCSVInto(text,y1,y2,single,accum){
     // largest reading if a later ob in the hour reports a smaller partial
     // total. Taking the max per hour avoids both failure modes.
     if(single&&v!=null)single.p01i[idx]=isNaN(single.p01i[idx])?v:Math.max(single.p01i[idx],v);
-    if(accum&&v!=null){accum.p01i.sum[idx]+=v;accum.p01i.sum2[idx]+=v*v;accum.p01i.cnt[idx]++;}
+    if(accum&&v!=null)addClimoHour(accum,yr,idx,v);
   }
+  if(accum)flushClimoYear(accum);
 }
 function parseACISDaily(json,single,accum,compareOut){
   // compareOut: a Map to fill with year -> Float32Array(366) of daily
@@ -596,6 +637,7 @@ function parseACISDaily(json,single,accum,compareOut){
     const v=parsePcpn(pcpn);
     if(single&&v!=null)single.dayTotal[doy]=v;
     if(accum&&v!=null){accum.dayTotal.sum[doy]+=v;accum.dayTotal.cnt[doy]++;}
+    if(accum)markClimoDay(accum,yr,doy,v);
     if(compareOut){
       let arr=compareOut.get(yr);
       if(!arr){arr=new Float32Array(366).fill(NaN);compareOut.set(yr,arr);}
@@ -1101,7 +1143,11 @@ function updateStats(){
   }
   document.getElementById('sv-total').textContent=fmtPrecipDisplay(annualTotal);
   document.getElementById('sv-total-sub').textContent=mode==='climatology'?`avg ${fromYear}–${toYear}`:'liquid equiv.';
-  document.getElementById('sv-wetdays').textContent=wetDays+'';
+  if(mode==='climatology'){
+    const w=climoData?climoMeanWetDays(climoData.days,fromYear,toYear,null):null;
+    document.getElementById('sl-wetdays').textContent='Mean Wet Days';
+    document.getElementById('sv-wetdays').textContent=w?String(Math.round(w.mean)):'—';
+  }else document.getElementById('sv-wetdays').textContent=wetDays+'';
   document.getElementById('sv-peak').textContent=peakV!=null?(peakV<TRACE+0.0005?'Trace':peakV.toFixed(2)+'"'):'—';
   document.getElementById('sv-peak-sub').textContent=peakDoy>=0?`${doyToDisplay(peakDoy)} · ${fmtHour(peakH)}`:'highest single hour';
 }

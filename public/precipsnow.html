@@ -392,6 +392,23 @@ function snowDayIdx(month,day){
 }
 function SYL(sy){return`${String(sy).slice(2)}–${String(sy+1).slice(2)}`;}
 function curSY(){const n=new Date();return getSnowSY(n.getFullYear(),n.getMonth());}
+// Site-wide completeness rule: a window counts when no more than 15% of its days are
+// missing and no run of missing days is longer than 5. Days not yet reported count as
+// missing, so a year, month or season still in progress is never "complete".
+function windowComplete(y0,m0,d0,y1,m1,d1,isMissing){
+  let n=0,miss=0,run=0,gap=0;
+  for(let t=Date.UTC(y0,m0,d0),end=Date.UTC(y1,m1,d1);t<=end;t+=86400000){
+    n++;
+    if(isMissing(new Date(t).toISOString().slice(0,10))){miss++;run++;if(run>gap)gap=run;}else run=0;
+  }
+  return n>0&&miss<=0.15*n&&gap<=5;
+}
+let qcMemo={};   // reset per station in applyCache
+const pcpnMissing=ds=>{const r=byDate[ds];return!r||r.pcpn.missing;};
+const snowMissing=ds=>{const r=byDate[ds];return!r||r.snow.missing;};
+function yearComplete(yr){const k='y'+yr;if(!(k in qcMemo))qcMemo[k]=windowComplete(yr,0,1,yr,11,31,pcpnMissing);return qcMemo[k];}
+function monthComplete(yr,m){const k='m'+yr+'-'+m;if(!(k in qcMemo))qcMemo[k]=windowComplete(yr,m,1,yr,m+1,0,pcpnMissing);return qcMemo[k];}
+function snowSeasonComplete(sy){const k='s'+sy;if(!(k in qcMemo))qcMemo[k]=windowComplete(sy,10,1,sy+1,3,30,snowMissing);return qcMemo[k];}
 
 // ─── COLOR FUNCTIONS ───────────────────────────────────────
 function precipColor(val,trace){
@@ -482,7 +499,7 @@ function processData(raw){
 
 function applyCache(sid){
   const c=dataCache[sid];
-  parsed=c.parsed; byDate=c.byDate;
+  parsed=c.parsed; byDate=c.byDate; qcMemo={};
 }
 
 async function selectStation(stn){
@@ -688,7 +705,7 @@ function doyToMD(year,doy){
 }
 
 function renderCumulativePrecip(){
-  const years=[...new Set(parsed.filter(r=>!r.pcpn.missing).map(r=>r.year))].filter(y=>y!==1963).sort();
+  const years=[...new Set(parsed.filter(r=>!r.pcpn.missing).map(r=>r.year))].sort();
   const DOY_STARTS=[0,31,59,90,120,151,181,212,243,273,304,334];
   const xlabels=Array.from({length:366},(_,i)=>{const idx=DOY_STARTS.indexOf(i);return idx>=0?MN[idx]:'';});
   const curYr=new Date().getFullYear();
@@ -708,7 +725,7 @@ function renderCumulativePrecip(){
     if(hasData)yearData[yr]=arr;
   });
   const avgArr=Array.from({length:366},(_,i)=>{
-    const vals=years.filter(y=>y!==curYr).map(y=>yearData[y]?.[i]).filter(v=>v!==null);
+    const vals=years.filter(yearComplete).map(y=>yearData[y]?.[i]).filter(v=>v!==null);
     return vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2):null;
   });
   const datasets=[];
@@ -716,7 +733,7 @@ function renderCumulativePrecip(){
     if(!yearData[yr])return;
     const isCur=yr===curYr;
     datasets.push({label:String(yr),data:yearData[yr],borderColor:isCur?'#d4920a':'rgba(255,255,255,0.14)',
-      borderWidth:isCur?3:0.75,pointRadius:0,tension:0,order:isCur?1:10});
+      borderWidth:isCur?3:0.75,borderDash:(!isCur&&!yearComplete(yr))?[2,3]:undefined,pointRadius:0,tension:0,order:isCur?1:10});
   });
   // Endpoint dot for current year
   addEndpointDot(datasets,yearData[curYr],'#d4920a',String(curYr));
@@ -769,7 +786,7 @@ function highlightPrecipYear(yr,yearData,avgArr,xlabels,years,curYr){
     if(!yearData[y])return;
     const isHL=y===yr;
     datasets.push({label:String(y),data:yearData[y],borderColor:isHL?'#d4920a':'rgba(255,255,255,0.14)',
-      borderWidth:isHL?3:0.75,pointRadius:0,tension:0,order:isHL?1:10});
+      borderWidth:isHL?3:0.75,borderDash:(!isHL&&y!==curYr&&!yearComplete(y))?[2,3]:undefined,pointRadius:0,tension:0,order:isHL?1:10});
   });
   addEndpointDot(datasets,yearData[yr],'#d4920a',String(yr));
   datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
@@ -781,23 +798,26 @@ function renderMonthlyBar(){
   const m=activePrecipMonth;
   document.getElementById('precipBarTitle').textContent=`${MN[m]} — Total Precipitation by Year`;
   const data=[];const labels=[];
-  const years=[...new Set(parsed.filter(r=>r.month===m).map(r=>r.year))].filter(y=>y!==1963).sort();
+  const years=[...new Set(parsed.filter(r=>r.month===m).map(r=>r.year))].sort();
+  const ok=[];
   years.forEach(yr=>{
     const recs=parsed.filter(r=>r.year===yr&&r.month===m&&!r.pcpn.missing);
     if(!recs.length)return;
     const tot=recs.reduce((s,r)=>s+(r.pcpn.val||0),0);
-    labels.push(yr); data.push(+tot.toFixed(2));
+    labels.push(yr); data.push(+tot.toFixed(2)); ok.push(monthComplete(yr,m));
   });
-  const avg=data.length?+(data.reduce((a,b)=>a+b,0)/data.length).toFixed(2):0;
+  const full=data.filter((_,i)=>ok[i]);
+  const avg=full.length?+(full.reduce((a,b)=>a+b,0)/full.length).toFixed(2):0;
   dc('precipBarChart');
   charts['precipBarChart']=new Chart(document.getElementById('precipBarChart'),{
     type:'bar',
     data:{labels,datasets:[
-      {label:'Total',data,backgroundColor:'#1d9e7566',borderColor:'#1d9e75',borderWidth:1},
+      {label:'Total',data,backgroundColor:ok.map(o=>o?'#1d9e7566':'#1d9e7520'),borderColor:ok.map(o=>o?'#1d9e75':'#1d9e7550'),borderWidth:1},
       {label:'Average',data:labels.map(()=>avg),type:'line',borderColor:'#378ADD',borderWidth:1.5,pointRadius:0,borderDash:[4,4]}
     ]},
     options:{responsive:true,plugins:{legend:{display:true,labels:{color:'#7a9bb8',boxWidth:12,font:{size:10}}},
-      tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`}}},
+      tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`,
+        afterLabel:ctx=>ctx.datasetIndex===0&&!ok[ctx.dataIndex]?'⚠ Incomplete month':''}}},
       scales:{x:{...so(),grid:{display:false}},y:{...so(),ticks:{callback:v=>v+'"'}}}}
   });
 }
@@ -816,7 +836,7 @@ function setHeavyThresh(t,btn){
 }
 
 function renderHeavyPrecip(){
-  const years=[...new Set(parsed.map(r=>r.year))].filter(y=>y!==1963).sort();
+  const years=[...new Set(parsed.map(r=>r.year))].sort();
   const data=[],labels=[];
   years.forEach(yr=>{
     const count=parsed.filter(r=>r.year===yr&&!r.pcpn.missing&&r.pcpn.val>=heavyThreshold).length;
@@ -825,8 +845,10 @@ function renderHeavyPrecip(){
   dc('heavyPrecipChart');
   charts['heavyPrecipChart']=new Chart(document.getElementById('heavyPrecipChart'),{
     type:'bar',
-    data:{labels,datasets:[{label:`Days ≥${heavyThreshold}"`,data,backgroundColor:'#28c48d55',borderColor:'#28c48d',borderWidth:1}]},
-    options:{responsive:true,plugins:{tooltip:{callbacks:{label:ctx=>`${ctx.raw} days`}}},
+    data:{labels,datasets:[{label:`Days ≥${heavyThreshold}"`,data,
+      backgroundColor:labels.map(yr=>yearComplete(yr)?'#28c48d55':'#28c48d1c'),borderColor:labels.map(yr=>yearComplete(yr)?'#28c48d':'#28c48d50'),borderWidth:1}]},
+    options:{responsive:true,plugins:{tooltip:{callbacks:{label:ctx=>`${ctx.raw} days`,
+      afterLabel:ctx=>yearComplete(labels[ctx.dataIndex])?'':'⚠ Incomplete year'}}},
       scales:{x:{...so({maxTicksLimit:12}),grid:{display:false}},y:{...so(),ticks:{stepSize:1}}}}
   });
 }
@@ -920,7 +942,7 @@ function renderCumulativeSnow(){
     if(hasData)seasonData[sy]=arr;
   });
   const avgArr=Array.from({length:SNOW_XMAX},(_,i)=>{
-    const vals=allSYs.map(sy=>seasonData[sy]?.[i]).filter(v=>v!==null);
+    const vals=allSYs.filter(snowSeasonComplete).map(sy=>seasonData[sy]?.[i]).filter(v=>v!==null&&v!==undefined);
     return vals.length?+(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1):null;
   });
   const curSy=curSY();
@@ -930,7 +952,7 @@ function renderCumulativeSnow(){
     const isCur=sy===curSy;
     datasets.push({label:SYL(sy),data:seasonData[sy],
       borderColor:isCur?'#d4920a':'rgba(255,255,255,0.14)',
-      borderWidth:isCur?3:0.75,pointRadius:0,tension:0,order:isCur?1:10});
+      borderWidth:isCur?3:0.75,borderDash:(!isCur&&!snowSeasonComplete(sy))?[2,3]:undefined,pointRadius:0,tension:0,order:isCur?1:10});
   });
   datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
   const ctrl=document.getElementById('cumSnowControls');
@@ -973,7 +995,7 @@ function highlightSnowSeason(sy,seasonData,avgArr,xlabels,allSYs){
     const isHL=s===sy;
     datasets.push({label:SYL(s),data:seasonData[s],
       borderColor:isHL?'#d4920a':'rgba(255,255,255,0.14)',
-      borderWidth:isHL?3:0.75,pointRadius:0,tension:0,order:isHL?1:10});
+      borderWidth:isHL?3:0.75,borderDash:(!isHL&&s!==curSY()&&!snowSeasonComplete(s))?[2,3]:undefined,pointRadius:0,tension:0,order:isHL?1:10});
   });
   datasets.push({label:'Average',data:avgArr,borderColor:'#1d9e75',borderWidth:2,borderDash:[6,3],pointRadius:0,tension:0,order:2});
   if(charts['cumSnowChart']){charts['cumSnowChart'].data.datasets=datasets;charts['cumSnowChart'].update('none');}
@@ -1181,8 +1203,7 @@ function renderClimo(){
     annuals[r.year]+=r.pcpn.val||0;
     annualDays[r.year]++;
   });
-  // Complete year = ≥330 non-missing days
-  const completeYears=Object.keys(annuals).map(Number).filter(yr=>annualDays[yr]>=330);
+  const completeYears=Object.keys(annuals).map(Number).filter(yearComplete);
   const annYears=Object.keys(annuals).map(Number).sort();
   const annVals=annYears.map(yr=>+annuals[yr].toFixed(2));
   const avgAnn=completeYears.length?+(completeYears.reduce((s,yr)=>s+annuals[yr],0)/completeYears.length).toFixed(2):0;
@@ -1201,8 +1222,7 @@ function renderClimo(){
     snowDays[sy]=recs.length;
     snowTotals[sy]=+recs.reduce((s,r)=>s+(r.snow.val||0),0).toFixed(1);
   });
-  // Complete snow season = ≥150 non-missing days across Nov-Apr window (~83%)
-  const completeSYs=allSYs.filter(sy=>snowDays[sy]>=150);
+  const completeSYs=allSYs.filter(snowSeasonComplete);
   const avgSnow=completeSYs.length?+(completeSYs.reduce((s,sy)=>s+snowTotals[sy],0)/completeSYs.length).toFixed(1):0;
   const snowVals=completeSYs.map(sy=>snowTotals[sy]);
   const maxSnow=snowVals.length?Math.max(...snowVals):0;
@@ -1227,13 +1247,13 @@ function renderClimo(){
   charts['annualPrecipChart']=new Chart(document.getElementById('annualPrecipChart'),{
     type:'bar',
     data:{labels:annYears,datasets:[
-      {label:'Annual',data:annVals,backgroundColor:annYears.map(yr=>annualDays[yr]>=330?'#1d9e7566':'#1d9e7528'),
-        borderColor:annYears.map(yr=>annualDays[yr]>=330?'#1d9e75':'#1d9e7555'),borderWidth:1},
+      {label:'Annual',data:annVals,backgroundColor:annYears.map(yr=>yearComplete(yr)?'#1d9e7566':'#1d9e7528'),
+        borderColor:annYears.map(yr=>yearComplete(yr)?'#1d9e75':'#1d9e7555'),borderWidth:1},
       {label:'Avg (complete yrs)',data:annYears.map(()=>avgAnn),type:'line',borderColor:'#378ADD',borderWidth:1.5,pointRadius:0,borderDash:[5,3]}
     ]},
     options:{responsive:true,plugins:{legend:{display:true,labels:{color:'#7a9bb8',boxWidth:12,font:{size:10}}},
       tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`,
-        afterLabel:ctx=>ctx.datasetIndex===0&&annualDays[annYears[ctx.dataIndex]]<330?'⚠ Incomplete year':''}}},
+        afterLabel:ctx=>ctx.datasetIndex===0&&!yearComplete(annYears[ctx.dataIndex])?'⚠ Incomplete year':''}}},
       scales:{x:{...so({maxTicksLimit:12}),grid:{display:false}},y:{...so(),ticks:{callback:v=>v+'"'}}}}
   });
 
@@ -1245,13 +1265,13 @@ function renderClimo(){
     type:'bar',
     data:{labels:snowLabels,datasets:[
       {label:'Season Total',data:snowData,
-        backgroundColor:allSYs.map(sy=>snowDays[sy]>=150?'#4a8fd455':'#4a8fd420'),
-        borderColor:allSYs.map(sy=>snowDays[sy]>=150?'#4a8fd4':'#4a8fd440'),borderWidth:1},
+        backgroundColor:allSYs.map(sy=>snowSeasonComplete(sy)?'#4a8fd455':'#4a8fd420'),
+        borderColor:allSYs.map(sy=>snowSeasonComplete(sy)?'#4a8fd4':'#4a8fd440'),borderWidth:1},
       {label:'Avg (complete seasons)',data:snowLabels.map(()=>avgSnow),type:'line',borderColor:'#d940e0',borderWidth:1.5,pointRadius:0,borderDash:[5,3]}
     ]},
     options:{responsive:true,plugins:{legend:{display:true,labels:{color:'#7a9bb8',boxWidth:12,font:{size:10}}},
       tooltip:{callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.raw}"`,
-        afterLabel:ctx=>ctx.datasetIndex===0&&snowDays[allSYs[ctx.dataIndex]]<150?'⚠ Incomplete season':''}}},
+        afterLabel:ctx=>ctx.datasetIndex===0&&!snowSeasonComplete(allSYs[ctx.dataIndex])?'⚠ Incomplete season':''}}},
       scales:{x:{...so({maxTicksLimit:12}),grid:{display:false}},y:{...so(),ticks:{callback:v=>v+'"'}}}}
   });
 
