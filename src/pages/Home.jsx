@@ -125,6 +125,14 @@ const SECTIONS = [
         thumb:      '/BackTrajectories_thumbnail.png',
       },
       {
+        tags:       ['North America', 'Updates Every 3 Hours'],
+        title:      'Storm Tracks',
+        description:'Every low-pressure system the NWS surface analysis has tracked since 2003. Replay any week, month or winter, map where storms pass, form and end against normal or in El Niño, La Niña, NAO and PNA years, and see how nor\'easters passing the benchmark played out at any station.',
+        footerTags: ['Low Pressure', 'Nor\'easters', 'Bombs', 'Animation'],
+        to:         '/storm-tracks',
+        thumb:      '/StormTracks_thumbnail.png',
+      },
+      {
         tags:       ['US Cities', 'Updates Daily'],
         title:      'US Season Map',
         description:'Every US station on one map, coloured by its season each day of this season year. Play the year, spot days that are rare for the date, and click a city for its full analysis.',
