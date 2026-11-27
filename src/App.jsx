@@ -18,6 +18,7 @@ import TropicalACE                 from './pages/TropicalACE'
 import FallFoliage                 from './pages/FallFoliage'
 import TideWatch                   from './pages/TideWatch'
 import BackTrajectories            from './pages/BackTrajectories'
+import StormTracks                 from './pages/StormTracks'
 import Solar                       from './pages/Solar'
 import SolarCalendar               from './pages/SolarCalendar'
 import SunriseSunsetCalendar        from './pages/SunriseSunsetCalendar'
@@ -199,6 +200,7 @@ export default function App() {
           <Route path="/fall-foliage"                        element={<FallFoliage />}             />
           <Route path="/tide-watch"                          element={<TideWatch />}               />
           <Route path="/back-trajectories"                   element={<BackTrajectories />}        />
+          <Route path="/storm-tracks"                        element={<StormTracks />}             />
           <Route path="/solar"                               element={<Solar />}                   />
           <Route path="/solar-calendar"                      element={<SolarCalendar />}           />
           <Route path="/sunrise-sunset-calendar"             element={<SunriseSunsetCalendar />}   />
