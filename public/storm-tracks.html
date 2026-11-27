@@ -109,6 +109,11 @@
   .st-chip:not(.is-active) .dot { background: transparent !important; box-shadow: inset 0 0 0 2px currentColor; }
   .st-toggles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
   .cc-app .st-toggles .cc-btn { font-size: 14px; padding: 7px 8px; }
+  .st-regions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .cc-app .st-regions .cc-btn { font-size: 13px; padding: 7px 4px; }
+  .sc-play { display: flex; gap: 6px; margin-top: 10px; }
+  .cc-app .sc-play .cc-btn { font-size: 14px; padding: 7px 8px; }
+  .cc-app .sc-play .cc-btn.sc-main { flex: 1.4; }
   .st-only-all { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); background: none; border: none; cursor: pointer; margin-left: auto; padding: 0; text-transform: none; letter-spacing: 0; }
   .st-only-all:hover { color: var(--click-text); }
 
@@ -295,6 +300,10 @@
       <div id="sec-tracks">
         <div class="cc-card-eb">Storms<span class="eb-sub" id="n-storms"></span></div>
         <div class="cc-card-grp">
+          <div class="cc-card-l">Region</div>
+          <div class="st-regions" id="regions"></div>
+        </div>
+        <div class="cc-card-grp">
           <div class="cc-card-l">Where they formed<button type="button" class="st-only-all" id="types-all">all</button></div>
           <div class="st-chips" id="types"></div>
           <div class="st-toggles">
@@ -313,8 +322,8 @@
             </div>
           </div>
           <div class="st-toggles">
+            <button type="button" class="cc-btn" id="f-all" aria-pressed="false" title="Also show weak lows: shallow, short-lived, or beside a deeper low">All lows</button>
             <button type="button" class="cc-btn" id="f-stat" aria-pressed="false" title="Lows that barely moved, and warm-season heat lows">Stationary lows</button>
-            <button type="button" class="cc-btn" id="f-gen" aria-pressed="false" title="Where each storm formed and ended">Start &amp; end</button>
           </div>
         </div>
         <div class="cc-card-grp" id="grp-draw">
@@ -335,6 +344,7 @@
           </div>
           <div class="st-toggles">
             <button type="button" class="cc-btn" id="f-labels" aria-pressed="false" title="Day of the month at each 00 UTC mark">Day labels</button>
+            <button type="button" class="cc-btn" id="f-gen" aria-pressed="false" title="Where each storm formed and ended">Start &amp; end</button>
             <button type="button" class="cc-btn" id="f-bm" aria-pressed="false" title="40°N 70°W">Benchmark</button>
           </div>
         </div>
@@ -412,6 +422,16 @@ const OUT_ORDER = ['snow', 'mix', 'rain', 'dry'];
 const FRONT_COL = { c: '#3F86F0', w: '#E5483B', o: '#A060D0', s: '#9AA0A8', t: '#D98A3A' };
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+// region: storms that passed through the box; the lower 48 uses the pipeline's flag (within 300 km)
+const REGIONS = [
+  { k: 'us', name: 'Lower 48', box: [-127, 23.5, -63, 52] },
+  { k: 'ne', name: 'Northeast', box: [-82.5, 37, -64, 48.5] },
+  { k: 'se', name: 'Southeast', box: [-93, 24, -74, 37.5] },
+  { k: 'gl', name: 'Great Lakes', box: [-97, 38, -74, 50] },
+  { k: 'pl', name: 'Plains', box: [-107, 28, -91, 50] },
+  { k: 'w', name: 'West', box: [-126, 30, -103, 50] },
+];
+const REGION = Object.fromEntries(REGIONS.map(r => [r.k, r]));
 const SEASONS = [{ k: 'DJF', m: [11, 0, 1], name: 'Dec–Feb' }, { k: 'MAM', m: [2, 3, 4], name: 'Mar–May' },
                  { k: 'JJA', m: [5, 6, 7], name: 'Jun–Aug' }, { k: 'SON', m: [8, 9, 10], name: 'Sep–Nov' }];
 
@@ -421,9 +441,11 @@ const S = {
   yearData: new Map(),         // year -> storm[] once loaded
   months: new Map(),           // 'YYYY-MM' -> Promise<bulletins[]>
   tab: 'tracks',
-  period: { type: 'recent', days: 7 },
+  period: { type: 'recent', days: 14 },
   benchPeriod: { type: 'winter', y: 'all' },
   types: new Set(TYPES.map(t => t.k)), nor: false, bomb: false, pmax: 0, stat: false, gen: false,
+  region: 'us', allLows: false, v2: false,
+  pt: null, ptRun: null,                        // storm playback: hour of the gliding L, animation state
   colorBy: 'p', marks: 24, labels: false, showBm: false,
   dfield: 'track', dmode: 'count', dyears: 'sel',
   sel: null, hover: null, tSel: null,           // selected storm, hovered storm, time picked on the strip
@@ -490,12 +512,12 @@ async function fetchGz(path, opts = {}) {
 
 // ── storms ──────────────────────────────────────────────────────────
 function decodeStorm(r) {
-  const n = r.h.length, t = new Float64Array(n), lat = new Float32Array(n), lon = new Float32Array(n), p = new Float32Array(n);
-  for (let i = 0; i < n; i++) { t[i] = r.t + r.h[i]; lat[i] = r.la[i] / 10; lon[i] = r.lo[i] / 10; p[i] = r.p[i]; }
+  const n = r.h.length, t = new Float64Array(n), lat = new Float32Array(n), lon = new Float32Array(n), p = new Float32Array(n), dep = new Float32Array(n);
+  for (let i = 0; i < n; i++) { t[i] = r.t + r.h[i]; lat[i] = r.la[i] / 10; lon[i] = r.lo[i] / 10; p[i] = r.p[i]; dep[i] = r.d && r.d[i] > -99 ? r.d[i] : NaN; }
   const f = r.f || '';
   const s = {
     id: r.id, ty: r.ty, t0: t[0], t1: t[n - 1], n, t, lat, lon, p,
-    pm: r.pm, tm: r.t + r.tm, L: r.L, bg: r.bg ?? null, dp: r.dp ?? null, mi: r.mi || '', tc: r.tc || '',
+    pm: r.pm, tm: r.t + r.tm, L: r.L, dep, dm: r.dm ?? null, sig: f.includes('s'), us: f.includes('u'), bg: r.bg ?? null, dp: r.dp ?? null, mi: r.mi || '', tc: r.tc || '',
     nor: f.includes('n'), bomb: f.includes('b'), jump: f.includes('j'), stat: f.includes('q'), merged: f.includes('m'),
     active: f.includes('a'), young: f.includes('y'),
     jumps: new Set(r.j || []), bw: r.bw || [], x: r.x || [],
@@ -533,18 +555,37 @@ function inWindowFromCache(t0, t1) {
   for (const list of S.yearData.values()) for (const s of list) if (s.t0 <= t1 && s.t1 >= t0) out.push(s);
   return out;
 }
-// interpolated position at hour h (inside the main path; never across a jump)
+// position at hour h along the drawn curve (Catmull-Rom through the smoothed points; never across a jump)
+function cr(p0, p1, p2, p3, f) {
+  const f2 = f * f, f3 = f2 * f;
+  return 0.5 * (2 * p1 + (-p0 + p2) * f + (2 * p0 - 5 * p1 + 4 * p2 - p3) * f2 + (-p0 + 3 * p1 - 3 * p2 + p3) * f3);
+}
 function posAt(s, h) {
   if (h <= s.t[0]) return { lat: s.lat[0], lon: s.lon[0], p: s.p[0], i: 0 };
   if (h >= s.t[s.n - 1]) return { lat: s.lat[s.n - 1], lon: s.lon[s.n - 1], p: s.p[s.n - 1], i: s.n - 1 };
   let i = 1; while (s.t[i] < h) i++;
   if (s.jumps.has(i)) return { lat: s.lat[i - 1], lon: s.lon[i - 1], p: s.p[i - 1], i: i - 1 };
   const f = (h - s.t[i - 1]) / (s.t[i] - s.t[i - 1]);
-  return { lat: lerp(s.lat[i - 1], s.lat[i], f), lon: lerp(s.lon[i - 1], s.lon[i], f), p: lerp(s.p[i - 1], s.p[i], f), i: i - 1, f };
+  const a = i - 1, b = i;
+  const a0 = a > 0 && !s.jumps.has(a) ? a - 1 : a, b1 = b + 1 < s.n && !s.jumps.has(b + 1) ? b + 1 : b;
+  return {
+    lat: cr(s.lat[a0], s.lat[a], s.lat[b], s.lat[b1], f), lon: cr(s.lon[a0], s.lon[a], s.lon[b], s.lon[b1], f),
+    p: lerp(s.p[a], s.p[b], f), i: a, f,
+  };
 }
 
 // ── filters ─────────────────────────────────────────────────────────
+function inRegion(s) {
+  if (!S.v2) return true;
+  if (S.region === 'us') return s.us;
+  const [x0, y0, x1, y1] = REGION[S.region].box;
+  if (s.bbox[2] < x0 || s.bbox[0] > x1 || s.bbox[3] < y0 || s.bbox[1] > y1) return false;
+  for (let i = 0; i < s.n; i++) if (s.lon[i] >= x0 && s.lon[i] <= x1 && s.lat[i] >= y0 && s.lat[i] <= y1) return true;
+  return false;
+}
 function passes(s, o = {}) {
+  if (S.v2 && !S.allLows && !s.sig) return false;
+  if (!inRegion(s)) return false;
   if (!S.types.has(s.ty)) return false;
   if (S.nor && !s.nor) return false;
   if (S.bomb && !s.bomb) return false;
@@ -555,6 +596,8 @@ function passes(s, o = {}) {
 }
 function filterLabel() {
   const bits = [];
+  if (S.region !== 'us') bits.push(REGION[S.region].name);
+  if (S.allLows) bits.push('all lows');
   if (S.types.size < TYPES.length) bits.push(TYPES.filter(t => S.types.has(t.k)).map(t => t.name).join(', '));
   if (S.nor) bits.push("nor'easters");
   if (S.bomb) bits.push('bombs');
@@ -606,7 +649,7 @@ const isLive = () => { const w = periodWindow(); return w[1] >= S.latest - 3 && 
 function defaultPeriod(type) {
   const d = dOf(S.latest), y = d.getUTCFullYear(), m = d.getUTCMonth();
   switch (type) {
-    case 'recent': return { type, days: 7 };
+    case 'recent': return { type, days: 14 };
     case 'month': return { type, y, m };
     case 'season': { const s = m === 11 ? 0 : Math.floor(((m + 1) % 12) / 3); return { type, y: m === 11 ? y + 1 : y, s }; }
     case 'winter': return { type, y: m >= 9 ? y + 1 : y };
@@ -653,7 +696,7 @@ function makeProjection(view, w, h) {
     .scale(view.k * Math.min(w, h)).translate([w / 2 + view.x * w, h / 2 + view.y * h]).precision(0.3);
 }
 // view = {k, x, y}: the same view reproduces at any canvas size
-function fitPoints(points, w, h, pad = 0.9) {
+function fitPoints(points, w, h, pad = 0.9, kmax = 12) {
   const xs = [], ys = [];
   for (const [lon, lat] of points) { const q = P1([lon, lat]); if (q && isFinite(q[0])) { xs.push(q[0]); ys.push(q[1]); } }
   if (!xs.length) return { k: 1.6, x: 0, y: 0 };
@@ -661,7 +704,7 @@ function fitPoints(points, w, h, pad = 0.9) {
   const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
   const sw = Math.max(x1 - x0, 0.12), sh = Math.max(y1 - y0, 0.12 * h / w);
   const k = Math.min(w * pad / sw, h * pad / sh);
-  const kk = Math.min(k / Math.min(w, h), 12), sc = kk * Math.min(w, h);
+  const kk = Math.min(k / Math.min(w, h), kmax), sc = kk * Math.min(w, h);
   return { k: kk, x: -cx * sc / w, y: -cy * sc / h };
 }
 function boxPoints(x0, y0, x1, y1) {
@@ -671,7 +714,7 @@ function boxPoints(x0, y0, x1, y1) {
 }
 const BOX = { na: [-133, 22, -55, 60], bench: [-84, 31.5, -58, 48] };
 function homeView(w, h) {
-  const b = S.tab === 'bench' ? BOX.bench : BOX.na;
+  const b = S.tab === 'bench' ? BOX.bench : S.v2 ? REGION[S.region].box : BOX.na;
   return fitPoints(boxPoints(...b), w, h, S.tab === 'bench' ? 0.96 : 0.98);
 }
 function setupCanvas(cv, w, h, scale) {
@@ -759,35 +802,42 @@ function drawStorm(ctx, proj, s, st, o) {
   if (pts.length < 1) return pts;
   const alpha = o.alpha, lw = o.lw;
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  void st;
   // faint pieces: the primary after a hand-over, the secondary before it
   if (o.side) for (const sd of s.side) {
     const q = []; for (let k = 0; k < sd.t.length; k++) { if (o.T != null && sd.t[k] > o.T) break; const xy = proj([sd.lon[k], sd.lat[k]]); if (xy) q.push({ x: xy[0], y: xy[1] }); }
     if (q.length > 1) { ctx.globalAlpha = alpha * 0.5; ctx.strokeStyle = stormColor(s, sd.p[0]); ctx.lineWidth = Math.max(1, lw * 0.55); ctx.setLineDash([2, 3]); strokeRun(ctx, q, 0, q.length - 1); ctx.setLineDash([]); }
   }
+  // curves through the projected points; jumps break the curve and are drawn dashed
+  const n = pts.length, last = Math.max(1, s.n - 1);
+  const ctrl = k => {                    // bezier controls for the piece pts[k-1] → pts[k]
+    const A = pts[k - 1], B = pts[k];
+    const P0 = k >= 2 && !A.jump ? pts[k - 2] : A, P3 = k + 1 < n && !pts[k + 1].jump ? pts[k + 1] : B;
+    return [A.x + (B.x - P0.x) / 6, A.y + (B.y - P0.y) / 6, B.x - (P3.x - A.x) / 6, B.y - (P3.y - A.y) / 6];
+  };
+  const piece = k => { const A = pts[k - 1], B = pts[k], c = ctrl(k); ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.bezierCurveTo(c[0], c[1], c[2], c[3], B.x, B.y); ctx.stroke(); };
+  const segDepth = k => { const i = pts[k].i, d1 = s.dep[Math.max(0, pts[k - 1].i)], d2 = s.dep[i]; const d = Math.max(Number.isNaN(d1) ? -1 : d1, Number.isNaN(d2) ? -1 : d2); return d < 0 ? null : d; };
+  const widthAt = k => { const d = segDepth(k); return d == null ? lw : lw * (0.55 + 0.85 * clamp(d / 16, 0, 1)); };
+  const fadeAt = k => o.fade === false ? 1 : 0.35 + 0.65 * (pts[k].i / last);
   // bomb halo
   if (s.bomb) for (const [i0, i1] of s.bw) {
-    const a = pts.findIndex(q => q.i >= i0), b = pts.findLastIndex(q => q.i <= i1);
-    if (a < 0 || b <= a) continue;
-    ctx.globalAlpha = Math.min(1, alpha + 0.1) * 0.3; ctx.strokeStyle = MAP_COL.cream; ctx.lineWidth = lw + 5.5;
-    strokeRun(ctx, pts, a, b);
+    ctx.globalAlpha = Math.min(1, alpha + 0.1) * (o.big || o.many === false ? 0.28 : 0.16); ctx.strokeStyle = MAP_COL.cream;
+    for (let k = 1; k < n; k++) { if (pts[k].jump || pts[k - 1].i < i0 || pts[k].i > i1) continue; ctx.lineWidth = widthAt(k) + 5.5; piece(k); }
   }
-  ctx.globalAlpha = alpha;
-  ctx.lineWidth = lw;
-  const uni = S.tab === 'bench' || S.colorBy === 'type';
-  for (let k = 1; k < pts.length; k++) {
-    const a = pts[k - 1], b = pts[k];
-    if (b.jump) {
-      ctx.setLineDash([4, 4]); ctx.lineWidth = Math.max(1, lw * 0.7); ctx.strokeStyle = stormColor(s, b.p);
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = lw;
+  ctx.lineCap = 'butt';
+  for (let k = 1; k < n; k++) {
+    const A = pts[k - 1], B = pts[k];
+    ctx.globalAlpha = alpha * fadeAt(k);
+    if (B.jump) {
+      ctx.setLineDash([4, 4]); ctx.lineWidth = Math.max(1, lw * 0.7); ctx.strokeStyle = stormColor(s, B.p);
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke(); ctx.setLineDash([]);
       continue;
     }
-    if (uni) {   // one stroke per unbroken run
-      let e = k; while (e + 1 < pts.length && !pts[e + 1].jump) e++;
-      ctx.strokeStyle = stormColor(s, s.pm); strokeRun(ctx, pts, k - 1, e); k = e; continue;
-    }
-    ctx.strokeStyle = pCol((a.p + b.p) / 2);
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    ctx.lineWidth = widthAt(k);
+    ctx.strokeStyle = S.tab === 'bench' || S.colorBy === 'type' ? stormColor(s, s.pm) : pCol((A.p + B.p) / 2);
+    piece(k);
   }
+  ctx.lineCap = 'round';
   // position marks (and day labels)
   if (o.marks) for (const q of pts) {
     if (q.head) continue;
@@ -878,13 +928,13 @@ function loadMonth(mk) {
   }
   return S.months.get(mk);
 }
-function bulletinNear(h) {      // nearest loaded analysis to hour h (within 12 h), else null
+function bulletinNear(h) {      // nearest loaded analysis to hour h (within 3 h), else null
   let best = null;
   for (const mk of [monthKey(h - 12), monthKey(h), monthKey(h + 12)]) {
     const v = S.months.get(mk)?.__value; if (!v) continue;
     for (const b of v) if (!best || Math.abs(b.t - h) < Math.abs(best.t - h)) best = b;
   }
-  return best && Math.abs(best.t - h) <= 12 ? best : null;
+  return best && Math.abs(best.t - h) <= 3 ? best : null;
 }
 function ensureMonths(h) {
   const ks = [...new Set([monthKey(h - 12), monthKey(h), monthKey(h + 12)])];
@@ -893,7 +943,7 @@ function ensureMonths(h) {
 }
 function frontTime() {
   const s = S.sel; if (!s) return null;
-  return S.tSel ?? (S.T != null ? clamp(S.T, s.t0, s.t1) : s.tm);
+  return S.tSel ?? S.pt ?? (S.T != null ? clamp(S.T, s.t0, s.t1) : s.tm);
 }
 function pathLen(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; }
 function pointAt(pts, d) {
@@ -966,9 +1016,16 @@ function drawAnalysis(ctx, proj, w, h) {
 }
 function drawSelMarker(ctx, proj, s, h) {
   const q = posAt(s, clamp(h, s.t0, s.t1)), xy = proj([q.lon, q.lat]); if (!xy) return;
-  ctx.save();
-  ctx.beginPath(); ctx.arc(xy[0], xy[1], 8, 0, 2 * Math.PI); ctx.lineWidth = 2.4; ctx.strokeStyle = MAP_COL.cream; ctx.stroke();
-  ctx.beginPath(); ctx.arc(xy[0], xy[1], 4, 0, 2 * Math.PI); ctx.fillStyle = S.tab === 'bench' ? stormColor(s, q.p) : pCol(q.p); ctx.fill();
+  const col = S.tab === 'bench' ? stormColor(s, q.p) : pCol(q.p);
+  ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.beginPath(); ctx.arc(xy[0], xy[1], 15, 0, 2 * Math.PI); ctx.fillStyle = 'rgba(20,24,22,.72)'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = col; ctx.stroke();
+  ctx.font = '800 21px "Public Sans", sans-serif'; ctx.fillStyle = col; ctx.fillText('L', xy[0], xy[1] + 1);
+  ctx.font = '700 13px "Courier Prime", monospace';
+  const txt = `${fmtH(clamp(h, s.t0, s.t1))} · ${Math.round(q.p)} mb`, tw = ctx.measureText(txt).width;
+  const W = ctx.canvas.width / (ctx.getTransform().a || 1), left = xy[0] + 20 + tw > W - 6;
+  ctx.textAlign = left ? 'right' : 'left';
+  haloText(ctx, txt, left ? xy[0] - 20 : xy[0] + 20, xy[1] - 1, MAP_COL.cream);
   ctx.restore();
 }
 
@@ -994,13 +1051,15 @@ function renderMap(ctx, w, h, scale, opts = {}) {
   for (const s of ordered) {
     if (s === focus) continue;
     const pts = drawStorm(ctx, proj, s, st, {
-      T, alpha: focus ? st.a * 0.28 : st.a, lw: st.lw, side: few, marks: list.length <= 200 ? S.marks : 0, labels: S.labels && few, gen: S.gen && S.tab === 'tracks',
+      T, alpha: focus ? st.a * 0.28 : st.a, lw: st.lw, side: few, marks: list.length <= 60 ? S.marks : 0, labels: S.labels && few, gen: S.gen && S.tab === 'tracks',
     });
     out.hits.push({ s, pts });
   }
   if (focus && list.includes(focus)) {
-    const pts = drawStorm(ctx, proj, focus, st, { T, alpha: 1, lw: st.lw + 1.4, side: true, marks: S.marks || 12, labels: focus === S.sel, big: true, gen: true });
-    out.hits.push({ s: focus, pts });
+    const playing = focus === S.sel && S.pt != null && S.pt < focus.t1;
+    if (playing) drawStorm(ctx, proj, focus, st, { T: null, alpha: 0.3, lw: st.lw + 1.4, side: false, fade: false });
+    const pts = drawStorm(ctx, proj, focus, st, { T: playing ? S.pt : T, alpha: 1, lw: st.lw + 1.4, side: true, marks: S.marks || 12, labels: focus === S.sel, big: true, gen: true });
+    out.hits.push({ s: focus, pts: playing ? projectStorm(proj, focus, null) : pts });
   }
   if (S.tab === 'bench' || S.showBm) drawBenchmark(ctx, proj, S.tab === 'bench');
   drawStation(ctx, proj);
@@ -1461,7 +1520,7 @@ async function refresh(o = {}) {
     const list = allYears ? inWindowFromCache(w[0], w[1]) : await loadWindow(w[0], w[1]);
     if (seq !== refreshSeq) return;
     S.list = S.tab === 'bench'
-      ? list.filter(s => s.nor && !s.stat)
+      ? list.filter(s => s.nor && !s.stat && (!S.v2 || S.allLows || s.sig))
       : list.filter(s => passes(s));
     if (S.sel && !S.list.includes(S.sel)) S.sel = o.keepSel ? (S.list.find(s => s.id === S.sel.id) || null) : null;
     $('map-msg').hidden = true;
@@ -1515,7 +1574,7 @@ function renderRail() {
   // type chips with counts in the period (before the type filter)
   if (S.tab === 'tracks') {
     const w = S.win || periodWindow();
-    const base = inWindowFromCache(w[0], w[1]).filter(s => (!S.nor || s.nor) && (!S.bomb || s.bomb) && (!S.pmax || s.pm <= S.pmax) && (S.stat || !s.stat));
+    const base = inWindowFromCache(w[0], w[1]).filter(s => (!S.nor || s.nor) && (!S.bomb || s.bomb) && (!S.pmax || s.pm <= S.pmax) && (S.stat || !s.stat) && (!S.v2 || S.allLows || s.sig) && inRegion(s));
     const n = countBy(base, s => s.ty);
     document.querySelectorAll('#types .st-chip').forEach(b => { b.querySelector('.n').textContent = n[b.dataset.k] || 0; });
     const act = S.list.filter(s => s.active).length;
@@ -1529,7 +1588,10 @@ function renderRail() {
 function syncControls() {
   document.querySelectorAll('#tabs .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b.dataset.tab === S.tab));
   document.querySelectorAll('#types .st-chip').forEach(b => { const on = S.types.has(b.dataset.k); b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on); });
-  for (const [id, on] of [['f-nor', S.nor], ['f-bomb', S.bomb], ['f-stat', S.stat], ['f-gen', S.gen], ['f-labels', S.labels], ['f-bm', S.showBm]]) { $(id).classList.toggle('is-active', on); $(id).setAttribute('aria-pressed', on); }
+  document.querySelectorAll('#regions .cc-btn').forEach(b => { const on = b.dataset.k === S.region; b.classList.toggle('is-active', on); b.setAttribute('aria-pressed', on); });
+  $('regions').closest('.cc-card-grp').hidden = !S.v2;
+  $('f-all').hidden = !S.v2;
+  for (const [id, on] of [['f-all', S.allLows], ['f-nor', S.nor], ['f-bomb', S.bomb], ['f-stat', S.stat], ['f-gen', S.gen], ['f-labels', S.labels], ['f-bm', S.showBm]]) { $(id).classList.toggle('is-active', on); $(id).setAttribute('aria-pressed', on); }
   document.querySelectorAll('#strength .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', +b.dataset.v === S.pmax));
   document.querySelectorAll('#colorby .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', b.dataset.v === S.colorBy));
   document.querySelectorAll('#marks .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', +b.dataset.v === S.marks));
@@ -1560,15 +1622,17 @@ function renderStormCard() {
     (badges.length ? `<div class="sc-badges">${badges.join('')}</div>` : '') +
     `<div class="sc-tiles">` +
     `<div class="sc-tile"><div class="l">Lowest</div><div class="v">${s.pm}<small>mb</small></div></div>` +
+    (s.dm != null ? `<div class="sc-tile" title="Pressure 750 km (470 mi) out, averaged around the low, minus the low's own"><div class="l">Deepest vs. surroundings</div><div class="v">${s.dm}<small>mb</small></div></div>`
+      : `<div class="sc-tile"><div class="l">Fastest 24-h drop</div><div class="v">${dp}</div></div>`) +
     `<div class="sc-tile"><div class="l">${s.active ? 'So far' : 'Lasted'}</div><div class="v">${days < 2 ? Math.round(days * 24) + '<small>h</small>' : days.toFixed(1) + '<small>days</small>'}</div></div>` +
     `<div class="sc-tile"><div class="l">Travelled</div><div class="v">${fmtN(s.L / KM_MI)}<small>mi</small></div></div>` +
-    `<div class="sc-tile"><div class="l">Fastest 24-h drop</div><div class="v">${dp}</div></div>` +
     `</div>`;
+  if (s.dm != null && s.dp != null && s.dp > 0) html += `<div class="sc-line">Fastest 24-h drop: <b>${s.dp} mb</b></div>`;
   if (s.bm) {
     const mi = Math.round(Math.abs(s.bm.km) / KM_MI), side = benchSide(s.bm.km);
     html += `<div class="sc-line">${side === 'over' ? `Passed <b>over the benchmark</b> (${mi} mi)` : `Passed <b>${mi} mi ${side}</b> the benchmark`} · ${fmtH(s.bm.t)}</div>`;
   }
-  if (s.bg != null && s.bg >= 1) html += `<div class="sc-line">Deepened ${s.dp} mb in 24 h · <b>${s.bg.toFixed(1)}</b> Bergerons</div>`;
+  if (s.bg != null && s.bg >= 1) html += `<div class="sc-line">Bomb: ${s.bg.toFixed(1)} Bergerons</div>`;
   if (S.station) {
     const o = stormOutcome(s), nm = S.station.id;
     let t;
@@ -1583,17 +1647,21 @@ function renderStormCard() {
     }
     html += `<div class="sc-line">${t}</div>`;
   }
+  html += `<div class="sc-play"><button type="button" class="cc-btn sc-main" id="sc-play"></button><button type="button" class="cc-btn" id="sc-speed" title="Playback speed"></button></div>`;
   html += `<div class="sc-row"><button type="button" class="cc-btn${S.showFronts ? ' is-active' : ''}" id="sc-fronts" aria-pressed="${S.showFronts}">WPC analysis</button><button type="button" class="cc-btn" id="sc-fit">Zoom to storm</button><button type="button" class="cc-btn" id="sc-close" aria-label="Close storm" style="flex:0 0 auto">&times;</button></div>`;
-  if (S.tab === 'tracks') html += `<div class="rd-hint">Hover the pressure chart to step through the analyses</div>`;
+  if (S.tab === 'tracks') html += `<div class="rd-hint">Drag along the pressure chart to move the L</div>`;
   $('storm-card').innerHTML = html;
+  syncPlayBtn();
+  $('sc-play').addEventListener('click', () => { if (S.ptRun) stopStormPlay(); else playStorm(); });
+  $('sc-speed').addEventListener('click', () => { S.ptSpeed = S.ptSpeed === 1 ? 2 : S.ptSpeed === 2 ? 0.5 : 1; syncPlayBtn(); });
   $('sc-fronts').addEventListener('click', () => { S.showFronts = !S.showFronts; renderStormCard(); draw(); });
   $('sc-close').addEventListener('click', () => selectStorm(null));
   $('sc-fit').addEventListener('click', () => fitStorm(s));
 }
 function fitStorm(s) {
   const pts = []; for (let i = 0; i < s.n; i++) pts.push([s.lon[i], s.lat[i]]);
-  const v = fitPoints(pts, G.w, G.mapH, 0.8);
-  v.k = Math.min(v.k, 6);
+  for (const sd of s.side) for (let i = 0; i < sd.t.length; i++) pts.push([sd.lon[i], sd.lat[i]]);
+  const v = fitPoints(pts, G.w, G.mapH, 0.72, 4.5);
   setManual(true); S.viewAnim = { from: { ...S.view }, to: v, t0: performance.now() }; draw();
 }
 function renderDensityRail() {
@@ -1659,10 +1727,13 @@ function renderLegend() {
     else html += TYPES.map(t => `<span>${line(t.col, false)}${t.name}</span>`).join('');
   }
   if (S.tab !== 'density') {
+    if (S.v2) html += `<span><i style="width:24px;height:0;border-top:1px solid #A6A499;position:relative"><b style="position:absolute;right:0;top:-4px;width:12px;height:6px;background:#A6A499;border-radius:1px"></b></i>wider: deeper than its surroundings</span>`;
+    html += `<span><i style="width:24px;height:3px;background:linear-gradient(90deg,rgba(166,164,153,.3),#A6A499)"></i>faint where it formed → bright where it ended</span>`;
     html += `<span>${line('#A6A499', true, 2)}hand-over to a new low</span>`;
     html += `<span><i style="width:24px;height:9px;border-radius:5px;background:rgba(242,238,227,.32)"></i>bomb: a 24-h drop of 1 Bergeron or more</span>`;
     html += `<span><i style="width:24px;text-align:center;color:#ef7e50;font-weight:800;font-family:var(--font-body)">L</i>${S.T != null ? 'position at the replay time' : 'active storm, latest position'}</span>`;
-    if (S.marks) html += `<span><i style="width:9px;height:9px;border-radius:50%;background:#A6A499;margin:0 7px"></i>every ${S.marks} h (from 00 UTC)</span>`;
+    if (S.marks && S.list.length <= 60) html += `<span><i style="width:9px;height:9px;border-radius:50%;background:#A6A499;margin:0 7px"></i>every ${S.marks} h (from 00 UTC)</span>`;
+    if (S.tab === 'tracks' && !S.allLows && S.v2) html += `<span style="color:var(--color-text-muted);display:block;line-height:1.45">Shown: lows at least 8 mb below their surroundings (470 mi out) for 24 h, plus bombs and tropical cyclones</span>`;
     if (S.gen && S.tab === 'tracks') html += `<span><i style="width:10px;height:10px;border-radius:50%;box-shadow:inset 0 0 0 2px #A6A499;margin:0 7px"></i>formed · <b style="color:#A6A499;font-weight:700">×</b> ended</span>`;
   }
   if (S.station) html += `<span><i style="width:10px;height:10px;box-shadow:inset 0 0 0 2px #2AA87E;margin:0 7px"></i>${S.station.id} · ${S.station.name}</span>`;
@@ -1781,6 +1852,7 @@ function togglePlay(force) {
   const step = span > 120 * 24 ? 24 : span > 45 * 24 ? 12 : span > 20 * 24 ? 6 : 3;
   const frames = span / step, ms = clamp(14000 / frames, 40, 160);
   if (S.T == null || S.T >= b) S.T = a;
+  if (S.sel) { stopStormPlay(true); S.pt = null; }
   $('play').innerHTML = '&#10074;&#10074; Pause';
   S.playing = setInterval(() => {
     const T = Math.min(b, (S.T ?? a) + step);
@@ -1849,10 +1921,44 @@ function renderDensityRead(g) {
   }
 }
 function selectStorm(s, o = {}) {
-  S.sel = s; S.tSel = null; S.hover = null; $('tip').hidden = true;
-  if (s) { S.showFronts = S.showFronts ?? true; ensureMonths(frontTime()); }
+  stopStormPlay(true);
+  S.sel = s; S.tSel = null; S.hover = null; S.pt = null; $('tip').hidden = true;
+  if (s) { togglePlay(false); if (S.T != null) setT(null); ensureMonths(s.t0); ensureMonths(s.t1); }
   renderRail(); layout(); writeURL(); draw();
-  if (s && o.fit) fitStorm(s);
+  if (s && o.fit !== false) fitStorm(s);
+  if (s && o.play !== false) playStorm(true);
+}
+// ── storm playback: the L glides along the selected storm ───────────
+S.ptSpeed = 1;
+function syncPlayBtn() {
+  const b = $('sc-play'), sp = $('sc-speed'); if (!b) return;
+  const s = S.sel, done = S.pt != null && s && S.pt >= s.t1;
+  b.innerHTML = S.ptRun ? '&#10074;&#10074; Pause' : done ? '&#8635; Replay storm' : '&#9654; Play storm';
+  b.classList.toggle('is-active', !!S.ptRun);
+  sp.textContent = `${S.ptSpeed}×`;
+}
+function playStorm(fromStart) {
+  const s = S.sel; if (!s) return;
+  if (fromStart || S.pt == null || S.pt >= s.t1) S.pt = s.t0;
+  S.tSel = null;
+  const dur = s.t1 - s.t0, rate = clamp(dur / 7, 8, 30);       // storm hours per second
+  let last = performance.now();
+  const step = now => {
+    if (!S.ptRun || S.sel !== s) return;
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    S.pt = Math.min(s.t1, S.pt + dt * rate * S.ptSpeed);
+    ensureMonths(S.pt);
+    draw();
+    if (S.pt >= s.t1) { S.ptRun = null; syncPlayBtn(); return; }
+    S.ptRun = requestAnimationFrame(step);
+  };
+  S.ptRun = requestAnimationFrame(step);
+  syncPlayBtn();
+}
+function stopStormPlay(quiet) {
+  if (S.ptRun) cancelAnimationFrame(S.ptRun);
+  S.ptRun = null;
+  if (!quiet) { syncPlayBtn(); draw(); }
 }
 function onStripMove(e) {
   if (!lastStrip) return;
@@ -1860,8 +1966,9 @@ function onStripMove(e) {
   if (lastStrip.kind === 'pressure') {
     const { L, R, t0, t1 } = lastStrip, f = (px - L) / (r.width - L - R);
     if (f < -0.02 || f > 1.02) return;
-    const t = Math.round(clamp(t0 + f * (t1 - t0), S.sel.t0, S.sel.t1) / 3) * 3;
-    if (t !== S.tSel) { S.tSel = t; ensureMonths(t); draw(); }
+    const t = clamp(t0 + f * (t1 - t0), S.sel.t0, S.sel.t1);
+    if (S.ptRun) stopStormPlay();
+    S.pt = t; S.tSel = null; ensureMonths(t); syncPlayBtn(); draw();
   } else if (lastStrip.kind === 'bench') {
     let best = null, bd = 10 * 10;
     for (const q of lastStrip.hits) { const d = (q.x - px) ** 2 + (q.y - py) ** 2; if (d < bd) { bd = d; best = q.s; } }
@@ -2056,6 +2163,7 @@ function stateParams() {
   q.set('p', encPeriod(S.period));
   if (S.tab === 'bench') q.set('bp', encPeriod(S.benchPeriod));
   if (S.types.size < TYPES.length) q.set('types', [...S.types].join(''));
+  if (S.region !== 'us') q.set('region', S.region); if (S.allLows) q.set('all', '1');
   if (S.nor) q.set('nor', '1'); if (S.bomb) q.set('bomb', '1'); if (S.pmax) q.set('pmax', S.pmax); if (S.stat) q.set('stat', '1');
   if (S.gen) q.set('gen', '1'); if (S.colorBy !== 'p') q.set('color', S.colorBy); if (S.marks !== 24) q.set('marks', S.marks);
   if (S.labels) q.set('labels', '1'); if (S.showBm) q.set('bm', '1');
@@ -2071,6 +2179,7 @@ function readURL() {
   S.period = decPeriod(q.get('p')) || S.period;
   S.benchPeriod = decPeriod(q.get('bp'), true) || S.benchPeriod;
   if (q.get('types')) { const t = new Set(q.get('types').split('').filter(k => TYPE[k])); if (t.size) S.types = t; }
+  if (REGION[q.get('region')]) S.region = q.get('region'); S.allLows = q.get('all') === '1';
   S.nor = q.get('nor') === '1'; S.bomb = q.get('bomb') === '1'; S.stat = q.get('stat') === '1'; S.gen = q.get('gen') === '1';
   if ([1000, 990, 980].includes(+q.get('pmax'))) S.pmax = +q.get('pmax');
   if (q.get('color') === 'type') S.colorBy = 'type';
@@ -2177,7 +2286,14 @@ function bind() {
   });
   $('types-all').addEventListener('click', () => { S.types = new Set(TYPES.map(t => t.k)); refresh({ keepView: true, keepT: true, keepSel: true }); });
   const tog = (id, key) => $(id).addEventListener('click', () => { S[key] = !S[key]; refresh({ keepView: true, keepT: true, keepSel: true }); });
-  tog('f-nor', 'nor'); tog('f-bomb', 'bomb'); tog('f-stat', 'stat');
+  tog('f-nor', 'nor'); tog('f-bomb', 'bomb'); tog('f-stat', 'stat'); tog('f-all', 'allLows');
+  $('regions').innerHTML = REGIONS.map(r => `<button type="button" class="cc-btn" data-k="${r.k}" aria-pressed="false">${r.name}</button>`).join('');
+  $('regions').addEventListener('click', e => {
+    const b = e.target.closest('[data-k]'); if (!b || b.dataset.k === S.region) return;
+    S.region = b.dataset.k; setManual(false);
+    S.viewAnim = { from: { ...S.view }, to: homeView(G.w, G.mapH), t0: performance.now() };
+    refresh({ keepView: true, keepT: true, keepSel: true });
+  });
   $('f-gen').addEventListener('click', () => { S.gen = !S.gen; syncControls(); renderLegend(); writeURL(); draw(); });
   $('f-labels').addEventListener('click', () => { S.labels = !S.labels; syncControls(); writeURL(); draw(); });
   $('f-bm').addEventListener('click', () => { S.showBm = !S.showBm; syncControls(); writeURL(); draw(); });
@@ -2222,7 +2338,7 @@ function bind() {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (expJob || e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.key === 'Escape' && S.sel) selectStorm(null);
-    else if (e.key === ' ' && e.target.tagName !== 'BUTTON' && S.tab !== 'density') { e.preventDefault(); togglePlay(); }
+    else if (e.key === ' ' && e.target.tagName !== 'BUTTON' && S.tab !== 'density') { e.preventDefault(); if (S.sel) { if (S.ptRun) stopStormPlay(); else playStorm(); } else togglePlay(); }
   });
   let rt = 0;
   const relayout = () => { clearTimeout(rt); rt = setTimeout(() => { dpr = window.devicePixelRatio || 1; layout(); }, 100); };
@@ -2740,6 +2856,12 @@ const XU = { open: false, fmt: 'gif', step: 6, fps: 8 };
 const EXP = { noVideo: false, vidLabel: 'MP4' };
 let expJob = null;
 function expTimes() {
+  if (S.sel && S.tab !== 'density') {           // one storm: the L glides along it
+    const s = S.sel, dur = s.t1 - s.t0, step = Math.max(1, Math.ceil(dur / 240)), out = [];
+    for (let t = s.t0; t < s.t1; t += step) out.push(t);
+    for (let k = 0; k < 6; k++) out.push(s.t1);   // hold on the end
+    return out;
+  }
   const [a, b] = S.win || periodWindow(), out = [];
   for (let t = Math.ceil(a / XU.step) * XU.step; t < b; t += XU.step) out.push(t);
   out.push(null);                         // last frame: the whole period
@@ -2752,8 +2874,9 @@ function makeAnim(list) {
     W: ANIM_W, H: ANIM_H, frames: list.length,
     async prepare(k) { return { T: list[k] }; },
     draw(ctx, fr, k, scale) {
-      const keep = { view: S.view, T: S.T, hover: S.hover };
-      Object.assign(S, { view, T: fr.T, hover: null });
+      const keep = { view: S.view, T: S.T, hover: S.hover, pt: S.pt, tSel: S.tSel };
+      if (S.sel) Object.assign(S, { view, T: null, pt: fr.T, tSel: null, hover: null });
+      else Object.assign(S, { view, T: fr.T, hover: null });
       try { drawAnimFrame(ctx, scale); } finally { Object.assign(S, keep); }
     },
   };
@@ -2763,9 +2886,10 @@ function drawAnimFrame(ctx, scale) {
   ctx.fillStyle = '#1E2320'; ctx.fillRect(0, 0, W, H); ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
   ctx.fillStyle = '#948F82'; ctx.font = '700 12px "Courier Prime", monospace';
   ctx.fillText(`CONTEXTCLIMATE  ·  STORM TRACKS${S.tab === 'bench' ? "  ·  NOR'EASTERS" : ''}`, P, 24);
-  ctx.fillStyle = '#E8E4D9'; ctx.font = '700 24px "Zilla Slab", serif'; ctx.fillText(periodLabel(), P, 53);
+  ctx.fillStyle = '#E8E4D9'; ctx.font = '700 24px "Zilla Slab", serif';
+  ctx.fillText(S.sel ? `${fmtSpan(S.sel.t0, S.sel.t1)} · ${TYPE[S.sel.ty].name}${S.sel.tc && S.sel.tc !== 'Unnamed' ? ' · ' + S.sel.tc : ''}` : periodLabel(), P, 53);
   ctx.font = '700 16px "Courier Prime", monospace'; ctx.textAlign = 'right';
-  ctx.fillText(S.T == null ? `${S.list.length} storms` : fmtH(S.T, { year: true }), W - P, 53); ctx.textAlign = 'left';
+  ctx.fillText(S.sel ? `lowest ${S.sel.pm} mb` : S.T == null ? `${S.list.length} storms` : fmtH(S.T, { year: true }), W - P, 53); ctx.textAlign = 'left';
   const mw = W - 2 * P;
   ctx.save(); ctx.translate(P, AF.HEAD); ctx.beginPath(); ctx.rect(0, 0, mw, AF.MAPH); ctx.clip();
   renderMap(ctx, mw, AF.MAPH, scale, { exporting: true });
@@ -2782,6 +2906,7 @@ function syncExpUI() {
   ['gif', 'mp4'].forEach(f => $(f).classList.toggle('is-active', XU.open && XU.fmt === f));
   if (!XU.open || !S.index) return;
   document.querySelectorAll('#segStep .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', +b.dataset.v === XU.step));
+  $('segStep').hidden = !!S.sel; $('segStep').previousElementSibling.hidden = !!S.sel;
   document.querySelectorAll('#segSpeed .cc-segmented-btn').forEach(b => b.classList.toggle('is-active', +b.dataset.v === XU.fps));
   if (expJob) return;
   const n = expTimes().length, secs = n / XU.fps + 2, go = $('expGo');
@@ -2795,6 +2920,7 @@ function openExport(fmt) {
   if (expJob || S.tab === 'density') return;
   if (XU.open && XU.fmt === fmt) { XU.open = false; syncExpUI(); return; }
   togglePlay(false);
+  if (S.sel) stopStormPlay();
   const span = (S.win[1] - S.win[0]) / 24;
   XU.step = span > 75 ? 24 : span > 37 ? 12 : span > 18 ? 6 : 3;
   XU.open = true; XU.fmt = fmt; syncExpUI();
@@ -2826,7 +2952,7 @@ async function runExport() {
       if (cfg) res = { blob: await encodeMp4(anim, cfg, fps, job, pct), ext: 'mp4' };
       else { const mime = recorderMime(); if (!mime) throw new Error('Video export is not supported in this browser'); res = await recordVideo(anim, mime, fps, job, pct); }
     }
-    downloadBlob(res.blob, `storm-tracks-${S.tab}-${encPeriod(curPeriod()).replace(/[:_]/g, '-')}-${XU.step}h.${res.ext}`);
+    downloadBlob(res.blob, S.sel ? `storm-${S.sel.id}.${res.ext}` : `storm-tracks-${S.tab}-${encPeriod(curPeriod()).replace(/[:_]/g, '-')}-${XU.step}h.${res.ext}`);
   } catch (e) {
     if (e instanceof ExportCancelled) outcome = 'cancel'; else { console.error('Animated export:', e); outcome = 'fail'; }
   }
@@ -2864,6 +2990,7 @@ async function boot() {
       fetch('basemap-trajectory.json').then(r => r.json()),
     ]);
     S.index = idx; S.latest = keyH(idx.latest); S.first = keyH(idx.first); S.base = decodeBase(b);
+    S.v2 = !!(idx.method && idx.method.sigDepth);
     const want = readURL();
     bind(); initSearch(); initExport();
     setStation(STN[want.stn] ? want.stn : DEFAULT_STATION);
@@ -2897,7 +3024,7 @@ async function boot() {
   }
 }
 // read-only hook for automated checks
-window.__stState = () => ({ tab: S.tab, period: curPeriod(), win: S.win, n: S.list.length, sel: S.sel?.id || null, T: S.T, station: S.station?.id, stn: S.stnState,
+window.__stState = () => ({ region: S.region, allLows: S.allLows, v2: S.v2, pt: S.pt, playing: !!S.ptRun, tab: S.tab, period: curPeriod(), win: S.win, n: S.list.length, sel: S.sel?.id || null, T: S.T, station: S.station?.id, stn: S.stnState,
   types: [...S.types].join(''), colorBy: S.colorBy, manual: S.manual, view: S.view && { ...S.view }, geom: { ...G },
   density: D.info && { ...D.info, vmax: D.vmax, anom: D.anom }, export: { open: XU.open, fmt: XU.fmt, frames: S.win ? expTimes().length : 0, busy: !!expJob } });
 boot();
