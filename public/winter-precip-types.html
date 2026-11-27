@@ -241,7 +241,7 @@ footer a:hover { color:var(--color-text-primary); }
 
   <div class="cc-panel">
     <p class="methodology">
-      <b>Methodology:</b> Winter = Dec 1–Feb 28/29 (meteorological DJF). "Measurable" excludes trace amounts. Rain days are inferred (total precip days − snow days) since ACIS daily records don't separately flag precipitation type, so true rain-day counts on days that also had snow are undercounted. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-winter window ending at each complete winter. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>.
+      <b>Methodology:</b> Winter = Dec 1–Feb 28/29 (meteorological DJF). "Measurable" excludes trace amounts. Winters missing more than 15% of days, or with a gap of more than 5 days, are shown as incomplete and left out of averages and trends. Rain days are inferred (total precip days − snow days) since ACIS daily records don't separately flag precipitation type, so true rain-day counts on days that also had snow are undercounted. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-winter window ending at each complete winter. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>.
     </p>
   </div>
 
@@ -396,11 +396,35 @@ const isMeasurable = r => r && r.val !== null && r.val > 0;
 function getWinterY(year, month) { return month === 11 ? year : year - 1; }
 function WL(wy) { return `${wy}–${String(wy + 1).slice(-2)}`; }
 function dateFromParts(y, m, d) { return new Date(Date.UTC(y, m, d)); }
-function isWinterComplete(wy) {
+function isWinterEnded(wy) {
   const now = new Date();
   const end = new Date(Date.UTC(wy + 1, 2, 1)); // Mar 1 of the following year
   return now >= end;
 }
+// Site-wide completeness rule: a window counts when no more than 15% of its days
+// are missing and no run of missing days is longer than 5. A day is missing here
+// if either snowfall or precipitation is missing (rain days need both).
+function windowComplete(y0, m0, d0, y1, m1, d1, isMissing) {
+  let n = 0, miss = 0, run = 0, gap = 0;
+  for (let t = Date.UTC(y0, m0, d0), end = Date.UTC(y1, m1, d1); t <= end; t += 86400000) {
+    n++;
+    if (isMissing(new Date(t).toISOString().slice(0, 10))) { miss++; run++; if (run > gap) gap = run; } else run = 0;
+  }
+  return n > 0 && miss <= 0.15 * n && gap <= 5;
+}
+let winterOK = {};   // wy -> bool, reset per station in applyCache
+let byDateCur = {};  // date -> record for the loaded station
+function winterDataComplete(wy) {
+  if (!(wy in winterOK)) {
+    winterOK[wy] = windowComplete(wy, 11, 1, wy + 1, 2, 0, ds => { const r = byDateCur[ds]; return !r || r.snow.missing || r.pcpn.missing; });
+  }
+  return winterOK[wy];
+}
+// Counts toward averages and trends: ended, with a complete record
+function isWinterComplete(wy) { return isWinterEnded(wy) && winterDataComplete(wy); }
+// Ended but too much of the record is missing: still drawn, marked incomplete
+function isIncompleteRecord(wy) { return isWinterEnded(wy) && !winterDataComplete(wy); }
+const dimHex = c => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? c + '40' : c;
 
 // ─── FETCH (elems: snow + pcpn, same fallback pattern as us-snow-seasons) ─
 async function tryFetch(sid) {
@@ -445,16 +469,17 @@ async function fetchData(sid) {
 }
 
 function processData(raw) {
-  const all = [];
+  const all = [], bd = {};
   raw.forEach(row => {
     const [ds, sR, pR] = row;
     const pts = ds.split('-');
     const yr = +pts[0], mo = +pts[1] - 1, dy = +pts[2];
-    all.push({ date: ds, year: yr, month: mo, day: dy, snow: parseVal(sR), pcpn: parseVal(pR) });
+    const rec = { date: ds, year: yr, month: mo, day: dy, snow: parseVal(sR), pcpn: parseVal(pR) };
+    all.push(rec); bd[ds] = rec;
   });
-  return { parsed: all };
+  return { parsed: all, byDate: bd };
 }
-function applyCache(sid) { parsed = dataCache[sid].parsed; }
+function applyCache(sid) { parsed = dataCache[sid].parsed; byDateCur = dataCache[sid].byDate || {}; winterOK = {}; }
 
 // ─── AGGREGATION: per-winter day counts ──────────────────────
 function buildWinterDayCounts() {
@@ -572,8 +597,8 @@ function renderPrecipDaysChart(wys, byWY) {
   const rainData = wys.map(wy => byWY[wy].rainDays);
 
   const datasets = [
-    { type: 'bar', label: 'Snow Days', data: snowData, backgroundColor: SNOW_COLOR, order: 2, yAxisID: 'y' },
-    { type: 'bar', label: 'Rain Days', data: rainData, backgroundColor: RAIN_COLOR, order: 2, yAxisID: 'y' },
+    { type: 'bar', label: 'Snow Days', data: snowData, backgroundColor: wys.map(wy => isIncompleteRecord(wy) ? dimHex(SNOW_COLOR) : SNOW_COLOR), order: 2, yAxisID: 'y' },
+    { type: 'bar', label: 'Rain Days', data: rainData, backgroundColor: wys.map(wy => isIncompleteRecord(wy) ? dimHex(RAIN_COLOR) : RAIN_COLOR), order: 2, yAxisID: 'y' },
   ];
 
   if (trendMode1 !== 'off') {
@@ -601,7 +626,7 @@ function renderPrecipDaysChart(wys, byWY) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index', intersect: false, callbacks: { afterTitle: it => (it.length && isIncompleteRecord(wys[it[0].dataIndex])) ? 'Incomplete record' : '' } }
       },
       scales: {
         x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
@@ -618,7 +643,7 @@ function renderSnowfallChart(wys, byWY) {
   const snowfall = wys.map(wy => byWY[wy].totalSnow);
 
   const datasets = [
-    { type: 'bar', label: 'Total Snowfall', data: snowfall, backgroundColor: SNOW_COLOR, order: 2 },
+    { type: 'bar', label: 'Total Snowfall', data: snowfall, backgroundColor: wys.map(wy => isIncompleteRecord(wy) ? dimHex(SNOW_COLOR) : SNOW_COLOR), order: 2 },
   ];
   if (trendMode2 !== 'off') {
     const trend = buildTrendSeries(wys, wy => byWY[wy].totalSnow, trendMode2);
@@ -639,7 +664,7 @@ function renderSnowfallChart(wys, byWY) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index', intersect: false, callbacks: { afterTitle: it => (it.length && isIncompleteRecord(wys[it[0].dataIndex])) ? 'Incomplete record' : '' } }
       },
       scales: {
         x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },

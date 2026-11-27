@@ -168,7 +168,7 @@ footer a:hover { color:var(--color-text-primary); }
     <div class="cc-stat-chip">
       <div class="cc-stat-label">Avg Season</div>
       <div class="cc-stat-value" id="chipAvg">—</div>
-      <div class="cc-stat-note">inches · all seasons</div>
+      <div class="cc-stat-note">inches · complete seasons</div>
     </div>
     <div class="cc-stat-chip">
       <div class="cc-stat-label">Snowiest Season</div>
@@ -399,7 +399,7 @@ footer a:hover { color:var(--color-text-primary); }
 
     <div class="cc-panel">
       <p class="methodology">
-        <b>Methodology:</b> Snow season = Nov 1–Apr 30. "Measurable" excludes trace amounts. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-season window ending at each complete season. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>.
+        <b>Methodology:</b> Snow season = Nov 1–Apr 30. "Measurable" excludes trace amounts. Seasons missing more than 15% of days, or with a gap of more than 5 days, are shown as incomplete and left out of averages, records and trends. Storm grouping merges consecutive calendar days of measurable snow into one event. Trailing-average trend lines use a fixed N-season window ending at each complete season. Source: <a href="https://threadex.rcc-acis.org" target="_blank" style="color:inherit;">NOAA ACIS ThreadEx</a>.
       </p>
     </div>
 
@@ -634,13 +634,33 @@ function snowDayIdx(month, day) {
 }
 function SYL(sy) { return `${String(sy).slice(2)}–${String(sy + 1).slice(2)}`; }
 function curSY() { const n = new Date(); return getSnowSY(n.getFullYear(), n.getMonth()); }
-// A season is complete once we're in May or later of its end year (i.e. past Apr 30)
-function isSeasonComplete(sy) {
+// A season has ended once we're in May or later of its end year (i.e. past Apr 30)
+function isSeasonEnded(sy) {
   const n = new Date();
   const endYear = sy + 1;
   return n.getFullYear() > endYear ||
     (n.getFullYear() === endYear && n.getMonth() >= 4);
 }
+// Site-wide completeness rule: a window counts when no more than 15% of its days
+// are missing and no run of missing days is longer than 5.
+function windowComplete(y0, m0, d0, y1, m1, d1, isMissing) {
+  let n = 0, miss = 0, run = 0, gap = 0;
+  for (let t = Date.UTC(y0, m0, d0), end = Date.UTC(y1, m1, d1); t <= end; t += 86400000) {
+    n++;
+    if (isMissing(new Date(t).toISOString().slice(0, 10))) { miss++; run++; if (run > gap) gap = run; } else run = 0;
+  }
+  return n > 0 && miss <= 0.15 * n && gap <= 5;
+}
+let seasonOK = {};   // sy -> bool, reset per station in applyCache
+function seasonDataComplete(sy) {
+  if (!(sy in seasonOK)) seasonOK[sy] = windowComplete(sy, 10, 1, sy + 1, 3, 30, ds => { const r = byDate[ds]; return !r || r.snow.missing; });
+  return seasonOK[sy];
+}
+// Counts toward averages, records, ranks and trends: ended, with a complete record
+function isSeasonComplete(sy) { return isSeasonEnded(sy) && seasonDataComplete(sy); }
+// Ended but too much of the record is missing: still drawn, marked incomplete
+function isIncompleteRecord(sy) { return isSeasonEnded(sy) && !seasonDataComplete(sy); }
+const dimHex = c => (typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)) ? c + '40' : c;
 
 // ─── FETCH ───────────────────────────────────────────────────
 async function tryFetch(sid) {
@@ -701,6 +721,7 @@ function applyCache(sid) {
   const c = dataCache[sid];
   parsed = c.parsed;
   byDate = c.byDate;
+  seasonOK = {};
 }
 
 // ─── SEASON DATA BUILDER ─────────────────────────────────────
@@ -801,7 +822,7 @@ function buildSeasonSelect(allSYs, seasonData, activeSy) {
     seasons.forEach(sy => {
       const opt = document.createElement('option');
       opt.value = sy;
-      opt.textContent = SYL(sy);
+      opt.textContent = isIncompleteRecord(sy) ? `${SYL(sy)} · incomplete` : SYL(sy);
       sel.appendChild(opt);
     });
   }
@@ -847,6 +868,7 @@ function buildDatasets(allSYs, seasonData, avgArr, highlightSy) {
       data: seasonData[sy],
       borderColor: color,
       borderWidth: width,
+      borderDash: isIncompleteRecord(sy) ? [2, 3] : undefined,
       pointRadius: 0, tension: 0,
       order
     });
@@ -1505,7 +1527,7 @@ function renderSnowDaysChart(sys, bySY) {
   const snowData = sys.map(sy => bySY[sy].snowDays);
 
   const datasets = [
-    { type: 'bar', label: 'Snow Days', data: snowData, backgroundColor: SNOW_COLOR_D, order: 2 },
+    { type: 'bar', label: 'Snow Days', data: snowData, backgroundColor: sys.map(sy => isIncompleteRecord(sy) ? dimHex(SNOW_COLOR_D) : SNOW_COLOR_D), order: 2 },
   ];
   if (detailTrend1 !== 'off') {
     const trend = buildTrendSeriesD(sys, sy => bySY[sy].snowDays, detailTrend1);
@@ -1526,7 +1548,7 @@ function renderSnowDaysChart(sys, bySY) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index', intersect: false, callbacks: { afterTitle: it => (it.length && isIncompleteRecord(sys[it[0].dataIndex])) ? 'Incomplete record' : '' } }
       },
       scales: {
         x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
@@ -1542,7 +1564,7 @@ function renderSeasonSnowfallChart(sys, bySY) {
   const snowfall = sys.map(sy => bySY[sy].totalSnow);
 
   const datasets = [
-    { type: 'bar', label: 'Total Snowfall', data: snowfall, backgroundColor: SNOW_COLOR_D, order: 2 },
+    { type: 'bar', label: 'Total Snowfall', data: snowfall, backgroundColor: sys.map(sy => isIncompleteRecord(sy) ? dimHex(SNOW_COLOR_D) : SNOW_COLOR_D), order: 2 },
   ];
   if (detailTrend2 !== 'off') {
     const trend = buildTrendSeriesD(sys, sy => bySY[sy].totalSnow, detailTrend2);
@@ -1563,7 +1585,7 @@ function renderSeasonSnowfallChart(sys, bySY) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index', intersect: false, callbacks: { afterTitle: it => (it.length && isIncompleteRecord(sys[it[0].dataIndex])) ? 'Incomplete record' : '' } }
       },
       scales: {
         x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
@@ -1582,7 +1604,7 @@ function renderSnowIntensityChart(sys, bySY) {
   });
 
   const datasets = [
-    { type: 'bar', label: 'Snow / Snow Day', data: intensity, backgroundColor: SNOW_INTENSITY_COLOR, order: 2 },
+    { type: 'bar', label: 'Snow / Snow Day', data: intensity, backgroundColor: sys.map(sy => isIncompleteRecord(sy) ? dimHex(SNOW_INTENSITY_COLOR) : SNOW_INTENSITY_COLOR), order: 2 },
   ];
   if (detailTrend5 !== 'off') {
     const trend = buildTrendSeriesD(sys, sy => {
@@ -1606,7 +1628,7 @@ function renderSnowIntensityChart(sys, bySY) {
       responsive: true, maintainAspectRatio: false, animation: { duration: 0 },
       plugins: {
         legend: { display: true, labels: { color: '#A6A499', boxWidth: 14, font: { family: "'Courier Prime', monospace", size: 12 } } },
-        tooltip: { mode: 'index', intersect: false }
+        tooltip: { mode: 'index', intersect: false, callbacks: { afterTitle: it => (it.length && isIncompleteRecord(sys[it[0].dataIndex])) ? 'Incomplete record' : '' } }
       },
       scales: {
         x: { ...so({ maxTicksLimit: 16, autoSkip: true }), grid: { display: false } },
