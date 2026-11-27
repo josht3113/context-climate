@@ -1733,13 +1733,6 @@ function quake(c, x, y, a, r){ if (a <= 0) return; c.save(); c.globalAlpha = a; 
 var RAYS = null, STA = [];
 function buildRays(){
   RAYS = { P:[], S:[] };
-  ['P', 'S'].forEach(function(k){
-    for (var a = 0.4; a <= 54; a += 0.7){
-      var r = EC.traceRay(k, a), minR = 1e9;
-      r.pts.forEach(function(q){ if (q[0] < minR) minR = q[0]; });
-      r.core = minR < 3480; r.inner = minR < 1221.5; RAYS[k].push(r);
-    }
-  });
   var mp = 0, ms = 0, mk = 999;
   for (var a2 = 14; a2 <= 26; a2 += 0.02){
     var rp = EC.traceRay('P', a2), rs = EC.traceRay('S', a2), minP = Math.min.apply(null, rp.pts.map(function(q){ return q[0]; }));
@@ -1751,9 +1744,22 @@ function buildRays(){
     if (mn < 3480 && mn >= 1221.5 && rk.dist < mk) mk = rk.dist;
   }
   RAYS.pShadow = [mp, mk]; RAYS.sShadow = ms;
+  /* P rays that only skim the inner core land inside the P shadow zone (weak in
+     reality, and absent from the reference-table model), so they are left out of
+     the drawing and of the station arrivals. Shallow take-offs (to 86°) reach the
+     10° stations. */
+  function inPShadow(r){ return r.end === 'surface' && r.dist > mp && r.dist < mk; }
+  ['P', 'S'].forEach(function(k){
+    for (var a = 0.4; a <= 86; a += (a < 54 ? 0.7 : 2)){
+      var r = EC.traceRay(k, a), minR = 1e9;
+      if (k === 'P' && inPShadow(r)) continue;
+      r.pts.forEach(function(q){ if (q[0] < minR) minR = q[0]; });
+      r.core = minR < 3480; r.inner = minR < 1221.5; RAYS[k].push(r);
+    }
+  });
   /* stations every 10°: earliest arrival from a fine sweep */
   var fine = { P:[], S:[] };
-  ['P', 'S'].forEach(function(k){ for (var a = 0.2; a <= 60; a += 0.15){ var r = EC.traceRay(k, a); if (r.end === 'surface') fine[k].push([r.dist, r.t]); } });
+  ['P', 'S'].forEach(function(k){ for (var a = 0.2; a <= 88; a += 0.15){ var r = EC.traceRay(k, a); if (r.end === 'surface' && !(k === 'P' && inPShadow(r))) fine[k].push([r.dist, r.t]); } });
   STA = [];
   for (var d = 10; d <= 180; d += 10){
     var tp = Infinity, ts = Infinity;
@@ -1762,7 +1768,7 @@ function buildRays(){
     STA.push({ d:d, tP:tp, tS:ts });
   }
 }
-var SEIS_T = 1500;
+var SEIS_T = 1560;            // 26 min: the last S arrival (≈ 25.4 min, near the shadow edge) is in
 function drawSeismic(c, v){
   if (!RAYS) buildRays();
   var cx = 300, cy = 290, R = 240, sc = R / EC.A, t = v * SEIS_T;
@@ -2428,7 +2434,7 @@ var ANIMS = {
   seismic:{ n:'Seismic waves', short:'Seismic', hs:'OCORE', link:[LINK.seismic, 'Seismic Wave Explorer'], draw:drawSeismic, read:readSeismic,
     t:'P-waves (right half) and S-waves (left half) spread from one earthquake. Stations around the surface show which waves arrive.',
     src:'Rays traced through PREM (Dziewonski & Anderson 1981); shadow-zone edges computed from the same rays',
-    snaps:[{ v:0, b:'0 min', i:'earthquake' }, { v:240 / 1500, b:'4 min', i:'mantle' }, { v:540 / 1500, b:'9 min', i:'reach the core' }, { v:840 / 1500, b:'14 min', i:'S-waves stop' }, { v:1, b:'25 min', i:'shadow zones' }] },
+    snaps:[{ v:0, b:'0 min', i:'earthquake' }, { v:240 / SEIS_T, b:'4 min', i:'mantle' }, { v:540 / SEIS_T, b:'9 min', i:'reach the core' }, { v:840 / SEIS_T, b:'14 min', i:'S-waves stop' }, { v:1, b:'26 min', i:'shadow zones' }] },
   phase:{ n:'400 & 670 km', short:'400 & 670', hs:'B400', draw:drawPhase, read:readPhase,
     t:'The same 49 atoms, followed from 300 km down into the lower mantle.',
     src:'Density: PREM · mineral names: standard mantle mineralogy · lattice schematic',
